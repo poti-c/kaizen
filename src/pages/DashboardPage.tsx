@@ -203,26 +203,17 @@ export function DashboardPage() {
     other:           '#6b7280',
   }
 
-  const CATEGORY_LABELS_DISPLAY: Record<string, string> = {
-    maintenance:     'Maintenance',
-    cleanliness:     'Cleanliness',
-    safety:          'Safety',
-    guest_complaint: 'Guest Complaint',
-    equipment:       'Equipment',
-    other:           'Other',
-  }
-
   const pieData = [
-    { name: t.dashboard.open,                                     value: stats.open,       color: PIE_COLORS.open,       group: 'open' },
-    { name: t.dashboard.inProgress,                               value: stats.inProgress, color: PIE_COLORS.inProgress, group: 'in_progress' },
-    { name: lang === 'th' ? 'รอการอนุมัติ' : 'Waiting Approval', value: stats.pending,    color: PIE_COLORS.pending,    group: 'pending' },
-    { name: t.dashboard.resolved,                                 value: stats.closed,     color: PIE_COLORS.resolved,   group: 'resolved' },
-    { name: lang === 'th' ? 'เปิดใหม่อีกครั้ง' : 'Reopened',    value: stats.reopened,   color: PIE_COLORS.reopened,   group: 'reopened' },
+    { name: t.dashboard.open,                value: stats.open,       color: PIE_COLORS.open,       group: 'open' },
+    { name: t.dashboard.inProgress,          value: stats.inProgress, color: PIE_COLORS.inProgress, group: 'in_progress' },
+    { name: t.dashboard.waitingApproval,     value: stats.pending,    color: PIE_COLORS.pending,    group: 'pending' },
+    { name: t.dashboard.resolved,            value: stats.closed,     color: PIE_COLORS.resolved,   group: 'resolved' },
+    { name: t.status.reopened,               value: stats.reopened,   color: PIE_COLORS.reopened,   group: 'reopened' },
   ].filter(d => d.value > 0)
 
   // Category pie — use all 6 categories, show 0-count ones dimmed
   const catPieData = CATEGORIES.map(cat => ({
-    name:     CATEGORY_LABELS_DISPLAY[cat] || cat,
+    name:     t.categories[cat as keyof typeof t.categories] || cat,
     value:    categoryData.find(d => d.cat === cat)?.count ?? 0,
     color:    CATEGORY_PIE_COLORS[cat] || '#9ca3af',
     category: cat,
@@ -265,13 +256,13 @@ export function DashboardPage() {
 
         {/* ── Case Overview ── */}
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
-          <h2 className="font-semibold text-gray-900 mb-4">{lang === 'th' ? 'ภาพรวมเคส' : 'Case Overview'}</h2>
+          <h2 className="font-semibold text-gray-900 mb-4">{t.dashboard.caseOverview}</h2>
           <div className="flex flex-col sm:flex-row items-start gap-4">
             {/* Donut */}
             <div className="relative flex-shrink-0" style={{ width: 160, height: 160 }}>
               {emptyPie ? (
                 <div className="w-full h-full rounded-full border-[16px] border-gray-100 flex items-center justify-center">
-                  <span className="text-gray-400 text-xs text-center">{lang === 'th' ? 'ไม่มีข้อมูล' : 'No data'}</span>
+                  <span className="text-gray-400 text-xs text-center">{t.dashboard.noData}</span>
                 </div>
               ) : (
                 <>
@@ -280,12 +271,12 @@ export function DashboardPage() {
                       <Pie data={pieData} cx="50%" cy="50%" innerRadius={50} outerRadius={72} paddingAngle={pieData.length > 1 ? 3 : 0} dataKey="value" startAngle={90} endAngle={-270}>
                         {pieData.map((entry, i) => <Cell key={i} fill={entry.color} stroke="none" />)}
                       </Pie>
-                      <Tooltip formatter={(v: number) => [v, lang === 'th' ? 'เคส' : 'Cases']} />
+                      <Tooltip formatter={(v: number) => [v, t.dashboard.casesShort]} />
                     </PieChart>
                   </ResponsiveContainer>
                   <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
                     <span className="text-2xl font-bold text-gray-900 leading-none">{stats.total}</span>
-                    <span className="text-xs text-gray-500 mt-1">{lang === 'th' ? 'ทั้งหมด' : 'Total'}</span>
+                    <span className="text-xs text-gray-500 mt-1">{t.dashboard.totalShort}</span>
                   </div>
                 </>
               )}
@@ -296,9 +287,9 @@ export function DashboardPage() {
                 { label: t.dashboard.totalCases,                              count: stats.total,      color: '#9ca3af', to: '/cases',               hover: 'hover:bg-gray-50' },
                 { label: t.dashboard.open,                                    count: stats.open,       color: PIE_COLORS.open,       to: '/cases?status=open',       hover: 'hover:bg-orange-50' },
                 { label: t.dashboard.inProgress,                              count: stats.inProgress, color: PIE_COLORS.inProgress, to: '/cases?group=in_progress', hover: 'hover:bg-blue-50' },
-                { label: lang === 'th' ? 'รอการอนุมัติ' : 'Waiting Approval', count: stats.pending,    color: PIE_COLORS.pending,    to: '/cases?group=pending',     hover: 'hover:bg-amber-50' },
+                { label: t.dashboard.waitingApproval,                         count: stats.pending,    color: PIE_COLORS.pending,    to: '/cases?group=pending',     hover: 'hover:bg-amber-50' },
                 { label: t.dashboard.resolved,                                count: stats.closed,     color: PIE_COLORS.resolved,   to: '/cases?group=resolved',    hover: 'hover:bg-green-50' },
-                { label: lang === 'th' ? 'เปิดใหม่อีกครั้ง' : 'Reopened',   count: stats.reopened,   color: PIE_COLORS.reopened,   to: '/cases?status=reopened',   hover: 'hover:bg-red-50' },
+                { label: t.status.reopened,                                   count: stats.reopened,   color: PIE_COLORS.reopened,   to: '/cases?status=reopened',   hover: 'hover:bg-red-50' },
               ].map(({ label, count, color, to, hover }) => (
                 <Link key={to} to={to} className={`flex items-center justify-between px-3 py-2 rounded-lg ${hover} transition-colors group`}>
                   <div className="flex items-center gap-2.5">
@@ -317,13 +308,13 @@ export function DashboardPage() {
 
         {/* ── Case by Category ── */}
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
-          <h2 className="font-semibold text-gray-900 mb-4">{lang === 'th' ? 'หมวดหมู่เคส' : 'Case by Category'}</h2>
+          <h2 className="font-semibold text-gray-900 mb-4">{t.dashboard.casesByCategory}</h2>
           <div className="flex flex-col sm:flex-row items-start gap-4">
             {/* Donut (left) */}
             <div className="relative flex-shrink-0" style={{ width: 160, height: 160 }}>
               {catTotal === 0 ? (
                 <div className="w-full h-full rounded-full border-[16px] border-gray-100 flex items-center justify-center">
-                  <span className="text-gray-400 text-xs text-center">{lang === 'th' ? 'ไม่มีข้อมูล' : 'No data'}</span>
+                  <span className="text-gray-400 text-xs text-center">{t.dashboard.noData}</span>
                 </div>
               ) : (
                 <>
@@ -337,7 +328,7 @@ export function DashboardPage() {
                   </ResponsiveContainer>
                   <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
                     <span className="text-2xl font-bold text-gray-900 leading-none">{catTotal}</span>
-                    <span className="text-xs text-gray-500 mt-1">{lang === 'th' ? 'เคส' : 'Cases'}</span>
+                    <span className="text-xs text-gray-500 mt-1">{t.dashboard.casesShort}</span>
                   </div>
                 </>
               )}
@@ -467,7 +458,7 @@ export function DashboardPage() {
         {/* Monthly Cases Trend */}
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
           <div className="px-5 py-4 border-b border-gray-100">
-            <h2 className="font-semibold text-gray-900">{lang === 'th' ? 'เคสรายเดือน' : 'Monthly Cases'}</h2>
+            <h2 className="font-semibold text-gray-900">{t.dashboard.monthlyCases}</h2>
           </div>
           <div className="p-4 pt-5">
             <ResponsiveContainer width="100%" height={180}>
@@ -476,7 +467,7 @@ export function DashboardPage() {
                 <YAxis allowDecimals={false} tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
                 <Tooltip
                   cursor={{ fill: 'rgba(0,0,0,0.04)' }}
-                  formatter={(v: number) => [v, lang === 'th' ? 'เคส' : 'Cases']}
+                  formatter={(v: number) => [v, t.dashboard.casesShort]}
                 />
                 <Bar dataKey="count" radius={[4, 4, 0, 0]} maxBarSize={48}>
                   {monthlyData.map((entry, i) => {
@@ -564,7 +555,7 @@ export function DashboardPage() {
                     <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">{t.dashboard.openCases}</th>
                     <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">{t.dashboard.avgDays}</th>
                     <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">{t.dashboard.overdue}</th>
-                    <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">{lang === 'th' ? 'อัตราการแก้ไข' : 'Resolution Rate'}</th>
+                    <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">{t.dashboard.resolutionRate}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">

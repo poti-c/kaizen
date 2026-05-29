@@ -1,19 +1,22 @@
 import { cn, getStatusColor, getPriorityColor, getDepartmentColor } from '@/lib/utils'
-import { STATUS_LABELS, PRIORITY_LABELS, DEPARTMENT_LABELS } from '@/types'
+import { DEPARTMENT_LABELS } from '@/types'
+import { useLanguage } from '@/contexts/LanguageContext'
 import type { CaseStatus, CasePriority, Department } from '@/types'
 
 export function StatusBadge({ status }: { status: CaseStatus }) {
+  const { t } = useLanguage()
   return (
     <span className={cn('inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium', getStatusColor(status))}>
-      {STATUS_LABELS[status]}
+      {t.status[status]}
     </span>
   )
 }
 
 export function PriorityBadge({ priority }: { priority: CasePriority }) {
+  const { t } = useLanguage()
   return (
     <span className={cn('inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium', getPriorityColor(priority))}>
-      {PRIORITY_LABELS[priority]}
+      {t.priority[priority]}
     </span>
   )
 }

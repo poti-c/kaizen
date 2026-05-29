@@ -22,7 +22,9 @@ const en = {
   dashboard: {
     title: 'Dashboard', welcome: 'Welcome back',
     totalCases: 'Total Cases', open: 'Open', inProgress: 'In Progress',
-    resolved: 'Resolved',
+    resolved: 'Resolved', waitingApproval: 'Waiting Approval',
+    caseOverview: 'Case Overview', casesShort: 'Cases', totalShort: 'Total',
+    monthlyCases: 'Monthly Cases',
     criticalBanner: (n: number) => `${n} critical ${n === 1 ? 'case requires' : 'cases require'} immediate attention.`,
     slaBanner: (n: number) => `${n} case${n === 1 ? '' : 's'} overdue.`,
     view: 'View', recentCases: 'Recent Cases', viewAll: 'View all',
@@ -168,6 +170,11 @@ const en = {
   },
   calendar: {
     allDepts: 'All Departments', filterByDept: 'Filter by department',
+    today: 'Today', more: 'more', priorityLabel: 'Priority:',
+    casesCalendar: 'Cases Calendar',
+  },
+  roles: {
+    super_admin: 'Super Admin', manager: 'Manager', staff: 'Staff',
   },
   common: {
     loading: 'Loading...', back: 'Back',
@@ -199,7 +206,9 @@ const th: Translations = {
   dashboard: {
     title: 'แดชบอร์ด', welcome: 'ยินดีต้อนรับกลับ',
     totalCases: 'เคสทั้งหมด', open: 'เปิดอยู่', inProgress: 'กำลังดำเนินการ',
-    resolved: 'แก้ไขแล้ว',
+    resolved: 'แก้ไขแล้ว', waitingApproval: 'รอการอนุมัติ',
+    caseOverview: 'ภาพรวมเคส', casesShort: 'เคส', totalShort: 'ทั้งหมด',
+    monthlyCases: 'เคสรายเดือน',
     criticalBanner: (n: number) => `มี ${n} เคสวิกฤตที่ต้องการการแก้ไขด่วน`,
     slaBanner: (n: number) => `${n} เคสเกินกำหนด`,
     view: 'ดู', recentCases: 'เคสล่าสุด', viewAll: 'ดูทั้งหมด',
@@ -345,6 +354,11 @@ const th: Translations = {
   },
   calendar: {
     allDepts: 'ทุกแผนก', filterByDept: 'กรองตามแผนก',
+    today: 'วันนี้', more: 'เพิ่มเติม', priorityLabel: 'ระดับ:',
+    casesCalendar: 'ปฏิทินเคส',
+  },
+  roles: {
+    super_admin: 'ผู้ดูแลระบบ', manager: 'ผู้จัดการ', staff: 'พนักงาน',
   },
   common: {
     loading: 'กำลังโหลด...', back: 'กลับ',

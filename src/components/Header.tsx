@@ -203,7 +203,7 @@ export function Header() {
             </Avatar>
             <div className="hidden sm:block">
               <p className="text-sm font-medium text-gray-900 leading-tight">{profile.full_name}</p>
-              <p className="text-xs text-gray-500 capitalize leading-tight">{profile.role.replace('_', ' ')}</p>
+              <p className="text-xs text-gray-500 leading-tight">{t.roles[profile.role]}</p>
             </div>
           </Link>
         )}

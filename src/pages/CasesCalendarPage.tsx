@@ -134,11 +134,11 @@ export function CasesCalendarPage() {
   }
 
   const legend = [
-    { label: lang === 'th' ? 'ต่ำ' : 'Low',      color: 'bg-green-500' },
-    { label: lang === 'th' ? 'ปานกลาง' : 'Medium', color: 'bg-blue-400' },
-    { label: lang === 'th' ? 'สูง' : 'High',      color: 'bg-orange-500' },
-    { label: lang === 'th' ? 'วิกฤต' : 'Critical', color: 'bg-red-500' },
-    { label: lang === 'th' ? 'ปิดแล้ว' : 'Closed', color: 'bg-gray-200 border border-gray-300' },
+    { label: t.priority.low,      color: 'bg-green-500' },
+    { label: t.priority.medium,   color: 'bg-blue-400' },
+    { label: t.priority.high,     color: 'bg-orange-500' },
+    { label: t.priority.critical, color: 'bg-red-500' },
+    { label: t.status.closed,     color: 'bg-gray-200 border border-gray-300' },
   ]
 
   const showDeptFilter = profile?.role === 'super_admin' || profile?.role === 'manager'
@@ -149,7 +149,7 @@ export function CasesCalendarPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
         <h1 className="text-xl md:text-2xl font-bold text-gray-900">
-          {lang === 'th' ? 'ปฏิทินเคส' : 'Cases Calendar'}
+          {t.calendar.casesCalendar}
         </h1>
         <div className="flex items-center gap-2 flex-wrap">
           {/* Department filter — only for admin/manager */}
@@ -185,7 +185,7 @@ export function CasesCalendarPage() {
             onClick={goToday}
             className="ml-1 px-3 py-1.5 text-sm font-medium border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
           >
-            {lang === 'th' ? 'วันนี้' : 'Today'}
+            {t.calendar.today}
           </button>
         </div>
       </div>
@@ -256,7 +256,7 @@ export function CasesCalendarPage() {
                     ))}
                     {cellCases.length > 3 && (
                       <p className="text-[10px] text-gray-400 pl-1 leading-4">
-                        +{cellCases.length - 3} {lang === 'th' ? 'เพิ่มเติม' : 'more'}
+                        +{cellCases.length - 3} {t.calendar.more}
                       </p>
                     )}
                   </div>
@@ -299,7 +299,7 @@ export function CasesCalendarPage() {
       {/* Legend */}
       <div className="flex items-center gap-4 mt-3 flex-wrap">
         <span className="text-xs text-gray-400 font-medium">
-          {lang === 'th' ? 'ระดับ:' : 'Priority:'}
+          {t.calendar.priorityLabel}
         </span>
         {legend.map(({ label, color }) => (
           <div key={label} className="flex items-center gap-1.5">
