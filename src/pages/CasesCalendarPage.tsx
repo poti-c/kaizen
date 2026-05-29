@@ -39,7 +39,9 @@ export function CasesCalendarPage() {
   const [loading, setLoading] = useState(true)
   const [selectedDate, setSelectedDate] = useState<Date | null>(null)
   const [selectedCases, setSelectedCases] = useState<KaizenCase[]>([])
-  const [deptFilter, setDeptFilter] = useState<Department | 'all'>('all')
+  const [deptFilter, setDeptFilter] = useState<Department | 'all'>(
+    () => (localStorage.getItem('kaizen-default-dept') as Department | 'all') || 'all'
+  )
 
   const MONTH_NAMES = lang === 'th' ? MONTH_NAMES_TH : MONTH_NAMES_EN
   const DAY_LABELS = lang === 'th' ? DAY_LABELS_TH : DAY_LABELS_EN

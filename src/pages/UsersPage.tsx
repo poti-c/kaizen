@@ -15,7 +15,7 @@ import { cn } from '@/lib/utils'
 import { DEPARTMENTS } from '@/types'
 import type { KaizenProfile, Role, Department } from '@/types'
 import { toast } from 'sonner'
-import { Navigate } from 'react-router-dom'
+import { Navigate, Link } from 'react-router-dom'
 
 export function UsersPage() {
   const { profile } = useAuth()
@@ -203,15 +203,14 @@ export function UsersPage() {
 
   const [deptFilter, setDeptFilter] = useState<Department | 'all'>('all')
 
-  // Per-section department filter (Managers / Staff each filter independently)
-  const [sectionDeptFilter, setSectionDeptFilter] = useState<Record<Role, Department | 'all'>>({
-    super_admin: 'all', manager: 'all', staff: 'all',
-  })
 
   // Departments that actually have users (for the filter pills)
   const activeDepts = DEPARTMENTS.filter(d => users.some(u => u.department === d.value))
 
-  const visibleUsers = deptFilter === 'all' ? users : users.filter(u => u.department === deptFilter)
+  // Managing Director account is hidden from everyone except themselves
+  const MD_EMAIL = 'poti@nanirand.com'
+  const visibleUsers = (deptFilter === 'all' ? users : users.filter(u => u.department === deptFilter))
+    .filter(u => u.email !== MD_EMAIL || profile?.email === MD_EMAIL)
 
   const roleGroups = {
     super_admin: visibleUsers.filter((u) => u.role === 'super_admin'),
@@ -237,37 +236,23 @@ export function UsersPage() {
         )}
       </div>
 
-      {/* Department filter pills */}
+      {/* Department filter dropdown */}
       {!loading && profile?.role === 'super_admin' && (
-        <div className="flex flex-wrap gap-2 mb-5">
-          <button
-            onClick={() => setDeptFilter('all')}
-            className={cn(
-              'px-3 py-1.5 rounded-full text-xs font-medium border transition-all',
-              deptFilter === 'all'
-                ? 'bg-gray-900 text-white border-gray-900'
-                : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400'
-            )}
-          >
-            All ({users.length})
-          </button>
-          {activeDepts.map(d => {
-            const count = users.filter(u => u.department === d.value).length
-            return (
-              <button
-                key={d.value}
-                onClick={() => setDeptFilter(d.value)}
-                className={cn(
-                  'px-3 py-1.5 rounded-full text-xs font-medium border transition-all',
-                  deptFilter === d.value
-                    ? 'bg-[var(--brand-primary)] text-white border-[var(--brand-primary)]'
-                    : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400'
-                )}
-              >
-                {d.label} ({count})
-              </button>
-            )
-          })}
+        <div className="mb-5">
+          <Select value={deptFilter} onValueChange={(v) => setDeptFilter(v as Department | 'all')}>
+            <SelectTrigger className="h-9 w-full text-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">{t.calendar.allDepts} ({users.length})</SelectItem>
+              {activeDepts.map(d => {
+                const count = users.filter(u => u.department === d.value).length
+                return (
+                  <SelectItem key={d.value} value={d.value}>{d.label} ({count})</SelectItem>
+                )
+              })}
+            </SelectContent>
+          </Select>
         </div>
       )}
 
@@ -282,52 +267,66 @@ export function UsersPage() {
             if (group.length === 0) return null
             const Icon = roleIcons[role]
 
-            // Per-section department filter (Managers + Staff only)
-            const showSectionFilter = role === 'manager' || role === 'staff'
-            const sectionFilter = sectionDeptFilter[role]
-            const sectionDepts = DEPARTMENTS.filter(d => group.some(u => u.department === d.value))
-            const displayedGroup = showSectionFilter && sectionFilter !== 'all'
-              ? group.filter(u => u.department === sectionFilter)
-              : group
-
             return (
               <div key={role} className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
                 <div className="flex items-center gap-2 px-5 py-4 border-b border-gray-100 bg-gray-50">
                   <Icon className="h-4 w-4 text-gray-500" />
                   <h2 className="font-semibold text-gray-700 text-sm">{roleLabels[role]}</h2>
-                  {showSectionFilter && sectionDepts.length > 1 ? (
-                    <Select value={sectionFilter} onValueChange={(v) => setSectionDeptFilter(prev => ({ ...prev, [role]: v as Department | 'all' }))}>
-                      <SelectTrigger className="ml-auto h-7 w-auto gap-1 border-gray-200 bg-white px-2.5 text-xs text-gray-600">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">{t.calendar.allDepts}</SelectItem>
-                        {sectionDepts.map(d => <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                  ) : null}
-                  <span className={cn('text-xs text-gray-400', !(showSectionFilter && sectionDepts.length > 1) && 'ml-auto')}>{displayedGroup.length}</span>
+                  <span className="ml-auto text-xs text-gray-400">{group.length}</span>
                 </div>
-                {displayedGroup.length === 0 ? (
+                {group.length === 0 ? (
                   <p className="px-5 py-6 text-sm text-gray-400">{t.users.noYet(roleLabels[role])}</p>
                 ) : (
                   <div className="divide-y divide-gray-50">
-                    {displayedGroup.map((user) => (
-                      <div key={user.id} className={cn('flex items-center gap-4 px-5 py-3.5', !user.is_active && 'bg-red-50/30')}>
-                        <Avatar className="h-9 w-9 flex-shrink-0">
-                          <AvatarFallback className="text-xs">{getInitials(user.full_name)}</AvatarFallback>
-                        </Avatar>
-                        <div className="flex-1 min-w-0">
+                    {group.map((user) => {
+                      // Determine if the viewer can tap to open this user's profile
+                      const isHRManager = profile?.role === 'manager' && profile?.department === 'human_resource'
+                      const canViewProfile =
+                        // Super admin: can view manager + staff (not other super admins)
+                        (profile?.role === 'super_admin' && user.role !== 'super_admin') ||
+                        // HR manager: can view all managers + staff
+                        (isHRManager && (user.role === 'manager' || user.role === 'staff')) ||
+                        // Other managers: own profile, or staff in same department
+                        (profile?.role === 'manager' && !isHRManager && (
+                          user.id === profile.id ||
+                          (user.role === 'staff' && user.department === profile.department)
+                        ))
+
+                      const nameContent = (
+                        <div className={cn('flex-1 min-w-0', canViewProfile && 'cursor-pointer')}>
                           <div className="flex items-center gap-2">
-                            <p className="text-sm font-medium text-gray-900 truncate">{user.full_name}</p>
+                            <p className={cn('text-sm font-medium truncate', canViewProfile ? 'text-[var(--brand-primary)]' : 'text-gray-900')}>
+                              {user.full_name}
+                            </p>
                             {!user.is_active && <span className="text-xs text-red-500 font-medium">{t.users.inactive}</span>}
                           </div>
-                          <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                            {user.username && <span className="text-xs text-gray-400">@{user.username}</span>}
-                            {user.email && <span className="text-xs text-gray-400">{user.email}</span>}
+                          <div className="mt-0.5 space-y-0.5">
+                            <div className="flex items-center gap-2">
+                              {user.username && <span className="text-xs text-gray-400">@{user.username}</span>}
+                              {user.email && <span className="text-xs text-gray-400">{user.email}</span>}
+                            </div>
                             <DepartmentBadge department={user.department} />
                           </div>
                         </div>
+                      )
+
+                      return (
+                      <div key={user.id} className={cn('flex items-center gap-4 px-5 py-3.5', !user.is_active && 'bg-red-50/30')}>
+                        {canViewProfile ? (
+                          <Link to={`/users/${user.id}`} className="flex items-center gap-4 flex-1 min-w-0">
+                            <Avatar className="h-9 w-9 flex-shrink-0">
+                              <AvatarFallback className="text-xs">{getInitials(user.full_name)}</AvatarFallback>
+                            </Avatar>
+                            {nameContent}
+                          </Link>
+                        ) : (
+                          <>
+                            <Avatar className="h-9 w-9 flex-shrink-0">
+                              <AvatarFallback className="text-xs">{getInitials(user.full_name)}</AvatarFallback>
+                            </Avatar>
+                            {nameContent}
+                          </>
+                        )}
                         <div className="hidden sm:block text-xs text-gray-400 flex-shrink-0">{formatDate(user.created_at)}</div>
                         {profile?.role === 'super_admin' && user.email !== 'poti@nanirand.com' && user.id !== profile.id && (
                           <div className="flex items-center gap-1">
@@ -362,7 +361,8 @@ export function UsersPage() {
                           </div>
                         )}
                       </div>
-                    ))}
+                      )
+                    })}
                   </div>
                 )}
               </div>

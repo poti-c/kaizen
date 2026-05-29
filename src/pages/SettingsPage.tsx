@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Eye, EyeOff, Loader2, Palette, Lock, Info, Scale, Pencil, Check, X } from 'lucide-react'
+import { Eye, EyeOff, Loader2, Palette, Lock, Info, Scale, Pencil, Check, X, Bell, BellOff, BellRing } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useTheme } from '@/contexts/ThemeContext'
@@ -7,8 +7,9 @@ import { useLanguage } from '@/contexts/LanguageContext'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { DEPARTMENT_LABELS } from '@/types'
+import { DEPARTMENT_LABELS, DEPARTMENTS } from '@/types'
 import { toast } from 'sonner'
+import { usePushNotifications } from '@/hooks/usePushNotifications'
 
 const PRESET_COLORS = [
   { label: 'Teal Pro',     primary: '#0891b2', accent: '#06b6d4', sidebar: '#1c2b3a' },
@@ -21,8 +22,9 @@ const PRESET_COLORS = [
 
 export function SettingsPage() {
   const { profile, refreshProfile } = useAuth()
+  const { status: pushStatus, supported: pushSupported, subscribe, unsubscribe } = usePushNotifications(profile?.id)
   const { settings, updateSettings } = useTheme()
-  const { t } = useLanguage()
+  const { t, lang, setLang } = useLanguage()
 
   // Profile edit state
   const [editingProfile, setEditingProfile] = useState(false)
@@ -64,6 +66,8 @@ export function SettingsPage() {
   const [confirmPassword, setConfirmPassword] = useState('')
   const [showNew, setShowNew] = useState(false)
   const [changingPassword, setChangingPassword] = useState(false)
+
+  const [defaultDept, setDefaultDept] = useState(() => localStorage.getItem('kaizen-default-dept') || 'all')
 
   const [customPrimary, setCustomPrimary] = useState(settings.primary_color)
   const [customAccent, setCustomAccent] = useState(settings.accent_color)
@@ -120,7 +124,6 @@ export function SettingsPage() {
     <div className="p-4 md:p-6 max-w-2xl mx-auto animate-fade-in space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-gray-900">{t.settings.title}</h1>
-        <p className="text-sm text-gray-500 mt-0.5">{t.settings.themeSubtitle}</p>
       </div>
 
       {/* Profile info — editable */}
@@ -248,6 +251,136 @@ export function SettingsPage() {
           </Button>
         </div>
       </div>
+
+      {/* Push Notifications */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+        <div className="flex items-center gap-2 mb-1">
+          <BellRing className="h-4 w-4 text-gray-400" />
+          <h2 className="font-semibold text-gray-900">{lang === 'th' ? 'การแจ้งเตือน' : 'Push Notifications'}</h2>
+        </div>
+        <p className="text-xs text-gray-400 mb-5">
+          {lang === 'th'
+            ? 'รับการแจ้งเตือนบนอุปกรณ์นี้แม้ปิดแอปแล้ว'
+            : 'Receive alerts on this device even when the app is closed.'}
+        </p>
+
+        {/* Toggle row */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            {pushStatus === 'granted'
+              ? <Bell className="h-5 w-5 text-[var(--brand-primary)]" />
+              : <BellOff className="h-5 w-5 text-gray-300" />}
+            <div>
+              <p className="text-sm font-medium text-gray-900">
+                {lang === 'th' ? 'อนุญาต Push Notification' : 'Allow Push Notifications'}
+              </p>
+              {pushStatus === 'denied' && (
+                <p className="text-xs text-red-500 mt-0.5">
+                  {lang === 'th'
+                    ? 'ถูกบล็อก — เปิดในการตั้งค่าเบราว์เซอร์'
+                    : 'Blocked — enable in browser settings first'}
+                </p>
+              )}
+              {!pushSupported && pushStatus !== 'denied' && (
+                <p className="text-xs text-gray-400 mt-0.5">
+                  {lang === 'th'
+                    ? 'เพิ่มแอปไปยังหน้าจอหลักก่อนเปิดใช้งาน'
+                    : 'Add app to home screen to enable'}
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/* Toggle switch */}
+          <button
+            type="button"
+            role="switch"
+            aria-checked={pushStatus === 'granted'}
+            disabled={pushStatus === 'loading' || pushStatus === 'denied' || (!pushSupported && pushStatus !== 'granted')}
+            onClick={async () => {
+              if (pushStatus === 'granted') {
+                await unsubscribe()
+                toast.success(lang === 'th' ? 'ปิดการแจ้งเตือนแล้ว' : 'Push notifications turned off')
+              } else {
+                const ok = await subscribe()
+                if (ok) toast.success(lang === 'th' ? 'เปิดการแจ้งเตือนสำเร็จ!' : 'Push notifications turned on!')
+                else if (pushStatus !== 'denied') toast.error(lang === 'th' ? 'ไม่สามารถเปิดได้' : 'Could not enable — check browser settings.')
+              }
+            }}
+            className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors duration-200 focus:outline-none disabled:opacity-40 disabled:cursor-not-allowed ${
+              pushStatus === 'granted' ? 'bg-[var(--brand-primary)]' : 'bg-gray-200'
+            }`}
+          >
+            <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition-transform duration-200 ${
+              pushStatus === 'granted' ? 'translate-x-6' : 'translate-x-1'
+            }`}>
+              {pushStatus === 'loading' && <Loader2 className="h-3 w-3 animate-spin text-gray-400 m-1" />}
+            </span>
+          </button>
+        </div>
+      </div>
+
+      {/* Language */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+        <div className="flex items-center gap-2 mb-1">
+          <span className="text-base">🌐</span>
+          <h2 className="font-semibold text-gray-900">{lang === 'th' ? 'ภาษา' : 'Language'}</h2>
+        </div>
+        <p className="text-xs text-gray-400 mb-5">
+          {lang === 'th' ? 'เลือกภาษาที่ใช้แสดงผลในแอป' : 'Choose the display language for the app.'}
+        </p>
+        <div className="grid grid-cols-2 gap-3">
+          {([['en', 'English', 'EN'] , ['th', 'ภาษาไทย', 'TH']] as const).map(([code, label, badge]) => (
+            <button
+              key={code}
+              onClick={() => setLang(code)}
+              className={`flex items-center gap-3 p-3 rounded-xl border-2 transition-all ${
+                lang === code
+                  ? 'border-[var(--brand-primary)] bg-[var(--brand-primary)]/5'
+                  : 'border-gray-200 hover:border-gray-300'
+              }`}
+            >
+              <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+                lang === code ? 'bg-[var(--brand-primary)] text-white' : 'bg-gray-100 text-gray-500'
+              }`}>{badge}</span>
+              <span className={`text-sm font-medium ${lang === code ? 'text-[var(--brand-primary)]' : 'text-gray-700'}`}>
+                {label}
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Default Department Filter — Manager / Admin only */}
+      {(profile?.role === 'super_admin' || profile?.role === 'manager') && (
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-base">🏷️</span>
+            <h2 className="font-semibold text-gray-900">
+              {lang === 'th' ? 'ตัวกรองแผนกเริ่มต้น' : 'Default Department Filter'}
+            </h2>
+          </div>
+          <p className="text-xs text-gray-400 mb-5">
+            {lang === 'th'
+              ? 'เลือกแผนกที่จะแสดงโดยอัตโนมัติเมื่อเปิดหน้าเคส'
+              : 'This department will be pre-selected when you open the Cases and Calendar pages.'}
+          </p>
+          <select
+            value={defaultDept}
+            onChange={(e) => {
+              setDefaultDept(e.target.value)
+              localStorage.setItem('kaizen-default-dept', e.target.value)
+              toast.success(lang === 'th' ? 'บันทึกค่าเริ่มต้นแล้ว' : 'Default filter saved.')
+            }}
+            className="w-full h-10 px-3 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)] bg-white text-gray-900"
+          >
+            <option value="all">{lang === 'th' ? 'ทุกแผนก' : 'All Departments'}</option>
+            {DEPARTMENTS.map(d => (
+              <option key={d.value} value={d.value}>{d.label}</option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {/* Theme settings */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">

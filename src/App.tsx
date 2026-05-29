@@ -16,6 +16,7 @@ import { UsersPage } from '@/pages/UsersPage'
 import { NotificationsPage } from '@/pages/NotificationsPage'
 import { SettingsPage } from '@/pages/SettingsPage'
 import { CasesCalendarPage } from '@/pages/CasesCalendarPage'
+import { UserProfilePage } from '@/pages/UserProfilePage'
 
 // Redirects to /cases for staff, /dashboard for managers and admins
 function RoleRedirect() {
@@ -56,6 +57,7 @@ export default function App() {
                     <Route path="cases/new" element={<CreateCasePage />} />
                     <Route path="cases/:id" element={<CaseDetailPage />} />
                     <Route path="users" element={<UsersPage />} />
+                    <Route path="users/:userId" element={<ProtectedRoute roles={['super_admin', 'manager']}><UserProfilePage /></ProtectedRoute>} />
                     <Route path="notifications" element={<NotificationsPage />} />
                     <Route path="settings" element={<SettingsPage />} />
                   </Route>

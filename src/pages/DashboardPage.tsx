@@ -242,7 +242,7 @@ export function DashboardPage() {
           </p>
         </div>
         {(profile?.role === 'staff' || profile?.role === 'manager' || profile?.role === 'super_admin') && (
-          <Link to="/cases/new">
+          <Link to="/cases/new" className="hidden md:block">
             <Button>
               <PlusCircle className="h-4 w-4" />
               {t.dashboard.newCase}
@@ -255,50 +255,50 @@ export function DashboardPage() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
 
         {/* ── Case Overview ── */}
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
-          <h2 className="font-semibold text-gray-900 mb-4">{t.dashboard.caseOverview}</h2>
-          <div className="flex flex-col sm:flex-row items-start gap-4">
-            {/* Donut */}
-            <div className="relative flex-shrink-0" style={{ width: 160, height: 160 }}>
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+          <h2 className="font-semibold text-gray-900 mb-3">{t.dashboard.caseOverview}</h2>
+          <div className="flex flex-row items-center gap-3">
+            {/* Donut — compact 120px */}
+            <div className="relative flex-shrink-0" style={{ width: 120, height: 120 }}>
               {emptyPie ? (
-                <div className="w-full h-full rounded-full border-[16px] border-gray-100 flex items-center justify-center">
-                  <span className="text-gray-400 text-xs text-center">{t.dashboard.noData}</span>
+                <div className="w-full h-full rounded-full border-[12px] border-gray-100 flex items-center justify-center">
+                  <span className="text-gray-400 text-[10px] text-center">{t.dashboard.noData}</span>
                 </div>
               ) : (
                 <>
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
-                      <Pie data={pieData} cx="50%" cy="50%" innerRadius={50} outerRadius={72} paddingAngle={pieData.length > 1 ? 3 : 0} dataKey="value" startAngle={90} endAngle={-270}>
+                      <Pie data={pieData} cx="50%" cy="50%" innerRadius={36} outerRadius={54} paddingAngle={pieData.length > 1 ? 3 : 0} dataKey="value" startAngle={90} endAngle={-270}>
                         {pieData.map((entry, i) => <Cell key={i} fill={entry.color} stroke="none" />)}
                       </Pie>
                       <Tooltip formatter={(v: number) => [v, t.dashboard.casesShort]} />
                     </PieChart>
                   </ResponsiveContainer>
                   <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                    <span className="text-2xl font-bold text-gray-900 leading-none">{stats.total}</span>
-                    <span className="text-xs text-gray-500 mt-1">{t.dashboard.totalShort}</span>
+                    <span className="text-xl font-bold text-gray-900 leading-none">{stats.total}</span>
+                    <span className="text-[10px] text-gray-500 mt-0.5">{t.dashboard.totalShort}</span>
                   </div>
                 </>
               )}
             </div>
-            {/* Legend */}
-            <div className="flex-1 w-full space-y-0.5">
+            {/* Legend — compact rows */}
+            <div className="flex-1 min-w-0">
               {[
-                { label: t.dashboard.totalCases,                              count: stats.total,      color: '#9ca3af', to: '/cases',               hover: 'hover:bg-gray-50' },
-                { label: t.dashboard.open,                                    count: stats.open,       color: PIE_COLORS.open,       to: '/cases?status=open',       hover: 'hover:bg-orange-50' },
-                { label: t.dashboard.inProgress,                              count: stats.inProgress, color: PIE_COLORS.inProgress, to: '/cases?group=in_progress', hover: 'hover:bg-blue-50' },
-                { label: t.dashboard.waitingApproval,                         count: stats.pending,    color: PIE_COLORS.pending,    to: '/cases?group=pending',     hover: 'hover:bg-amber-50' },
-                { label: t.dashboard.resolved,                                count: stats.closed,     color: PIE_COLORS.resolved,   to: '/cases?group=resolved',    hover: 'hover:bg-green-50' },
-                { label: t.status.reopened,                                   count: stats.reopened,   color: PIE_COLORS.reopened,   to: '/cases?status=reopened',   hover: 'hover:bg-red-50' },
+                { label: t.dashboard.totalCases,     count: stats.total,      color: '#9ca3af', to: '/cases',               hover: 'hover:bg-gray-50' },
+                { label: t.dashboard.open,           count: stats.open,       color: PIE_COLORS.open,       to: '/cases?status=open',       hover: 'hover:bg-orange-50' },
+                { label: t.dashboard.inProgress,     count: stats.inProgress, color: PIE_COLORS.inProgress, to: '/cases?group=in_progress', hover: 'hover:bg-blue-50' },
+                { label: t.dashboard.waitingApproval,count: stats.pending,    color: PIE_COLORS.pending,    to: '/cases?group=pending',     hover: 'hover:bg-amber-50' },
+                { label: t.dashboard.resolved,       count: stats.closed,     color: PIE_COLORS.resolved,   to: '/cases?group=resolved',    hover: 'hover:bg-green-50' },
+                { label: t.status.reopened,          count: stats.reopened,   color: PIE_COLORS.reopened,   to: '/cases?status=reopened',   hover: 'hover:bg-red-50' },
               ].map(({ label, count, color, to, hover }) => (
-                <Link key={to} to={to} className={`flex items-center justify-between px-3 py-2 rounded-lg ${hover} transition-colors group`}>
-                  <div className="flex items-center gap-2.5">
-                    <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: color, opacity: count === 0 && label !== t.dashboard.totalCases ? 0.3 : 1 }} />
-                    <span className={`text-sm ${count === 0 && label !== t.dashboard.totalCases ? 'text-gray-400' : 'text-gray-700'}`}>{label}</span>
+                <Link key={to} to={to} className={`flex items-center justify-between px-2 py-1 rounded-lg ${hover} transition-colors group`}>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: color, opacity: count === 0 && label !== t.dashboard.totalCases ? 0.3 : 1 }} />
+                    <span className={`text-xs truncate ${count === 0 && label !== t.dashboard.totalCases ? 'text-gray-400' : 'text-gray-700'}`}>{label}</span>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className={`text-base font-bold ${count === 0 && label !== t.dashboard.totalCases ? 'text-gray-300' : 'text-gray-900'}`} style={{ color: count > 0 ? color : undefined }}>{count}</span>
-                    {count > 0 && <svg className="h-3.5 w-3.5 text-gray-300 group-hover:text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>}
+                  <div className="flex items-center gap-1 flex-shrink-0 ml-1">
+                    <span className={`text-sm font-bold ${count === 0 && label !== t.dashboard.totalCases ? 'text-gray-300' : 'text-gray-900'}`} style={{ color: count > 0 ? color : undefined }}>{count}</span>
+                    {count > 0 && <svg className="h-3 w-3 text-gray-300 group-hover:text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>}
                   </div>
                 </Link>
               ))}
@@ -307,48 +307,48 @@ export function DashboardPage() {
         </div>
 
         {/* ── Case by Category ── */}
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
-          <h2 className="font-semibold text-gray-900 mb-4">{t.dashboard.casesByCategory}</h2>
-          <div className="flex flex-col sm:flex-row items-start gap-4">
-            {/* Donut (left) */}
-            <div className="relative flex-shrink-0" style={{ width: 160, height: 160 }}>
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+          <h2 className="font-semibold text-gray-900 mb-3">{t.dashboard.casesByCategory}</h2>
+          <div className="flex flex-row items-center gap-3">
+            {/* Donut — compact 120px */}
+            <div className="relative flex-shrink-0" style={{ width: 120, height: 120 }}>
               {catTotal === 0 ? (
-                <div className="w-full h-full rounded-full border-[16px] border-gray-100 flex items-center justify-center">
-                  <span className="text-gray-400 text-xs text-center">{t.dashboard.noData}</span>
+                <div className="w-full h-full rounded-full border-[12px] border-gray-100 flex items-center justify-center">
+                  <span className="text-gray-400 text-[10px] text-center">{t.dashboard.noData}</span>
                 </div>
               ) : (
                 <>
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
-                      <Pie data={catPieSlices} cx="50%" cy="50%" innerRadius={50} outerRadius={72} paddingAngle={catPieSlices.length > 1 ? 3 : 0} dataKey="value" startAngle={90} endAngle={-270}>
+                      <Pie data={catPieSlices} cx="50%" cy="50%" innerRadius={36} outerRadius={54} paddingAngle={catPieSlices.length > 1 ? 3 : 0} dataKey="value" startAngle={90} endAngle={-270}>
                         {catPieSlices.map((entry, i) => <Cell key={i} fill={entry.color} stroke="none" />)}
                       </Pie>
                       <Tooltip formatter={(v: number, name: string) => [v, name]} />
                     </PieChart>
                   </ResponsiveContainer>
                   <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                    <span className="text-2xl font-bold text-gray-900 leading-none">{catTotal}</span>
-                    <span className="text-xs text-gray-500 mt-1">{t.dashboard.casesShort}</span>
+                    <span className="text-xl font-bold text-gray-900 leading-none">{catTotal}</span>
+                    <span className="text-[10px] text-gray-500 mt-0.5">{t.dashboard.casesShort}</span>
                   </div>
                 </>
               )}
             </div>
-            {/* Legend (right) */}
-            <div className="flex-1 w-full space-y-0.5">
+            {/* Legend — compact rows */}
+            <div className="flex-1 min-w-0">
               {catPieData.map((d) => (
                 <Link
                   key={d.category}
                   to={`/cases?category=${d.category}`}
-                  className="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-gray-50 transition-colors group"
+                  className="flex items-center justify-between px-2 py-1 rounded-lg hover:bg-gray-50 transition-colors group"
                 >
-                  <div className="flex items-center gap-2.5">
-                    <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: d.color, opacity: d.value === 0 ? 0.3 : 1 }} />
-                    <span className={`text-sm ${d.value === 0 ? 'text-gray-400' : 'text-gray-700'}`}>{d.name}</span>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: d.color, opacity: d.value === 0 ? 0.3 : 1 }} />
+                    <span className={`text-xs truncate ${d.value === 0 ? 'text-gray-400' : 'text-gray-700'}`}>{d.name}</span>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className={`text-base font-bold`} style={{ color: d.value > 0 ? d.color : undefined }}>{d.value === 0 ? <span className="text-gray-300">0</span> : d.value}</span>
+                  <div className="flex items-center gap-1 flex-shrink-0 ml-1">
+                    <span className="text-sm font-bold" style={{ color: d.value > 0 ? d.color : undefined }}>{d.value === 0 ? <span className="text-gray-300">0</span> : d.value}</span>
                     {d.value > 0 && (
-                      <svg className="h-3.5 w-3.5 text-gray-300 group-hover:text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                      <svg className="h-3 w-3 text-gray-300 group-hover:text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
                     )}
                   </div>
                 </Link>
@@ -359,53 +359,55 @@ export function DashboardPage() {
 
       </div>
 
-      {/* KPI stat cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
-        <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
-          <div className="flex items-center gap-2 mb-2">
-            <div className="w-8 h-8 rounded-lg bg-purple-50 flex items-center justify-center">
-              <Clock className="h-4 w-4 text-purple-600" />
+      {/* KPI stat cards — 2 combined cards */}
+      <div className="grid grid-cols-2 gap-4 mb-6">
+
+        {/* Left: Avg Resolution + Resolution Rate */}
+        <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm flex flex-col gap-3">
+          <div>
+            <div className="flex items-center gap-1.5 mb-1">
+              <div className="w-6 h-6 rounded-md bg-purple-50 flex items-center justify-center flex-shrink-0">
+                <Clock className="h-3.5 w-3.5 text-purple-600" />
+              </div>
+              <p className="text-xs font-medium text-gray-500">{t.dashboard.avgResolution}</p>
             </div>
-            <p className="text-xs font-medium text-gray-500">{t.dashboard.avgResolution}</p>
+            <p className="text-2xl font-bold text-gray-900">{formatResolution(avgResolutionHours)}</p>
           </div>
-          <p className="text-2xl font-bold text-gray-900">{formatResolution(avgResolutionHours)}</p>
-        </div>
-        <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
-          <div className="flex items-center gap-2 mb-2">
-            <div className="w-8 h-8 rounded-lg bg-green-50 flex items-center justify-center">
-              <CheckCircle2 className="h-4 w-4 text-green-600" />
+          <div className="h-px bg-gray-100" />
+          <div>
+            <div className="flex items-center gap-1.5 mb-1">
+              <div className="w-6 h-6 rounded-md bg-green-50 flex items-center justify-center flex-shrink-0">
+                <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />
+              </div>
+              <p className="text-xs font-medium text-gray-500">{t.dashboard.resolutionRate}</p>
             </div>
-            <p className="text-xs font-medium text-gray-500">{t.dashboard.resolutionRate}</p>
+            <p className="text-2xl font-bold text-gray-900">{resolutionRate}%</p>
           </div>
-          <p className="text-2xl font-bold text-gray-900">{resolutionRate}%</p>
         </div>
-        <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
-          <div className="flex items-center gap-2 mb-2">
-            <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center">
-              <FolderOpen className="h-4 w-4 text-blue-600" />
+
+        {/* Right: Cases This Month + Overdue */}
+        <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm flex flex-col gap-3">
+          <div>
+            <div className="flex items-center gap-1.5 mb-1">
+              <div className="w-6 h-6 rounded-md bg-blue-50 flex items-center justify-center flex-shrink-0">
+                <FolderOpen className="h-3.5 w-3.5 text-blue-600" />
+              </div>
+              <p className="text-xs font-medium text-gray-500">{t.dashboard.casesThisMonth}</p>
             </div>
-            <p className="text-xs font-medium text-gray-500">{t.dashboard.casesThisMonth}</p>
+            <p className="text-2xl font-bold text-gray-900">{casesThisMonth}</p>
           </div>
-          <p className="text-2xl font-bold text-gray-900">{casesThisMonth}</p>
-        </div>
-        <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
-          <div className="flex items-center gap-2 mb-2">
-            <div className="w-8 h-8 rounded-lg bg-red-50 flex items-center justify-center">
-              <AlertTriangle className="h-4 w-4 text-red-600" />
+          <div className="h-px bg-gray-100" />
+          <div>
+            <div className="flex items-center gap-1.5 mb-1">
+              <div className="w-6 h-6 rounded-md bg-red-50 flex items-center justify-center flex-shrink-0">
+                <AlertTriangle className="h-3.5 w-3.5 text-red-600" />
+              </div>
+              <p className="text-xs font-medium text-gray-500">{t.dashboard.overdueSLA}</p>
             </div>
-            <p className="text-xs font-medium text-gray-500">{t.dashboard.overdueSLA}</p>
+            <p className={`text-2xl font-bold ${overdueCount > 0 ? 'text-red-600' : 'text-gray-900'}`}>{overdueCount}</p>
           </div>
-          <p className={`text-2xl font-bold ${overdueCount > 0 ? 'text-red-600' : 'text-gray-900'}`}>{overdueCount}</p>
         </div>
-        <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
-          <div className="flex items-center gap-2 mb-2">
-            <div className="w-8 h-8 rounded-lg bg-orange-50 flex items-center justify-center">
-              <RefreshCw className="h-4 w-4 text-orange-600" />
-            </div>
-            <p className="text-xs font-medium text-gray-500">{t.dashboard.recurringIssues}</p>
-          </div>
-          <p className={`text-2xl font-bold ${recurringCount > 0 ? 'text-orange-600' : 'text-gray-900'}`}>{recurringCount}</p>
-        </div>
+
       </div>
 
       {/* Banners */}

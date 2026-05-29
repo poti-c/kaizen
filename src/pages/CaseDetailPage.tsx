@@ -731,74 +731,94 @@ export function CaseDetailPage() {
 
   return (
     <div className="p-4 md:p-6 max-w-5xl mx-auto animate-fade-in">
-      {/* Back + header */}
-      <div className="flex items-start gap-3 mb-4 md:mb-6 flex-wrap">
-        <Button variant="ghost" size="icon-sm" onClick={() => navigate(-1)}>
-          <ArrowLeft className="h-4 w-4" />
-        </Button>
-        <div className="flex-1">
-          <div className="flex items-center flex-wrap gap-2 mb-1">
-            <span className="font-mono text-xs text-gray-500 whitespace-nowrap">{kcase.case_number}</span>
-            <StatusBadge status={kcase.status} />
-            <PriorityBadge priority={kcase.priority} />
-            <DepartmentBadge department={kcase.department} />
-            {kcase.category && (
-              <span className="text-xs px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full border border-gray-200">
-                {kcase.category === 'other' && kcase.category_other
-                  ? kcase.category_other
-                  : CATEGORY_LABELS_EN[kcase.category] || kcase.category}
-              </span>
+      {/* Header card */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 mb-4 md:mb-6">
+        {/* Top row: back + case number + action buttons */}
+        <div className="flex items-center gap-2 mb-3">
+          <Button variant="ghost" size="icon-sm" onClick={() => navigate(-1)}>
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+          <span className="font-mono text-xs text-gray-400 whitespace-nowrap flex-1">{kcase.case_number}</span>
+          {/* Action buttons — icons only on mobile */}
+          <div className="flex items-center gap-1">
+            {canManagerAssign && (
+              <Button variant="ghost" size="icon-sm" onClick={handlePrint} disabled={submitting} title={t.caseDetail.printPdf}>
+                <Printer className="h-4 w-4 text-gray-500" />
+              </Button>
             )}
-            {kcase.location && (
-              <span className="text-xs px-2 py-0.5 bg-indigo-50 text-indigo-600 rounded-full border border-indigo-200">
-                📍 {kcase.location === 'Others' && kcase.location_other ? kcase.location_other : kcase.location}
-              </span>
+            {canDelete && (
+              <Button variant="ghost" size="icon-sm" onClick={openEditCase} disabled={submitting} className="text-[var(--brand-primary)]">
+                <Pencil className="h-4 w-4" />
+              </Button>
             )}
-            {kcase.is_recurring && (
-              <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 bg-orange-100 text-orange-700 rounded-full border border-orange-200 font-medium">
-                <RefreshCw className="h-3 w-3" />
-                {t.caseDetail.recurringBadge}
-              </span>
+            {canDelete && (
+              <Button variant="ghost" size="icon-sm" onClick={handleDelete} disabled={submitting} className="text-red-500">
+                <XCircle className="h-4 w-4" />
+              </Button>
             )}
-          </div>
-          <h1 className="text-xl font-bold text-gray-900">{kcase.title}</h1>
-          <div className="flex items-center gap-4 mt-1 text-xs text-gray-500 flex-wrap">
-            <span className="flex items-center gap-1"><User className="h-3 w-3" />{(kcase.creator as KaizenProfile)?.full_name || 'Unknown'}</span>
-            <span className="flex items-center gap-1"><Calendar className="h-3 w-3" />{formatDateTime(kcase.created_at)}</span>
-            <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{t.caseDetail.openFor} {formatDuration(kcase.created_at, kcase.closed_at || undefined)}</span>
-            {kcase.due_date && (
-              <span className={cn('flex items-center gap-1', new Date(kcase.due_date) < new Date() && kcase.status !== 'closed' ? 'text-red-500 font-medium' : 'text-gray-500')}>
-                <Calendar className="h-3 w-3" />
-                Due: {new Date(kcase.due_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
-                {new Date(kcase.due_date) < new Date() && kcase.status !== 'closed' && ' ⚠️ Overdue'}
-              </span>
+            {canReopen && (
+              <Button variant="ghost" size="icon-sm" onClick={handleReopen} disabled={submitting} className="text-amber-600">
+                <RefreshCw className="h-4 w-4" />
+              </Button>
             )}
           </div>
         </div>
-        {canManagerAssign && (
-          <Button variant="outline" size="sm" onClick={handlePrint} disabled={submitting} title={t.caseDetail.printPdf}>
-            <Printer className="h-4 w-4" />
-            <span className="hidden sm:inline">{t.caseDetail.printPdf}</span>
-          </Button>
-        )}
-        {canDelete && (
-          <Button variant="outline" size="sm" onClick={openEditCase} disabled={submitting} className="border-[var(--brand-primary)] text-[var(--brand-primary)] hover:bg-[var(--brand-primary)] hover:text-white">
-            <Pencil className="h-4 w-4" />
-            <span className="hidden sm:inline">{t.caseDetail.editCase}</span>
-          </Button>
-        )}
-        {canDelete && (
-          <Button variant="destructive" size="sm" onClick={handleDelete} disabled={submitting}>
-            <XCircle className="h-4 w-4" />
-            <span className="hidden sm:inline">{t.caseDetail.deleteBtn}</span>
-          </Button>
-        )}
-        {canReopen && (
-          <Button variant="outline" size="sm" onClick={handleReopen} disabled={submitting}>
-            <RefreshCw className="h-4 w-4" />
-            <span className="hidden sm:inline">{t.caseDetail.reopenBtn}</span>
-          </Button>
-        )}
+
+        {/* Title */}
+        <h1 className="text-xl font-bold text-gray-900 mb-3">{kcase.title}</h1>
+
+        {/* Badges row */}
+        <div className="flex flex-wrap gap-1.5 mb-4">
+          <StatusBadge status={kcase.status} />
+          <PriorityBadge priority={kcase.priority} />
+          <DepartmentBadge department={kcase.department} />
+          {kcase.category && (
+            <span className="text-xs px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full border border-gray-200">
+              {kcase.category === 'other' && kcase.category_other ? kcase.category_other : CATEGORY_LABELS_EN[kcase.category] || kcase.category}
+            </span>
+          )}
+          {kcase.location && (
+            <span className="text-xs px-2 py-0.5 bg-indigo-50 text-indigo-600 rounded-full border border-indigo-200">
+              📍 {kcase.location === 'Others' && kcase.location_other ? kcase.location_other : kcase.location}
+            </span>
+          )}
+          {kcase.is_recurring && (
+            <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 bg-orange-100 text-orange-700 rounded-full border border-orange-200 font-medium">
+              <RefreshCw className="h-3 w-3" />{t.caseDetail.recurringBadge}
+            </span>
+          )}
+        </div>
+
+        {/* Meta info — 2-column grid */}
+        <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs text-gray-500">
+          <span className="flex items-center gap-1.5">
+            <User className="h-3.5 w-3.5 flex-shrink-0 text-gray-400" />
+            {(profile?.role === 'super_admin' || profile?.role === 'manager') && kcase.created_by ? (
+              <Link
+                to={`/users/${kcase.created_by}`}
+                className="truncate text-[var(--brand-primary)] hover:underline font-medium"
+              >
+                {(kcase.creator as KaizenProfile)?.full_name || 'Unknown'}
+              </Link>
+            ) : (
+              <span className="truncate">{(kcase.creator as KaizenProfile)?.full_name || 'Unknown'}</span>
+            )}
+          </span>
+          <span className="flex items-center gap-1.5">
+            <Calendar className="h-3.5 w-3.5 flex-shrink-0 text-gray-400" />
+            <span className="truncate">{new Date(kcase.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
+          </span>
+          <span className="flex items-center gap-1.5">
+            <Clock className="h-3.5 w-3.5 flex-shrink-0 text-gray-400" />
+            <span>{t.caseDetail.openFor} {formatDuration(kcase.created_at, kcase.closed_at || undefined)}</span>
+          </span>
+          {kcase.due_date && (
+            <span className={cn('flex items-center gap-1.5', new Date(kcase.due_date) < new Date() && kcase.status !== 'closed' ? 'text-red-500 font-semibold' : '')}>
+              <Calendar className="h-3.5 w-3.5 flex-shrink-0 text-gray-400" />
+              <span>{new Date(kcase.due_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}{new Date(kcase.due_date) < new Date() && kcase.status !== 'closed' && ' ⚠️'}</span>
+            </span>
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
