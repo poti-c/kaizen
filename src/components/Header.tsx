@@ -80,6 +80,47 @@ export function Header() {
     setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })))
   }
 
+  // Shared notification panel body — used by both mobile (fixed) and desktop (absolute)
+  const notifPanelContent = (
+    <>
+      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+        <h3 className="font-semibold text-sm text-gray-900">{t.notifications.title}</h3>
+        {unreadCount > 0 && (
+          <button onClick={markAllRead} className="text-xs text-[var(--brand-primary)] hover:underline">
+            {t.notifications.markAllRead}
+          </button>
+        )}
+      </div>
+      <div className="max-h-[60vh] overflow-y-auto divide-y divide-gray-50">
+        {notifications.length === 0 ? (
+          <p className="px-4 py-6 text-sm text-gray-400 text-center">{t.notifications.noNotifications}</p>
+        ) : (
+          notifications.map((n) => (
+            <div
+              key={n.id}
+              className={`px-4 py-3 cursor-pointer hover:bg-gray-50 active:bg-gray-100 transition-colors ${!n.is_read ? 'bg-blue-50/50' : ''}`}
+              onClick={() => { markRead(n.id); if (n.case_id) navigate(`/cases/${n.case_id}`); setShowNotifs(false) }}
+            >
+              <div className="flex items-start gap-3">
+                {!n.is_read && <div className="w-2 h-2 rounded-full bg-blue-500 mt-1.5 flex-shrink-0" />}
+                <div className={`flex-1 min-w-0 ${n.is_read ? 'pl-5' : ''}`}>
+                  <p className={`text-sm font-semibold leading-snug ${!n.is_read ? 'text-gray-900' : 'text-gray-600'}`}>{n.title}</p>
+                  <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{n.message}</p>
+                  <p className="text-xs text-gray-400 mt-1">{formatRelativeTime(n.created_at)}</p>
+                </div>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+      <div className="border-t border-gray-100 px-4 py-2.5">
+        <Link to="/notifications" className="text-xs text-[var(--brand-primary)] hover:underline" onClick={() => setShowNotifs(false)}>
+          {t.notifications.viewAll}
+        </Link>
+      </div>
+    </>
+  )
+
   return (
     <header className="h-14 md:h-16 bg-white border-b border-gray-200 flex items-center justify-between px-4 md:px-6 flex-shrink-0 gap-3">
 
@@ -134,44 +175,21 @@ export function Header() {
           {showNotifs && (
             <>
               <div className="fixed inset-0 z-20" onClick={() => setShowNotifs(false)} />
-              {/* Mobile: fixed to viewport; Desktop: absolute below bell icon */}
-              <div className="fixed inset-x-3 top-[60px] z-30 rounded-xl shadow-xl bg-white border border-gray-200 overflow-hidden md:absolute md:inset-x-auto md:right-0 md:top-full md:mt-2 md:w-96">
-                <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
-                  <h3 className="font-semibold text-sm text-gray-900">{t.notifications.title}</h3>
-                  {unreadCount > 0 && (
-                    <button onClick={markAllRead} className="text-xs text-[var(--brand-primary)] hover:underline">
-                      {t.notifications.markAllRead}
-                    </button>
-                  )}
+
+              {showSidebar ? (
+                /* ── Desktop: absolute dropdown below bell ── */
+                <div className="absolute right-0 top-full mt-2 w-96 bg-white rounded-xl shadow-xl border border-gray-200 z-30 overflow-hidden">
+                  {notifPanelContent}
                 </div>
-                <div className="max-h-[60vh] md:max-h-80 overflow-y-auto divide-y divide-gray-50">
-                  {notifications.length === 0 ? (
-                    <p className="px-4 py-6 text-sm text-gray-400 text-center">{t.notifications.noNotifications}</p>
-                  ) : (
-                    notifications.map((n) => (
-                      <div
-                        key={n.id}
-                        className={`px-4 py-3 cursor-pointer hover:bg-gray-50 active:bg-gray-100 transition-colors ${!n.is_read ? 'bg-blue-50/50' : ''}`}
-                        onClick={() => { markRead(n.id); if (n.case_id) navigate(`/cases/${n.case_id}`); setShowNotifs(false) }}
-                      >
-                        <div className="flex items-start gap-2">
-                          {!n.is_read && <div className="w-2 h-2 rounded-full bg-blue-500 mt-1.5 flex-shrink-0" />}
-                          <div className="flex-1 min-w-0">
-                            <p className={`text-sm font-medium ${!n.is_read ? 'text-gray-900' : 'text-gray-600'}`}>{n.title}</p>
-                            <p className="text-xs text-gray-500 mt-0.5">{n.message}</p>
-                            <p className="text-xs text-gray-400 mt-1">{formatRelativeTime(n.created_at)}</p>
-                          </div>
-                        </div>
-                      </div>
-                    ))
-                  )}
+              ) : (
+                /* ── Mobile: fixed to viewport, full-width with margin ── */
+                <div
+                  className="bg-white rounded-xl shadow-xl border border-gray-200 z-30 overflow-hidden"
+                  style={{ position: 'fixed', left: 12, right: 12, top: 56 }}
+                >
+                  {notifPanelContent}
                 </div>
-                <div className="border-t border-gray-100 px-4 py-2.5">
-                  <Link to="/notifications" className="text-xs text-[var(--brand-primary)] hover:underline" onClick={() => setShowNotifs(false)}>
-                    {t.notifications.viewAll}
-                  </Link>
-                </div>
-              </div>
+              )}
             </>
           )}
         </div>
