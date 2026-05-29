@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Eye, EyeOff, Loader2, Palette, Lock, Info, Scale } from 'lucide-react'
+import { Eye, EyeOff, Loader2, Palette, Lock, Info, Scale, Pencil, Check, X } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useTheme } from '@/contexts/ThemeContext'
@@ -20,9 +20,45 @@ const PRESET_COLORS = [
 ]
 
 export function SettingsPage() {
-  const { profile } = useAuth()
+  const { profile, refreshProfile } = useAuth()
   const { settings, updateSettings } = useTheme()
   const { t } = useLanguage()
+
+  // Profile edit state
+  const [editingProfile, setEditingProfile] = useState(false)
+  const [editName, setEditName] = useState('')
+  const [editUsername, setEditUsername] = useState('')
+  const [savingProfile, setSavingProfile] = useState(false)
+
+  function openProfileEdit() {
+    setEditName(profile?.full_name ?? '')
+    setEditUsername(profile?.username ?? '')
+    setEditingProfile(true)
+  }
+
+  function cancelProfileEdit() {
+    setEditingProfile(false)
+  }
+
+  async function saveProfile() {
+    if (!profile) return
+    const trimmedName = editName.trim()
+    if (!trimmedName) { toast.error('Name cannot be empty.'); return }
+    setSavingProfile(true)
+    try {
+      const updates: { full_name: string; username?: string } = { full_name: trimmedName }
+      if (profile.role === 'staff') updates.username = editUsername.trim() || profile.username || ''
+      const { error } = await supabase.from('kaizen_profiles').update(updates).eq('id', profile.id)
+      if (error) throw error
+      await refreshProfile()
+      toast.success('Profile updated.')
+      setEditingProfile(false)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to update profile.')
+    } finally {
+      setSavingProfile(false)
+    }
+  }
 
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -87,35 +123,90 @@ export function SettingsPage() {
         <p className="text-sm text-gray-500 mt-0.5">{t.settings.themeSubtitle}</p>
       </div>
 
-      {/* Profile info (read only) */}
+      {/* Profile info — editable */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
         <div className="flex items-center gap-2 mb-4">
           <Info className="h-4 w-4 text-gray-400" />
           <h2 className="font-semibold text-gray-900">{t.settings.accountInfo}</h2>
+          {!editingProfile ? (
+            <button
+              onClick={openProfileEdit}
+              className="ml-auto p-1.5 rounded-lg hover:bg-gray-100 transition-colors text-gray-400 hover:text-[var(--brand-primary)]"
+              title="Edit profile"
+            >
+              <Pencil className="h-4 w-4" />
+            </button>
+          ) : (
+            <div className="ml-auto flex items-center gap-1">
+              <button
+                onClick={saveProfile}
+                disabled={savingProfile}
+                className="p-1.5 rounded-lg hover:bg-green-50 transition-colors text-green-600"
+                title="Save"
+              >
+                {savingProfile ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+              </button>
+              <button
+                onClick={cancelProfileEdit}
+                className="p-1.5 rounded-lg hover:bg-red-50 transition-colors text-gray-400 hover:text-red-500"
+                title="Cancel"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          )}
         </div>
+
         <div className="grid grid-cols-2 gap-4 text-sm">
+          {/* Name — editable */}
           <div>
             <p className="text-gray-500 text-xs mb-1">{t.settings.name}</p>
-            <p className="font-medium text-gray-900">{profile?.full_name}</p>
+            {editingProfile ? (
+              <Input
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                className="h-8 text-sm"
+                autoFocus
+              />
+            ) : (
+              <p className="font-medium text-gray-900">{profile?.full_name}</p>
+            )}
           </div>
+
+          {/* Role — read only */}
           <div>
             <p className="text-gray-500 text-xs mb-1">{t.settings.role}</p>
-            <p className="font-medium text-gray-900 capitalize">{profile?.role.replace('_', ' ')}</p>
+            <p className="font-medium text-gray-900">{profile ? t.roles[profile.role] : ''}</p>
           </div>
+
+          {/* Department — read only */}
           <div>
             <p className="text-gray-500 text-xs mb-1">{t.settings.dept}</p>
             <p className="font-medium text-gray-900">{profile ? DEPARTMENT_LABELS[profile.department] : ''}</p>
           </div>
-          {profile?.username && (
+
+          {/* Username — editable for staff */}
+          {(profile?.username || profile?.role === 'staff') && (
             <div>
-              <p className="text-gray-500 text-xs mb-1">Username</p>
-              <p className="font-medium text-gray-900">@{profile.username}</p>
+              <p className="text-gray-500 text-xs mb-1">{t.users.username}</p>
+              {editingProfile && profile?.role === 'staff' ? (
+                <Input
+                  value={editUsername}
+                  onChange={(e) => setEditUsername(e.target.value)}
+                  className="h-8 text-sm"
+                  placeholder="username"
+                />
+              ) : (
+                <p className="font-medium text-gray-900">@{profile?.username}</p>
+              )}
             </div>
           )}
+
+          {/* Email — read only */}
           {profile?.email && (
             <div>
               <p className="text-gray-500 text-xs mb-1">Email</p>
-              <p className="font-medium text-gray-900">{profile.email}</p>
+              <p className="font-medium text-gray-900 truncate">{profile.email}</p>
             </div>
           )}
         </div>
