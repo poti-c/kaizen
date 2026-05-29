@@ -328,7 +328,7 @@ export function UsersPage() {
                             <DepartmentBadge department={user.department} />
                           </div>
                         </div>
-                        <div className="text-xs text-gray-400">{formatDate(user.created_at)}</div>
+                        <div className="hidden sm:block text-xs text-gray-400 flex-shrink-0">{formatDate(user.created_at)}</div>
                         {profile?.role === 'super_admin' && user.email !== 'poti@nanirand.com' && user.id !== profile.id && (
                           <div className="flex items-center gap-1">
                             <Button

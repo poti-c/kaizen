@@ -147,15 +147,16 @@ export function CasesCalendarPage() {
     <div className="p-4 md:p-6 max-w-7xl mx-auto animate-fade-in">
 
       {/* Header */}
-      <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
+      <div className="mb-5 space-y-3">
         <h1 className="text-xl md:text-2xl font-bold text-gray-900">
           {t.calendar.casesCalendar}
         </h1>
-        <div className="flex items-center gap-2 flex-wrap">
-          {/* Department filter — only for admin/manager */}
+        {/* Controls row — single line on mobile */}
+        <div className="flex items-center gap-2">
+          {/* Department filter */}
           {showDeptFilter && (
             <Select value={deptFilter} onValueChange={(v) => setDeptFilter(v as Department | 'all')}>
-              <SelectTrigger className="h-9 w-44 text-sm">
+              <SelectTrigger className="h-9 w-36 text-sm flex-shrink-0">
                 <SelectValue placeholder={t.calendar.allDepts} />
               </SelectTrigger>
               <SelectContent>
@@ -166,24 +167,21 @@ export function CasesCalendarPage() {
               </SelectContent>
             </Select>
           )}
-          <button
-            onClick={prevMonth}
-            className="p-2 rounded-lg hover:bg-gray-100 transition-colors border border-gray-200"
-          >
-            <ChevronLeft className="h-4 w-4 text-gray-600" />
-          </button>
-          <span className="text-base font-semibold text-gray-900 min-w-[160px] text-center">
-            {MONTH_NAMES[viewMonth]} {viewYear}
-          </span>
-          <button
-            onClick={nextMonth}
-            className="p-2 rounded-lg hover:bg-gray-100 transition-colors border border-gray-200"
-          >
-            <ChevronRight className="h-4 w-4 text-gray-600" />
-          </button>
+          {/* Month navigation — centred, takes remaining space */}
+          <div className="flex items-center gap-1 flex-1 justify-center">
+            <button onClick={prevMonth} className="p-2 rounded-lg hover:bg-gray-100 transition-colors border border-gray-200">
+              <ChevronLeft className="h-4 w-4 text-gray-600" />
+            </button>
+            <span className="text-sm font-semibold text-gray-900 whitespace-nowrap px-1">
+              {MONTH_NAMES[viewMonth]} {viewYear}
+            </span>
+            <button onClick={nextMonth} className="p-2 rounded-lg hover:bg-gray-100 transition-colors border border-gray-200">
+              <ChevronRight className="h-4 w-4 text-gray-600" />
+            </button>
+          </div>
           <button
             onClick={goToday}
-            className="ml-1 px-3 py-1.5 text-sm font-medium border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+            className="flex-shrink-0 px-3 py-1.5 text-sm font-medium border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
           >
             {t.calendar.today}
           </button>
