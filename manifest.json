@@ -1,0 +1,19 @@
+{
+  "name": "Na Nirand Kaizen System",
+  "short_name": "Kaizen",
+  "description": "Na Nirand Kaizen — Problem Reporting & Resolution Platform",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#1e3a5f",
+  "background_color": "#ffffff",
+  "icons": [
+    {
+      "src": "/kaizen-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

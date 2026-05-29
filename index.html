@@ -19,8 +19,27 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Na Nirand Kaizen System</title>
     <meta name="description" content="Na Nirand Kaizen — Problem Reporting & Resolution Platform" />
-    <script type="module" crossorigin src="/assets/index-BsY4PIH0.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-BFGioMmr.css">
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#1e3a5f" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Kaizen" />
+    <script>
+      // Register Service Worker
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js').catch(() => {})
+        })
+        // Listen for navigate messages from SW
+        navigator.serviceWorker.addEventListener('message', (e) => {
+          if (e.data?.type === 'NAVIGATE' && e.data.url) {
+            window.location.href = e.data.url
+          }
+        })
+      }
+    </script>
+    <script type="module" crossorigin src="/assets/index-C1tFJEpS.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-CU70MkxY.css">
   </head>
   <body>
     <div id="root"></div>
