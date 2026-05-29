@@ -22,7 +22,7 @@ const PRESET_COLORS = [
 
 export function SettingsPage() {
   const { profile, refreshProfile } = useAuth()
-  const { status: pushStatus, supported: pushSupported, subscribe, unsubscribe } = usePushNotifications(profile?.id)
+  const { status: pushStatus, supported: pushSupported, isIOS: pushIsIOS, isStandalone: pushIsStandalone, subscribe, unsubscribe } = usePushNotifications(profile?.id)
   const { settings, updateSettings } = useTheme()
   const { t, lang, setLang } = useLanguage()
 
@@ -264,60 +264,103 @@ export function SettingsPage() {
             : 'Receive alerts on this device even when the app is closed.'}
         </p>
 
-        {/* Toggle row */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            {pushStatus === 'granted'
-              ? <Bell className="h-5 w-5 text-[var(--brand-primary)]" />
-              : <BellOff className="h-5 w-5 text-gray-300" />}
+        {/* iOS not installed — show step-by-step install guide */}
+        {pushIsIOS && !pushIsStandalone ? (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 space-y-3">
+            <p className="text-sm font-semibold text-amber-800">
+              {lang === 'th' ? '📲 เพิ่มแอปไปยังหน้าจอหลักก่อน' : '📲 Install the app first'}
+            </p>
+            <p className="text-xs text-amber-700">
+              {lang === 'th'
+                ? 'iPhone ต้องการให้ติดตั้งแอปบนหน้าจอหลักก่อนถึงจะรับ Push Notification ได้'
+                : 'iPhone requires the app to be installed on your Home Screen before push notifications can be enabled.'}
+            </p>
+            <ol className="space-y-2">
+              {[
+                lang === 'th' ? '1. แตะปุ่ม Share (กล่องมีลูกศรขึ้น) ที่แถบด้านล่างของ Safari' : '1. Tap the Share button (box with arrow) in Safari\'s bottom bar',
+                lang === 'th' ? '2. เลื่อนลงแล้วแตะ "Add to Home Screen"' : '2. Scroll down and tap "Add to Home Screen"',
+                lang === 'th' ? '3. แตะ "Add" มุมขวาบน' : '3. Tap "Add" in the top-right corner',
+                lang === 'th' ? '4. เปิดแอป Kaizen จากหน้าจอหลัก แล้วกลับมาที่ Settings เพื่อเปิดการแจ้งเตือน' : '4. Open Kaizen from your Home Screen, then return here to enable notifications',
+              ].map((step, i) => (
+                <li key={i} className="flex items-start gap-2 text-xs text-amber-800">
+                  <span className="font-semibold flex-shrink-0">{step}</span>
+                </li>
+              ))}
+            </ol>
+          </div>
+
+        ) : pushStatus === 'denied' ? (
+          /* Blocked by browser */
+          <div className="flex items-start gap-3 p-3 bg-red-50 rounded-lg border border-red-100">
+            <BellOff className="h-4 w-4 text-red-500 mt-0.5 flex-shrink-0" />
             <div>
-              <p className="text-sm font-medium text-gray-900">
-                {lang === 'th' ? 'อนุญาต Push Notification' : 'Allow Push Notifications'}
+              <p className="text-sm font-medium text-red-700">
+                {lang === 'th' ? 'ถูกบล็อกโดยระบบ' : 'Blocked by system'}
               </p>
-              {pushStatus === 'denied' && (
-                <p className="text-xs text-red-500 mt-0.5">
-                  {lang === 'th'
-                    ? 'ถูกบล็อก — เปิดในการตั้งค่าเบราว์เซอร์'
-                    : 'Blocked — enable in browser settings first'}
-                </p>
-              )}
-              {!pushSupported && pushStatus !== 'denied' && (
-                <p className="text-xs text-gray-400 mt-0.5">
-                  {lang === 'th'
-                    ? 'เพิ่มแอปไปยังหน้าจอหลักก่อนเปิดใช้งาน'
-                    : 'Add app to home screen to enable'}
-                </p>
-              )}
+              <p className="text-xs text-red-500 mt-0.5">
+                {lang === 'th'
+                  ? 'ไปที่ Settings → Kaizen → Notifications เพื่อเปิดใช้งาน'
+                  : 'Go to Settings → Kaizen → Notifications to allow.'}
+              </p>
             </div>
           </div>
 
-          {/* Toggle switch */}
-          <button
-            type="button"
-            role="switch"
-            aria-checked={pushStatus === 'granted'}
-            disabled={pushStatus === 'loading' || pushStatus === 'denied' || (!pushSupported && pushStatus !== 'granted')}
-            onClick={async () => {
-              if (pushStatus === 'granted') {
-                await unsubscribe()
-                toast.success(lang === 'th' ? 'ปิดการแจ้งเตือนแล้ว' : 'Push notifications turned off')
-              } else {
-                const ok = await subscribe()
-                if (ok) toast.success(lang === 'th' ? 'เปิดการแจ้งเตือนสำเร็จ!' : 'Push notifications turned on!')
-                else if (pushStatus !== 'denied') toast.error(lang === 'th' ? 'ไม่สามารถเปิดได้' : 'Could not enable — check browser settings.')
-              }
-            }}
-            className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors duration-200 focus:outline-none disabled:opacity-40 disabled:cursor-not-allowed ${
-              pushStatus === 'granted' ? 'bg-[var(--brand-primary)]' : 'bg-gray-200'
-            }`}
-          >
-            <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition-transform duration-200 ${
-              pushStatus === 'granted' ? 'translate-x-6' : 'translate-x-1'
-            }`}>
-              {pushStatus === 'loading' && <Loader2 className="h-3 w-3 animate-spin text-gray-400 m-1" />}
-            </span>
-          </button>
-        </div>
+        ) : pushStatus === 'unsupported' ? (
+          /* Non-iOS unsupported browser */
+          <div className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg">
+            <BellOff className="h-4 w-4 text-gray-400 mt-0.5 flex-shrink-0" />
+            <p className="text-sm text-gray-500">
+              {lang === 'th'
+                ? 'เบราว์เซอร์นี้ไม่รองรับการแจ้งเตือน'
+                : 'This browser does not support push notifications.'}
+            </p>
+          </div>
+
+        ) : (
+          /* Supported — show toggle */
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              {pushStatus === 'granted'
+                ? <Bell className="h-5 w-5 text-[var(--brand-primary)]" />
+                : <BellOff className="h-5 w-5 text-gray-300" />}
+              <div>
+                <p className="text-sm font-medium text-gray-900">
+                  {lang === 'th' ? 'อนุญาต Push Notification' : 'Allow Push Notifications'}
+                </p>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  {pushStatus === 'granted'
+                    ? (lang === 'th' ? 'เปิดอยู่ — แจ้งเตือนแม้ปิดแอป' : 'On — alerts even when app is closed')
+                    : (lang === 'th' ? 'แตะเพื่อเปิดการแจ้งเตือน' : 'Tap to enable')}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={pushStatus === 'granted'}
+              disabled={pushStatus === 'loading'}
+              onClick={async () => {
+                if (pushStatus === 'granted') {
+                  await unsubscribe()
+                  toast.success(lang === 'th' ? 'ปิดการแจ้งเตือนแล้ว' : 'Push notifications off')
+                } else {
+                  const ok = await subscribe()
+                  if (ok) toast.success(lang === 'th' ? 'เปิดการแจ้งเตือนสำเร็จ!' : 'Push notifications on!')
+                  else toast.error(lang === 'th' ? 'ไม่สามารถเปิดได้' : 'Could not enable.')
+                }
+              }}
+              className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors duration-200 focus:outline-none disabled:opacity-40 disabled:cursor-not-allowed ${
+                pushStatus === 'granted' ? 'bg-[var(--brand-primary)]' : 'bg-gray-200'
+              }`}
+            >
+              <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition-transform duration-200 ${
+                pushStatus === 'granted' ? 'translate-x-6' : 'translate-x-1'
+              }`}>
+                {pushStatus === 'loading' && <Loader2 className="h-3 w-3 animate-spin text-gray-400 m-1" />}
+              </span>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Language */}

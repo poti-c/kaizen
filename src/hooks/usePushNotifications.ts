@@ -10,23 +10,42 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
   return Uint8Array.from([...rawData].map(c => c.charCodeAt(0)))
 }
 
-export type PushStatus = 'unsupported' | 'default' | 'granted' | 'denied' | 'loading'
+export type PushStatus = 'unsupported' | 'needs-install' | 'default' | 'granted' | 'denied' | 'loading'
+
+// true when running as installed PWA (standalone mode)
+function isStandalone(): boolean {
+  return (
+    window.matchMedia('(display-mode: standalone)').matches ||
+    (navigator as any).standalone === true
+  )
+}
+
+// true on iOS Safari (needs home screen install for push)
+function isIOS(): boolean {
+  return /iphone|ipad|ipod/i.test(navigator.userAgent)
+}
 
 export function usePushNotifications(userId: string | undefined) {
   const [status, setStatus] = useState<PushStatus>('loading')
 
-  const supported = typeof window !== 'undefined' &&
+  const hasPushAPI = typeof window !== 'undefined' &&
     'serviceWorker' in navigator &&
     'PushManager' in window &&
     !!VAPID_PUBLIC_KEY
 
+  // iOS requires app to be installed (standalone) before PushManager works
+  const supported = hasPushAPI && (!isIOS() || isStandalone())
+
   useEffect(() => {
+    if (!hasPushAPI) { setStatus('unsupported'); return }
+    // iOS in browser (not installed) → show install prompt
+    if (isIOS() && !isStandalone()) { setStatus('needs-install'); return }
     if (!supported) { setStatus('unsupported'); return }
     const perm = Notification.permission
     if (perm === 'granted') setStatus('granted')
     else if (perm === 'denied') setStatus('denied')
     else setStatus('default')
-  }, [supported])
+  }, [supported, hasPushAPI])
 
   async function subscribe(): Promise<boolean> {
     if (!supported || !userId) return false
@@ -70,5 +89,5 @@ export function usePushNotifications(userId: string | undefined) {
     }
   }
 
-  return { status, supported, subscribe, unsubscribe }
+  return { status, supported, isIOS: isIOS(), isStandalone: isStandalone(), subscribe, unsubscribe }
 }
