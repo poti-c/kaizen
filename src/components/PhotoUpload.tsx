@@ -1,0 +1,167 @@
+import { useState, useRef } from 'react'
+import { Upload, X, Image } from 'lucide-react'
+import { supabase } from '@/lib/supabase'
+import { cn, buildPhotoPath } from '@/lib/utils'
+
+interface PhotoUploadProps {
+  onUpload: (urls: string[]) => void
+  maxFiles?: number
+  label?: string
+  bucket?: string
+  caseNumber?: string
+  department?: string
+}
+
+export function PhotoUpload({ onUpload, maxFiles = 3, label = 'Upload Photos', bucket = 'kaizen-photos', caseNumber, department }: PhotoUploadProps) {
+  const [previews, setPreviews] = useState<{ file: File; preview: string; uploading: boolean; url?: string }[]>([])
+  const [dragOver, setDragOver] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const photoIndexRef = useRef(1)
+
+  async function handleFiles(files: FileList | null) {
+    if (!files) return
+    const newFiles = Array.from(files).slice(0, maxFiles - previews.length)
+
+    const items = newFiles.map((file) => ({
+      file,
+      preview: URL.createObjectURL(file),
+      uploading: true,
+    }))
+
+    setPreviews((prev) => [...prev, ...items])
+
+    const uploadedUrls: string[] = []
+
+    for (const item of items) {
+      const ext = (item.file.name.split('.').pop() ?? 'jpg').toLowerCase()
+      const path =
+        caseNumber && department
+          ? buildPhotoPath(caseNumber, department, photoIndexRef.current++, ext)
+          : `Na Nirand Kaizen/unsorted/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
+      const { data, error } = await supabase.storage.from(bucket).upload(path, item.file)
+
+      if (!error && data) {
+        const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(data.path)
+        const url = urlData.publicUrl
+        uploadedUrls.push(url)
+        setPreviews((prev) =>
+          prev.map((p) => (p.preview === item.preview ? { ...p, uploading: false, url } : p))
+        )
+      } else {
+        setPreviews((prev) => prev.filter((p) => p.preview !== item.preview))
+      }
+    }
+
+    if (uploadedUrls.length > 0) {
+      onUpload(uploadedUrls)
+    }
+  }
+
+  function remove(index: number) {
+    setPreviews((prev) => {
+      const removed = prev[index]
+      URL.revokeObjectURL(removed.preview)
+      return prev.filter((_, i) => i !== index)
+    })
+  }
+
+  return (
+    <div className="space-y-3">
+      {previews.length < maxFiles && (
+        <div
+          className={cn(
+            'border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-colors',
+            dragOver ? 'border-[var(--brand-primary)] bg-blue-50' : 'border-gray-300 hover:border-gray-400'
+          )}
+          onClick={() => inputRef.current?.click()}
+          onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={(e) => { e.preventDefault(); setDragOver(false); handleFiles(e.dataTransfer.files) }}
+        >
+          <Upload className="mx-auto h-8 w-8 text-gray-400 mb-2" />
+          <p className="text-sm text-gray-600 font-medium">{label}</p>
+          <p className="text-xs text-gray-400 mt-1">Click or drag & drop — JPG, PNG, WEBP (max {maxFiles} photos)</p>
+          <input
+            ref={inputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            className="hidden"
+            onChange={(e) => handleFiles(e.target.files)}
+          />
+        </div>
+      )}
+
+      {previews.length > 0 && (
+        <div className="grid grid-cols-3 gap-2">
+          {previews.map((item, i) => (
+            <div key={i} className="relative aspect-square rounded-lg overflow-hidden bg-gray-100 group">
+              <img src={item.preview} alt="" className="w-full h-full object-cover" />
+              {item.uploading && (
+                <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                  <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                </div>
+              )}
+              {!item.uploading && (
+                <button
+                  onClick={() => remove(i)}
+                  className="absolute top-1 right-1 bg-red-600 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+interface PhotoGalleryProps {
+  urls: string[]
+  className?: string
+}
+
+export function PhotoGallery({ urls, className }: PhotoGalleryProps) {
+  const [selected, setSelected] = useState<string | null>(null)
+
+  if (urls.length === 0) {
+    return (
+      <div className={cn('flex items-center justify-center h-24 bg-gray-50 rounded-lg border border-dashed border-gray-200', className)}>
+        <div className="text-center text-gray-400">
+          <Image className="h-6 w-6 mx-auto mb-1" />
+          <p className="text-xs">No photos</p>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <>
+      <div className={cn('grid grid-cols-3 gap-2', className)}>
+        {urls.map((url, i) => (
+          <div
+            key={i}
+            className="relative aspect-square rounded-lg overflow-hidden bg-gray-100 cursor-pointer group"
+            onClick={() => setSelected(url)}
+          >
+            <img src={url} alt={`Photo ${i + 1}`} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200" />
+          </div>
+        ))}
+      </div>
+
+      {selected && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4"
+          onClick={() => setSelected(null)}
+        >
+          <img src={selected} alt="Full size" className="max-w-full max-h-full rounded-lg object-contain" />
+          <button className="absolute top-4 right-4 text-white bg-black/40 rounded-full p-2">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+      )}
+    </>
+  )
+}
