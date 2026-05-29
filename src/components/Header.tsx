@@ -13,7 +13,7 @@ import type { KaizenNotification } from '@/types'
 
 export function Header() {
   const { profile, signOut } = useAuth()
-  const { lang, setLang, t } = useLanguage()
+  const { t } = useLanguage()
   const { viewMode, toggleViewMode, showSidebar } = useViewMode()
   const navigate = useNavigate()
   const [notifications, setNotifications] = useState<KaizenNotification[]>([])
@@ -193,15 +193,6 @@ export function Header() {
             </>
           )}
         </div>
-
-        {/* Language toggle */}
-        <button
-          onClick={() => setLang(lang === 'en' ? 'th' : 'en')}
-          className="px-2 py-1.5 rounded-lg hover:bg-gray-100 transition-colors text-xs font-semibold text-gray-600 min-w-[32px] text-center"
-          title={lang === 'en' ? 'Switch to Thai' : 'Switch to English'}
-        >
-          {lang === 'en' ? 'TH' : 'EN'}
-        </button>
 
         {/* View mode toggle */}
         <button
