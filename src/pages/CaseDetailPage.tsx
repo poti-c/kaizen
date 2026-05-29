@@ -738,7 +738,7 @@ export function CaseDetailPage() {
         </Button>
         <div className="flex-1">
           <div className="flex items-center flex-wrap gap-2 mb-1">
-            <span className="font-mono text-xs text-gray-500">{kcase.case_number}</span>
+            <span className="font-mono text-xs text-gray-500 whitespace-nowrap">{kcase.case_number}</span>
             <StatusBadge status={kcase.status} />
             <PriorityBadge priority={kcase.priority} />
             <DepartmentBadge department={kcase.department} />
@@ -765,7 +765,7 @@ export function CaseDetailPage() {
           <div className="flex items-center gap-4 mt-1 text-xs text-gray-500 flex-wrap">
             <span className="flex items-center gap-1"><User className="h-3 w-3" />{(kcase.creator as KaizenProfile)?.full_name || 'Unknown'}</span>
             <span className="flex items-center gap-1"><Calendar className="h-3 w-3" />{formatDateTime(kcase.created_at)}</span>
-            <span className="flex items-center gap-1"><Clock className="h-3 w-3" />Open for {formatDuration(kcase.created_at, kcase.closed_at || undefined)}</span>
+            <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{t.caseDetail.openFor} {formatDuration(kcase.created_at, kcase.closed_at || undefined)}</span>
             {kcase.due_date && (
               <span className={cn('flex items-center gap-1', new Date(kcase.due_date) < new Date() && kcase.status !== 'closed' ? 'text-red-500 font-medium' : 'text-gray-500')}>
                 <Calendar className="h-3 w-3" />
@@ -790,13 +790,13 @@ export function CaseDetailPage() {
         {canDelete && (
           <Button variant="destructive" size="sm" onClick={handleDelete} disabled={submitting}>
             <XCircle className="h-4 w-4" />
-            {t.caseDetail.deleteBtn}
+            <span className="hidden sm:inline">{t.caseDetail.deleteBtn}</span>
           </Button>
         )}
         {canReopen && (
           <Button variant="outline" size="sm" onClick={handleReopen} disabled={submitting}>
             <RefreshCw className="h-4 w-4" />
-            {t.caseDetail.reopenBtn}
+            <span className="hidden sm:inline">{t.caseDetail.reopenBtn}</span>
           </Button>
         )}
       </div>

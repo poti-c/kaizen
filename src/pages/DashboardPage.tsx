@@ -512,18 +512,18 @@ export function DashboardPage() {
                   {/* Case info */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-                      <span className="text-xs text-gray-400 font-mono">{c.case_number}</span>
+                      <span className="text-xs text-gray-400 font-mono whitespace-nowrap">{c.case_number}</span>
                       <StatusBadge status={c.status} />
                       <PriorityBadge priority={c.priority} />
                     </div>
                     <p className="text-sm font-medium text-gray-900 truncate">{c.title}</p>
                   </div>
 
-                  {/* Progress bar */}
+                  {/* Progress bar — hidden on mobile to save space */}
                   {(() => {
                     const { pct, color } = getCaseProgress(c.status)
                     return (
-                      <div className="flex-shrink-0 w-56 flex flex-col items-end gap-1">
+                      <div className="hidden md:flex flex-shrink-0 w-40 flex-col items-end gap-1">
                         <span className="text-xs font-medium text-gray-500">{pct}%</span>
                         <div className="w-full bg-gray-100 rounded-full h-1.5">
                           <div
