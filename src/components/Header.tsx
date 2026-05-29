@@ -134,7 +134,8 @@ export function Header() {
           {showNotifs && (
             <>
               <div className="fixed inset-0 z-20" onClick={() => setShowNotifs(false)} />
-              <div className="absolute right-0 top-full mt-2 w-[calc(100vw-2rem)] max-w-sm bg-white rounded-xl shadow-xl border border-gray-200 z-30 overflow-hidden">
+              {/* Mobile: fixed to viewport; Desktop: absolute below bell icon */}
+              <div className="fixed inset-x-3 top-[60px] z-30 rounded-xl shadow-xl bg-white border border-gray-200 overflow-hidden md:absolute md:inset-x-auto md:right-0 md:top-full md:mt-2 md:w-96">
                 <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
                   <h3 className="font-semibold text-sm text-gray-900">{t.notifications.title}</h3>
                   {unreadCount > 0 && (
@@ -143,21 +144,21 @@ export function Header() {
                     </button>
                   )}
                 </div>
-                <div className="max-h-72 overflow-y-auto divide-y divide-gray-50">
+                <div className="max-h-[60vh] md:max-h-80 overflow-y-auto divide-y divide-gray-50">
                   {notifications.length === 0 ? (
                     <p className="px-4 py-6 text-sm text-gray-400 text-center">{t.notifications.noNotifications}</p>
                   ) : (
                     notifications.map((n) => (
                       <div
                         key={n.id}
-                        className={`px-4 py-3 cursor-pointer hover:bg-gray-50 transition-colors ${!n.is_read ? 'bg-blue-50/50' : ''}`}
+                        className={`px-4 py-3 cursor-pointer hover:bg-gray-50 active:bg-gray-100 transition-colors ${!n.is_read ? 'bg-blue-50/50' : ''}`}
                         onClick={() => { markRead(n.id); if (n.case_id) navigate(`/cases/${n.case_id}`); setShowNotifs(false) }}
                       >
                         <div className="flex items-start gap-2">
                           {!n.is_read && <div className="w-2 h-2 rounded-full bg-blue-500 mt-1.5 flex-shrink-0" />}
                           <div className="flex-1 min-w-0">
-                            <p className={`text-sm font-medium truncate ${!n.is_read ? 'text-gray-900' : 'text-gray-600'}`}>{n.title}</p>
-                            <p className="text-xs text-gray-500 line-clamp-2 mt-0.5">{n.message}</p>
+                            <p className={`text-sm font-medium ${!n.is_read ? 'text-gray-900' : 'text-gray-600'}`}>{n.title}</p>
+                            <p className="text-xs text-gray-500 mt-0.5">{n.message}</p>
                             <p className="text-xs text-gray-400 mt-1">{formatRelativeTime(n.created_at)}</p>
                           </div>
                         </div>
@@ -165,7 +166,7 @@ export function Header() {
                     ))
                   )}
                 </div>
-                <div className="border-t border-gray-100 px-4 py-2">
+                <div className="border-t border-gray-100 px-4 py-2.5">
                   <Link to="/notifications" className="text-xs text-[var(--brand-primary)] hover:underline" onClick={() => setShowNotifs(false)}>
                     {t.notifications.viewAll}
                   </Link>
