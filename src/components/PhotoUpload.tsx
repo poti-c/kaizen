@@ -1,7 +1,10 @@
 import { useState, useRef } from 'react'
-import { Upload, X, Image } from 'lucide-react'
+import { Upload, X, Image, Camera, ImageIcon } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { cn, buildPhotoPath } from '@/lib/utils'
+
+// True on any touch-capable device (phones, tablets)
+const isTouchDevice = typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0)
 
 interface PhotoUploadProps {
   onUpload: (urls: string[]) => void
@@ -12,15 +15,19 @@ interface PhotoUploadProps {
   department?: string
 }
 
-export function PhotoUpload({ onUpload, maxFiles = 3, label = 'Upload Photos', bucket = 'kaizen-photos', caseNumber, department }: PhotoUploadProps) {
+export function PhotoUpload({ onUpload, maxFiles = 3, label = 'Add Photos', bucket = 'kaizen-photos', caseNumber, department }: PhotoUploadProps) {
   const [previews, setPreviews] = useState<{ file: File; preview: string; uploading: boolean; url?: string }[]>([])
   const [dragOver, setDragOver] = useState(false)
-  const inputRef = useRef<HTMLInputElement>(null)
+  const desktopInputRef = useRef<HTMLInputElement>(null)
+  const cameraInputRef = useRef<HTMLInputElement>(null)
+  const galleryInputRef = useRef<HTMLInputElement>(null)
   const photoIndexRef = useRef(1)
 
+  const remaining = maxFiles - previews.length
+
   async function handleFiles(files: FileList | null) {
-    if (!files) return
-    const newFiles = Array.from(files).slice(0, maxFiles - previews.length)
+    if (!files || remaining <= 0) return
+    const newFiles = Array.from(files).slice(0, remaining)
 
     const items = newFiles.map((file) => ({
       file,
@@ -67,35 +74,78 @@ export function PhotoUpload({ onUpload, maxFiles = 3, label = 'Upload Photos', b
 
   return (
     <div className="space-y-3">
-      {previews.length < maxFiles && (
-        <div
-          className={cn(
-            'border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-colors',
-            dragOver ? 'border-[var(--brand-primary)] bg-blue-50' : 'border-gray-300 hover:border-gray-400'
-          )}
-          onClick={() => inputRef.current?.click()}
-          onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
-          onDragLeave={() => setDragOver(false)}
-          onDrop={(e) => { e.preventDefault(); setDragOver(false); handleFiles(e.dataTransfer.files) }}
-        >
-          <Upload className="mx-auto h-8 w-8 text-gray-400 mb-2" />
-          <p className="text-sm text-gray-600 font-medium">{label}</p>
-          <p className="text-xs text-gray-400 mt-1">Click or drag & drop — JPG, PNG, WEBP (max {maxFiles} photos)</p>
-          <input
-            ref={inputRef}
-            type="file"
-            accept="image/*"
-            multiple
-            className="hidden"
-            onChange={(e) => handleFiles(e.target.files)}
-          />
-        </div>
+      {remaining > 0 && (
+        isTouchDevice ? (
+          /* ── Mobile: Camera + Gallery buttons ── */
+          <div className="grid grid-cols-2 gap-3">
+            {/* Take Photo button */}
+            <button
+              type="button"
+              onClick={() => cameraInputRef.current?.click()}
+              className="flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-gray-300 py-5 active:bg-gray-50 transition-colors"
+            >
+              <Camera className="h-7 w-7 text-gray-400" />
+              <span className="text-xs font-medium text-gray-500">Take Photo</span>
+            </button>
+            {/* Choose from Library button */}
+            <button
+              type="button"
+              onClick={() => galleryInputRef.current?.click()}
+              className="flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-gray-300 py-5 active:bg-gray-50 transition-colors"
+            >
+              <ImageIcon className="h-7 w-7 text-gray-400" />
+              <span className="text-xs font-medium text-gray-500">Choose from Library</span>
+            </button>
+            {/* Hidden camera input — opens rear camera directly */}
+            <input
+              ref={cameraInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={(e) => { handleFiles(e.target.files); e.target.value = '' }}
+            />
+            {/* Hidden gallery input — opens photo library */}
+            <input
+              ref={galleryInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={(e) => { handleFiles(e.target.files); e.target.value = '' }}
+            />
+          </div>
+        ) : (
+          /* ── Desktop: drag & drop zone ── */
+          <div
+            className={cn(
+              'border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-colors',
+              dragOver ? 'border-[var(--brand-primary)] bg-blue-50' : 'border-gray-300 hover:border-gray-400'
+            )}
+            onClick={() => desktopInputRef.current?.click()}
+            onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={(e) => { e.preventDefault(); setDragOver(false); handleFiles(e.dataTransfer.files) }}
+          >
+            <Upload className="mx-auto h-8 w-8 text-gray-400 mb-2" />
+            <p className="text-sm text-gray-600 font-medium">{label}</p>
+            <p className="text-xs text-gray-400 mt-1">Click or drag & drop — JPG, PNG, WEBP (max {maxFiles} photos)</p>
+            <input
+              ref={desktopInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={(e) => { handleFiles(e.target.files); e.target.value = '' }}
+            />
+          </div>
+        )
       )}
 
       {previews.length > 0 && (
         <div className="grid grid-cols-3 gap-2">
           {previews.map((item, i) => (
-            <div key={i} className="relative aspect-square rounded-lg overflow-hidden bg-gray-100 group">
+            <div key={i} className="relative aspect-square rounded-lg overflow-hidden bg-gray-100">
               <img src={item.preview} alt="" className="w-full h-full object-cover" />
               {item.uploading && (
                 <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
@@ -104,8 +154,9 @@ export function PhotoUpload({ onUpload, maxFiles = 3, label = 'Upload Photos', b
               )}
               {!item.uploading && (
                 <button
+                  type="button"
                   onClick={() => remove(i)}
-                  className="absolute top-1 right-1 bg-red-600 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                  className="absolute top-1 right-1 bg-red-600 text-white rounded-full p-0.5 shadow-sm"
                 >
                   <X className="h-3 w-3" />
                 </button>
