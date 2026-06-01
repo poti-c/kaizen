@@ -67,8 +67,9 @@ export function LoginPage() {
       <div className="w-full max-w-md">
         {/* Brand header */}
         <div className="text-center mb-8">
-          <h1 className="text-2xl font-bold text-white">Na Nirand Kaizen System</h1>
-          <p className="text-white/70 text-sm mt-1">Improving Together</p>
+          <h1 className="text-3xl font-bold text-white">Na Nirand</h1>
+          <p className="text-[#E2C886] text-2.2xl font-bold">Kaizen System</p>
+          <p className="text-white/70 text-sm mt-2">Improving Together</p>
         </div>
 
         {/* Card — logo as faded background */}
