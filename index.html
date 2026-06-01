@@ -30,10 +30,16 @@
         window.addEventListener('load', () => {
           navigator.serviceWorker.register('/sw.js').catch(() => {})
         })
-        // Listen for navigate messages from SW
+        // Listen for messages from the Service Worker
         navigator.serviceWorker.addEventListener('message', (e) => {
           if (e.data?.type === 'NAVIGATE' && e.data.url) {
             window.location.href = e.data.url
+          }
+          // Fallback badge set from page scope (iOS supports Badging here)
+          if (e.data?.type === 'SET_BADGE' && 'setAppBadge' in navigator) {
+            const c = e.data.count
+            if (c > 0) navigator.setAppBadge(c).catch(() => {})
+            else navigator.clearAppBadge?.().catch(() => {})
           }
         })
       }
