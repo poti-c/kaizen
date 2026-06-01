@@ -32,15 +32,25 @@ export function NotificationsPage() {
     setLoading(false)
   }
 
+  // Clear app icon badge when all notifications are read
+  function clearBadge() {
+    if ('clearAppBadge' in navigator) (navigator as any).clearAppBadge().catch(() => {})
+  }
+
   async function markRead(id: string) {
     await supabase.from('kaizen_notifications').update({ is_read: true }).eq('id', id)
-    setNotifications((prev) => prev.map((n) => n.id === id ? { ...n, is_read: true } : n))
+    setNotifications((prev) => {
+      const updated = prev.map((n) => n.id === id ? { ...n, is_read: true } : n)
+      if (updated.every((n) => n.is_read)) clearBadge()
+      return updated
+    })
   }
 
   async function markAllRead() {
     if (!profile) return
     await supabase.from('kaizen_notifications').update({ is_read: true }).eq('user_id', profile.id)
     setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })))
+    clearBadge()
   }
 
   const unread = notifications.filter((n) => !n.is_read).length
