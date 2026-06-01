@@ -2,7 +2,7 @@
   "name": "Na Nirand Kaizen System",
   "short_name": "Kaizen",
   "description": "Na Nirand Kaizen — Problem Reporting & Resolution Platform",
-  "start_url": "/?v=2",
+  "start_url": "/?kaizen-golden=1",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
