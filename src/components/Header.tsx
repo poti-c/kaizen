@@ -66,7 +66,16 @@ export function Header() {
       .eq('user_id', profile.id)
       .order('created_at', { ascending: false })
       .limit(10)
-    if (data) setNotifications(data as KaizenNotification[])
+    if (data) {
+      setNotifications(data as KaizenNotification[])
+      // Update app icon badge from main context (more reliable on iOS than SW)
+      const unread = (data as KaizenNotification[]).filter(n => !n.is_read).length
+      if ('setAppBadge' in navigator) {
+        unread > 0
+          ? (navigator as any).setAppBadge(unread).catch(() => {})
+          : (navigator as any).clearAppBadge().catch(() => {})
+      }
+    }
   }
 
   async function markRead(id: string) {
@@ -78,6 +87,7 @@ export function Header() {
     if (!profile) return
     await supabase.from('kaizen_notifications').update({ is_read: true }).eq('user_id', profile.id)
     setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })))
+    if ('clearAppBadge' in navigator) (navigator as any).clearAppBadge().catch(() => {})
   }
 
   // Shared notification panel body — used by both mobile (fixed) and desktop (absolute)
