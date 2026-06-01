@@ -24,18 +24,23 @@ self.addEventListener('push', (event) => {
     payload = { title: 'Kaizen', body: event.data.text(), url: '/' }
   }
 
-  const { title = 'Kaizen', body = '', url = '/', caseId } = payload
+  const { title = 'Kaizen', body = '', url = '/', caseId, unreadCount } = payload
   const notifUrl = caseId ? `/cases/${caseId}` : url
 
-  // Keep options minimal for maximum iOS compatibility
-  // iOS does not support: actions, vibrate, badge (SVG), renotify
   event.waitUntil(
-    self.registration.showNotification(title, {
-      body,
-      icon: '/kaizen-icon.svg',
-      tag:  caseId ? `case-${caseId}` : 'kaizen',
-      data: { url: notifUrl },
-    })
+    Promise.all([
+      // Show the notification
+      self.registration.showNotification(title, {
+        body,
+        icon: '/kaizen-icon.svg',
+        tag:  caseId ? `case-${caseId}` : 'kaizen',
+        data: { url: notifUrl },
+      }),
+      // Set the app icon badge count
+      unreadCount != null && navigator.setAppBadge
+        ? navigator.setAppBadge(unreadCount)
+        : Promise.resolve(),
+    ])
   )
 })
 
