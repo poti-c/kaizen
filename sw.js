@@ -1,7 +1,24 @@
 // Na Nirand Kaizen — Service Worker
 // Handles push notifications and offline caching
 
-const CACHE_NAME = 'kaizen-v1'
+const CACHE_NAME = 'kaizen-v2'
+
+// Set the home-screen app badge. On iOS the Badging API may be exposed on the
+// worker's `self.navigator` (newer) or not at all (older). Try every surface
+// and log the outcome so we can confirm what the device supports.
+function setBadge(count) {
+  try {
+    const nav = self.navigator
+    if (nav && typeof nav.setAppBadge === 'function') {
+      if (count > 0) return nav.setAppBadge(count).catch((e) => console.log('[sw] setAppBadge rejected', e))
+      return nav.clearAppBadge().catch((e) => console.log('[sw] clearAppBadge rejected', e))
+    }
+    console.log('[sw] setAppBadge NOT available in worker scope')
+  } catch (e) {
+    console.log('[sw] setBadge threw', e)
+  }
+  return Promise.resolve()
+}
 
 // ── Install ──────────────────────────────────────────────────────────────────
 self.addEventListener('install', (event) => {
@@ -27,6 +44,8 @@ self.addEventListener('push', (event) => {
   const { title = 'Kaizen', body = '', url = '/', caseId, unreadCount } = payload
   const notifUrl = caseId ? `/cases/${caseId}` : url
 
+  console.log('[sw] push received, unreadCount =', unreadCount)
+
   event.waitUntil(
     Promise.all([
       // Show the notification
@@ -36,10 +55,14 @@ self.addEventListener('push', (event) => {
         tag:  caseId ? `case-${caseId}` : 'kaizen',
         data: { url: notifUrl },
       }),
-      // Set the app icon badge count
-      unreadCount != null && navigator.setAppBadge
-        ? navigator.setAppBadge(unreadCount)
-        : Promise.resolve(),
+      // Set the app icon badge count (works while app is closed only if iOS
+      // exposes the Badging API in the worker scope)
+      setBadge(unreadCount != null ? unreadCount : 1),
+      // Also ask any open window to set the badge from the page context as a
+      // fallback (page scope supports the Badging API more widely on iOS)
+      self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((cs) => {
+        cs.forEach((c) => c.postMessage({ type: 'SET_BADGE', count: unreadCount != null ? unreadCount : 1 }))
+      }),
     ])
   )
 })
