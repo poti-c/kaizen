@@ -24,22 +24,17 @@ self.addEventListener('push', (event) => {
     payload = { title: 'Kaizen', body: event.data.text(), url: '/' }
   }
 
-  const { title = 'Kaizen Notification', body = '', url = '/', caseId } = payload
+  const { title = 'Kaizen', body = '', url = '/', caseId } = payload
   const notifUrl = caseId ? `/cases/${caseId}` : url
 
+  // Keep options minimal for maximum iOS compatibility
+  // iOS does not support: actions, vibrate, badge (SVG), renotify
   event.waitUntil(
     self.registration.showNotification(title, {
       body,
       icon: '/kaizen-icon.svg',
-      badge: '/kaizen-icon.svg',
-      tag: caseId || 'kaizen',          // collapses duplicate alerts for same case
-      renotify: true,
-      vibrate: [200, 100, 200],
+      tag:  caseId ? `case-${caseId}` : 'kaizen',
       data: { url: notifUrl },
-      actions: [
-        { action: 'open',    title: 'View Case' },
-        { action: 'dismiss', title: 'Dismiss'   },
-      ],
     })
   )
 })
