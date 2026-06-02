@@ -1,16 +1,17 @@
 import { useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { PlusCircle, Search, Filter, Clock, ChevronRight, Download, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, RefreshCw } from 'lucide-react'
+import { PlusCircle, Search, Filter, Clock, ChevronRight, Download, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, RefreshCw, X } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useLanguage } from '@/contexts/LanguageContext'
 import { StatusBadge, PriorityBadge, DepartmentBadge } from '@/components/StatusBadge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { formatRelativeTime, formatDuration, isSLABreached, CATEGORIES } from '@/lib/utils'
+import { formatRelativeTime, formatDuration, isSLABreached, CATEGORIES, DEPARTMENTS } from '@/lib/utils'
 import { cn } from '@/lib/utils'
-import type { KaizenCase, CaseStatus, CasePriority } from '@/types'
+import type { KaizenCase, CaseStatus, CasePriority, Department } from '@/types'
 import { STATUS_LABELS, PRIORITY_LABELS } from '@/types'
 
 const STATUS_FILTERS: (CaseStatus | 'all')[] = ['all', 'open', 'assigned', 'in_progress', 'pending_manager_approval', 'pending_admin_approval', 'closed', 'reopened']
@@ -51,12 +52,29 @@ export function CasesPage() {
   const [pageActive, setPageActive] = useState(1)
   const [pageClosed, setPageClosed] = useState(1)
 
+  // Advanced search state
+  const [advancedSearchEnabled, setAdvancedSearchEnabled] = useState<boolean>(() => {
+    const saved = localStorage.getItem('kaizen-advanced-search-enabled')
+    return saved ? JSON.parse(saved) : false
+  })
+  const [advFilters, setAdvFilters] = useState<{
+    statuses: CaseStatus[]
+    departments: Department[]
+    priorities: CasePriority[]
+    categories: string[]
+  }>(() => {
+    const saved = localStorage.getItem('kaizen-adv-filters')
+    return saved ? JSON.parse(saved) : { statuses: [], departments: [], priorities: [], categories: [] }
+  })
+
   useEffect(() => {
     if (profile) fetchCases()
   }, [profile])
 
   useEffect(() => {
     let result = cases
+
+    // Keyword search
     if (search) {
       const q = search.toLowerCase()
       result = result.filter((c) =>
@@ -65,23 +83,46 @@ export function CasesPage() {
         c.description.toLowerCase().includes(q)
       )
     }
-    if (groupFilter === 'open') {
-      result = result.filter((c) => ['open', 'reopened'].includes(c.status))
-    } else if (groupFilter === 'in_progress') {
-      result = result.filter((c) => ['assigned', 'in_progress'].includes(c.status))
-    } else if (groupFilter === 'pending') {
-      result = result.filter((c) => ['pending_manager_approval', 'pending_admin_approval'].includes(c.status))
-    } else if (groupFilter === 'resolved') {
-      result = result.filter((c) => c.status === 'closed')
-    } else if (statusFilter !== 'all') {
-      result = result.filter((c) => c.status === statusFilter)
+
+    // Advanced filters (if enabled)
+    if (advancedSearchEnabled) {
+      // Status filter: OR logic (show if status matches ANY selected)
+      if (advFilters.statuses.length > 0) {
+        result = result.filter((c) => advFilters.statuses.includes(c.status))
+      }
+      // Department filter: OR logic
+      if (advFilters.departments.length > 0) {
+        result = result.filter((c) => advFilters.departments.includes(c.department))
+      }
+      // Priority filter: OR logic
+      if (advFilters.priorities.length > 0) {
+        result = result.filter((c) => advFilters.priorities.includes(c.priority))
+      }
+      // Category filter: OR logic
+      if (advFilters.categories.length > 0) {
+        result = result.filter((c) => c.category && advFilters.categories.includes(c.category))
+      }
+    } else {
+      // Old filter logic (when advanced search disabled)
+      if (groupFilter === 'open') {
+        result = result.filter((c) => ['open', 'reopened'].includes(c.status))
+      } else if (groupFilter === 'in_progress') {
+        result = result.filter((c) => ['assigned', 'in_progress'].includes(c.status))
+      } else if (groupFilter === 'pending') {
+        result = result.filter((c) => ['pending_manager_approval', 'pending_admin_approval'].includes(c.status))
+      } else if (groupFilter === 'resolved') {
+        result = result.filter((c) => c.status === 'closed')
+      } else if (statusFilter !== 'all') {
+        result = result.filter((c) => c.status === statusFilter)
+      }
+      if (priorityFilter !== 'all') result = result.filter((c) => c.priority === priorityFilter)
+      if (categoryFilter !== 'all') result = result.filter((c) => c.category === categoryFilter)
     }
-    if (priorityFilter !== 'all') result = result.filter((c) => c.priority === priorityFilter)
-    if (categoryFilter !== 'all') result = result.filter((c) => c.category === categoryFilter)
+
     setFiltered(result)
     setPageActive(1)
     setPageClosed(1)
-  }, [cases, search, statusFilter, groupFilter, priorityFilter, categoryFilter])
+  }, [cases, search, statusFilter, groupFilter, priorityFilter, categoryFilter, advancedSearchEnabled, advFilters])
 
   async function fetchCases() {
     if (!profile) return
@@ -318,54 +359,145 @@ export function CasesPage() {
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-3 md:p-4 mb-4 md:mb-5 space-y-2 md:space-y-0 md:flex md:flex-wrap md:gap-3">
-        <div className="relative flex-1 md:min-w-48">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-          <Input
-            placeholder={t.cases.search}
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-9"
-          />
+      {/* Search & Advanced Filters */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm mb-4 md:mb-5">
+        {/* Search Bar */}
+        <div className="p-3 md:p-4 border-b border-gray-100 flex items-center gap-3">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+            <Input
+              placeholder={t.cases.search}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-9"
+            />
+          </div>
+          <label className="flex items-center gap-2 cursor-pointer whitespace-nowrap text-sm">
+            <Checkbox
+              checked={advancedSearchEnabled}
+              onCheckedChange={(checked) => {
+                setAdvancedSearchEnabled(checked as boolean)
+                localStorage.setItem('kaizen-advanced-search-enabled', JSON.stringify(checked))
+              }}
+            />
+            <span className="text-gray-600">Advanced</span>
+          </label>
         </div>
-        <div className="flex gap-2 flex-wrap">
-          <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as CaseStatus | 'all')}>
-            <SelectTrigger className="flex-1 md:w-52">
-              <Filter className="h-4 w-4 text-gray-400 mr-1 flex-shrink-0" />
-              <SelectValue placeholder={t.cases.allStatuses} />
-            </SelectTrigger>
-            <SelectContent>
-              {STATUS_FILTERS.map((s) => (
-                <SelectItem key={s} value={s}>
-                  {s === 'all' ? t.cases.allStatuses : (STATUS_FILTER_LABELS[s] ?? STATUS_LABELS[s as CaseStatus])}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select value={priorityFilter} onValueChange={(v) => setPriorityFilter(v as CasePriority | 'all')}>
-            <SelectTrigger className="flex-1 md:w-40">
-              <SelectValue placeholder={t.cases.allPriorities} />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">{t.cases.allPriorities}</SelectItem>
-              {(['critical', 'high', 'medium', 'low'] as CasePriority[]).map((p) => (
-                <SelectItem key={p} value={p}>{PRIORITY_LABELS[p]}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select value={categoryFilter} onValueChange={(v) => setCategoryFilter(v)}>
-            <SelectTrigger className="flex-1 md:w-44">
-              <SelectValue placeholder={t.cases.allCategories} />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">{t.cases.allCategories}</SelectItem>
-              {CATEGORIES.map((c) => (
-                <SelectItem key={c} value={c}>{CATEGORY_LABELS_EN[c]}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+
+        {/* Advanced Filters (shown when enabled) */}
+        {advancedSearchEnabled && (
+          <div className="p-3 md:p-4 space-y-4">
+            {/* Status Checkboxes */}
+            <div>
+              <p className="text-xs font-semibold text-gray-700 uppercase mb-2">Status</p>
+              <div className="flex flex-wrap gap-3">
+                {STATUS_FILTERS.filter(s => s !== 'all').map((s) => (
+                  <label key={s} className="flex items-center gap-2 cursor-pointer text-sm">
+                    <Checkbox
+                      checked={advFilters.statuses.includes(s as CaseStatus)}
+                      onCheckedChange={(checked) => {
+                        const newStatuses = checked
+                          ? [...advFilters.statuses, s as CaseStatus]
+                          : advFilters.statuses.filter(x => x !== s)
+                        const newFilters = { ...advFilters, statuses: newStatuses }
+                        setAdvFilters(newFilters)
+                        localStorage.setItem('kaizen-adv-filters', JSON.stringify(newFilters))
+                      }}
+                    />
+                    <span className="text-gray-600">{STATUS_FILTER_LABELS[s as CaseStatus] ?? STATUS_LABELS[s as CaseStatus]}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            {/* Department Checkboxes */}
+            <div>
+              <p className="text-xs font-semibold text-gray-700 uppercase mb-2">Department</p>
+              <div className="flex flex-wrap gap-3">
+                {DEPARTMENTS.filter(d => d.value !== 'top_management').map((d) => (
+                  <label key={d.value} className="flex items-center gap-2 cursor-pointer text-sm">
+                    <Checkbox
+                      checked={advFilters.departments.includes(d.value as Department)}
+                      onCheckedChange={(checked) => {
+                        const newDepts = checked
+                          ? [...advFilters.departments, d.value as Department]
+                          : advFilters.departments.filter(x => x !== d.value)
+                        const newFilters = { ...advFilters, departments: newDepts }
+                        setAdvFilters(newFilters)
+                        localStorage.setItem('kaizen-adv-filters', JSON.stringify(newFilters))
+                      }}
+                    />
+                    <span className="text-gray-600">{d.label}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            {/* Priority Checkboxes */}
+            <div>
+              <p className="text-xs font-semibold text-gray-700 uppercase mb-2">Priority</p>
+              <div className="flex flex-wrap gap-3">
+                {(['critical', 'high', 'medium', 'low'] as CasePriority[]).map((p) => (
+                  <label key={p} className="flex items-center gap-2 cursor-pointer text-sm">
+                    <Checkbox
+                      checked={advFilters.priorities.includes(p)}
+                      onCheckedChange={(checked) => {
+                        const newPriorities = checked
+                          ? [...advFilters.priorities, p]
+                          : advFilters.priorities.filter(x => x !== p)
+                        const newFilters = { ...advFilters, priorities: newPriorities }
+                        setAdvFilters(newFilters)
+                        localStorage.setItem('kaizen-adv-filters', JSON.stringify(newFilters))
+                      }}
+                    />
+                    <span className="text-gray-600">{PRIORITY_LABELS[p]}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            {/* Category Checkboxes */}
+            <div>
+              <p className="text-xs font-semibold text-gray-700 uppercase mb-2">Category</p>
+              <div className="flex flex-wrap gap-3">
+                {CATEGORIES.map((c) => (
+                  <label key={c} className="flex items-center gap-2 cursor-pointer text-sm">
+                    <Checkbox
+                      checked={advFilters.categories.includes(c)}
+                      onCheckedChange={(checked) => {
+                        const newCategories = checked
+                          ? [...advFilters.categories, c]
+                          : advFilters.categories.filter(x => x !== c)
+                        const newFilters = { ...advFilters, categories: newCategories }
+                        setAdvFilters(newFilters)
+                        localStorage.setItem('kaizen-adv-filters', JSON.stringify(newFilters))
+                      }}
+                    />
+                    <span className="text-gray-600">{CATEGORY_LABELS_EN[c]}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            {/* Clear Filters Button */}
+            {(advFilters.statuses.length > 0 || advFilters.departments.length > 0 || advFilters.priorities.length > 0 || advFilters.categories.length > 0) && (
+              <div className="pt-2 border-t border-gray-100">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setAdvFilters({ statuses: [], departments: [], priorities: [], categories: [] })
+                    localStorage.setItem('kaizen-adv-filters', JSON.stringify({ statuses: [], departments: [], priorities: [], categories: [] }))
+                  }}
+                  className="gap-1"
+                >
+                  <X className="h-3.5 w-3.5" />
+                  Clear Filters
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {loading ? (
