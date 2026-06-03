@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { ChevronLeft, ChevronRight, X } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
+import { useCompany } from '@/contexts/CompanyContext'
 import { useLanguage } from '@/contexts/LanguageContext'
 import { cn } from '@/lib/utils'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -29,6 +30,7 @@ const DAY_LABELS_TH = ['จ','อ','พ','พฤ','ศ','ส','อา']
 
 export function CasesCalendarPage() {
   const { profile } = useAuth()
+  const { activeCompany } = useCompany()
   const { lang, t } = useLanguage()
   const navigate = useNavigate()
   const today = new Date()
@@ -47,8 +49,8 @@ export function CasesCalendarPage() {
   const DAY_LABELS = lang === 'th' ? DAY_LABELS_TH : DAY_LABELS_EN
 
   useEffect(() => {
-    if (profile) fetchCases()
-  }, [profile, viewMonth, viewYear])
+    if (profile && activeCompany) fetchCases()
+  }, [profile, activeCompany, viewMonth, viewYear])
 
   async function fetchCases() {
     setLoading(true)
@@ -58,6 +60,7 @@ export function CasesCalendarPage() {
     let query = supabase
       .from('kaizen_cases')
       .select('*')
+      .eq('company_id', activeCompany!.id)
       .gte('created_at', start)
       .lte('created_at', end)
 

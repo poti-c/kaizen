@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
+import { useCompany } from '@/contexts/CompanyContext'
 import type { KaizenSettings } from '@/types'
 
 const DEFAULT_SETTINGS: KaizenSettings = {
@@ -51,13 +52,15 @@ function applyTheme(settings: KaizenSettings) {
 }
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
+  const { activeCompany } = useCompany()
   const [settings, setSettings] = useState<KaizenSettings>(DEFAULT_SETTINGS)
   const [loading, setLoading] = useState(true)
 
-  const fetchSettings = useCallback(async () => {
-    const { data } = await supabase
-      .from('kaizen_settings')
-      .select('key, value')
+  const fetchSettings = useCallback(async (companyId: string | null) => {
+    let query = supabase.from('kaizen_settings').select('key, value')
+    if (companyId) query = query.eq('company_id', companyId)
+
+    const { data } = await query
 
     if (data && data.length > 0) {
       const merged: Partial<KaizenSettings> = {}
@@ -76,8 +79,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   useEffect(() => {
-    fetchSettings()
-  }, [fetchSettings])
+    fetchSettings(activeCompany?.id ?? null)
+  }, [fetchSettings, activeCompany?.id])
 
   async function updateSettings(updates: Partial<KaizenSettings>) {
     const newSettings = { ...settings, ...updates }
@@ -87,7 +90,10 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     for (const [key, value] of Object.entries(updates)) {
       await supabase
         .from('kaizen_settings')
-        .upsert({ key, value }, { onConflict: 'key' })
+        .upsert(
+          { key, value, company_id: activeCompany?.id ?? null },
+          { onConflict: 'key,company_id' }
+        )
     }
   }
 

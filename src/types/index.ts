@@ -26,6 +26,15 @@ export type PhotoType = 'problem' | 'resolution'
 
 export type AssignmentStatus = 'pending' | 'acknowledged' | 'in_progress' | 'completed'
 
+export interface KaizenCompany {
+  id: string
+  name: string
+  slug: string
+  logo_url: string | null
+  is_active: boolean
+  created_at: string
+}
+
 export interface KaizenProfile {
   id: string
   full_name: string
@@ -33,6 +42,7 @@ export interface KaizenProfile {
   email: string | null
   role: Role
   department: Department
+  company_id: string | null
   is_active: boolean
   avatar_url: string | null
   created_at: string

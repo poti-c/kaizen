@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ArrowLeft, Loader2, RefreshCw } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
+import { useCompany } from '@/contexts/CompanyContext'
 import { useLanguage } from '@/contexts/LanguageContext'
 import { supabase } from '@/lib/supabase'
 import { Button } from '@/components/ui/button'
@@ -24,6 +25,7 @@ const CATEGORY_LABELS_EN: Record<string, string> = {
 export function CreateCasePage() {
   const navigate = useNavigate()
   const { profile } = useAuth()
+  const { activeCompany } = useCompany()
   const { t } = useLanguage()
 
   const [caseNumber] = useState(() => generateCaseNumber())
@@ -61,6 +63,7 @@ export function CreateCasePage() {
           created_by: profile.id,
           priority,
           status: 'open',
+          company_id: activeCompany?.id ?? null,
           due_date: dueDate || null,
           category: category || null,
           category_other: category === 'other' ? categoryOther.trim() || null : null,

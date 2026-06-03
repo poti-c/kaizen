@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
-import { Bell, Search, X, Monitor, Smartphone, LayoutDashboard, FolderOpen, PlusCircle, Users, Settings, LogOut, CalendarDays } from 'lucide-react'
+import { Bell, Search, X, Monitor, Smartphone, LayoutDashboard, FolderOpen, PlusCircle, Users, Settings, LogOut, CalendarDays, ChevronDown, Building2 } from 'lucide-react'
 import { useNavigate, Link, NavLink } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
+import { useCompany } from '@/contexts/CompanyContext'
 import { useLanguage } from '@/contexts/LanguageContext'
 import { useViewMode } from '@/contexts/ViewModeContext'
 import { supabase } from '@/lib/supabase'
@@ -13,6 +14,7 @@ import type { KaizenNotification } from '@/types'
 
 export function Header() {
   const { profile, signOut } = useAuth()
+  const { activeCompany, companies, setActiveCompany } = useCompany()
   const { t } = useLanguage()
   const { viewMode, toggleViewMode, showSidebar } = useViewMode()
   const navigate = useNavigate()
@@ -20,9 +22,11 @@ export function Header() {
   const [showNotifs, setShowNotifs] = useState(false)
   const [showSearch, setShowSearch] = useState(false)
   const [showMobileNav, setShowMobileNav] = useState(false)
+  const [showCompanySwitcher, setShowCompanySwitcher] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [mobileSearchQuery, setMobileSearchQuery] = useState('')
   const unreadCount = notifications.filter((n) => !n.is_read).length
+  const showSwitcher = profile?.role === 'super_admin' && companies.length > 1
 
   const NAV_ITEMS = [
     { to: '/dashboard',      icon: LayoutDashboard, label: t.nav.dashboard,      roles: ['super_admin', 'manager'] },
@@ -142,7 +146,7 @@ export function Header() {
           onClick={() => setShowMobileNav(true)}
         >
           <img src="/kaizen-icon.svg" alt="Kaizen" className="w-8 h-8 object-contain flex-shrink-0" />
-          <span className="text-sm font-semibold text-gray-900 truncate">Kaizen</span>
+          <span className="text-sm font-semibold text-gray-900 truncate">Kaizen System</span>
         </button>
 
         {/* Desktop search */}
@@ -160,6 +164,42 @@ export function Header() {
       </div>
 
       <div className="flex items-center gap-1 md:gap-2">
+        {/* Company Switcher — super admin with 2+ companies only */}
+        {showSwitcher && (
+          <div className="relative">
+            <button
+              onClick={() => setShowCompanySwitcher(!showCompanySwitcher)}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors text-sm font-medium text-gray-700 max-w-[140px]"
+            >
+              <Building2 className="h-4 w-4 text-gray-500 flex-shrink-0" />
+              <span className="truncate">{activeCompany?.name}</span>
+              <ChevronDown className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
+            </button>
+            {showCompanySwitcher && (
+              <>
+                <div className="fixed inset-0 z-20" onClick={() => setShowCompanySwitcher(false)} />
+                <div className="absolute right-0 top-full mt-1.5 w-52 bg-white rounded-xl shadow-xl border border-gray-200 z-30 overflow-hidden py-1">
+                  <p className="px-3 py-1.5 text-xs font-semibold text-gray-400 uppercase tracking-wider">Switch Company</p>
+                  {companies.map(c => (
+                    <button
+                      key={c.id}
+                      onClick={() => { setActiveCompany(c); setShowCompanySwitcher(false); navigate('/dashboard') }}
+                      className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-left transition-colors ${
+                        c.id === activeCompany?.id
+                          ? 'bg-[var(--brand-primary)]/10 text-[var(--brand-primary)] font-medium'
+                          : 'text-gray-700 hover:bg-gray-50'
+                      }`}
+                    >
+                      <Building2 className="h-4 w-4 flex-shrink-0" />
+                      {c.name}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
         {/* Mobile search toggle */}
         <button
           className="md:hidden p-2 rounded-lg hover:bg-gray-100 transition-colors"

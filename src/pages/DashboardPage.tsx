@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { FolderOpen, Clock, AlertTriangle, PlusCircle, CheckCircle2, RefreshCw } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
+import { useCompany } from '@/contexts/CompanyContext'
 import { useLanguage } from '@/contexts/LanguageContext'
 import { StatusBadge, PriorityBadge } from '@/components/StatusBadge'
 import { Button } from '@/components/ui/button'
@@ -25,6 +26,7 @@ interface Stats {
 
 export function DashboardPage() {
   const { profile } = useAuth()
+  const { activeCompany } = useCompany()
   const { t, lang } = useLanguage()
   const [stats, setStats] = useState<Stats>({ total: 0, open: 0, reopened: 0, inProgress: 0, pending: 0, closed: 0, critical: 0 })
   const [recentCases, setRecentCases] = useState<KaizenCase[]>([])
@@ -42,9 +44,9 @@ export function DashboardPage() {
   const [recurringCount, setRecurringCount] = useState(0)
 
   useEffect(() => {
-    if (!profile) return
+    if (!profile || !activeCompany) return
     fetchDashboardData()
-  }, [profile])
+  }, [profile, activeCompany])
 
   async function fetchDashboardData() {
     if (!profile) return
@@ -52,9 +54,8 @@ export function DashboardPage() {
 
     let query = supabase.from('kaizen_cases').select('*, creator:kaizen_profiles!kaizen_cases_created_by_fkey(full_name, department)')
 
-    if (profile.role === 'staff') {
-      query = query.eq('department', profile.department)
-    }
+    if (activeCompany) query = query.eq('company_id', activeCompany.id)
+    if (profile.role === 'staff') query = query.eq('department', profile.department)
 
     const { data } = await query.order('created_at', { ascending: false })
     const cases = (data || []) as KaizenCase[]

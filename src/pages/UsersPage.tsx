@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Plus, Trash2, Shield, Users, Loader2, Eye, EyeOff, Pencil, PowerOff, Power } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
+import { useCompany } from '@/contexts/CompanyContext'
 import { useLanguage } from '@/contexts/LanguageContext'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -19,6 +20,7 @@ import { Navigate, Link } from 'react-router-dom'
 
 export function UsersPage() {
   const { profile } = useAuth()
+  const { activeCompany } = useCompany()
   const { t, lang } = useLanguage()
   const [users, setUsers] = useState<KaizenProfile[]>([])
   const [loading, setLoading] = useState(true)
@@ -52,12 +54,13 @@ export function UsersPage() {
 
   useEffect(() => {
     fetchUsers()
-  }, [profile])
+  }, [profile, activeCompany])
 
   async function fetchUsers() {
     setLoading(true)
     let query = supabase.from('kaizen_profiles').select('*').order('role').order('department').order('full_name')
 
+    if (activeCompany) query = query.eq('company_id', activeCompany.id)
     if (profile?.role === 'manager') {
       query = query.eq('department', profile.department).eq('role', 'staff')
     }
@@ -120,8 +123,9 @@ export function UsersPage() {
             full_name: newFullName.trim(),
             username: newUsername.trim() || undefined,
             email: newEmail.trim() || undefined,
-            department: profile?.role === 'manager' ? profile.department : newDepartment,
+            department: profile?.role === 'manager' ? profile.department : newRole === 'super_admin' ? 'top_management' : newDepartment,
             password: newPassword,
+            company_id: activeCompany?.id ?? null,
           }),
         }
       )
@@ -418,6 +422,7 @@ export function UsersPage() {
               </div>
             )}
 
+            {newRole !== 'super_admin' && (
             <div className="space-y-1.5">
               <Label>{t.users.dept} *</Label>
               {profile?.role === 'manager' ? (
@@ -431,6 +436,7 @@ export function UsersPage() {
                 </Select>
               )}
             </div>
+            )}
 
             <div className="space-y-1.5">
               <Label>{t.users.password} *</Label>

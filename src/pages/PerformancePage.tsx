@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { Clock, CheckCircle2, AlertTriangle, FolderOpen, Trophy, Building2, ChevronRight } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
+import { useCompany } from '@/contexts/CompanyContext'
 import { useLanguage } from '@/contexts/LanguageContext'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { getInitials, isSLABreached } from '@/lib/utils'
@@ -35,6 +36,7 @@ interface StaffRow {
 
 export function PerformancePage() {
   const { profile } = useAuth()
+  const { activeCompany } = useCompany()
   const { t, lang } = useLanguage()
   const [cases, setCases] = useState<KaizenCase[]>([])
   const [people, setPeople] = useState<KaizenProfile[]>([])
@@ -44,14 +46,18 @@ export function PerformancePage() {
   })
 
   useEffect(() => {
-    if (profile) load()
-  }, [profile])
+    if (profile && activeCompany) load()
+  }, [profile, activeCompany])
 
   async function load() {
     setLoading(true)
+    const companyFilter = activeCompany?.id
     const [casesRes, peopleRes] = await Promise.all([
-      supabase.from('kaizen_cases').select('*').order('created_at', { ascending: false }),
-      supabase.from('kaizen_profiles').select('*'),
+      supabase.from('kaizen_cases').select('*')
+        .eq('company_id', companyFilter!)
+        .order('created_at', { ascending: false }),
+      supabase.from('kaizen_profiles').select('*')
+        .eq('company_id', companyFilter!),
     ])
     setCases((casesRes.data || []) as KaizenCase[])
     setPeople((peopleRes.data || []) as KaizenProfile[])

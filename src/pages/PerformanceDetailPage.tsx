@@ -3,6 +3,7 @@ import { useParams, useNavigate, Link, Navigate } from 'react-router-dom'
 import { ArrowLeft, User, Mail, FolderOpen, Clock, CheckCircle2, AlertTriangle, TrendingUp, CalendarDays } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
+import { useCompany } from '@/contexts/CompanyContext'
 import { useLanguage } from '@/contexts/LanguageContext'
 import { StatusBadge, PriorityBadge } from '@/components/StatusBadge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
@@ -19,6 +20,7 @@ export function PerformanceDetailPage() {
   const { userId } = useParams<{ userId: string }>()
   const navigate = useNavigate()
   const { profile: myProfile } = useAuth()
+  const { activeCompany } = useCompany()
   const { t, lang } = useLanguage()
 
   // Staff: no access at all
@@ -37,7 +39,7 @@ export function PerformanceDetailPage() {
     setLoading(true)
     const [profileRes, casesRes, activityRes] = await Promise.all([
       supabase.from('kaizen_profiles').select('*').eq('id', userId!).single(),
-      supabase.from('kaizen_cases').select('*').eq('created_by', userId!).order('created_at', { ascending: false }),
+      supabase.from('kaizen_cases').select('*').eq('created_by', userId!).eq('company_id', activeCompany?.id ?? '').order('created_at', { ascending: false }),
       supabase.from('kaizen_case_timeline')
         .select('*, case:kaizen_cases(case_number, title)')
         .eq('performed_by', userId!)

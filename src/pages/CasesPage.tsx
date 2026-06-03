@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { PlusCircle, Search, Filter, Clock, ChevronRight, Download, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, RefreshCw, X, AlertCircle } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
+import { useCompany } from '@/contexts/CompanyContext'
 import { useLanguage } from '@/contexts/LanguageContext'
 import { StatusBadge, PriorityBadge, DepartmentBadge } from '@/components/StatusBadge'
 import { Button } from '@/components/ui/button'
@@ -33,6 +34,7 @@ const CATEGORY_LABELS_EN: Record<string, string> = {
 
 export function CasesPage() {
   const { profile } = useAuth()
+  const { activeCompany } = useCompany()
   const { t } = useLanguage()
   const [searchParams] = useSearchParams()
   const [cases, setCases] = useState<KaizenCase[]>([])
@@ -99,8 +101,8 @@ export function CasesPage() {
   })
 
   useEffect(() => {
-    if (profile) fetchCases()
-  }, [profile])
+    if (profile && activeCompany) fetchCases()
+  }, [profile, activeCompany])
 
   useEffect(() => {
     let result = cases
@@ -164,6 +166,7 @@ export function CasesPage() {
       .select('*, creator:kaizen_profiles!kaizen_cases_created_by_fkey(id, full_name, department)')
       .order('created_at', { ascending: false })
 
+    if (activeCompany) query = query.eq('company_id', activeCompany.id)
     if (profile.role === 'staff') {
       query = query.eq('department', profile.department)
     } else if (profile.role === 'manager') {
