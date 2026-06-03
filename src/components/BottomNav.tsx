@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { NavLink } from 'react-router-dom'
-import { LayoutDashboard, FolderOpen, PlusCircle, Bell, Users, Settings } from 'lucide-react'
+import { LayoutDashboard, FolderOpen, PlusCircle, Bell, Users, Settings, TrendingUp } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useLanguage } from '@/contexts/LanguageContext'
 import { supabase } from '@/lib/supabase'
@@ -35,7 +35,9 @@ export function BottomNav() {
 
   const isStaff = profile?.role === 'staff'
 
-  const items = isStaff
+  type NavItem = { to: string; icon: typeof FolderOpen; label: string; accent: boolean; badge?: number }
+
+  const items: NavItem[] = isStaff
     ? [
         { to: '/cases',        icon: FolderOpen,      label: t.nav.cases,    accent: false },
         { to: '/cases/new',    icon: PlusCircle,      label: t.nav.newCase,  accent: true  },
@@ -43,11 +45,11 @@ export function BottomNav() {
         { to: '/settings',     icon: Settings,        label: t.nav.settings, accent: false },
       ]
     : [
-        { to: '/dashboard',    icon: LayoutDashboard, label: t.nav.home,     accent: false },
-        { to: '/cases',        icon: FolderOpen,      label: t.nav.cases,    accent: false },
-        { to: '/cases/new',    icon: PlusCircle,      label: t.nav.newCase,  accent: true  },
-        { to: '/notifications',icon: Bell,            label: t.nav.alerts,   accent: false, badge: unread },
-        { to: '/users',        icon: Users,           label: t.nav.users,    accent: false },
+        { to: '/dashboard',    icon: LayoutDashboard, label: t.nav.home,        accent: false },
+        { to: '/cases',        icon: FolderOpen,      label: t.nav.cases,       accent: false },
+        { to: '/cases/new',    icon: PlusCircle,      label: t.nav.newCase,     accent: true  },
+        { to: '/performance',  icon: TrendingUp,      label: t.nav.performance, accent: false },
+        { to: '/users',        icon: Users,           label: t.nav.users,       accent: false },
       ]
 
   return (

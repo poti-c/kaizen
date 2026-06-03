@@ -16,7 +16,8 @@ import { UsersPage } from '@/pages/UsersPage'
 import { NotificationsPage } from '@/pages/NotificationsPage'
 import { SettingsPage } from '@/pages/SettingsPage'
 import { CasesCalendarPage } from '@/pages/CasesCalendarPage'
-import { UserProfilePage } from '@/pages/UserProfilePage'
+import { PerformancePage } from '@/pages/PerformancePage'
+import { PerformanceDetailPage } from '@/pages/PerformanceDetailPage'
 
 // Redirects to /cases for staff, /dashboard for managers and admins
 function RoleRedirect() {
@@ -52,12 +53,13 @@ export default function App() {
                   <Route path="/" element={<Layout />}>
                     <Route index element={<RoleRedirect />} />
                     <Route path="dashboard" element={<ProtectedRoute roles={['super_admin', 'manager']}><DashboardPage /></ProtectedRoute>} />
+                    <Route path="performance" element={<ProtectedRoute roles={['super_admin', 'manager']}><PerformancePage /></ProtectedRoute>} />
+                    <Route path="performance/:userId" element={<ProtectedRoute roles={['super_admin', 'manager']}><PerformanceDetailPage /></ProtectedRoute>} />
                     <Route path="cases" element={<CasesPage />} />
                     <Route path="cases/calendar" element={<CasesCalendarPage />} />
                     <Route path="cases/new" element={<CreateCasePage />} />
                     <Route path="cases/:id" element={<CaseDetailPage />} />
                     <Route path="users" element={<UsersPage />} />
-                    <Route path="users/:userId" element={<ProtectedRoute roles={['super_admin', 'manager']}><UserProfilePage /></ProtectedRoute>} />
                     <Route path="notifications" element={<NotificationsPage />} />
                     <Route path="settings" element={<SettingsPage />} />
                   </Route>

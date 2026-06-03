@@ -41,16 +41,6 @@ export function DashboardPage() {
   const [criticalCases, setCriticalCases] = useState<{ id: string; case_number: string; title: string }[]>([])
   const [recurringCount, setRecurringCount] = useState(0)
 
-  // Dept performance
-  const [deptPerf, setDeptPerf] = useState<{
-    dept: string
-    total: number
-    open: number
-    resolutionRate: number
-    avgDays: number | null
-    overdue: number
-  }[]>([])
-
   useEffect(() => {
     if (!profile) return
     fetchDashboardData()
@@ -135,32 +125,6 @@ export function DashboardPage() {
 
     // KPI: recurring
     setRecurringCount(cases.filter(c => c.is_recurring).length)
-
-    // Dept performance
-    const deptSet = new Set(cases.map(c => c.department))
-    const perfArr: typeof deptPerf = []
-    deptSet.forEach((dept) => {
-      const deptCases = cases.filter(c => c.department === dept)
-      const openCases = deptCases.filter(c => c.status !== 'closed')
-      const closedCases = deptCases.filter(c => c.status === 'closed' && c.closed_at)
-      const avgDays = closedCases.length > 0
-        ? Math.round(closedCases.reduce((sum, c) => sum + differenceInHours(new Date(c.closed_at!), new Date(c.created_at)), 0) / closedCases.length / 24 * 10) / 10
-        : null
-      const overdueDept = openCases.filter(c => isSLABreached(c)).length
-      const resolutionRate = deptCases.length > 0
-        ? Math.round((closedCases.length / deptCases.length) * 100)
-        : 0
-      perfArr.push({
-        dept: DEPARTMENT_LABELS[dept as Department] || dept,
-        total: deptCases.length,
-        open: openCases.length,
-        resolutionRate,
-        avgDays,
-        overdue: overdueDept,
-      })
-    })
-    perfArr.sort((a, b) => b.open - a.open)
-    setDeptPerf(perfArr.filter(d => d.open > 0 || d.avgDays !== null))
 
     setLoading(false)
   }
@@ -541,61 +505,6 @@ export function DashboardPage() {
             )}
           </div>
         </div>
-
-
-        {/* Department Performance Table */}
-        {deptPerf.length > 0 && (
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-            <div className="px-5 py-4 border-b border-gray-100">
-              <h2 className="font-semibold text-gray-900">{t.dashboard.deptPerformance}</h2>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-gray-100 bg-gray-50">
-                    <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">{t.cases.dept}</th>
-                    <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">{t.dashboard.openCases}</th>
-                    <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">{t.dashboard.avgDays}</th>
-                    <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">{t.dashboard.overdue}</th>
-                    <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">{t.dashboard.resolutionRate}</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {deptPerf.map((d) => (
-                    <tr key={d.dept} className="hover:bg-gray-50">
-                      <td className="px-5 py-3 font-medium text-gray-900 text-sm">{d.dept}</td>
-                      <td className="px-5 py-3 text-gray-700">{d.open}<span className="text-gray-400 text-xs ml-1">/ {d.total}</span></td>
-                      <td className="px-5 py-3 text-gray-500">{d.avgDays !== null ? `${d.avgDays}d` : '—'}</td>
-                      <td className="px-5 py-3">
-                        {d.overdue > 0 ? (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700">{d.overdue}</span>
-                        ) : (
-                          <span className="text-gray-400 text-xs">—</span>
-                        )}
-                      </td>
-                      <td className="px-5 py-3">
-                        <div className="flex items-center gap-2 min-w-[120px]">
-                          <div className="flex-1 bg-gray-100 rounded-full h-2">
-                            <div
-                              className="h-2 rounded-full transition-all"
-                              style={{
-                                width: `${d.resolutionRate}%`,
-                                backgroundColor: d.resolutionRate === 100 ? '#22c55e' : d.resolutionRate >= 50 ? '#3b82f6' : '#f97316',
-                              }}
-                            />
-                          </div>
-                          <span className={`text-xs font-semibold w-9 text-right ${d.resolutionRate === 100 ? 'text-green-600' : d.resolutionRate >= 50 ? 'text-blue-600' : 'text-orange-600'}`}>
-                            {d.resolutionRate}%
-                          </span>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
       </div>
     </div>
   )

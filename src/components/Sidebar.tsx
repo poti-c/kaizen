@@ -1,7 +1,7 @@
 import { NavLink, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, FolderOpen, PlusCircle, Bell, Users,
-  Settings, LogOut, ChevronLeft, ChevronRight, CalendarDays,
+  Settings, LogOut, ChevronLeft, ChevronRight, CalendarDays, TrendingUp,
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useLanguage } from '@/contexts/LanguageContext'
@@ -19,6 +19,7 @@ export function Sidebar() {
 
   const NAV_ITEMS = [
     { to: '/dashboard', icon: LayoutDashboard, label: t.nav.dashboard, roles: ['super_admin', 'manager'] },
+    { to: '/performance', icon: TrendingUp, label: t.nav.performance, roles: ['super_admin', 'manager'] },
     { to: '/cases', icon: FolderOpen, label: t.nav.cases, roles: ['super_admin', 'manager', 'staff'] },
     { to: '/cases/calendar', icon: CalendarDays, label: t.nav.calendar, roles: ['super_admin', 'manager', 'staff'] },
     { to: '/cases/new', icon: PlusCircle, label: t.nav.newCase, roles: ['staff', 'manager', 'super_admin'] },

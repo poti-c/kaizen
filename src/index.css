@@ -2,6 +2,19 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * iOS auto-zoom fix: Safari zooms into any focused text-entry control whose
+ * font-size is below 16px. On touch devices we force a 16px minimum so tapping
+ * an input never zooms the page. Desktop (fine pointer) keeps the compact sizing.
+ */
+@media (pointer: coarse) {
+  input:not([type='checkbox']):not([type='radio']):not([type='color']):not([type='range']):not([type='file']),
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+}
+
 /* Default brand CSS variables */
 :root {
   --brand-primary: #1e3a5f;

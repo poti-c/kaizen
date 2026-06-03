@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Eye, EyeOff, Loader2, Palette, Lock, Info, Scale, Pencil, Check, X, Bell, BellOff, BellRing } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { Eye, EyeOff, Loader2, Palette, Lock, Info, Scale, Pencil, Check, X, Bell, BellOff, BellRing, Plus, Trash2, Building2, Tag, MapPin, AlertTriangle, LifeBuoy, HelpCircle, MessageSquare, Smartphone, Mail, ChevronRight } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useTheme } from '@/contexts/ThemeContext'
@@ -7,9 +7,19 @@ import { useLanguage } from '@/contexts/LanguageContext'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
 import { DEPARTMENT_LABELS, DEPARTMENTS } from '@/types'
+import { CATEGORIES, LOCATIONS } from '@/lib/utils'
 import { toast } from 'sonner'
 import { usePushNotifications } from '@/hooks/usePushNotifications'
+
+// Default lists (hardcoded fallback)
+const DEFAULT_DEPARTMENTS = DEPARTMENTS.filter(d => d.value !== 'top_management').map(d => d.label)
+const DEFAULT_CATEGORIES = [...CATEGORIES].map(c => c.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()))
+const DEFAULT_LOCATIONS = [...LOCATIONS] as string[]
+
+// Support
+const SUPPORT_EMAIL = 'chaopoti@gmail.com'
 
 const PRESET_COLORS = [
   { label: 'Teal Pro',     primary: '#0891b2', accent: '#06b6d4', sidebar: '#1c2b3a' },
@@ -68,6 +78,167 @@ export function SettingsPage() {
   const [changingPassword, setChangingPassword] = useState(false)
 
   const [defaultDept, setDefaultDept] = useState(() => localStorage.getItem('kaizen-default-dept') || 'all')
+
+  // ── Editable lists ──────────────────────────────────────────────────────────
+  const [deptList, setDeptList] = useState<string[]>(DEFAULT_DEPARTMENTS)
+  const [catList, setCatList] = useState<string[]>(DEFAULT_CATEGORIES)
+  const [locList, setLocList] = useState<string[]>(DEFAULT_LOCATIONS)
+
+  // new-item inputs
+  const [newDept, setNewDept] = useState('')
+  const [newCat, setNewCat] = useState('')
+  const [newLoc, setNewLoc] = useState('')
+
+  // inline-edit state: { key: 'dept'|'cat'|'loc', index: number, value: string } | null
+  const [editingItem, setEditingItem] = useState<{ key: string; index: number; value: string } | null>(null)
+
+  // Load from Supabase on mount
+  useEffect(() => {
+    async function loadLists() {
+      const { data } = await supabase
+        .from('kaizen_settings')
+        .select('key, value')
+        .in('key', ['custom_departments', 'custom_categories', 'custom_locations'])
+      if (!data) return
+      data.forEach((row: { key: string; value: unknown }) => {
+        if (!Array.isArray(row.value)) return
+        if (row.key === 'custom_departments') setDeptList(row.value as string[])
+        if (row.key === 'custom_categories') setCatList(row.value as string[])
+        if (row.key === 'custom_locations') setLocList(row.value as string[])
+      })
+    }
+    loadLists()
+  }, [])
+
+  async function saveList(key: string, list: string[]) {
+    await supabase.from('kaizen_settings').upsert({ key, value: list }, { onConflict: 'key' })
+  }
+
+  function addItem(key: string, value: string, list: string[], setList: (l: string[]) => void, setNew: (v: string) => void) {
+    const trimmed = value.trim()
+    if (!trimmed) return
+    if (list.some(i => i.toLowerCase() === trimmed.toLowerCase())) {
+      toast.error('Item already exists.')
+      return
+    }
+    const updated = [...list, trimmed]
+    setList(updated)
+    setNew('')
+    saveList(key, updated)
+    toast.success('Added.')
+  }
+
+  function removeItem(key: string, index: number, list: string[], setList: (l: string[]) => void) {
+    const updated = list.filter((_, i) => i !== index)
+    setList(updated)
+    saveList(key, updated)
+    toast.success('Removed.')
+  }
+
+  function startEdit(key: string, index: number, value: string) {
+    setEditingItem({ key, index, value })
+  }
+
+  function confirmEdit(list: string[], setList: (l: string[]) => void, key: string) {
+    if (!editingItem) return
+    const trimmed = editingItem.value.trim()
+    if (!trimmed) { setEditingItem(null); return }
+    const updated = list.map((item, i) => i === editingItem.index ? trimmed : item)
+    setList(updated)
+    saveList(key, updated)
+    setEditingItem(null)
+    toast.success('Updated.')
+  }
+
+  // ── Bulk delete ──────────────────────────────────────────────────────────
+  const [bulkConfirm, setBulkConfirm] = useState<{
+    listKey: string
+    dbKey: string
+    items: string[]
+    indices: number[]
+    affectedCases: number
+    checking: boolean
+  } | null>(null)
+
+  async function handleBulkRemove(
+    listKey: string,
+    dbKey: string,
+    indices: number[],
+    list: string[],
+    setList: (l: string[]) => void,
+  ) {
+    const items = indices.map(i => list[i])
+    // Show dialog immediately with checking state
+    setBulkConfirm({ listKey, dbKey, items, indices, affectedCases: 0, checking: true })
+
+    // Count affected cases (location is a direct string match)
+    let affected = 0
+    if (listKey === 'loc') {
+      const { count } = await supabase
+        .from('kaizen_cases')
+        .select('*', { count: 'exact', head: true })
+        .in('location', items)
+        .neq('status', 'closed')
+      affected = count ?? 0
+    } else if (listKey === 'cat') {
+      // cases store raw keys: 'maintenance', 'guest_complaint' etc.
+      const slugs = items.map(i => i.toLowerCase().replace(/ /g, '_'))
+      const { count } = await supabase
+        .from('kaizen_cases')
+        .select('*', { count: 'exact', head: true })
+        .in('category', slugs)
+        .neq('status', 'closed')
+      affected = count ?? 0
+    } else if (listKey === 'dept') {
+      const { count } = await supabase
+        .from('kaizen_cases')
+        .select('*', { count: 'exact', head: true })
+        .in('department', items.map(i => i.toLowerCase().replace(/ /g, '_')))
+        .neq('status', 'closed')
+      affected = count ?? 0
+    }
+
+    setBulkConfirm(prev => prev ? { ...prev, affectedCases: affected, checking: false } : null)
+
+    // Remove the list + setList reference so we can use them in confirmBulkDelete
+    _pendingBulkRef.current = { list, setList }
+  }
+
+  // We need a ref to pass list/setList through the async gap
+  const _pendingBulkRef = useRef<{ list: string[]; setList: (l: string[]) => void } | null>(null)
+
+  // Support dialog
+  const [supportDialog, setSupportDialog] = useState<'help' | 'feedback' | 'compatibility' | 'legal' | null>(null)
+
+  async function confirmBulkDelete() {
+    if (!bulkConfirm || !_pendingBulkRef.current) return
+    const { dbKey, indices, items, affectedCases } = bulkConfirm
+    const { list, setList } = _pendingBulkRef.current
+    const updated = list.filter((_, i) => !indices.includes(i))
+    setList(updated)
+    await saveList(dbKey, updated)
+
+    // Create a notification for super admin if cases are affected
+    if (affectedCases > 0 && profile) {
+      const listLabel = dbKey === 'custom_locations' ? 'location' : dbKey === 'custom_categories' ? 'category' : 'department'
+      const admins = await supabase.from('kaizen_profiles').select('id').eq('role', 'super_admin')
+      const notifications = (admins.data || []).map((a: { id: string }) => ({
+        user_id: a.id,
+        case_id: null,
+        title: `Incomplete cases detected`,
+        message: `${affectedCases} open case${affectedCases > 1 ? 's' : ''} ${affectedCases > 1 ? 'have' : 'has'} a ${listLabel} that was removed: ${items.join(', ')}. Please update the affected cases.`,
+        is_read: false,
+        notification_type: 'incomplete_case',
+      }))
+      if (notifications.length > 0) {
+        await supabase.from('kaizen_notifications').insert(notifications)
+      }
+    }
+
+    toast.success(`Removed ${items.length} item${items.length > 1 ? 's' : ''}.`)
+    setBulkConfirm(null)
+  }
+  // ────────────────────────────────────────────────────────────────────────
 
   const [customPrimary, setCustomPrimary] = useState(settings.primary_color)
   const [customAccent, setCustomAccent] = useState(settings.accent_color)
@@ -394,36 +565,133 @@ export function SettingsPage() {
         </div>
       </div>
 
-      {/* Default Department Filter — Manager / Admin only */}
-      {(profile?.role === 'super_admin' || profile?.role === 'manager') && (
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-base">🏷️</span>
-            <h2 className="font-semibold text-gray-900">
-              {lang === 'th' ? 'ตัวกรองแผนกเริ่มต้น' : 'Default Department Filter'}
-            </h2>
+      {/* ── Editable Lists — super_admin only ── */}
+      {profile?.role === 'super_admin' && (() => {
+        const TABS = [
+          { key: 'dept', label: lang === 'th' ? 'แผนก' : 'Departments',  count: deptList.length },
+          { key: 'cat',  label: lang === 'th' ? 'หมวดหมู่' : 'Categories', count: catList.length },
+          { key: 'loc',  label: lang === 'th' ? 'สถานที่' : 'Locations',   count: locList.length },
+        ] as const
+        type TabKey = 'dept' | 'cat' | 'loc'
+        const [activeListTab, setActiveListTab] = React.useState<TabKey>('dept')
+
+        const tabProps: Record<TabKey, object> = {
+          dept: {
+            items: deptList, newValue: newDept, onNewChange: setNewDept,
+            onAdd: () => addItem('custom_departments', newDept, deptList, setDeptList, setNewDept),
+            onRemove: (i: number) => removeItem('custom_departments', i, deptList, setDeptList),
+            onBulkRemove: (indices: number[]) => handleBulkRemove('dept', 'custom_departments', indices, deptList, setDeptList),
+            editingItem: editingItem?.key === 'dept' ? editingItem : null,
+            onStartEdit: (i: number, v: string) => startEdit('dept', i, v),
+            onEditChange: (v: string) => setEditingItem(e => e ? { ...e, value: v } : null),
+            onConfirmEdit: () => confirmEdit(deptList, setDeptList, 'custom_departments'),
+            onCancelEdit: () => setEditingItem(null),
+            placeholder: lang === 'th' ? 'เพิ่มแผนกใหม่...' : 'Add department...',
+          },
+          cat: {
+            items: catList, newValue: newCat, onNewChange: setNewCat,
+            onAdd: () => addItem('custom_categories', newCat, catList, setCatList, setNewCat),
+            onRemove: (i: number) => removeItem('custom_categories', i, catList, setCatList),
+            onBulkRemove: (indices: number[]) => handleBulkRemove('cat', 'custom_categories', indices, catList, setCatList),
+            editingItem: editingItem?.key === 'cat' ? editingItem : null,
+            onStartEdit: (i: number, v: string) => startEdit('cat', i, v),
+            onEditChange: (v: string) => setEditingItem(e => e ? { ...e, value: v } : null),
+            onConfirmEdit: () => confirmEdit(catList, setCatList, 'custom_categories'),
+            onCancelEdit: () => setEditingItem(null),
+            placeholder: lang === 'th' ? 'เพิ่มหมวดหมู่ใหม่...' : 'Add category...',
+          },
+          loc: {
+            items: locList, newValue: newLoc, onNewChange: setNewLoc,
+            onAdd: () => addItem('custom_locations', newLoc, locList, setLocList, setNewLoc),
+            onRemove: (i: number) => removeItem('custom_locations', i, locList, setLocList),
+            onBulkRemove: (indices: number[]) => handleBulkRemove('loc', 'custom_locations', indices, locList, setLocList),
+            editingItem: editingItem?.key === 'loc' ? editingItem : null,
+            onStartEdit: (i: number, v: string) => startEdit('loc', i, v),
+            onEditChange: (v: string) => setEditingItem(e => e ? { ...e, value: v } : null),
+            onConfirmEdit: () => confirmEdit(locList, setLocList, 'custom_locations'),
+            onCancelEdit: () => setEditingItem(null),
+            placeholder: lang === 'th' ? 'เพิ่มสถานที่ใหม่...' : 'Add location...',
+          },
+        }
+
+        return (
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+            {/* Tab bar */}
+            <div className="flex border-b border-gray-200">
+              {TABS.map(tab => (
+                <button
+                  key={tab.key}
+                  onClick={() => setActiveListTab(tab.key)}
+                  className={`flex-1 flex items-center justify-center gap-1.5 py-3 text-xs font-medium transition-colors border-b-2 ${
+                    activeListTab === tab.key
+                      ? 'border-[var(--brand-primary)] text-[var(--brand-primary)] bg-[var(--brand-primary)]/5'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                  }`}
+                >
+                  {tab.label}
+                  <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${
+                    activeListTab === tab.key ? 'bg-[var(--brand-primary)]/15 text-[var(--brand-primary)]' : 'bg-gray-100 text-gray-500'
+                  }`}>{tab.count}</span>
+                </button>
+              ))}
+            </div>
+
+            {/* Active tab content */}
+            <div className="p-4">
+              <EditableListCard
+                {...(tabProps[activeListTab] as EditableListCardProps)}
+                lang={lang}
+                maxVisible={3}
+              />
+            </div>
           </div>
-          <p className="text-xs text-gray-400 mb-5">
-            {lang === 'th'
-              ? 'เลือกแผนกที่จะแสดงโดยอัตโนมัติเมื่อเปิดหน้าเคส'
-              : 'This department will be pre-selected when you open the Cases and Calendar pages.'}
-          </p>
-          <select
-            value={defaultDept}
-            onChange={(e) => {
-              setDefaultDept(e.target.value)
-              localStorage.setItem('kaizen-default-dept', e.target.value)
-              toast.success(lang === 'th' ? 'บันทึกค่าเริ่มต้นแล้ว' : 'Default filter saved.')
-            }}
-            className="w-full h-10 px-3 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)] bg-white text-gray-900"
-          >
-            <option value="all">{lang === 'th' ? 'ทุกแผนก' : 'All Departments'}</option>
-            {DEPARTMENTS.map(d => (
-              <option key={d.value} value={d.value}>{d.label}</option>
-            ))}
-          </select>
-        </div>
-      )}
+        )
+      })()}
+
+      {/* Bulk delete confirmation dialog — outside IIFE so it's always mounted */}
+      <Dialog open={!!bulkConfirm} onOpenChange={(open) => { if (!open) setBulkConfirm(null) }}>
+        <DialogContent className="max-w-sm mx-4">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-red-500" />
+              Confirm Removal
+            </DialogTitle>
+            <DialogDescription className="text-left space-y-2 pt-1">
+              {bulkConfirm?.checking ? (
+                <span className="flex items-center gap-2 text-gray-500">
+                  <Loader2 className="h-4 w-4 animate-spin" />Checking for affected cases…
+                </span>
+              ) : (
+                <>
+                  <p>You are about to remove <strong>{bulkConfirm?.items.length} item{(bulkConfirm?.items.length ?? 0) > 1 ? 's' : ''}</strong>:</p>
+                  <ul className="text-sm text-gray-600 list-disc pl-4 max-h-32 overflow-y-auto">
+                    {bulkConfirm?.items.map(item => <li key={item}>{item}</li>)}
+                  </ul>
+                  {(bulkConfirm?.affectedCases ?? 0) > 0 && (
+                    <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mt-2">
+                      <p className="text-amber-800 text-sm font-medium">
+                        ⚠️ {bulkConfirm?.affectedCases} open case{(bulkConfirm?.affectedCases ?? 0) > 1 ? 's' : ''} use{(bulkConfirm?.affectedCases ?? 0) === 1 ? 's' : ''} this value.
+                      </p>
+                      <p className="text-amber-700 text-xs mt-1">
+                        A notification will be sent to all Super Admins to update the affected cases.
+                      </p>
+                    </div>
+                  )}
+                  {(bulkConfirm?.affectedCases ?? 0) === 0 && (
+                    <p className="text-gray-500 text-sm">No open cases are affected.</p>
+                  )}
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setBulkConfirm(null)}>Cancel</Button>
+            <Button variant="destructive" onClick={confirmBulkDelete} disabled={bulkConfirm?.checking}>
+              {bulkConfirm?.checking ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Remove'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Theme settings */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
@@ -523,37 +791,313 @@ export function SettingsPage() {
           )}
         </div>
       </div>
-      {/* Legal / IP Notice */}
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-        <div className="flex items-center gap-2 mb-4">
-          <Scale className="h-4 w-4 text-gray-400" />
-          <h2 className="font-semibold text-gray-900">Intellectual Property &amp; Right of Use</h2>
+      {/* ── Support ── */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+        <div className="flex items-center gap-2 px-6 pt-6 pb-3">
+          <LifeBuoy className="h-4 w-4 text-gray-400" />
+          <h2 className="font-semibold text-gray-900">{lang === 'th' ? 'ฝ่ายสนับสนุน' : 'Support'}</h2>
         </div>
-        <div className="text-xs text-gray-500 space-y-3 leading-relaxed">
-          <p>
-            All intellectual property rights relating to this application, including but not limited to its software,
-            source code, system design, user interface, workflow logic, database structure, documentation, name, logo,
-            and related materials, shall remain the exclusive property of{' '}
-            <span className="font-semibold text-gray-700">Dr. Poti Chaopaisarn</span>, operating under the business
-            name <span className="font-semibold text-gray-700">NNR Solutions</span>.
-          </p>
-          <p>
-            Authorised users are granted a limited, non-exclusive, non-transferable, and revocable right to access
-            and use the application solely for maintenance job assignment, monitoring, reporting, and related
-            operational purposes. This right of use does not transfer any ownership rights in the application to any
-            user, organisation, contractor, technician, or third party.
-          </p>
-          <p>
-            Users shall not copy, modify, reproduce, distribute, sell, sublicense, reverse-engineer, decompile, or
-            create derivative works from the application, in whole or in part, without prior written permission from{' '}
-            <span className="font-semibold text-gray-700">Dr. Poti Chaopaisarn / NNR Solutions</span>.
-          </p>
-          <p className="pt-2 border-t border-gray-100 text-gray-400">
-            © {new Date().getFullYear()} Dr. Poti Chaopaisarn / NNR Solutions · Kaizen System by NNR Ver. 1.0
-          </p>
+        <div className="divide-y divide-gray-100">
+          {[
+            { key: 'help' as const, icon: HelpCircle, label: lang === 'th' ? 'ช่วยเหลือ' : 'Help', sub: lang === 'th' ? 'ต้องการความช่วยเหลือ' : 'Get assistance from our team' },
+            { key: 'feedback' as const, icon: MessageSquare, label: lang === 'th' ? 'ข้อเสนอแนะ' : 'Feedback', sub: lang === 'th' ? 'แบ่งปันความคิดเห็นของคุณ' : 'Share your thoughts with us' },
+            { key: 'compatibility' as const, icon: Smartphone, label: lang === 'th' ? 'ความเข้ากันได้' : 'Compatibility', sub: lang === 'th' ? 'อุปกรณ์ที่รองรับ' : 'Supported devices & browsers' },
+            { key: 'legal' as const, icon: Scale, label: lang === 'th' ? 'ทรัพย์สินทางปัญญา' : 'Intellectual Property', sub: lang === 'th' ? 'สิทธิ์การใช้งานและลิขสิทธิ์' : 'Right of use & ownership' },
+          ].map(({ key, icon: Icon, label, sub }) => (
+            <button
+              key={key}
+              onClick={() => setSupportDialog(key)}
+              className="w-full flex items-center gap-3 px-6 py-3.5 hover:bg-gray-50 transition-colors text-left"
+            >
+              <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0">
+                <Icon className="h-4 w-4 text-gray-500" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-gray-900">{label}</p>
+                <p className="text-xs text-gray-400">{sub}</p>
+              </div>
+              <ChevronRight className="h-4 w-4 text-gray-300 flex-shrink-0" />
+            </button>
+          ))}
         </div>
       </div>
 
+      {/* Support dialogs */}
+      <Dialog open={!!supportDialog} onOpenChange={(open) => { if (!open) setSupportDialog(null) }}>
+        <DialogContent className="max-w-sm mx-4">
+          {supportDialog === 'help' && (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <HelpCircle className="h-5 w-5 text-[var(--brand-primary)]" />
+                  {lang === 'th' ? 'ช่วยเหลือ' : 'Help'}
+                </DialogTitle>
+                <DialogDescription className="text-left pt-1">
+                  {lang === 'th'
+                    ? 'เราพร้อมช่วยเหลือคุณ โปรดแจ้งให้เราทราบว่าเราสามารถช่วยอะไรได้บ้าง แล้วทีมงานของเราจะติดต่อกลับโดยเร็วที่สุด'
+                    : "We're here to help. Let us know what you need a hand with and our team will get back to you as soon as we can."}
+                </DialogDescription>
+              </DialogHeader>
+              <div className="bg-gray-50 rounded-lg px-3 py-2.5 flex items-center gap-2 text-sm">
+                <Mail className="h-4 w-4 text-gray-400 flex-shrink-0" />
+                <span className="text-gray-700 font-medium">{SUPPORT_EMAIL}</span>
+              </div>
+              <DialogFooter>
+                <a href={`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent('Kaizen — Help Request')}`} className="w-full">
+                  <Button className="w-full"><Mail className="h-4 w-4" />{lang === 'th' ? 'ส่งอีเมล' : 'Send Email'}</Button>
+                </a>
+              </DialogFooter>
+            </>
+          )}
+
+          {supportDialog === 'feedback' && (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <MessageSquare className="h-5 w-5 text-[var(--brand-primary)]" />
+                  {lang === 'th' ? 'ข้อเสนอแนะ' : 'Feedback'}
+                </DialogTitle>
+                <DialogDescription className="text-left pt-1">
+                  {lang === 'th'
+                    ? 'เราอ่านและพิจารณาทุกอีเมล ความคิดเห็นของคุณช่วยให้ Kaizen System ดีขึ้น'
+                    : 'We read and consider every message. Your feedback helps make Kaizen System better.'}
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <a href={`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent('Kaizen — Feedback')}`} className="w-full">
+                  <Button className="w-full"><Mail className="h-4 w-4" />{lang === 'th' ? 'ส่งอีเมล' : 'Send Email'}</Button>
+                </a>
+              </DialogFooter>
+            </>
+          )}
+
+          {supportDialog === 'compatibility' && (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <Smartphone className="h-5 w-5 text-[var(--brand-primary)]" />
+                  {lang === 'th' ? 'ความเข้ากันได้' : 'Compatibility'}
+                </DialogTitle>
+                <DialogDescription className="text-left pt-1 space-y-2">
+                  <span className="block">
+                    {lang === 'th'
+                      ? 'Kaizen System เป็นเว็บแอป (PWA) ที่ทำงานได้ทั้งบนมือถือและคอมพิวเตอร์ เพื่อประสบการณ์ที่ดีที่สุด ให้เปิดในเบราว์เซอร์แล้วเพิ่มลงในหน้าจอหลัก แอปจะทำงานแบบเต็มหน้าจอเหมือนแอปทั่วไป'
+                      : 'Kaizen System is a Progressive Web App (PWA) that runs smoothly on both mobile devices and desktops. For the best experience, open it in your browser and add it to your home screen — it will then run full-screen like a native app, with offline support and push notifications.'}
+                  </span>
+                  <span className="block text-gray-400">
+                    {lang === 'th'
+                      ? 'แนะนำ: iPhone (iOS 16.4 ขึ้นไป, Safari) หรือ Android (10 ขึ้นไป, Chrome)'
+                      : 'Recommended: iPhone on iOS 16.4+ (Safari) or Android 10+ (Chrome).'}
+                  </span>
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <Button variant="outline" className="w-full" onClick={() => setSupportDialog(null)}>{lang === 'th' ? 'ปิด' : 'Close'}</Button>
+              </DialogFooter>
+            </>
+          )}
+
+          {supportDialog === 'legal' && (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <Scale className="h-5 w-5 text-[var(--brand-primary)]" />
+                  Intellectual Property &amp; Right of Use
+                </DialogTitle>
+              </DialogHeader>
+              <div className="text-xs text-gray-500 space-y-3 leading-relaxed text-left max-h-[55vh] overflow-y-auto">
+                <p>
+                  All intellectual property rights relating to this application, including but not limited to its software,
+                  source code, system design, user interface, workflow logic, database structure, documentation, name, logo,
+                  and related materials, shall remain the exclusive property of{' '}
+                  <span className="font-semibold text-gray-700">Dr. Poti Chaopaisarn</span>, operating under the business
+                  name <span className="font-semibold text-gray-700">NNR Solutions</span>.
+                </p>
+                <p>
+                  Authorised users are granted a limited, non-exclusive, non-transferable, and revocable right to access
+                  and use the application solely for maintenance job assignment, monitoring, reporting, and related
+                  operational purposes. This right of use does not transfer any ownership rights in the application to any
+                  user, organisation, contractor, technician, or third party.
+                </p>
+                <p>
+                  Users shall not copy, modify, reproduce, distribute, sell, sublicense, reverse-engineer, decompile, or
+                  create derivative works from the application, in whole or in part, without prior written permission from{' '}
+                  <span className="font-semibold text-gray-700">Dr. Poti Chaopaisarn / NNR Solutions</span>.
+                </p>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" className="w-full" onClick={() => setSupportDialog(null)}>{lang === 'th' ? 'ปิด' : 'Close'}</Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Copyright footer */}
+      <p className="text-center text-[11px] text-gray-400 leading-relaxed px-4 pb-2">
+        © {new Date().getFullYear()} Dr. Poti Chaopaisarn / NNR Solutions · Kaizen System by NNR Ver. 1.0
+      </p>
+
+    </div>
+  )
+}
+
+// ── EditableListCard ─────────────────────────────────────────────────────────
+import React from 'react'
+
+interface EditableListCardProps {
+  icon?: React.ReactNode
+  title?: string
+  subtitle?: string
+  items: string[]
+  newValue: string
+  onNewChange: (v: string) => void
+  onAdd: () => void
+  onRemove: (i: number) => void
+  onBulkRemove: (indices: number[]) => void
+  editingItem: { index: number; value: string } | null
+  onStartEdit: (i: number, v: string) => void
+  onEditChange: (v: string) => void
+  onConfirmEdit: () => void
+  onCancelEdit: () => void
+  placeholder: string
+  lang: string
+  maxVisible?: number
+}
+
+function EditableListCard({
+  icon, title, subtitle, items, newValue, onNewChange, onAdd, onRemove, onBulkRemove,
+  editingItem, onStartEdit, onEditChange, onConfirmEdit, onCancelEdit, placeholder, maxVisible,
+}: EditableListCardProps) {
+  const [selected, setSelected] = React.useState<Set<number>>(new Set())
+  const [showAll, setShowAll] = React.useState(false)
+  const visibleItems = maxVisible && !showAll ? items.slice(0, maxVisible) : items
+  const hasMore = maxVisible && items.length > maxVisible
+
+  // Reset selection + showAll if items list changes
+  React.useEffect(() => { setSelected(new Set()); setShowAll(false) }, [items.length])
+
+  function toggleSelect(i: number) {
+    setSelected(prev => {
+      const next = new Set(prev)
+      next.has(i) ? next.delete(i) : next.add(i)
+      return next
+    })
+  }
+
+  function toggleAll() {
+    setSelected(prev => prev.size === items.length ? new Set() : new Set(items.map((_, i) => i)))
+  }
+
+  function handleBulkRemoveClick() {
+    onBulkRemove([...selected])
+    setSelected(new Set())
+  }
+
+  return (
+    <div>
+      {/* Header — only shown when NOT inside a tabbed layout */}
+      {title && (
+        <>
+          <div className="flex items-center gap-2 mb-1">
+            {icon}
+            <h2 className="font-semibold text-gray-900">{title}</h2>
+            <span className="ml-auto text-xs text-gray-400">{items.length}</span>
+          </div>
+          <p className="text-xs text-gray-400 mb-3">{subtitle}</p>
+        </>
+      )}
+
+      {/* Select all row */}
+      {items.length > 0 && (
+        <div className="flex items-center justify-between mb-2 pb-2 border-b border-gray-100">
+          <label className="flex items-center gap-2 cursor-pointer text-xs text-gray-500 select-none">
+            <input
+              type="checkbox"
+              checked={selected.size === items.length && items.length > 0}
+              onChange={toggleAll}
+              className="h-3.5 w-3.5 rounded border-gray-300 accent-[var(--brand-primary)]"
+            />
+            Select all
+          </label>
+          {selected.size > 0 && (
+            <button
+              onClick={handleBulkRemoveClick}
+              className="flex items-center gap-1 text-xs font-medium text-red-600 hover:text-red-700 transition-colors"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              Remove {selected.size} selected
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Item list */}
+      <div className="space-y-1 mb-3">
+        {visibleItems.map((item, i) => (
+          <div key={i} className={`flex items-center gap-2 group rounded-lg px-1 ${selected.has(i) ? 'bg-red-50' : ''}`}>
+            {/* Checkbox */}
+            <input
+              type="checkbox"
+              checked={selected.has(i)}
+              onChange={() => toggleSelect(i)}
+              className="h-3.5 w-3.5 flex-shrink-0 rounded border-gray-300 accent-[var(--brand-primary)]"
+            />
+
+            {editingItem?.index === i ? (
+              <>
+                <Input
+                  value={editingItem.value}
+                  onChange={(e) => onEditChange(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') onConfirmEdit(); if (e.key === 'Escape') onCancelEdit() }}
+                  className="flex-1 h-8 text-sm"
+                  autoFocus
+                />
+                <button onClick={onConfirmEdit} className="text-green-600 hover:text-green-700 p-1 flex-shrink-0">
+                  <Check className="h-4 w-4" />
+                </button>
+                <button onClick={onCancelEdit} className="text-gray-400 hover:text-gray-600 p-1 flex-shrink-0">
+                  <X className="h-4 w-4" />
+                </button>
+              </>
+            ) : (
+              <>
+                <span className="flex-1 text-sm text-gray-700 py-1 px-1 truncate">{item}</span>
+                <button onClick={() => onStartEdit(i, item)} className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-blue-600 p-1 flex-shrink-0 transition-opacity">
+                  <Pencil className="h-3.5 w-3.5" />
+                </button>
+                <button onClick={() => onRemove(i)} className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-600 p-1 flex-shrink-0 transition-opacity">
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* Show all / Show less */}
+      {hasMore && (
+        <button
+          onClick={() => setShowAll(v => !v)}
+          className="w-full text-xs text-[var(--brand-primary)] hover:underline py-1.5 text-center"
+        >
+          {showAll ? 'Show less ↑' : `Show all ${items.length} ↓`}
+        </button>
+      )}
+
+      {/* Add new */}
+      <div className="flex gap-2 mt-2">
+        <Input
+          value={newValue}
+          onChange={(e) => onNewChange(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') onAdd() }}
+          placeholder={placeholder}
+          className="flex-1 h-9"
+        />
+        <Button size="sm" onClick={onAdd} disabled={!newValue.trim()} className="h-9 px-3 flex-shrink-0">
+          <Plus className="h-4 w-4" />
+        </Button>
+      </div>
     </div>
   )
 }

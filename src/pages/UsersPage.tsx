@@ -313,7 +313,7 @@ export function UsersPage() {
                       return (
                       <div key={user.id} className={cn('flex items-center gap-4 px-5 py-3.5', !user.is_active && 'bg-red-50/30')}>
                         {canViewProfile ? (
-                          <Link to={`/users/${user.id}`} className="flex items-center gap-4 flex-1 min-w-0">
+                          <Link to={`/performance/${user.id}`} className="flex items-center gap-4 flex-1 min-w-0">
                             <Avatar className="h-9 w-9 flex-shrink-0">
                               <AvatarFallback className="text-xs">{getInitials(user.full_name)}</AvatarFallback>
                             </Avatar>

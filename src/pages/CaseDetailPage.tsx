@@ -18,7 +18,7 @@ import { StatusBadge, PriorityBadge, DepartmentBadge } from '@/components/Status
 import { PhotoUpload, PhotoGallery } from '@/components/PhotoUpload'
 import { ResolutionCard } from '@/components/case/ResolutionCard'
 import { CaseTimeline } from '@/components/case/CaseTimeline'
-import { formatDateTime, formatDuration } from '@/lib/utils'
+import { formatDateTime, formatDuration, LOCATIONS, CATEGORIES } from '@/lib/utils'
 import { DEPARTMENTS, DEPARTMENT_LABELS, STATUS_LABELS } from '@/types'
 import type { KaizenCase, KaizenProfile, KaizenCaseTimeline, KaizenCasePhoto, Department, CasePriority, CaseStatus } from '@/types'
 import { toast } from 'sonner'
@@ -79,6 +79,73 @@ export function CaseDetailPage() {
   const [linkResults, setLinkResults] = useState<KaizenCase[]>([])
   const [showLinkSearch, setShowLinkSearch] = useState(false)
   const [linkSearchLoading, setLinkSearchLoading] = useState(false)
+
+  // ── Incomplete info detection & fix ────────────────────────────────────────
+  const [validDeptValues, setValidDeptValues] = useState<string[]>(DEPARTMENTS.map(d => d.value))
+  const [validLocations, setValidLocations] = useState<string[]>([...LOCATIONS] as string[])
+  const [validCategories, setValidCategories] = useState<string[]>([...CATEGORIES] as string[])
+  const [customDeptLabels, setCustomDeptLabels] = useState<string[]>(DEPARTMENTS.filter(d=>d.value!=='top_management').map(d=>d.label))
+  const [customLocList, setCustomLocList] = useState<string[]>([...LOCATIONS] as string[])
+  const [customCatList, setCustomCatList] = useState<string[]>([...CATEGORIES] as string[])
+  // Fix form state
+  const [fixDept, setFixDept] = useState<string>('')
+  const [fixLocation, setFixLocation] = useState<string>('')
+  const [fixCategory, setFixCategory] = useState<string>('')
+  const [savingFix, setSavingFix] = useState(false)
+
+  useEffect(() => {
+    supabase.from('kaizen_settings').select('key, value')
+      .in('key', ['custom_departments', 'custom_locations', 'custom_categories'])
+      .then(({ data }) => {
+        if (!data) return
+        data.forEach((row: { key: string; value: unknown }) => {
+          if (!Array.isArray(row.value) || row.value.length === 0) return
+          if (row.key === 'custom_departments') {
+            setCustomDeptLabels(row.value as string[])
+            const vals = (row.value as string[]).map(l => DEPARTMENTS.find(d => d.label === l)?.value).filter(Boolean) as string[]
+            if (vals.length) setValidDeptValues(vals)
+          }
+          if (row.key === 'custom_locations') {
+            setCustomLocList(row.value as string[])
+            setValidLocations(row.value as string[])
+          }
+          if (row.key === 'custom_categories') {
+            setCustomCatList(row.value as string[])
+            const slugs = (row.value as string[]).map(c => c.toLowerCase().replace(/ /g, '_'))
+            if (slugs.length) setValidCategories(slugs)
+          }
+        })
+      })
+  }, [])
+
+  async function saveFixedInfo() {
+    if (!kcase || !id) return
+    setSavingFix(true)
+    const updates: Record<string, string> = {}
+    const changes: string[] = []
+
+    if (fixDept && fixDept !== kcase.department) {
+      updates.department = fixDept
+      changes.push(`Department → ${DEPARTMENT_LABELS[fixDept as Department] ?? fixDept}`)
+    }
+    if (fixLocation && fixLocation !== kcase.location) {
+      updates.location = fixLocation
+      changes.push(`Location → ${fixLocation}`)
+    }
+    if (fixCategory && fixCategory !== kcase.category) {
+      updates.category = fixCategory
+      changes.push(`Category → ${fixCategory}`)
+    }
+
+    if (Object.keys(updates).length === 0) { setSavingFix(false); return }
+
+    await supabase.from('kaizen_cases').update(updates).eq('id', id)
+    await addTimeline('info_corrected', `Registration info updated: ${changes.join(', ')}`)
+    toast.success('Case information updated.')
+    setSavingFix(false)
+    fetchCase()
+  }
+  // ───────────────────────────────────────────────────────────────────────────
 
   useEffect(() => {
     if (id) fetchCase()
@@ -788,6 +855,80 @@ export function CaseDetailPage() {
             </span>
           )}
         </div>
+
+        {/* ── Incomplete info banner ── */}
+        {kcase.status !== 'closed' && (() => {
+          const badDept = !validDeptValues.includes(kcase.department)
+          const badLocation = kcase.location && kcase.location !== 'Others' && !validLocations.includes(kcase.location)
+          const badCategory = kcase.category && kcase.category !== 'other' && !validCategories.includes(kcase.category)
+          if (!badDept && !badLocation && !badCategory) return null
+          return (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-4">
+              <div className="flex items-center gap-2 mb-3">
+                <AlertTriangle className="h-4 w-4 text-amber-600 flex-shrink-0" />
+                <p className="text-sm font-semibold text-amber-800">This case has outdated registration info — please update it</p>
+              </div>
+              <div className="space-y-3">
+                {badDept && (
+                  <div>
+                    <label className="text-xs font-medium text-amber-700 block mb-1">
+                      Department <span className="font-normal text-amber-600">(current: "{DEPARTMENT_LABELS[kcase.department] ?? kcase.department}" — removed)</span>
+                    </label>
+                    <Select value={fixDept} onValueChange={setFixDept}>
+                      <SelectTrigger className="h-9 text-sm bg-white border-amber-300">
+                        <SelectValue placeholder="Select new department…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {customDeptLabels.map(label => {
+                          const val = DEPARTMENTS.find(d => d.label === label)?.value
+                          return val ? <SelectItem key={val} value={val}>{label}</SelectItem> : null
+                        })}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+                {badLocation && (
+                  <div>
+                    <label className="text-xs font-medium text-amber-700 block mb-1">
+                      Location <span className="font-normal text-amber-600">(current: "{kcase.location}" — removed)</span>
+                    </label>
+                    <Select value={fixLocation} onValueChange={setFixLocation}>
+                      <SelectTrigger className="h-9 text-sm bg-white border-amber-300">
+                        <SelectValue placeholder="Select new location…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {customLocList.map(l => <SelectItem key={l} value={l}>{l}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+                {badCategory && (
+                  <div>
+                    <label className="text-xs font-medium text-amber-700 block mb-1">
+                      Category <span className="font-normal text-amber-600">(current: "{kcase.category}" — removed)</span>
+                    </label>
+                    <Select value={fixCategory} onValueChange={setFixCategory}>
+                      <SelectTrigger className="h-9 text-sm bg-white border-amber-300">
+                        <SelectValue placeholder="Select new category…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {customCatList.map(c => <SelectItem key={c} value={c.toLowerCase().replace(/ /g,'_')}>{c}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+                <Button
+                  size="sm"
+                  onClick={saveFixedInfo}
+                  disabled={savingFix || (!fixDept && !fixLocation && !fixCategory)}
+                  className="w-full mt-1"
+                >
+                  {savingFix ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Save Updated Information'}
+                </Button>
+              </div>
+            </div>
+          )
+        })()}
 
         {/* Meta info — 2-column grid */}
         <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs text-gray-500">

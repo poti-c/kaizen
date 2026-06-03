@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { PlusCircle, Search, Filter, Clock, ChevronRight, Download, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, RefreshCw, X } from 'lucide-react'
+import { PlusCircle, Search, Filter, Clock, ChevronRight, Download, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, RefreshCw, X, AlertCircle } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useLanguage } from '@/contexts/LanguageContext'
@@ -9,10 +9,10 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { formatRelativeTime, formatDuration, isSLABreached, CATEGORIES, DEPARTMENTS } from '@/lib/utils'
+import { formatRelativeTime, formatDuration, isSLABreached, CATEGORIES, LOCATIONS } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 import type { KaizenCase, CaseStatus, CasePriority, Department } from '@/types'
-import { STATUS_LABELS, PRIORITY_LABELS } from '@/types'
+import { STATUS_LABELS, PRIORITY_LABELS, DEPARTMENTS, DEPARTMENT_LABELS } from '@/types'
 
 const STATUS_FILTERS: (CaseStatus | 'all')[] = ['all', 'open', 'assigned', 'in_progress', 'pending_manager_approval', 'pending_admin_approval', 'closed', 'reopened']
 
@@ -51,6 +51,37 @@ export function CasesPage() {
   const [sortDir, setSortDir] = useState<SortDir>('asc')
   const [pageActive, setPageActive] = useState(1)
   const [pageClosed, setPageClosed] = useState(1)
+
+  // Custom lists for incomplete case detection (locations + departments + categories)
+  const [customLocations, setCustomLocations] = useState<string[]>([...LOCATIONS] as string[])
+  const [validDeptValues, setValidDeptValues] = useState<string[]>(DEPARTMENTS.map(d => d.value))
+  // Valid category slugs derived from custom category display names
+  const [validCategorySlugs, setValidCategorySlugs] = useState<string[]>([...CATEGORIES] as string[])
+
+  useEffect(() => {
+    supabase.from('kaizen_settings').select('key, value')
+      .in('key', ['custom_locations', 'custom_departments', 'custom_categories'])
+      .then(({ data }) => {
+        if (!data) return
+        data.forEach((row: { key: string; value: unknown }) => {
+          if (!Array.isArray(row.value) || row.value.length === 0) return
+          if (row.key === 'custom_locations') {
+            setCustomLocations(row.value as string[])
+          }
+          if (row.key === 'custom_departments') {
+            const vals = (row.value as string[])
+              .map(label => DEPARTMENTS.find(d => d.label === label)?.value)
+              .filter(Boolean) as string[]
+            if (vals.length > 0) setValidDeptValues(vals)
+          }
+          if (row.key === 'custom_categories') {
+            // Convert display names → slugs (e.g. "Guest Complaint" → "guest_complaint")
+            const slugs = (row.value as string[]).map(c => c.toLowerCase().replace(/ /g, '_'))
+            if (slugs.length > 0) setValidCategorySlugs(slugs)
+          }
+        })
+      })
+  }, [])
 
   // Advanced search state
   const [advancedSearchEnabled, setAdvancedSearchEnabled] = useState<boolean>(() => {
@@ -338,6 +369,15 @@ export function CasesPage() {
   const showActive = statusFilter === 'all' || statusFilter !== 'closed'
   const showClosed = statusFilter === 'all' || statusFilter === 'closed'
 
+  // Incomplete cases: department, location or category no longer exists in the current custom lists
+  const incompleteCases = cases.filter(c => {
+    if (c.status === 'closed') return false
+    const badDept = !validDeptValues.includes(c.department)
+    const badLocation = c.location && c.location !== 'Others' && !customLocations.includes(c.location)
+    const badCategory = c.category && c.category !== 'other' && !validCategorySlugs.includes(c.category)
+    return badDept || badLocation || badCategory
+  })
+
   return (
     <div className="p-4 md:p-6 max-w-7xl mx-auto animate-fade-in">
       <div className="flex items-center justify-between mb-4 md:mb-6">
@@ -358,6 +398,55 @@ export function CasesPage() {
           </Link>
         </div>
       </div>
+
+      {/* ── Incomplete Case Registration ── */}
+      {!loading && incompleteCases.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl overflow-hidden mb-4">
+          <div className="flex items-center gap-2 px-4 py-3 border-b border-amber-200">
+            <AlertCircle className="h-4 w-4 text-amber-600 flex-shrink-0" />
+            <h2 className="text-sm font-semibold text-amber-800">
+              Incomplete Case Registration
+              <span className="ml-2 text-xs font-normal text-amber-600">{incompleteCases.length} case{incompleteCases.length > 1 ? 's' : ''} need{incompleteCases.length === 1 ? 's' : ''} updating</span>
+            </h2>
+          </div>
+          <div className="divide-y divide-amber-100">
+            {incompleteCases.map((c) => (
+              <Link
+                key={c.id}
+                to={`/cases/${c.id}`}
+                className="flex items-center gap-3 px-4 py-3 hover:bg-amber-100/60 transition-colors"
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                    <span className="text-xs font-mono text-amber-700">{c.case_number}</span>
+                    <StatusBadge status={c.status} />
+                    <PriorityBadge priority={c.priority} />
+                  </div>
+                  <p className="text-sm font-medium text-gray-900 truncate">{c.title}</p>
+                  <div className="flex flex-wrap gap-1 mt-0.5">
+                    {!validDeptValues.includes(c.department) && (
+                      <span className="text-xs text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded">
+                        Dept &ldquo;{DEPARTMENT_LABELS[c.department] ?? c.department}&rdquo; removed
+                      </span>
+                    )}
+                    {c.location && c.location !== 'Others' && !customLocations.includes(c.location) && (
+                      <span className="text-xs text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded">
+                        Location &ldquo;{c.location}&rdquo; removed
+                      </span>
+                    )}
+                    {c.category && c.category !== 'other' && !validCategorySlugs.includes(c.category) && (
+                      <span className="text-xs text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded">
+                        Category &ldquo;{c.category}&rdquo; removed
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <ChevronRight className="h-4 w-4 text-amber-400 flex-shrink-0" />
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Search & Advanced Filters */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm mb-4 md:mb-5">
