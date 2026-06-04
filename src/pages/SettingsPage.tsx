@@ -1036,7 +1036,7 @@ export function SettingsPage() {
 // ── CompaniesSection ─────────────────────────────────────────────────────────
 import React from 'react'
 
-type AdminProfile = { id: string; full_name: string; email: string | null }
+type AdminProfile = { id: string; full_name: string; email: string | null; company_id: string | null; job_title: string | null }
 type AdminLink    = { super_admin_id: string; company_id: string }
 
 function CompaniesSection() {
@@ -1059,7 +1059,7 @@ function CompaniesSection() {
     setLoading(true)
     const [{ data: cos }, { data: sas }, { data: ls }] = await Promise.all([
       supabase.from('kaizen_companies').select('*').order('name'),
-      supabase.from('kaizen_profiles').select('id, full_name, email').eq('role', 'super_admin').order('full_name'),
+      supabase.from('kaizen_profiles').select('id, full_name, email, company_id, job_title').eq('role', 'super_admin').order('full_name'),
       supabase.from('kaizen_super_admin_companies').select('super_admin_id, company_id'),
     ])
     setCompanies((cos ?? []) as KaizenCompany[])
@@ -1166,6 +1166,8 @@ function CompaniesSection() {
                         {admins.map(admin => {
                           const isLinked = links.some(l => l.super_admin_id === admin.id && l.company_id === co.id)
                           const isMe     = admin.id === profile?.id
+                          // The company's own Owner is fixed here — no link/unlink in company settings
+                          const isOwner  = admin.company_id === co.id
                           return (
                             <div
                               key={admin.id}
@@ -1185,18 +1187,24 @@ function CompaniesSection() {
                                 </p>
                                 <p className="text-xs text-gray-400 truncate">{admin.email}</p>
                               </div>
-                              <button
-                                onClick={() => toggleLink(admin.id, co.id, isLinked)}
-                                className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-all flex-shrink-0 ${
-                                  isLinked
-                                    ? 'border-red-200 text-red-500 hover:bg-red-50'
-                                    : 'border-[var(--brand-primary)] text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/5'
-                                }`}
-                              >
-                                {isLinked
-                                  ? <><UserX className="h-3 w-3" />Unlink</>
-                                  : <><UserCheck className="h-3 w-3" />Link</>}
-                              </button>
+                              {isOwner ? (
+                                <span className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border border-amber-200 text-amber-600 bg-amber-50 flex-shrink-0">
+                                  Owner
+                                </span>
+                              ) : (
+                                <button
+                                  onClick={() => toggleLink(admin.id, co.id, isLinked)}
+                                  className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-all flex-shrink-0 ${
+                                    isLinked
+                                      ? 'border-red-200 text-red-500 hover:bg-red-50'
+                                      : 'border-[var(--brand-primary)] text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/5'
+                                  }`}
+                                >
+                                  {isLinked
+                                    ? <><UserX className="h-3 w-3" />Unlink</>
+                                    : <><UserCheck className="h-3 w-3" />Link</>}
+                                </button>
+                              )}
                             </div>
                           )
                         })}
