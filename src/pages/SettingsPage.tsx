@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Eye, EyeOff, Loader2, Palette, Lock, Info, Scale, Pencil, Check, X, Bell, BellOff, BellRing, Plus, Trash2, Building2, Tag, MapPin, AlertTriangle, LifeBuoy, HelpCircle, MessageSquare, Smartphone, Mail, ChevronRight, ChevronDown, UserCheck, UserX } from 'lucide-react'
+import { Eye, EyeOff, Loader2, Palette, Lock, Info, Scale, Pencil, Check, X, Bell, BellOff, BellRing, Plus, Trash2, Building2, Tag, MapPin, AlertTriangle, LifeBuoy, HelpCircle, MessageSquare, Smartphone, Mail, ChevronRight, ChevronDown, UserCheck, UserX, Camera } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useTheme } from '@/contexts/ThemeContext'
@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
 import { DEPARTMENT_LABELS, DEPARTMENTS } from '@/types'
 import type { KaizenCompany } from '@/types'
-import { CATEGORIES, LOCATIONS } from '@/lib/utils'
+import { CATEGORIES, LOCATIONS, getInitials } from '@/lib/utils'
 import { toast } from 'sonner'
 import { usePushNotifications } from '@/hooks/usePushNotifications'
 
@@ -36,6 +36,59 @@ export function SettingsPage() {
   const { status: pushStatus, supported: pushSupported, isIOS: pushIsIOS, isStandalone: pushIsStandalone, subscribe, unsubscribe } = usePushNotifications(profile?.id)
   const { settings, updateSettings } = useTheme()
   const { t, lang, setLang } = useLanguage()
+
+  // Avatar upload
+  const avatarInputRef = useRef<HTMLInputElement>(null)
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(profile?.avatar_url ?? null)
+  const [uploadingAvatar, setUploadingAvatar] = useState(false)
+
+  // Keep avatarUrl in sync when profile loads
+  React.useEffect(() => { setAvatarUrl(profile?.avatar_url ?? null) }, [profile?.avatar_url])
+
+  function cropToSquare(file: File): Promise<Blob> {
+    return new Promise((resolve) => {
+      const img = new Image()
+      const url = URL.createObjectURL(file)
+      img.onload = () => {
+        const size = Math.min(img.width, img.height)
+        const canvas = document.createElement('canvas')
+        canvas.width = 400; canvas.height = 400
+        const ctx = canvas.getContext('2d')!
+        ctx.drawImage(img, (img.width - size) / 2, (img.height - size) / 2, size, size, 0, 0, 400, 400)
+        URL.revokeObjectURL(url)
+        canvas.toBlob((blob) => resolve(blob!), 'image/jpeg', 0.88)
+      }
+      img.src = url
+    })
+  }
+
+  async function handleAvatarUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file || !profile) return
+    e.target.value = ''
+    setUploadingAvatar(true)
+    try {
+      const cropped = await cropToSquare(file)
+      const path = `avatars/${profile.id}.jpg`
+      const { error: uploadErr } = await supabase.storage
+        .from('kaizen-photos')
+        .upload(path, cropped, { upsert: true, contentType: 'image/jpeg' })
+      if (uploadErr) throw uploadErr
+      const { data: { publicUrl } } = supabase.storage.from('kaizen-photos').getPublicUrl(path)
+      // Bust cache so the browser re-fetches the new photo
+      const url = `${publicUrl}?t=${Date.now()}`
+      const { error: updateErr } = await supabase
+        .from('kaizen_profiles').update({ avatar_url: url }).eq('id', profile.id)
+      if (updateErr) throw updateErr
+      setAvatarUrl(url)
+      await refreshProfile()
+      toast.success('Profile photo updated.')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Upload failed.')
+    } finally {
+      setUploadingAvatar(false)
+    }
+  }
 
   // Profile edit state
   const [editingProfile, setEditingProfile] = useState(false)
@@ -330,6 +383,39 @@ export function SettingsPage() {
               </button>
             </div>
           )}
+        </div>
+
+        {/* Avatar */}
+        <div className="flex flex-col items-center mb-6">
+          <div
+            className="relative group cursor-pointer"
+            onClick={() => avatarInputRef.current?.click()}
+          >
+            <div className="w-20 h-20 rounded-full overflow-hidden bg-[var(--brand-primary)]/10 border-2 border-[var(--brand-primary)]/20 flex items-center justify-center">
+              {avatarUrl ? (
+                <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
+              ) : (
+                <span className="text-2xl font-bold text-[var(--brand-primary)]">
+                  {getInitials(profile?.full_name ?? '')}
+                </span>
+              )}
+            </div>
+            <div className="absolute inset-0 rounded-full bg-black/45 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+              {uploadingAvatar
+                ? <Loader2 className="h-5 w-5 animate-spin text-white" />
+                : <Camera className="h-5 w-5 text-white" />}
+            </div>
+          </div>
+          <p className="text-xs text-gray-400 mt-2">
+            {uploadingAvatar ? 'Uploading…' : 'Tap to change photo'}
+          </p>
+          <input
+            ref={avatarInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={handleAvatarUpload}
+          />
         </div>
 
         <div className="grid grid-cols-2 gap-4 text-sm">

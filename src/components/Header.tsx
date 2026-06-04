@@ -6,7 +6,7 @@ import { useCompany } from '@/contexts/CompanyContext'
 import { useLanguage } from '@/contexts/LanguageContext'
 import { useViewMode } from '@/contexts/ViewModeContext'
 import { supabase } from '@/lib/supabase'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
 import { getInitials, formatRelativeTime } from '@/lib/utils'
 import { DEPARTMENT_LABELS } from '@/types'
 import { cn } from '@/lib/utils'
@@ -259,6 +259,7 @@ export function Header() {
         {profile && (
           <Link to="/settings" className="flex items-center gap-2 hover:opacity-80 transition-opacity ml-1">
             <Avatar className="h-8 w-8">
+              {profile.avatar_url && <AvatarImage src={profile.avatar_url} alt={profile.full_name} className="object-cover" />}
               <AvatarFallback className="text-xs">{getInitials(profile.full_name)}</AvatarFallback>
             </Avatar>
             <div className="hidden sm:block">
@@ -325,6 +326,7 @@ export function Header() {
               {profile && (
                 <div className="flex items-center gap-3">
                   <Avatar className="h-9 w-9 flex-shrink-0">
+                    {profile.avatar_url && <AvatarImage src={profile.avatar_url} alt={profile.full_name} className="object-cover" />}
                     <AvatarFallback className="text-xs">{getInitials(profile.full_name)}</AvatarFallback>
                   </Avatar>
                   <div className="min-w-0 flex-1">
