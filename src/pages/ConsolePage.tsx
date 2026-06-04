@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import {
   ShieldCheck, Lock, Loader2, LogOut, Plus, Building2, Crown, Power,
   Trash2, X, Eye, EyeOff, Users, UserCog, ScrollText, AlertTriangle, Check,
-  ChevronRight, Pencil, CalendarDays, ArrowLeft, Receipt, Upload, ImageIcon, Clock,
+  ChevronRight, Pencil, CalendarDays, ArrowLeft, Receipt, Upload, ImageIcon, Clock, Link2,
 } from 'lucide-react'
 
 // ── Console API client ───────────────────────────────────────────────────────
@@ -259,6 +259,7 @@ function Dashboard({ token, onLogout }: { token: string; onLogout: () => void })
           <CompanyDetailView
             company={selectedCompany}
             owners={owners.filter(o => o.companies.some(c => c.id === selectedCompany.id))}
+            allCompanies={companies}
             call={call}
             reload={load}
             onBack={() => setSelectedCompanyId(null)}
@@ -331,9 +332,10 @@ function SubscriptionBadge({ sub }: { sub?: Subscription }) {
 }
 
 // ── Company detail page ──────────────────────────────────────────────────────
-function CompanyDetailView({ company, owners, call, reload, onBack, onAddOwner }: {
+function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack, onAddOwner }: {
   company: ConsoleCompany
   owners: ConsoleOwner[]
+  allCompanies: ConsoleCompany[]
   call: <T,>(a: string, p?: Record<string, unknown>) => Promise<T>
   reload: () => void
   onBack: () => void
@@ -386,6 +388,16 @@ function CompanyDetailView({ company, owners, call, reload, onBack, onAddOwner }
   async function deleteInvoice(inv: Invoice) {
     setBusy(inv.id)
     try { await call('delete_invoice', { invoice_id: inv.id }); setConfirmDeleteInv(null); loadInvoices(); reload() }
+    catch (e) { alert(e instanceof Error ? e.message : 'Failed') } finally { setBusy(null) }
+  }
+  async function linkOwner(ownerId: string, companyId: string) {
+    setBusy('link-' + ownerId)
+    try { await call('link_owner_company', { owner_id: ownerId, company_id: companyId }); reload() }
+    catch (e) { alert(e instanceof Error ? e.message : 'Failed') } finally { setBusy(null) }
+  }
+  async function unlinkOwner(ownerId: string, companyId: string) {
+    setBusy('link-' + ownerId)
+    try { await call('unlink_owner_company', { owner_id: ownerId, company_id: companyId }); reload() }
     catch (e) { alert(e instanceof Error ? e.message : 'Failed') } finally { setBusy(null) }
   }
 
@@ -568,6 +580,55 @@ function CompanyDetailView({ company, owners, call, reload, onBack, onAddOwner }
             ))}
           </div>
         )}
+      </div>
+
+      {/* Linked Companies */}
+      <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden mt-4">
+        <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-800">
+          <Link2 className="h-4 w-4 text-slate-400" />
+          <h3 className="text-sm font-semibold text-white">Linked Companies</h3>
+        </div>
+        <div className="px-4 py-3">
+          <p className="text-[11px] text-slate-500 mb-3">Give an owner access to additional companies. Removing a link revokes that owner&apos;s access to that company.</p>
+          {owners.length === 0 ? (
+            <p className="text-sm text-slate-600 py-2 text-center">No owners to link yet.</p>
+          ) : (
+            <div className="space-y-3">
+              {owners.map((o) => {
+                const linkOptions = allCompanies.filter(ac => !o.companies.some(lc => lc.id === ac.id))
+                return (
+                  <div key={o.id} className="bg-slate-800/40 rounded-lg p-3">
+                    <div className="flex items-center gap-1.5 mb-2">
+                      <Crown className="h-3.5 w-3.5 text-amber-400" />
+                      <p className="text-sm font-medium text-white">{o.full_name}</p>
+                      {busy === 'link-' + o.id && <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-500" />}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {o.companies.map((lc) => (
+                        <span key={lc.id} className={`inline-flex items-center gap-1.5 text-[11px] rounded-md pl-2 pr-1 py-1 border ${lc.id === c.id ? 'bg-amber-500/10 border-amber-500/30 text-amber-300' : 'bg-slate-800 border-slate-700 text-slate-200'}`}>
+                          <Building2 className="h-3 w-3 opacity-70" />{lc.name}
+                          {o.companies.length > 1 && (
+                            <button onClick={() => unlinkOwner(o.id, lc.id)} disabled={busy === 'link-' + o.id} title="Remove link"
+                              className="rounded hover:bg-red-500/20 text-slate-500 hover:text-red-400 p-0.5">
+                              <X className="h-3 w-3" />
+                            </button>
+                          )}
+                        </span>
+                      ))}
+                      {linkOptions.length > 0 && (
+                        <select value="" onChange={(e) => { if (e.target.value) linkOwner(o.id, e.target.value) }} disabled={busy === 'link-' + o.id}
+                          className="text-[11px] bg-slate-800 border border-dashed border-slate-600 rounded-md px-2 py-1 text-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-500/50">
+                          <option value="">+ Link company</option>
+                          {linkOptions.map(co => <option key={co.id} value={co.id} className="text-slate-200 bg-slate-800">{co.name}</option>)}
+                        </select>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Dialogs */}
