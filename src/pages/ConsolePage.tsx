@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import {
   ShieldCheck, Lock, Loader2, LogOut, Plus, Building2, Crown, Power,
   Trash2, X, Eye, EyeOff, Users, UserCog, ScrollText, AlertTriangle, Check,
-  ChevronRight, Pencil, CalendarDays, ArrowLeft, Receipt, Upload, ImageIcon, Clock, Link2, KeyRound,
+  ChevronRight, ChevronDown, Pencil, CalendarDays, ArrowLeft, Receipt, Upload, ImageIcon, Clock, Link2, KeyRound,
 } from 'lucide-react'
 
 // ── Console API client ───────────────────────────────────────────────────────
@@ -399,6 +399,7 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
   const [editingCode, setEditingCode] = useState(false)
   const [codeValue, setCodeValue] = useState(c.login_code ?? c.slug)
   const [editingBilling, setEditingBilling] = useState(false)
+  const [billingOpen, setBillingOpen] = useState(false)
   const [bill, setBill] = useState({
     contact_person: c.contact_person ?? '', contact_phone: c.contact_phone ?? '',
     contact_email: c.contact_email ?? '', address: c.address ?? '', tax_id: c.tax_id ?? '',
@@ -438,6 +439,7 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
       contact_person: c.contact_person ?? '', contact_phone: c.contact_phone ?? '',
       contact_email: c.contact_email ?? '', address: c.address ?? '', tax_id: c.tax_id ?? '',
     })
+    setBillingOpen(true)
     setEditingBilling(true)
   }
   async function saveBilling() {
@@ -560,13 +562,21 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
 
       {/* Contact & Billing — used for invoicing */}
       <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 mb-4">
-        <div className="flex items-center gap-2 mb-3">
-          <Receipt className="h-4 w-4 text-slate-400" />
-          <h3 className="text-sm font-semibold text-white">Contact &amp; Billing</h3>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => { if (!editingBilling) setBillingOpen((o) => !o) }}
+            className="flex items-center gap-2 flex-1 min-w-0 text-left group"
+          >
+            <Receipt className="h-4 w-4 text-slate-400 shrink-0" />
+            <h3 className="text-sm font-semibold text-white">Contact &amp; Billing</h3>
+            {!editingBilling && (
+              <ChevronDown className={`h-4 w-4 text-slate-500 group-hover:text-slate-300 transition-transform ${billingOpen ? 'rotate-180' : ''}`} />
+            )}
+          </button>
           {!editingBilling ? (
-            <button onClick={startBillingEdit} className="ml-auto p-1 rounded text-slate-500 hover:text-amber-400 hover:bg-slate-800"><Pencil className="h-3.5 w-3.5" /></button>
+            <button onClick={startBillingEdit} className="p-1 rounded text-slate-500 hover:text-amber-400 hover:bg-slate-800"><Pencil className="h-3.5 w-3.5" /></button>
           ) : (
-            <div className="ml-auto flex items-center gap-1">
+            <div className="flex items-center gap-1">
               <button onClick={saveBilling} disabled={busy === 'billing'} className="p-1.5 rounded-lg text-green-400 hover:bg-green-500/10">
                 {busy === 'billing' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
               </button>
@@ -574,6 +584,8 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
             </div>
           )}
         </div>
+        {(billingOpen || editingBilling) && (
+        <div className="mt-3">
         {editingBilling ? (
           <div className="space-y-2.5">
             <Field label="Contact Person"><input value={bill.contact_person} onChange={(e) => setBill({ ...bill, contact_person: e.target.value })} className={inputCls} placeholder="e.g. Khun Somchai" /></Field>
@@ -592,6 +604,8 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
             <Detail label="Thai Tax ID">{c.tax_id || '—'}</Detail>
             <div className="col-span-2"><Detail label="Address">{c.address || '—'}</Detail></div>
           </div>
+        )}
+        </div>
         )}
       </div>
 
