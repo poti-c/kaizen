@@ -381,9 +381,13 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
 }) {
   const c = company
   // Top Management = members homed at this company (created here).
-  // Linked = members homed elsewhere who were explicitly granted access here.
   const topManagement = owners.filter((o) => o.company_id === c.id)
-  const linkedOwners = owners.filter((o) => o.company_id !== c.id && o.companies.some((lc) => lc.id === c.id))
+  // Linked Companies = the company's Owner (auto) + members homed elsewhere
+  // who were explicitly granted cross-company access here.
+  const linkedOwners = owners.filter((o) =>
+    (o.company_id === c.id && o.job_title === 'Owner') ||
+    (o.company_id !== c.id && o.companies.some((lc) => lc.id === c.id))
+  )
   const [busy, setBusy] = useState<string | null>(null)
   const [editingName, setEditingName] = useState(false)
   const [nameValue, setNameValue] = useState(c.name)
@@ -690,8 +694,9 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
                       <p className="text-sm font-medium text-white">{o.full_name}</p>
                       {o.job_title && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-400 font-medium">{o.job_title}</span>}
                       {busy === 'link-' + o.id && <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-500" />}
-                      {o.email !== 'poti@nanirand.com' && o.companies.length > 1 && (
-                        <button onClick={() => unlinkOwner(o.id, c.id)} disabled={busy === 'link-' + o.id} title="Remove from this company (keeps the account in Top Management)"
+                      {/* Only externally-homed (granted) members can be removed here; the company's own Owner stays */}
+                      {o.company_id !== c.id && (
+                        <button onClick={() => unlinkOwner(o.id, c.id)} disabled={busy === 'link-' + o.id} title="Remove this member's access to this company"
                           className="ml-auto p-1 rounded text-slate-500 hover:text-red-400 hover:bg-red-500/10">
                           <X className="h-4 w-4" />
                         </button>
