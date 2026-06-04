@@ -330,7 +330,9 @@ function CompaniesListTab({ companies, owners, onOpen, onCreate }: {
   onOpen: (id: string) => void
   onCreate: () => void
 }) {
-  function ownerCount(id: string) { return owners.filter(o => o.companies.some(c => c.id === id)).length }
+  // An "owner" of a company = a super admin whose HOME company is this one and
+  // holds the Owner role. (Cross-granted admins are guests, not owners.)
+  function ownerCount(id: string) { return owners.filter(o => o.company_id === id && o.job_title === 'Owner').length }
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
