@@ -167,11 +167,13 @@ export function CasesPage() {
       .order('created_at', { ascending: false })
 
     if (activeCompany) query = query.eq('company_id', activeCompany.id)
+    const isHRMgr = profile.role === 'manager' && profile.department === 'human_resource'
     if (profile.role === 'staff') {
       query = query.eq('department', profile.department)
-    } else if (profile.role === 'manager') {
+    } else if (profile.role === 'manager' && !isHRMgr) {
       query = query.or(`department.eq.${profile.department},assigned_departments.cs.{${profile.department}}`)
     }
+    // HR Manager: no filter — sees all cases (read-only enforced in detail page)
 
     const { data } = await query
     setCases((data || []) as KaizenCase[])

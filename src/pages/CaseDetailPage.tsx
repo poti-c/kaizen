@@ -787,14 +787,17 @@ export function CaseDetailPage() {
   const problemPhotos = photos.filter((p) => p.photo_type === 'problem')
   const resolutionPhotosList = photos.filter((p) => p.photo_type === 'resolution')
 
-  const canManagerAssign = profile?.role === 'manager' || profile?.role === 'super_admin'
-  const canStaffResolve =
+  // HR Manager is read-only across all cases
+  const isHRManager = profile?.role === 'manager' && profile?.department === 'human_resource'
+
+  const canManagerAssign  = !isHRManager && (profile?.role === 'manager' || profile?.role === 'super_admin')
+  const canStaffResolve   = !isHRManager &&
     (profile?.role === 'staff' || profile?.role === 'manager' || profile?.role === 'super_admin') &&
     ['in_progress', 'assigned', 'reopened'].includes(kcase.status)
-  const canManagerApprove = (profile?.role === 'manager' || profile?.role === 'super_admin') && kcase.status === 'pending_manager_approval'
-  const canAdminApprove = profile?.role === 'super_admin' && kcase.status === 'pending_admin_approval'
-  const canReopen = profile?.role === 'super_admin' && kcase.status === 'closed'
-  const canDelete = profile?.role === 'super_admin'
+  const canManagerApprove = !isHRManager && (profile?.role === 'manager' || profile?.role === 'super_admin') && kcase.status === 'pending_manager_approval'
+  const canAdminApprove   = profile?.role === 'super_admin' && kcase.status === 'pending_admin_approval'
+  const canReopen         = profile?.role === 'super_admin' && kcase.status === 'closed'
+  const canDelete         = profile?.role === 'super_admin'
 
   return (
     <div className="p-4 md:p-6 max-w-5xl mx-auto animate-fade-in">
