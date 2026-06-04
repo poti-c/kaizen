@@ -379,8 +379,12 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
   onAssignUsers: () => void
 }) {
   const c = company
-  // Top Management = members homed at this company (created here).
-  const topManagement = owners.filter((o) => o.company_id === c.id)
+  // Top Management = members homed at this company, plus any Owner linked to it
+  // (an owner who runs this company even if their primary home is elsewhere).
+  const topManagement = owners.filter((o) =>
+    o.company_id === c.id ||
+    (o.job_title === 'Owner' && o.companies.some((lc) => lc.id === c.id))
+  )
   // Linked Companies = the company's Owner (auto) + members homed elsewhere
   // who were explicitly granted cross-company access here.
   const linkedOwners = owners.filter((o) =>
