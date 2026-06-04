@@ -613,7 +613,7 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
           <h3 className="text-sm font-semibold text-white">Top Management</h3>
           <span className="text-[11px] text-slate-500">{owners.length}</span>
           <button onClick={onAddOwner} className="ml-auto flex items-center gap-1.5 text-xs font-medium text-amber-400 hover:text-amber-300">
-            <Plus className="h-3.5 w-3.5" />Add Owner
+            <Plus className="h-3.5 w-3.5" />Add Top Management
           </button>
         </div>
         {owners.length === 0 ? (
@@ -979,7 +979,7 @@ function CreateOwnerDialog({ companies, preselectCompanyId, call, onClose, onCre
   return (
     <Overlay onClose={onClose} wide>
       <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2"><Crown className="h-5 w-5 text-amber-400" /><h3 className="text-sm font-semibold text-white">Add Owner Account</h3></div>
+        <div className="flex items-center gap-2"><Crown className="h-5 w-5 text-amber-400" /><h3 className="text-sm font-semibold text-white">Add Top Management</h3></div>
         <button onClick={onClose} className="text-slate-500 hover:text-white"><X className="h-4 w-4" /></button>
       </div>
       <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-1">
