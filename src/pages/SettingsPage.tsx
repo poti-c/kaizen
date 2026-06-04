@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Eye, EyeOff, Loader2, Palette, Lock, Info, Scale, Pencil, Check, X, Bell, BellOff, BellRing, Plus, Trash2, Building2, Tag, MapPin, AlertTriangle, LifeBuoy, HelpCircle, MessageSquare, Smartphone, Mail, ChevronRight, ChevronDown, UserX, Camera } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
+import { useCompany } from '@/contexts/CompanyContext'
 import { useTheme } from '@/contexts/ThemeContext'
 import { useLanguage } from '@/contexts/LanguageContext'
 import { Button } from '@/components/ui/button'
@@ -33,6 +34,8 @@ const PRESET_COLORS = [
 
 export function SettingsPage() {
   const { profile, refreshProfile } = useAuth()
+  const { activeCompany } = useCompany()
+  const companyId = activeCompany?.id ?? profile?.company_id ?? null
   const { status: pushStatus, supported: pushSupported, isIOS: pushIsIOS, isStandalone: pushIsStandalone, subscribe, unsubscribe } = usePushNotifications(profile?.id)
   const { settings, updateSettings } = useTheme()
   const { t, lang, setLang } = useLanguage()
@@ -147,26 +150,37 @@ export function SettingsPage() {
   // inline-edit state: { key: 'dept'|'cat'|'loc', index: number, value: string } | null
   const [editingItem, setEditingItem] = useState<{ key: string; index: number; value: string } | null>(null)
 
-  // Load from Supabase on mount
+  // Load this company's lists. A saved row (even empty) is authoritative;
+  // companies with NO saved row fall back to the built-in defaults. New
+  // companies are seeded with empty rows, so they start blank.
   useEffect(() => {
+    if (!companyId) return
+    let cancelled = false
     async function loadLists() {
       const { data } = await supabase
         .from('kaizen_settings')
         .select('key, value')
+        .eq('company_id', companyId)
         .in('key', ['custom_departments', 'custom_categories', 'custom_locations'])
-      if (!data) return
-      data.forEach((row: { key: string; value: unknown }) => {
+      if (cancelled) return
+      let d = DEFAULT_DEPARTMENTS, c = DEFAULT_CATEGORIES, l = DEFAULT_LOCATIONS
+      data?.forEach((row: { key: string; value: unknown }) => {
         if (!Array.isArray(row.value)) return
-        if (row.key === 'custom_departments') setDeptList(row.value as string[])
-        if (row.key === 'custom_categories') setCatList(row.value as string[])
-        if (row.key === 'custom_locations') setLocList(row.value as string[])
+        if (row.key === 'custom_departments') d = row.value as string[]
+        if (row.key === 'custom_categories') c = row.value as string[]
+        if (row.key === 'custom_locations') l = row.value as string[]
       })
+      setDeptList(d); setCatList(c); setLocList(l)
     }
     loadLists()
-  }, [])
+    return () => { cancelled = true }
+  }, [companyId])
 
   async function saveList(key: string, list: string[]) {
-    await supabase.from('kaizen_settings').upsert({ key, value: list }, { onConflict: 'key' })
+    if (!companyId) return
+    await supabase
+      .from('kaizen_settings')
+      .upsert({ key, value: list, company_id: companyId, updated_by: profile?.id ?? null }, { onConflict: 'key,company_id' })
   }
 
   function addItem(key: string, value: string, list: string[], setList: (l: string[]) => void, setNew: (v: string) => void) {
