@@ -610,7 +610,7 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
       <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
         <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-800">
           <Crown className="h-4 w-4 text-amber-400" />
-          <h3 className="text-sm font-semibold text-white">Owner Accounts</h3>
+          <h3 className="text-sm font-semibold text-white">Top Management</h3>
           <span className="text-[11px] text-slate-500">{owners.length}</span>
           <button onClick={onAddOwner} className="ml-auto flex items-center gap-1.5 text-xs font-medium text-amber-400 hover:text-amber-300">
             <Plus className="h-3.5 w-3.5" />Add Owner
