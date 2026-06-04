@@ -110,26 +110,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   async function signInStaff(username: string, password: string, department: Department) {
-    // Look up staff by username + department to get their auth email (case-insensitive)
+    // Staff auth email is deterministic from the username — no pre-auth DB read needed.
+    const email = staffEmailFromUsername(username.trim())
+
+    const { data: signInData, error } = await supabase.auth.signInWithPassword({ email, password })
+    if (error || !signInData.user) throw new Error('Invalid username or password.')
+
+    // Authenticated — now read own profile (RLS-allowed) and verify role/department/status
     const { data: prof, error: profError } = await supabase
       .from('kaizen_profiles')
       .select('*')
-      .ilike('username', username.trim())
-      .eq('department', department)
-      .eq('role', 'staff')
-      .eq('is_active', true)
+      .eq('id', signInData.user.id)
       .single()
 
     if (profError || !prof) {
+      await supabase.auth.signOut()
       throw new Error('No staff account found with this username and department.')
     }
-
     const p = prof as KaizenProfile
-    // Use the stored username (canonical casing) to derive the auth email
-    const email = p.email || staffEmailFromUsername(p.username!)
-
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
-    if (error) throw new Error('Invalid username or password.')
+    if (p.role !== 'staff') {
+      await supabase.auth.signOut()
+      throw new Error('This is not a staff account.')
+    }
+    if (p.department !== department) {
+      await supabase.auth.signOut()
+      throw new Error('Department mismatch. Please select your correct department.')
+    }
+    if (!p.is_active) {
+      await supabase.auth.signOut()
+      throw new Error('This account has been suspended. Please contact your manager or HR.')
+    }
     setProfile(p)
   }
 
