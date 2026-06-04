@@ -1,0 +1,6 @@
+-- Let a user be deleted without orphaning case history.
+-- Actor columns (created_by, approvers, assigned_by/staff, uploaded_by,
+-- performed_by, settings.updated_by) → ON DELETE SET NULL.
+-- Comments (user_id NOT NULL) → ON DELETE CASCADE.
+-- Applied to project znxqmurhjtyfsotcorfj on 2026-06-04.
+-- (Full ALTER statements applied via the fk_on_delete_set_null migration.)
