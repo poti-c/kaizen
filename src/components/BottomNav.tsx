@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { NavLink } from 'react-router-dom'
-import { LayoutDashboard, FolderOpen, PlusCircle, Bell, Users, Settings, TrendingUp } from 'lucide-react'
+import { LayoutDashboard, FolderOpen, PlusCircle, Bell, Users, Settings, TrendingUp, CalendarDays } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useLanguage } from '@/contexts/LanguageContext'
 import { supabase } from '@/lib/supabase'
@@ -39,10 +39,11 @@ export function BottomNav() {
 
   const items: NavItem[] = isStaff
     ? [
-        { to: '/cases',        icon: FolderOpen,      label: t.nav.cases,    accent: false },
-        { to: '/cases/new',    icon: PlusCircle,      label: t.nav.newCase,  accent: true  },
-        { to: '/notifications',icon: Bell,            label: t.nav.alerts,   accent: false, badge: unread },
-        { to: '/settings',     icon: Settings,        label: t.nav.settings, accent: false },
+        { to: '/cases',          icon: FolderOpen,   label: t.nav.cases,    accent: false },
+        { to: '/cases/calendar', icon: CalendarDays, label: t.nav.calendar, accent: false },
+        { to: '/cases/new',      icon: PlusCircle,   label: t.nav.newCase,  accent: true  },
+        { to: '/notifications',  icon: Bell,         label: t.nav.alerts,   accent: false, badge: unread },
+        { to: '/settings',       icon: Settings,     label: t.nav.settings, accent: false },
       ]
     : [
         { to: '/dashboard',    icon: LayoutDashboard, label: t.nav.home,        accent: false },
