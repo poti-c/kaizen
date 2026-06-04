@@ -787,8 +787,12 @@ export function CaseDetailPage() {
         {/* ── Incomplete info banner ── */}
         {kcase.status !== 'closed' && (() => {
           const badDept = !validDeptValues.includes(kcase.department)
-          const badLocation = kcase.location && kcase.location !== 'Others' && !validLocations.includes(kcase.location)
-          const badCategory = kcase.category && kcase.category !== 'other' && !validCategories.includes(kcase.category)
+          const badLocation = kcase.location && kcase.location !== 'Others' &&
+            !validLocations.some(v => v.toLowerCase() === kcase.location!.toLowerCase())
+          const catLower = (kcase.category || '').toLowerCase().replace(/ /g, '_')
+          const badCategory = kcase.category && kcase.category !== 'other' &&
+            !validCategories.some(v => v.toLowerCase() === catLower) &&
+            !customCatList.some(label => label.toLowerCase().replace(/ /g, '_') === catLower)
           if (!badDept && !badLocation && !badCategory) return null
           return (
             <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-4">
