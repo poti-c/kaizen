@@ -211,6 +211,7 @@ export function UsersPage() {
   }
 
   const [deptFilter, setDeptFilter] = useState<Department | 'all'>('all')
+  const [staffDeptFilter, setStaffDeptFilter] = useState<Department | 'all'>('all')
 
 
   // Departments that actually have users (for the filter pills)
@@ -221,10 +222,14 @@ export function UsersPage() {
   const visibleUsers = (deptFilter === 'all' ? users : users.filter(u => u.department === deptFilter))
     .filter(u => u.email !== MD_EMAIL || profile?.email === MD_EMAIL)
 
+  const staffDepts = DEPARTMENTS.filter(d => users.some(u => u.role === 'staff' && u.department === d.value))
+
   const roleGroups = {
     super_admin: visibleUsers.filter((u) => u.role === 'super_admin'),
     manager: visibleUsers.filter((u) => u.role === 'manager'),
-    staff: visibleUsers.filter((u) => u.role === 'staff'),
+    staff: visibleUsers
+      .filter((u) => u.role === 'staff')
+      .filter((u) => staffDeptFilter === 'all' || u.department === staffDeptFilter),
   }
 
   const roleIcons = { super_admin: Shield, manager: Shield, staff: Users }
@@ -286,7 +291,24 @@ export function UsersPage() {
                 <div className="flex items-center gap-2 px-5 py-4 border-b border-gray-100 bg-gray-50">
                   <Icon className="h-4 w-4 text-gray-500" />
                   <h2 className="font-semibold text-gray-700 text-sm">{roleLabels[role]}</h2>
-                  <span className="ml-auto text-xs text-gray-400">{group.length}</span>
+                  {/* Staff-only department filter */}
+                  {role === 'staff' && staffDepts.length > 1 && (
+                    <div className="ml-auto mr-2">
+                      <Select value={staffDeptFilter} onValueChange={(v) => setStaffDeptFilter(v as Department | 'all')}>
+                        <SelectTrigger className="h-7 text-xs border-gray-200 bg-white px-2 w-auto min-w-[110px]">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All Depts ({users.filter(u => u.role === 'staff').length})</SelectItem>
+                          {staffDepts.map(d => {
+                            const count = users.filter(u => u.role === 'staff' && u.department === d.value).length
+                            return <SelectItem key={d.value} value={d.value}>{d.label} ({count})</SelectItem>
+                          })}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+                  <span className={`text-xs text-gray-400 ${role === 'staff' && staffDepts.length > 1 ? '' : 'ml-auto'}`}>{group.length}</span>
                 </div>
                 {group.length === 0 ? (
                   <p className="px-5 py-6 text-sm text-gray-400">{t.users.noYet(roleLabels[role])}</p>

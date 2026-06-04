@@ -52,11 +52,12 @@ export function SettingsPage() {
       img.onload = () => {
         const size = Math.min(img.width, img.height)
         const canvas = document.createElement('canvas')
-        canvas.width = 400; canvas.height = 400
+        // 300×300 at 72% quality ≈ 15–25 KB — good for avatars, saves storage
+        canvas.width = 300; canvas.height = 300
         const ctx = canvas.getContext('2d')!
-        ctx.drawImage(img, (img.width - size) / 2, (img.height - size) / 2, size, size, 0, 0, 400, 400)
+        ctx.drawImage(img, (img.width - size) / 2, (img.height - size) / 2, size, size, 0, 0, 300, 300)
         URL.revokeObjectURL(url)
-        canvas.toBlob((blob) => resolve(blob!), 'image/jpeg', 0.88)
+        canvas.toBlob((blob) => resolve(blob!), 'image/jpeg', 0.72)
       }
       img.src = url
     })
