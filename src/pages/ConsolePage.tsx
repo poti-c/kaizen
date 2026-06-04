@@ -654,7 +654,7 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
           <Link2 className="h-4 w-4 text-slate-400" />
           <h3 className="text-sm font-semibold text-white">Linked Companies</h3>
           <button onClick={onAddOwner} className="ml-auto flex items-center gap-1.5 text-xs font-medium text-amber-400 hover:text-amber-300">
-            <Plus className="h-3.5 w-3.5" />Add Top Management
+            <Plus className="h-3.5 w-3.5" />Add Users
           </button>
         </div>
         <div className="px-4 py-3">
