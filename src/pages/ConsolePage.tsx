@@ -207,6 +207,7 @@ function Dashboard({ token, onLogout }: { token: string; onLogout: () => void })
   const [loading, setLoading] = useState(true)
   const [showCreate, setShowCreate] = useState(false)
   const [showCreateCompany, setShowCreateCompany] = useState(false)
+  const [showAssign, setShowAssign] = useState(false)
   const [preselectCompany, setPreselectCompany] = useState<string | null>(null)
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null)
 
@@ -266,6 +267,7 @@ function Dashboard({ token, onLogout }: { token: string; onLogout: () => void })
             reload={load}
             onBack={() => setSelectedCompanyId(null)}
             onAddOwner={() => { setPreselectCompany(selectedCompany.id); setShowCreate(true) }}
+            onAssignUsers={() => setShowAssign(true)}
           />
         ) : tab === 'companies' ? (
           <CompaniesListTab companies={companies} owners={owners} onOpen={setSelectedCompanyId} onCreate={() => setShowCreateCompany(true)} />
@@ -295,6 +297,17 @@ function Dashboard({ token, onLogout }: { token: string; onLogout: () => void })
           call={call}
           onClose={() => setShowCreateCompany(false)}
           onCreated={async (id) => { setShowCreateCompany(false); await load(); setSelectedCompanyId(id) }}
+        />
+      )}
+
+      {showAssign && selectedCompany && (
+        <AssignUsersDialog
+          companies={companies}
+          owners={owners}
+          defaultCompanyId={selectedCompany.id}
+          call={call}
+          onClose={() => setShowAssign(false)}
+          onAssigned={() => { setShowAssign(false); load() }}
         />
       )}
     </div>
@@ -356,7 +369,7 @@ function SubscriptionBadge({ sub }: { sub?: Subscription }) {
 }
 
 // ── Company detail page ──────────────────────────────────────────────────────
-function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack, onAddOwner }: {
+function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack, onAddOwner, onAssignUsers }: {
   company: ConsoleCompany
   owners: ConsoleOwner[]
   allCompanies: ConsoleCompany[]
@@ -364,6 +377,7 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
   reload: () => void
   onBack: () => void
   onAddOwner: () => void
+  onAssignUsers: () => void
 }) {
   const c = company
   const [busy, setBusy] = useState<string | null>(null)
@@ -653,7 +667,7 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
         <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-800">
           <Link2 className="h-4 w-4 text-slate-400" />
           <h3 className="text-sm font-semibold text-white">Linked Companies</h3>
-          <button onClick={onAddOwner} className="ml-auto flex items-center gap-1.5 text-xs font-medium text-amber-400 hover:text-amber-300">
+          <button onClick={onAssignUsers} className="ml-auto flex items-center gap-1.5 text-xs font-medium text-amber-400 hover:text-amber-300">
             <Plus className="h-3.5 w-3.5" />Add Users
           </button>
         </div>
@@ -857,6 +871,76 @@ function AuditTab({ call }: { call: <T,>(a: string, p?: Record<string, unknown>)
   )
 }
 
+// ── Assign existing Top Management member to a company ───────────────────────
+function AssignUsersDialog({ companies, owners, defaultCompanyId, call, onClose, onAssigned }: {
+  companies: ConsoleCompany[]
+  owners: ConsoleOwner[]
+  defaultCompanyId?: string | null
+  call: <T,>(a: string, p?: Record<string, unknown>) => Promise<T>
+  onClose: () => void
+  onAssigned: () => void
+}) {
+  const [companyId, setCompanyId] = useState(defaultCompanyId ?? companies[0]?.id ?? '')
+  const [userId, setUserId] = useState('')
+  const [error, setError] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  // Top Management members not already linked to the chosen company
+  const available = owners.filter((o) => !o.companies.some((c) => c.id === companyId))
+
+  async function submit() {
+    setError('')
+    if (!companyId) { setError('Select a company.'); return }
+    if (!userId) { setError('Select a Top Management member to assign.'); return }
+    setSaving(true)
+    try {
+      await call('link_owner_company', { owner_id: userId, company_id: companyId })
+      onAssigned()
+    } catch (e) { setError(e instanceof Error ? e.message : 'Failed to assign user.') }
+    finally { setSaving(false) }
+  }
+
+  return (
+    <Overlay onClose={onClose} wide>
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2"><Plus className="h-5 w-5 text-amber-400" /><h3 className="text-sm font-semibold text-white">Add Users</h3></div>
+        <button onClick={onClose} className="text-slate-500 hover:text-white"><X className="h-4 w-4" /></button>
+      </div>
+      <div className="space-y-3">
+        <Field label="Assign Company *">
+          <select value={companyId} onChange={(e) => { setCompanyId(e.target.value); setUserId('') }} className={selectCls}>
+            {companies.map((c) => <option key={c.id} value={c.id} className="bg-slate-800">{c.name}</option>)}
+          </select>
+        </Field>
+        {companyId && (
+          <Field label="Assign User *">
+            {available.length === 0 ? (
+              <p className="text-xs text-slate-500 bg-slate-800/50 rounded-lg px-3 py-2.5">All Top Management members are already assigned to this company.</p>
+            ) : (
+              <select value={userId} onChange={(e) => setUserId(e.target.value)} className={selectCls}>
+                <option value="" className="bg-slate-800">Select a member…</option>
+                {available.map((o) => (
+                  <option key={o.id} value={o.id} className="bg-slate-800">
+                    {o.full_name}{o.job_title ? ` — ${o.job_title}` : ''}
+                  </option>
+                ))}
+              </select>
+            )}
+            <p className="text-[11px] text-slate-500 mt-1">Members are created in the Top Management section. This grants an existing member access to the selected company.</p>
+          </Field>
+        )}
+        {error && <div className="flex items-start gap-2 bg-red-500/10 border border-red-500/20 text-red-400 text-sm rounded-lg px-3 py-2"><AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" /><span>{error}</span></div>}
+      </div>
+      <div className="flex gap-2 justify-end pt-4 mt-2 border-t border-slate-800">
+        <button onClick={onClose} className="px-3 py-2 text-sm text-slate-300 hover:bg-slate-800 rounded-lg">Cancel</button>
+        <button onClick={submit} disabled={saving || !userId} className="px-4 py-2 text-sm bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-slate-950 font-semibold rounded-lg flex items-center gap-1.5">
+          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}Assign
+        </button>
+      </div>
+    </Overlay>
+  )
+}
+
 // ── Create company dialog ────────────────────────────────────────────────────
 function CreateCompanyDialog({ call, onClose, onCreated }: {
   call: <T,>(a: string, p?: Record<string, unknown>) => Promise<T>
@@ -1044,6 +1128,7 @@ function CreateOwnerDialog({ companies, preselectCompanyId, call, onClose, onCre
 
 // ── Shared bits ──────────────────────────────────────────────────────────────
 const inputCls = 'w-full h-9 rounded-lg bg-slate-800 border border-slate-700 px-3 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-amber-500/50'
+const selectCls = 'w-full h-9 rounded-lg bg-slate-800 border border-slate-700 px-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-amber-500/50'
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return <div className="space-y-1.5"><label className="text-xs font-medium text-slate-400">{label}</label>{children}</div>
