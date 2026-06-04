@@ -1047,12 +1047,6 @@ function CompaniesSection() {
   const [loading, setLoading]       = React.useState(true)
   const [expanded, setExpanded]     = React.useState<string | null>(null)
 
-  // Add-company dialog
-  const [showAdd, setShowAdd]       = React.useState(false)
-  const [newName, setNewName]       = React.useState('')
-  const [newSlug, setNewSlug]       = React.useState('')
-  const [saving, setSaving]         = React.useState(false)
-
   React.useEffect(() => { fetchAll() }, [])
 
   async function fetchAll() {
@@ -1066,19 +1060,6 @@ function CompaniesSection() {
     setAdmins((sas ?? []) as AdminProfile[])
     setLinks((ls ?? []) as AdminLink[])
     setLoading(false)
-  }
-
-  async function handleAddCompany() {
-    const name = newName.trim()
-    const slug = newSlug.trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
-    if (!name || !slug) return
-    setSaving(true)
-    const { error } = await supabase.from('kaizen_companies').insert({ name, slug })
-    if (error) { toast.error(error.message); setSaving(false); return }
-    toast.success(`"${name}" added.`)
-    setNewName(''); setNewSlug(''); setShowAdd(false)
-    await fetchAll()
-    setSaving(false)
   }
 
   async function toggleLink(adminId: string, companyId: string, isLinked: boolean) {
@@ -1112,13 +1093,6 @@ function CompaniesSection() {
           <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full font-medium">
             {companies.length}
           </span>
-          <button
-            onClick={() => setShowAdd(true)}
-            className="ml-auto flex items-center gap-1.5 text-xs font-medium text-[var(--brand-primary)] hover:opacity-80 transition-opacity"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            Add company
-          </button>
         </div>
 
         {loading ? (
@@ -1222,52 +1196,6 @@ function CompaniesSection() {
           </div>
         )}
       </div>
-
-      {/* Add Company dialog */}
-      <Dialog open={showAdd} onOpenChange={setShowAdd}>
-        <DialogContent className="max-w-sm mx-4">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Building2 className="h-5 w-5 text-[var(--brand-primary)]" />
-              Add New Company
-            </DialogTitle>
-            <DialogDescription>
-              Create a new company. You can then link super admins to manage it.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-1.5">
-              <Label>Company Name *</Label>
-              <Input
-                value={newName}
-                onChange={e => {
-                  setNewName(e.target.value)
-                  setNewSlug(e.target.value.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, ''))
-                }}
-                placeholder="e.g. The Grand Resort"
-                autoFocus
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Slug *</Label>
-              <Input
-                value={newSlug}
-                onChange={e => setNewSlug(e.target.value.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, ''))}
-                placeholder="e.g. grand-resort"
-              />
-              <p className="text-xs text-gray-400">Unique identifier — auto-generated from the name.</p>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => { setShowAdd(false); setNewName(''); setNewSlug('') }}>
-              Cancel
-            </Button>
-            <Button onClick={handleAddCompany} disabled={saving || !newName.trim() || !newSlug.trim()}>
-              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Add Company'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </>
   )
 }
