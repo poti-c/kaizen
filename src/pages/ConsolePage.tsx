@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import {
   ShieldCheck, Lock, Loader2, LogOut, Plus, Building2, Crown, Power,
   Trash2, X, Eye, EyeOff, Users, UserCog, ScrollText, AlertTriangle, Check,
-  ChevronDown, ChevronRight,
+  ChevronDown, ChevronRight, Pencil, CalendarDays,
 } from 'lucide-react'
 
 // ── Console API client ───────────────────────────────────────────────────────
@@ -34,7 +34,24 @@ async function callConsole<T = any>(action: string, payload: Record<string, unkn
 interface ConsoleCompany {
   id: string; name: string; slug: string; is_active: boolean
   plan: string; max_managers: number | null; max_staff: number | null
-  live_managers: number; live_staff: number
+  live_managers: number; live_staff: number; created_at: string
+}
+
+// SaaS package tiers
+const PACKAGES = [
+  { key: 'premium', label: 'Premium', desc: 'All features unlocked' },
+  { key: 'gold',    label: 'Gold',    desc: 'Core features' },
+  { key: 'trial',   label: 'Trial',   desc: 'Evaluation' },
+] as const
+
+function packageBadgeCls(plan: string) {
+  if (plan === 'premium') return 'bg-amber-500/15 text-amber-400 border-amber-500/30'
+  if (plan === 'gold')    return 'bg-yellow-500/15 text-yellow-300 border-yellow-500/30'
+  if (plan === 'trial')   return 'bg-slate-700/40 text-slate-300 border-slate-600'
+  return 'bg-slate-700/40 text-slate-400 border-slate-600'
+}
+function packageLabel(plan: string) {
+  return PACKAGES.find(p => p.key === plan)?.label ?? plan.charAt(0).toUpperCase() + plan.slice(1)
 }
 interface ConsoleOwner {
   id: string; full_name: string; email: string | null; job_title: string | null
@@ -294,10 +311,26 @@ function CompaniesTab({ companies, owners, call, reload, onAddOwner }: {
   const [expanded, setExpanded] = useState<string | null>(companies[0]?.id ?? null)
   const [busy, setBusy] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<ConsoleOwner | null>(null)
+  const [editName, setEditName] = useState<{ id: string; value: string } | null>(null)
 
   async function toggleCompany(c: ConsoleCompany) {
     setBusy(c.id)
     try { await call('update_company', { company_id: c.id, is_active: !c.is_active }); reload() }
+    catch (e) { alert(e instanceof Error ? e.message : 'Failed') }
+    finally { setBusy(null) }
+  }
+  async function saveName(c: ConsoleCompany) {
+    const v = (editName?.value ?? '').trim()
+    if (!v || v === c.name) { setEditName(null); return }
+    setBusy(c.id)
+    try { await call('update_company', { company_id: c.id, name: v }); setEditName(null); reload() }
+    catch (e) { alert(e instanceof Error ? e.message : 'Failed') }
+    finally { setBusy(null) }
+  }
+  async function setPackage(c: ConsoleCompany, plan: string) {
+    if (plan === c.plan) return
+    setBusy(c.id)
+    try { await call('update_company', { company_id: c.id, plan }); reload() }
     catch (e) { alert(e instanceof Error ? e.message : 'Failed') }
     finally { setBusy(null) }
   }
@@ -341,9 +374,12 @@ function CompaniesTab({ companies, owners, call, reload, onAddOwner }: {
                       <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${c.is_active ? 'bg-green-500/15 text-green-400' : 'bg-slate-700 text-slate-400'}`}>
                         {c.is_active ? 'Active' : 'Suspended'}
                       </span>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold border ${packageBadgeCls(c.plan)}`}>
+                        {packageLabel(c.plan)}
+                      </span>
                     </div>
                     <p className="text-[11px] text-slate-500 truncate">
-                      /{c.slug} · {c.plan} · {coOwners.length} owner{coOwners.length !== 1 ? 's' : ''} · {c.live_managers}M / {c.live_staff}S
+                      /{c.slug} · {coOwners.length} owner{coOwners.length !== 1 ? 's' : ''} · {c.live_managers}M / {c.live_staff}S
                     </p>
                   </div>
                   {isOpen ? <ChevronDown className="h-4 w-4 text-slate-500 flex-shrink-0" /> : <ChevronRight className="h-4 w-4 text-slate-500 flex-shrink-0" />}
@@ -354,9 +390,73 @@ function CompaniesTab({ companies, owners, call, reload, onAddOwner }: {
                 </button>
               </div>
 
-              {/* Expanded: quota stats + owners */}
+              {/* Expanded: details + quota stats + owners */}
               {isOpen && (
                 <div className="border-t border-slate-800 p-4 bg-slate-950/40">
+                  {/* Company details */}
+                  <div className="bg-slate-900 border border-slate-800 rounded-lg p-3.5 mb-4 space-y-3.5">
+                    {/* Name (editable) */}
+                    <div>
+                      <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1">Company Name</p>
+                      {editName?.id === c.id ? (
+                        <div className="flex items-center gap-2">
+                          <input
+                            value={editName.value}
+                            onChange={(e) => setEditName({ id: c.id, value: e.target.value })}
+                            onKeyDown={(e) => { if (e.key === 'Enter') saveName(c); if (e.key === 'Escape') setEditName(null) }}
+                            className="flex-1 h-8 rounded-lg bg-slate-800 border border-slate-700 px-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                            autoFocus
+                          />
+                          <button onClick={() => saveName(c)} disabled={busy === c.id} className="p-1.5 rounded-lg text-green-400 hover:bg-green-500/10">
+                            {busy === c.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                          </button>
+                          <button onClick={() => setEditName(null)} className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-800"><X className="h-4 w-4" /></button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm text-white">{c.name}</p>
+                          <button onClick={() => setEditName({ id: c.id, value: c.name })} className="p-1 rounded text-slate-500 hover:text-amber-400 hover:bg-slate-800">
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Package */}
+                    <div>
+                      <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Package</p>
+                      <div className="grid grid-cols-3 gap-2">
+                        {PACKAGES.map((p) => {
+                          const active = c.plan === p.key
+                          return (
+                            <button
+                              key={p.key}
+                              onClick={() => setPackage(c, p.key)}
+                              disabled={busy === c.id}
+                              className={`rounded-lg border px-2 py-2 text-left transition-colors ${active ? packageBadgeCls(p.key) : 'border-slate-700 text-slate-400 hover:border-slate-600'}`}
+                            >
+                              <div className="flex items-center gap-1">
+                                {p.key === 'premium' && <Crown className="h-3 w-3" />}
+                                <span className="text-xs font-semibold">{p.label}</span>
+                                {active && <Check className="h-3 w-3 ml-auto" />}
+                              </div>
+                              <p className="text-[9px] opacity-70 mt-0.5">{p.desc}</p>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Created date */}
+                    <div>
+                      <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1">Date Created</p>
+                      <p className="flex items-center gap-1.5 text-sm text-slate-300">
+                        <CalendarDays className="h-3.5 w-3.5 text-slate-500" />
+                        {new Date(c.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}
+                      </p>
+                    </div>
+                  </div>
+
                   <div className="grid grid-cols-2 gap-3 mb-4">
                     <Stat icon={UserCog} label="Managers" live={c.live_managers} max={c.max_managers} />
                     <Stat icon={Users} label="Staff" live={c.live_staff} max={c.max_staff} />
@@ -531,6 +631,7 @@ function CreateOwnerDialog({ companies, preselectCompanyId, call, onClose, onCre
       if (addNew && ncName.trim()) {
         payload.new_company = {
           name: ncName.trim(),
+          plan: 'trial',
           max_managers: ncMaxMgr ? Number(ncMaxMgr) : null,
           max_staff: ncMaxStaff ? Number(ncMaxStaff) : null,
         }
