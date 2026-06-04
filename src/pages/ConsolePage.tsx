@@ -965,6 +965,11 @@ function CreateCompanyDialog({ call, onClose, onCreated }: {
   const [plan, setPlan] = useState('trial')
   const [maxMgr, setMaxMgr] = useState('')
   const [maxStaff, setMaxStaff] = useState('')
+  // Owner account
+  const [ownerName, setOwnerName] = useState('')
+  const [ownerEmail, setOwnerEmail] = useState('')
+  const [ownerPassword, setOwnerPassword] = useState('')
+  const [showPw, setShowPw] = useState(false)
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
 
@@ -976,14 +981,28 @@ function CreateCompanyDialog({ call, onClose, onCreated }: {
   async function submit() {
     setError('')
     if (!name.trim() || !slug.trim()) { setError('Company name is required.'); return }
+    if (!ownerName.trim() || !ownerEmail.trim() || ownerPassword.length < 6) {
+      setError('Owner full name, email, and a password of at least 6 characters are required.')
+      return
+    }
     setSaving(true)
     try {
-      const { id } = await call<{ id: string }>('create_company', {
-        name: name.trim(), slug: slug.trim(), plan,
-        max_managers: maxMgr ? Number(maxMgr) : null,
-        max_staff: maxStaff ? Number(maxStaff) : null,
+      // Create the company AND its owner together (server rolls back the
+      // company if the owner can't be created).
+      const { company_id } = await call<{ company_id: string }>('create_owner', {
+        full_name: ownerName.trim(),
+        email: ownerEmail.trim(),
+        password: ownerPassword,
+        job_title: 'Owner',
+        is_active: true,
+        company_ids: [],
+        new_company: {
+          name: name.trim(), slug: slug.trim(), plan,
+          max_managers: maxMgr ? Number(maxMgr) : null,
+          max_staff: maxStaff ? Number(maxStaff) : null,
+        },
       })
-      onCreated(id)
+      onCreated(company_id)
     } catch (e) { setError(e instanceof Error ? e.message : 'Failed to create company.') }
     finally { setSaving(false) }
   }
@@ -994,7 +1013,7 @@ function CreateCompanyDialog({ call, onClose, onCreated }: {
         <div className="flex items-center gap-2"><Building2 className="h-5 w-5 text-amber-400" /><h3 className="text-sm font-semibold text-white">New Company</h3></div>
         <button onClick={onClose} className="text-slate-500 hover:text-white"><X className="h-4 w-4" /></button>
       </div>
-      <div className="space-y-3">
+      <div className="space-y-3 max-h-[62vh] overflow-y-auto pr-1">
         <Field label="Company Name *"><input value={name} onChange={(e) => onName(e.target.value)} className={inputCls} placeholder="e.g. The Grand Resort" autoFocus /></Field>
         <Field label="Slug *">
           <input value={slug} onChange={(e) => setSlug(e.target.value.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, ''))} className={inputCls} placeholder="grand-resort" />
@@ -1022,8 +1041,29 @@ function CreateCompanyDialog({ call, onClose, onCreated }: {
           <Field label="Max Managers"><input value={maxMgr} onChange={(e) => setMaxMgr(e.target.value.replace(/[^0-9]/g, ''))} className={inputCls} placeholder="Unlimited" inputMode="numeric" /></Field>
           <Field label="Max Staff"><input value={maxStaff} onChange={(e) => setMaxStaff(e.target.value.replace(/[^0-9]/g, ''))} className={inputCls} placeholder="Unlimited" inputMode="numeric" /></Field>
         </div>
+
+        {/* Owner account — becomes the super admin of this company */}
+        <div className="border-t border-slate-800 pt-3 mt-1">
+          <div className="flex items-center gap-1.5 mb-2">
+            <Crown className="h-3.5 w-3.5 text-amber-400" />
+            <p className="text-xs font-semibold text-white">Owner Account</p>
+          </div>
+          <p className="text-[11px] text-slate-500 mb-2.5">The Owner is the super admin of this company in the Kaizen System app.</p>
+          <div className="space-y-2.5">
+            <Field label="Full Name *"><input value={ownerName} onChange={(e) => setOwnerName(e.target.value)} className={inputCls} placeholder="e.g. John Smith" /></Field>
+            <Field label="Email *"><input type="email" value={ownerEmail} onChange={(e) => setOwnerEmail(e.target.value)} className={inputCls} placeholder="owner@company.com" autoComplete="off" /></Field>
+            <Field label="Password *">
+              <div className="relative">
+                <input type={showPw ? 'text' : 'password'} value={ownerPassword} onChange={(e) => setOwnerPassword(e.target.value)} className={inputCls + ' pr-9'} placeholder="Min. 6 chars" autoComplete="new-password" />
+                <button type="button" onClick={() => setShowPw(!showPw)} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300">
+                  {showPw ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                </button>
+              </div>
+            </Field>
+          </div>
+        </div>
+
         {error && <div className="flex items-start gap-2 bg-red-500/10 border border-red-500/20 text-red-400 text-sm rounded-lg px-3 py-2"><AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" /><span>{error}</span></div>}
-        <p className="text-[11px] text-slate-500">After creating, you&apos;ll land on the company page where you can add owner accounts.</p>
       </div>
       <div className="flex gap-2 justify-end pt-4 mt-2 border-t border-slate-800">
         <button onClick={onClose} className="px-3 py-2 text-sm text-slate-300 hover:bg-slate-800 rounded-lg">Cancel</button>
