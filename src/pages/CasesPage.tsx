@@ -378,8 +378,11 @@ export function CasesPage() {
   const incompleteCases = cases.filter(c => {
     if (c.status === 'closed') return false
     const badDept = !validDeptValues.includes(c.department)
-    const badLocation = c.location && c.location !== 'Others' && !customLocations.includes(c.location)
-    const badCategory = c.category && c.category !== 'other' && !validCategorySlugs.includes(c.category)
+    const badLocation = c.location && c.location !== 'Others' &&
+      !customLocations.some(l => l.toLowerCase() === c.location!.toLowerCase())
+    const catSlug = (c.category || '').toLowerCase().replace(/ /g, '_')
+    const badCategory = c.category && c.category !== 'other' &&
+      !validCategorySlugs.some(s => s.toLowerCase() === catSlug)
     return badDept || badLocation || badCategory
   })
 
@@ -434,12 +437,12 @@ export function CasesPage() {
                         Dept &ldquo;{DEPARTMENT_LABELS[c.department] ?? c.department}&rdquo; removed
                       </span>
                     )}
-                    {c.location && c.location !== 'Others' && !customLocations.includes(c.location) && (
+                    {c.location && c.location !== 'Others' && !customLocations.some(l => l.toLowerCase() === c.location!.toLowerCase()) && (
                       <span className="text-xs text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded">
                         Location &ldquo;{c.location}&rdquo; removed
                       </span>
                     )}
-                    {c.category && c.category !== 'other' && !validCategorySlugs.includes(c.category) && (
+                    {c.category && c.category !== 'other' && !validCategorySlugs.some(s => s.toLowerCase() === (c.category || '').toLowerCase().replace(/ /g, '_')) && (
                       <span className="text-xs text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded">
                         Category &ldquo;{c.category}&rdquo; removed
                       </span>
