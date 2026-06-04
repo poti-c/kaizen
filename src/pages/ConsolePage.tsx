@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import {
   ShieldCheck, Lock, Loader2, LogOut, Plus, Building2, Crown, Power,
   Trash2, X, Eye, EyeOff, Users, UserCog, ScrollText, AlertTriangle, Check,
-  ChevronRight, Pencil, CalendarDays, ArrowLeft, Receipt, Upload, ImageIcon, Clock, Link2,
+  ChevronRight, Pencil, CalendarDays, ArrowLeft, Receipt, Upload, ImageIcon, Clock, Link2, KeyRound,
 } from 'lucide-react'
 
 // ── Console API client ───────────────────────────────────────────────────────
@@ -38,6 +38,7 @@ interface ConsoleCompany {
   id: string; name: string; slug: string; is_active: boolean
   plan: string; max_managers: number | null; max_staff: number | null
   live_managers: number; live_staff: number; created_at: string
+  login_code: string | null
   subscription?: Subscription
 }
 interface ConsoleOwner {
@@ -368,6 +369,8 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
   const [busy, setBusy] = useState<string | null>(null)
   const [editingName, setEditingName] = useState(false)
   const [nameValue, setNameValue] = useState(c.name)
+  const [editingCode, setEditingCode] = useState(false)
+  const [codeValue, setCodeValue] = useState(c.login_code ?? c.slug)
   const [confirmDeleteOwner, setConfirmDeleteOwner] = useState<ConsoleOwner | null>(null)
 
   // Invoices
@@ -397,6 +400,18 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
     const v = nameValue.trim()
     if (!v || v === c.name) { setEditingName(false); return }
     await patch({ name: v }, 'name'); setEditingName(false)
+  }
+  async function saveCode() {
+    const v = codeValue.trim()
+    if (!v || v === (c.login_code ?? c.slug)) { setEditingCode(false); return }
+    setBusy('code')
+    try {
+      const r = await call<{ repointed: number }>('update_company', { company_id: c.id, login_code: v })
+      setEditingCode(false)
+      if (r.repointed > 0) alert(`Login code updated. ${r.repointed} staff login${r.repointed > 1 ? 's were' : ' was'} re-pointed to the new code.`)
+      reload()
+    } catch (e) { alert(e instanceof Error ? e.message : 'Failed') }
+    finally { setBusy(null) }
   }
   async function toggleOwner(o: ConsoleOwner) {
     setBusy(o.id)
@@ -463,6 +478,38 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
           className={`p-2 rounded-lg flex-shrink-0 ${c.is_active ? 'text-green-400 hover:bg-green-500/10' : 'text-slate-500 hover:bg-slate-800'}`}>
           {busy === 'status' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Power className="h-4 w-4" />}
         </button>
+      </div>
+
+      {/* Staff Login Code */}
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 mb-4">
+        <div className="flex items-center gap-2 mb-1">
+          <KeyRound className="h-4 w-4 text-amber-400" />
+          <h3 className="text-sm font-semibold text-white">Staff Login Code</h3>
+        </div>
+        <p className="text-[11px] text-slate-500 mb-3">Staff enter this code on the login screen (with their username &amp; password). Changing it instantly re-points every staff login.</p>
+        {editingCode ? (
+          <div>
+            <div className="flex items-center gap-2">
+              <input
+                value={codeValue}
+                onChange={(e) => setCodeValue(e.target.value.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, ''))}
+                onKeyDown={(e) => { if (e.key === 'Enter') saveCode(); if (e.key === 'Escape') { setEditingCode(false); setCodeValue(c.login_code ?? c.slug) } }}
+                className="flex-1 h-9 rounded-lg bg-slate-800 border border-slate-700 px-3 text-sm font-mono text-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                autoFocus
+              />
+              <button onClick={saveCode} disabled={busy === 'code'} className="p-1.5 rounded-lg text-green-400 hover:bg-green-500/10">
+                {busy === 'code' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+              </button>
+              <button onClick={() => { setEditingCode(false); setCodeValue(c.login_code ?? c.slug) }} className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-800"><X className="h-4 w-4" /></button>
+            </div>
+            {c.live_staff > 0 && <p className="text-[11px] text-amber-400/80 mt-2">⚠ {c.live_staff} staff account{c.live_staff > 1 ? 's' : ''} will be re-pointed to the new code.</p>}
+          </div>
+        ) : (
+          <div className="flex items-center gap-2">
+            <code className="text-base font-mono font-semibold text-amber-400 bg-slate-800 border border-slate-700 px-3 py-1 rounded-lg">{c.login_code ?? c.slug}</code>
+            <button onClick={() => { setCodeValue(c.login_code ?? c.slug); setEditingCode(true) }} className="p-1.5 rounded-lg text-slate-500 hover:text-amber-400 hover:bg-slate-800"><Pencil className="h-4 w-4" /></button>
+          </div>
+        )}
       </div>
 
       {/* Package + created + quota */}
