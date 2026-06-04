@@ -39,6 +39,8 @@ interface ConsoleCompany {
   plan: string; max_managers: number | null; max_staff: number | null
   live_managers: number; live_staff: number; created_at: string
   login_code: string | null
+  contact_person: string | null; contact_phone: string | null; contact_email: string | null
+  address: string | null; tax_id: string | null
   subscription?: Subscription
 }
 interface ConsoleOwner {
@@ -396,6 +398,11 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
   const [nameValue, setNameValue] = useState(c.name)
   const [editingCode, setEditingCode] = useState(false)
   const [codeValue, setCodeValue] = useState(c.login_code ?? c.slug)
+  const [editingBilling, setEditingBilling] = useState(false)
+  const [bill, setBill] = useState({
+    contact_person: c.contact_person ?? '', contact_phone: c.contact_phone ?? '',
+    contact_email: c.contact_email ?? '', address: c.address ?? '', tax_id: c.tax_id ?? '',
+  })
   const [confirmDeleteOwner, setConfirmDeleteOwner] = useState<ConsoleOwner | null>(null)
 
   // Invoices
@@ -425,6 +432,24 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
     const v = nameValue.trim()
     if (!v || v === c.name) { setEditingName(false); return }
     await patch({ name: v }, 'name'); setEditingName(false)
+  }
+  function startBillingEdit() {
+    setBill({
+      contact_person: c.contact_person ?? '', contact_phone: c.contact_phone ?? '',
+      contact_email: c.contact_email ?? '', address: c.address ?? '', tax_id: c.tax_id ?? '',
+    })
+    setEditingBilling(true)
+  }
+  async function saveBilling() {
+    setBusy('billing')
+    try {
+      await call('update_company', {
+        company_id: c.id,
+        contact_person: bill.contact_person, contact_phone: bill.contact_phone,
+        contact_email: bill.contact_email, address: bill.address, tax_id: bill.tax_id,
+      })
+      setEditingBilling(false); reload()
+    } catch (e) { alert(e instanceof Error ? e.message : 'Failed') } finally { setBusy(null) }
   }
   async function saveCode() {
     const v = codeValue.trim()
@@ -530,6 +555,43 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
             <button onClick={() => { setCodeValue(c.login_code ?? c.slug); setEditingCode(true) }} className="p-1 rounded text-slate-500 hover:text-amber-400 hover:bg-slate-800"><Pencil className="h-3.5 w-3.5" /></button>
             <span className="text-[11px] text-slate-500 ml-auto hidden md:block">Staff enter this with their username &amp; password</span>
           </>
+        )}
+      </div>
+
+      {/* Contact & Billing — used for invoicing */}
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 mb-4">
+        <div className="flex items-center gap-2 mb-3">
+          <Receipt className="h-4 w-4 text-slate-400" />
+          <h3 className="text-sm font-semibold text-white">Contact &amp; Billing</h3>
+          {!editingBilling ? (
+            <button onClick={startBillingEdit} className="ml-auto p-1 rounded text-slate-500 hover:text-amber-400 hover:bg-slate-800"><Pencil className="h-3.5 w-3.5" /></button>
+          ) : (
+            <div className="ml-auto flex items-center gap-1">
+              <button onClick={saveBilling} disabled={busy === 'billing'} className="p-1.5 rounded-lg text-green-400 hover:bg-green-500/10">
+                {busy === 'billing' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+              </button>
+              <button onClick={() => setEditingBilling(false)} className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-800"><X className="h-4 w-4" /></button>
+            </div>
+          )}
+        </div>
+        {editingBilling ? (
+          <div className="space-y-2.5">
+            <Field label="Contact Person"><input value={bill.contact_person} onChange={(e) => setBill({ ...bill, contact_person: e.target.value })} className={inputCls} placeholder="e.g. Khun Somchai" /></Field>
+            <div className="grid grid-cols-2 gap-2.5">
+              <Field label="Phone Number"><input value={bill.contact_phone} onChange={(e) => setBill({ ...bill, contact_phone: e.target.value })} className={inputCls} placeholder="+66 …" /></Field>
+              <Field label="Email Address"><input type="email" value={bill.contact_email} onChange={(e) => setBill({ ...bill, contact_email: e.target.value })} className={inputCls} placeholder="billing@company.com" autoComplete="off" /></Field>
+            </div>
+            <Field label="Thai Tax ID"><input value={bill.tax_id} onChange={(e) => setBill({ ...bill, tax_id: e.target.value })} className={inputCls} placeholder="13-digit tax ID" /></Field>
+            <Field label="Address"><textarea value={bill.address} onChange={(e) => setBill({ ...bill, address: e.target.value })} rows={2} className={inputCls + ' h-auto py-2 resize-none'} placeholder="Billing address" /></Field>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-3">
+            <Detail label="Contact Person">{c.contact_person || '—'}</Detail>
+            <Detail label="Phone Number">{c.contact_phone || '—'}</Detail>
+            <Detail label="Email Address">{c.contact_email || '—'}</Detail>
+            <Detail label="Thai Tax ID">{c.tax_id || '—'}</Detail>
+            <div className="col-span-2"><Detail label="Address">{c.address || '—'}</Detail></div>
+          </div>
         )}
       </div>
 
