@@ -393,6 +393,10 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
     contact_email: c.contact_email ?? '', address: c.address ?? '', tax_id: c.tax_id ?? '',
   })
   const [confirmDeleteOwner, setConfirmDeleteOwner] = useState<ConsoleOwner | null>(null)
+  // Remove-company flow: 'confirm' (first prompt) → 'password' (admin password)
+  const [removeStep, setRemoveStep] = useState<null | 'confirm' | 'password'>(null)
+  const [removePw, setRemovePw] = useState('')
+  const [removeErr, setRemoveErr] = useState('')
 
   // Invoices
   const [invoices, setInvoices] = useState<Invoice[]>([])
@@ -440,6 +444,17 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
       })
       setEditingBilling(false); reload()
     } catch (e) { alert(e instanceof Error ? e.message : 'Failed') } finally { setBusy(null) }
+  }
+  async function deleteCompany() {
+    setRemoveErr('')
+    if (!removePw) { setRemoveErr('Enter your admin password.'); return }
+    setBusy('remove')
+    try {
+      await call('delete_company', { company_id: c.id, password: removePw })
+      setRemoveStep(null); setRemovePw('')
+      reload(); onBack()
+    } catch (e) { setRemoveErr(e instanceof Error ? e.message : 'Failed to remove company.') }
+    finally { setBusy(null) }
   }
   async function saveCode() {
     const v = codeValue.trim()
@@ -771,6 +786,58 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
           )}
         </div>
       </div>
+
+      {/* Danger zone — only for suspended companies */}
+      {!c.is_active && (
+        <div className="bg-red-500/5 border border-red-500/30 rounded-xl p-4 mt-6">
+          <div className="flex items-center gap-2 mb-1">
+            <AlertTriangle className="h-4 w-4 text-red-400" />
+            <h3 className="text-sm font-semibold text-red-300">Danger Zone</h3>
+          </div>
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <p className="text-[11px] text-slate-400 max-w-md">Permanently remove <span className="text-white font-medium">{c.name}</span> and all of its data — users, cases, invoices and settings. This cannot be undone.</p>
+            <button onClick={() => { setRemoveErr(''); setRemovePw(''); setRemoveStep('confirm') }}
+              className="flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/40 text-red-300 hover:bg-red-500/20 flex-shrink-0">
+              <Trash2 className="h-3.5 w-3.5" />Remove Company
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Remove company — step 1: confirm */}
+      {removeStep === 'confirm' && (
+        <Overlay onClose={() => setRemoveStep(null)}>
+          <div className="flex items-center gap-2 mb-3"><AlertTriangle className="h-5 w-5 text-red-400" /><h3 className="text-sm font-semibold text-white">Remove {c.name}?</h3></div>
+          <p className="text-sm text-slate-400 mb-5">This permanently deletes the company and <strong className="text-white">all of its data</strong> — every user account, case, invoice and setting. This action cannot be undone.</p>
+          <div className="flex gap-2 justify-end">
+            <button onClick={() => setRemoveStep(null)} className="px-3 py-2 text-sm text-slate-300 hover:bg-slate-800 rounded-lg">Cancel</button>
+            <button onClick={() => { setRemoveErr(''); setRemoveStep('password') }} className="px-4 py-2 text-sm bg-red-500 hover:bg-red-400 text-white font-semibold rounded-lg flex items-center gap-1.5">
+              <Trash2 className="h-4 w-4" />Continue
+            </button>
+          </div>
+        </Overlay>
+      )}
+
+      {/* Remove company — step 2: admin password */}
+      {removeStep === 'password' && (
+        <Overlay onClose={() => { setRemoveStep(null); setRemovePw('') }}>
+          <div className="flex items-center gap-2 mb-3"><KeyRound className="h-5 w-5 text-red-400" /><h3 className="text-sm font-semibold text-white">Confirm with your password</h3></div>
+          <p className="text-sm text-slate-400 mb-4">Enter your admin login password to permanently remove <strong className="text-white">{c.name}</strong>.</p>
+          <Field label="Admin Password">
+            <input type="password" value={removePw} autoFocus autoComplete="off"
+              onChange={(e) => { setRemovePw(e.target.value); setRemoveErr('') }}
+              onKeyDown={(e) => { if (e.key === 'Enter') deleteCompany() }}
+              className={inputCls} placeholder="••••••••" />
+          </Field>
+          {removeErr && <div className="flex items-start gap-2 bg-red-500/10 border border-red-500/20 text-red-400 text-sm rounded-lg px-3 py-2 mt-3"><AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" /><span>{removeErr}</span></div>}
+          <div className="flex gap-2 justify-end mt-5">
+            <button onClick={() => { setRemoveStep(null); setRemovePw('') }} className="px-3 py-2 text-sm text-slate-300 hover:bg-slate-800 rounded-lg">Cancel</button>
+            <button onClick={deleteCompany} disabled={busy === 'remove' || !removePw} className="px-4 py-2 text-sm bg-red-500 hover:bg-red-400 disabled:opacity-40 text-white font-semibold rounded-lg flex items-center gap-1.5">
+              {busy === 'remove' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}Remove Company
+            </button>
+          </div>
+        </Overlay>
+      )}
 
       {/* Dialogs */}
       {showPay && <RecordPaymentDialog companyId={c.id} call={call} onClose={() => setShowPay(false)} onSaved={() => { setShowPay(false); loadInvoices(); reload() }} />}
