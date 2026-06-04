@@ -672,7 +672,7 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
           </button>
         </div>
         <div className="px-4 py-3">
-          <p className="text-[11px] text-slate-500 mb-3">Add a Top Management member or give them access to additional companies. Removing a link revokes that access.</p>
+          <p className="text-[11px] text-slate-500 mb-3">Give a Top Management member access to additional companies so they can switch between them in the app. Removing a link revokes that access. (Members themselves are created in Top Management.)</p>
           {owners.length === 0 ? (
             <p className="text-sm text-slate-600 py-2 text-center">No owners to link yet.</p>
           ) : (
