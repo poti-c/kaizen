@@ -1166,8 +1166,9 @@ function CompaniesSection() {
                         {admins.map(admin => {
                           const isLinked = links.some(l => l.super_admin_id === admin.id && l.company_id === co.id)
                           const isMe     = admin.id === profile?.id
-                          // The company's own Owner is fixed here — no link/unlink in company settings
-                          const isOwner  = admin.company_id === co.id
+                          // Members whose home company is this one are fixed here — no link/unlink.
+                          const isHomeMember = admin.company_id === co.id
+                          const isOwner  = isHomeMember && admin.job_title === 'Owner'
                           return (
                             <div
                               key={admin.id}
@@ -1190,6 +1191,10 @@ function CompaniesSection() {
                               {isOwner ? (
                                 <span className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border border-amber-200 text-amber-600 bg-amber-50 flex-shrink-0">
                                   Owner
+                                </span>
+                              ) : isHomeMember ? (
+                                <span className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border border-gray-200 text-gray-500 bg-gray-50 flex-shrink-0">
+                                  Top Management
                                 </span>
                               ) : (
                                 <button
