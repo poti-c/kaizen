@@ -205,6 +205,7 @@ function Dashboard({ token, onLogout }: { token: string; onLogout: () => void })
   const [companies, setCompanies] = useState<ConsoleCompany[]>([])
   const [loading, setLoading] = useState(true)
   const [showCreate, setShowCreate] = useState(false)
+  const [showCreateCompany, setShowCreateCompany] = useState(false)
   const [preselectCompany, setPreselectCompany] = useState<string | null>(null)
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null)
 
@@ -266,7 +267,7 @@ function Dashboard({ token, onLogout }: { token: string; onLogout: () => void })
             onAddOwner={() => { setPreselectCompany(selectedCompany.id); setShowCreate(true) }}
           />
         ) : tab === 'companies' ? (
-          <CompaniesListTab companies={companies} owners={owners} onOpen={setSelectedCompanyId} />
+          <CompaniesListTab companies={companies} owners={owners} onOpen={setSelectedCompanyId} onCreate={() => setShowCreateCompany(true)} />
         ) : (
           <AuditTab call={call} />
         )}
@@ -281,21 +282,37 @@ function Dashboard({ token, onLogout }: { token: string; onLogout: () => void })
           onCreated={() => { setShowCreate(false); setPreselectCompany(null); load() }}
         />
       )}
+
+      {showCreateCompany && (
+        <CreateCompanyDialog
+          call={call}
+          onClose={() => setShowCreateCompany(false)}
+          onCreated={async (id) => { setShowCreateCompany(false); await load(); setSelectedCompanyId(id) }}
+        />
+      )}
     </div>
   )
 }
 
 // ── Companies list ───────────────────────────────────────────────────────────
-function CompaniesListTab({ companies, owners, onOpen }: {
+function CompaniesListTab({ companies, owners, onOpen, onCreate }: {
   companies: ConsoleCompany[]
   owners: ConsoleOwner[]
   onOpen: (id: string) => void
+  onCreate: () => void
 }) {
   function ownerCount(id: string) { return owners.filter(o => o.companies.some(c => c.id === id)).length }
   return (
     <div>
-      <h2 className="text-base font-semibold text-white mb-1">Companies</h2>
-      <p className="text-xs text-slate-500 mb-4">{companies.length} compan{companies.length !== 1 ? 'ies' : 'y'} · click to open</p>
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h2 className="text-base font-semibold text-white">Companies</h2>
+          <p className="text-xs text-slate-500">{companies.length} compan{companies.length !== 1 ? 'ies' : 'y'} · click to open</p>
+        </div>
+        <button onClick={onCreate} className="flex items-center gap-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-semibold px-3 py-2 rounded-lg transition-colors">
+          <Plus className="h-3.5 w-3.5" />Add Company
+        </button>
+      </div>
       <div className="space-y-3">
         {companies.map((c) => (
           <button key={c.id} onClick={() => onOpen(c.id)}
@@ -778,6 +795,87 @@ function AuditTab({ call }: { call: <T,>(a: string, p?: Record<string, unknown>)
         {entries.length === 0 && <div className="px-4 py-8 text-center text-sm text-slate-600">No events yet.</div>}
       </div>
     </div>
+  )
+}
+
+// ── Create company dialog ────────────────────────────────────────────────────
+function CreateCompanyDialog({ call, onClose, onCreated }: {
+  call: <T,>(a: string, p?: Record<string, unknown>) => Promise<T>
+  onClose: () => void
+  onCreated: (id: string) => void
+}) {
+  const [name, setName] = useState('')
+  const [slug, setSlug] = useState('')
+  const [plan, setPlan] = useState('trial')
+  const [maxMgr, setMaxMgr] = useState('')
+  const [maxStaff, setMaxStaff] = useState('')
+  const [error, setError] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  function onName(v: string) {
+    setName(v)
+    setSlug(v.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, ''))
+  }
+
+  async function submit() {
+    setError('')
+    if (!name.trim() || !slug.trim()) { setError('Company name is required.'); return }
+    setSaving(true)
+    try {
+      const { id } = await call<{ id: string }>('create_company', {
+        name: name.trim(), slug: slug.trim(), plan,
+        max_managers: maxMgr ? Number(maxMgr) : null,
+        max_staff: maxStaff ? Number(maxStaff) : null,
+      })
+      onCreated(id)
+    } catch (e) { setError(e instanceof Error ? e.message : 'Failed to create company.') }
+    finally { setSaving(false) }
+  }
+
+  return (
+    <Overlay onClose={onClose} wide>
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2"><Building2 className="h-5 w-5 text-amber-400" /><h3 className="text-sm font-semibold text-white">New Company</h3></div>
+        <button onClick={onClose} className="text-slate-500 hover:text-white"><X className="h-4 w-4" /></button>
+      </div>
+      <div className="space-y-3">
+        <Field label="Company Name *"><input value={name} onChange={(e) => onName(e.target.value)} className={inputCls} placeholder="e.g. The Grand Resort" autoFocus /></Field>
+        <Field label="Slug *">
+          <input value={slug} onChange={(e) => setSlug(e.target.value.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, ''))} className={inputCls} placeholder="grand-resort" />
+          <p className="text-[11px] text-slate-500 mt-1">Unique identifier — auto-generated from the name.</p>
+        </Field>
+        <div>
+          <p className="text-xs font-medium text-slate-400 mb-1.5">Package</p>
+          <div className="grid grid-cols-3 gap-2">
+            {PACKAGES.map((p) => {
+              const active = plan === p.key
+              return (
+                <button key={p.key} type="button" onClick={() => setPlan(p.key)}
+                  className={`rounded-lg border px-2 py-2 text-left ${active ? packageBadgeCls(p.key) : 'border-slate-700 text-slate-400 hover:border-slate-600'}`}>
+                  <div className="flex items-center gap-1">
+                    {p.key === 'premium' && <Crown className="h-3 w-3" />}
+                    <span className="text-xs font-semibold">{p.label}</span>
+                    {active && <Check className="h-3 w-3 ml-auto" />}
+                  </div>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="Max Managers"><input value={maxMgr} onChange={(e) => setMaxMgr(e.target.value.replace(/[^0-9]/g, ''))} className={inputCls} placeholder="Unlimited" inputMode="numeric" /></Field>
+          <Field label="Max Staff"><input value={maxStaff} onChange={(e) => setMaxStaff(e.target.value.replace(/[^0-9]/g, ''))} className={inputCls} placeholder="Unlimited" inputMode="numeric" /></Field>
+        </div>
+        {error && <div className="flex items-start gap-2 bg-red-500/10 border border-red-500/20 text-red-400 text-sm rounded-lg px-3 py-2"><AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" /><span>{error}</span></div>}
+        <p className="text-[11px] text-slate-500">After creating, you&apos;ll land on the company page where you can add owner accounts.</p>
+      </div>
+      <div className="flex gap-2 justify-end pt-4 mt-2 border-t border-slate-800">
+        <button onClick={onClose} className="px-3 py-2 text-sm text-slate-300 hover:bg-slate-800 rounded-lg">Cancel</button>
+        <button onClick={submit} disabled={saving} className="px-4 py-2 text-sm bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold rounded-lg flex items-center gap-1.5">
+          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}Create Company
+        </button>
+      </div>
+    </Overlay>
   )
 }
 
