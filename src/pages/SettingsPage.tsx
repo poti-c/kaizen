@@ -1078,13 +1078,12 @@ function CompaniesSection() {
 
   async function toggleLink(adminId: string, companyId: string, isLinked: boolean) {
     if (isLinked) {
-      // prevent founder from unlinking themselves from every company
-      const adminLinks = links.filter(l => l.super_admin_id === adminId)
-      if (adminLinks.length <= 1) { toast.error('An admin must remain linked to at least one company.'); return }
+      // Removing a cross-company grant is always safe — the member keeps their
+      // home company. (Their home company is not part of `links`.)
       const { error } = await supabase.from('kaizen_super_admin_companies')
         .delete().eq('super_admin_id', adminId).eq('company_id', companyId)
       if (error) { toast.error(error.message); return }
-      toast.success('Admin unlinked.')
+      toast.success('Access removed.')
     } else {
       const { error } = await supabase.from('kaizen_super_admin_companies')
         .insert({ super_admin_id: adminId, company_id: companyId })
@@ -1121,8 +1120,12 @@ function CompaniesSection() {
               const ownerList = admins.filter(a => a.company_id === co.id && a.job_title === 'Owner')
               const guestList = admins.filter(a => a.company_id !== co.id && links.some(l => l.super_admin_id === a.id && l.company_id === co.id))
               const accessList = [...ownerList, ...guestList]
-              // Only this company's Owner may remove cross-company guests
-              const iAmOwner = profile?.company_id === co.id && profile?.job_title === 'Owner'
+              // The company's Owner may remove granted guests. An Owner runs the
+              // company whether homed here or granted access to it.
+              const iAmOwner = profile?.job_title === 'Owner' && (
+                profile?.company_id === co.id ||
+                links.some(l => l.super_admin_id === profile?.id && l.company_id === co.id)
+              )
               const companyName = (id: string | null) => companies.find(c => c.id === id)?.name ?? 'another company'
               return (
                 <div key={co.id}>
@@ -1186,7 +1189,7 @@ function CompaniesSection() {
                                 <span className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border border-amber-200 text-amber-600 bg-amber-50 flex-shrink-0">
                                   Owner
                                 </span>
-                              ) : iAmOwner ? (
+                              ) : (iAmOwner && !isMe) ? (
                                 <button
                                   onClick={() => toggleLink(admin.id, co.id, true)}
                                   className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border border-red-200 text-red-500 hover:bg-red-50 transition-all flex-shrink-0"
