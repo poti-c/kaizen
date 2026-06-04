@@ -939,7 +939,7 @@ export function CaseDetailPage() {
             <User className="h-3.5 w-3.5 flex-shrink-0 text-gray-400" />
             {(profile?.role === 'super_admin' || profile?.role === 'manager') && kcase.created_by ? (
               <Link
-                to={`/users/${kcase.created_by}`}
+                to={`/performance/${kcase.created_by}`}
                 className="truncate text-[var(--brand-primary)] hover:underline font-medium"
               >
                 {(kcase.creator as KaizenProfile)?.full_name || 'Unknown'}
