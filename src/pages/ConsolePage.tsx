@@ -1190,18 +1190,25 @@ function CreateOwnerDialog({ preselectCompanyId, call, onClose, onCreated }: {
   const [showPw, setShowPw] = useState(false)
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
+  // When the email already belongs to an existing account, ask to confirm a cross-company link
+  const [confirmInfo, setConfirmInfo] = useState<{ name: string; company: string | null } | null>(null)
 
-  async function submit() {
+  async function submit(confirmLink = false) {
     setError('')
     if (!fullName.trim() || !email.trim() || password.length < 6) { setError('Full name, email, and a password of at least 6 characters are required.'); return }
     if (!preselectCompanyId) { setError('No company selected.'); return }
     setSaving(true)
     try {
-      await call('create_owner', {
+      const res = await call<{ requires_confirmation?: boolean; existing_name?: string; existing_company?: string | null }>('create_owner', {
         full_name: fullName.trim(), email: email.trim(), password,
         job_title: jobTitle.trim(), is_active: isActive,
         company_ids: [preselectCompanyId],
+        confirm_link: confirmLink,
       })
+      if (res?.requires_confirmation) {
+        setConfirmInfo({ name: res.existing_name ?? fullName.trim(), company: res.existing_company ?? null })
+        return
+      }
       onCreated()
     } catch (e) { setError(e instanceof Error ? e.message : 'Failed to create member.') }
     finally { setSaving(false) }
@@ -1215,7 +1222,7 @@ function CreateOwnerDialog({ preselectCompanyId, call, onClose, onCreated }: {
       </div>
       <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-1">
         <Field label="Full Name *"><input value={fullName} onChange={e => setFullName(e.target.value)} className={inputCls} placeholder="e.g. John Smith" autoFocus /></Field>
-        <Field label="Email *"><input type="email" value={email} onChange={e => setEmail(e.target.value)} className={inputCls} placeholder="owner@company.com" autoComplete="off" /></Field>
+        <Field label="Email *"><input type="email" value={email} onChange={e => { setEmail(e.target.value); setConfirmInfo(null) }} className={inputCls} placeholder="owner@company.com" autoComplete="off" /></Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Password *">
             <div className="relative">
@@ -1232,13 +1239,28 @@ function CreateOwnerDialog({ preselectCompanyId, call, onClose, onCreated }: {
           </button>
           <span className="text-sm text-slate-300">Account active</span>
         </label>
+        {confirmInfo && (
+          <div className="flex items-start gap-2 bg-amber-500/10 border border-amber-500/30 text-amber-300 text-sm rounded-lg px-3 py-2">
+            <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+            <span>
+              {confirmInfo.name} already has an account{confirmInfo.company ? ` under ${confirmInfo.company}` : ' in another company'}.
+              Adding will grant this existing member cross-company access to this company (not a new account). Add anyway?
+            </span>
+          </div>
+        )}
         {error && <div className="flex items-start gap-2 bg-red-500/10 border border-red-500/20 text-red-400 text-sm rounded-lg px-3 py-2"><AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" /><span>{error}</span></div>}
       </div>
       <div className="flex gap-2 justify-end pt-4 mt-2 border-t border-slate-800">
         <button onClick={onClose} className="px-3 py-2 text-sm text-slate-300 hover:bg-slate-800 rounded-lg">Cancel</button>
-        <button onClick={submit} disabled={saving} className="px-4 py-2 text-sm bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold rounded-lg flex items-center gap-1.5">
-          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}Create User
-        </button>
+        {confirmInfo ? (
+          <button onClick={() => submit(true)} disabled={saving} className="px-4 py-2 text-sm bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold rounded-lg flex items-center gap-1.5">
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}Add Anyway
+          </button>
+        ) : (
+          <button onClick={() => submit()} disabled={saving} className="px-4 py-2 text-sm bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold rounded-lg flex items-center gap-1.5">
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}Create User
+          </button>
+        )}
       </div>
     </Overlay>
   )
