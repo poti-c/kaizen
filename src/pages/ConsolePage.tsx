@@ -330,9 +330,14 @@ function CompaniesListTab({ companies, owners, onOpen, onCreate }: {
   onOpen: (id: string) => void
   onCreate: () => void
 }) {
-  // An "owner" of a company = a super admin whose HOME company is this one and
-  // holds the Owner role. (Cross-granted admins are guests, not owners.)
-  function ownerCount(id: string) { return owners.filter(o => o.company_id === id && o.job_title === 'Owner').length }
+  // An "owner" of a company = an Owner-role super admin linked to it, whether
+  // homed here or granted to run it from elsewhere. Mirrors the Owner badge
+  // shown in the company detail's Top Management section.
+  function ownerCount(id: string) {
+    return owners.filter(o =>
+      o.job_title === 'Owner' && (o.company_id === id || o.companies.some(c => c.id === id))
+    ).length
+  }
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
