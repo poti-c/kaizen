@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Eye, EyeOff, Loader2, Palette, Lock, Info, Scale, Pencil, Check, X, Bell, BellOff, BellRing, Plus, Trash2, Building2, Tag, MapPin, AlertTriangle, LifeBuoy, HelpCircle, MessageSquare, Smartphone, Mail, ChevronRight } from 'lucide-react'
+import { Eye, EyeOff, Loader2, Palette, Lock, Info, Scale, Pencil, Check, X, Bell, BellOff, BellRing, Plus, Trash2, Building2, Tag, MapPin, AlertTriangle, LifeBuoy, HelpCircle, MessageSquare, Smartphone, Mail, ChevronRight, ChevronDown, UserCheck, UserX } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useTheme } from '@/contexts/ThemeContext'
@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
 import { DEPARTMENT_LABELS, DEPARTMENTS } from '@/types'
+import type { KaizenCompany } from '@/types'
 import { CATEGORIES, LOCATIONS } from '@/lib/utils'
 import { toast } from 'sonner'
 import { usePushNotifications } from '@/hooks/usePushNotifications'
@@ -693,6 +694,9 @@ export function SettingsPage() {
         </DialogContent>
       </Dialog>
 
+      {/* ── Companies — founder only ── */}
+      {profile?.email === 'poti@nanirand.com' && <CompaniesSection />}
+
       {/* Theme settings */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
         <div className="flex items-center gap-2 mb-4">
@@ -942,8 +946,236 @@ export function SettingsPage() {
   )
 }
 
-// ── EditableListCard ─────────────────────────────────────────────────────────
+// ── CompaniesSection ─────────────────────────────────────────────────────────
 import React from 'react'
+
+type AdminProfile = { id: string; full_name: string; email: string | null }
+type AdminLink    = { super_admin_id: string; company_id: string }
+
+function CompaniesSection() {
+  const { profile } = useAuth()
+  const [companies, setCompanies]   = React.useState<KaizenCompany[]>([])
+  const [admins, setAdmins]         = React.useState<AdminProfile[]>([])
+  const [links, setLinks]           = React.useState<AdminLink[]>([])
+  const [loading, setLoading]       = React.useState(true)
+  const [expanded, setExpanded]     = React.useState<string | null>(null)
+
+  // Add-company dialog
+  const [showAdd, setShowAdd]       = React.useState(false)
+  const [newName, setNewName]       = React.useState('')
+  const [newSlug, setNewSlug]       = React.useState('')
+  const [saving, setSaving]         = React.useState(false)
+
+  React.useEffect(() => { fetchAll() }, [])
+
+  async function fetchAll() {
+    setLoading(true)
+    const [{ data: cos }, { data: sas }, { data: ls }] = await Promise.all([
+      supabase.from('kaizen_companies').select('*').order('name'),
+      supabase.from('kaizen_profiles').select('id, full_name, email').eq('role', 'super_admin').order('full_name'),
+      supabase.from('kaizen_super_admin_companies').select('super_admin_id, company_id'),
+    ])
+    setCompanies((cos ?? []) as KaizenCompany[])
+    setAdmins((sas ?? []) as AdminProfile[])
+    setLinks((ls ?? []) as AdminLink[])
+    setLoading(false)
+  }
+
+  async function handleAddCompany() {
+    const name = newName.trim()
+    const slug = newSlug.trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
+    if (!name || !slug) return
+    setSaving(true)
+    const { error } = await supabase.from('kaizen_companies').insert({ name, slug })
+    if (error) { toast.error(error.message); setSaving(false); return }
+    toast.success(`"${name}" added.`)
+    setNewName(''); setNewSlug(''); setShowAdd(false)
+    await fetchAll()
+    setSaving(false)
+  }
+
+  async function toggleLink(adminId: string, companyId: string, isLinked: boolean) {
+    if (isLinked) {
+      // prevent founder from unlinking themselves from every company
+      const adminLinks = links.filter(l => l.super_admin_id === adminId)
+      if (adminLinks.length <= 1) { toast.error('An admin must remain linked to at least one company.'); return }
+      const { error } = await supabase.from('kaizen_super_admin_companies')
+        .delete().eq('super_admin_id', adminId).eq('company_id', companyId)
+      if (error) { toast.error(error.message); return }
+      toast.success('Admin unlinked.')
+    } else {
+      const { error } = await supabase.from('kaizen_super_admin_companies')
+        .insert({ super_admin_id: adminId, company_id: companyId })
+      if (error) { toast.error(error.message); return }
+      // Also update the admin's company_id if they don't have one
+      await supabase.from('kaizen_profiles').update({ company_id: companyId })
+        .eq('id', adminId).is('company_id', null)
+      toast.success('Admin linked.')
+    }
+    await fetchAll()
+  }
+
+  return (
+    <>
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+        {/* Header */}
+        <div className="flex items-center gap-2 px-6 py-5 border-b border-gray-100">
+          <Building2 className="h-4 w-4 text-gray-400" />
+          <h2 className="font-semibold text-gray-900">Companies</h2>
+          <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full font-medium">
+            {companies.length}
+          </span>
+          <span className="text-xs text-amber-600 bg-amber-50 border border-amber-100 px-2 py-0.5 rounded-full ml-1 font-medium">
+            Founder only
+          </span>
+          <button
+            onClick={() => setShowAdd(true)}
+            className="ml-auto flex items-center gap-1.5 text-xs font-medium text-[var(--brand-primary)] hover:opacity-80 transition-opacity"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Add company
+          </button>
+        </div>
+
+        {loading ? (
+          <div className="flex justify-center py-10">
+            <Loader2 className="h-5 w-5 animate-spin text-gray-300" />
+          </div>
+        ) : (
+          <div className="divide-y divide-gray-100">
+            {companies.map(co => {
+              const coLinks    = links.filter(l => l.company_id === co.id)
+              const isExpanded = expanded === co.id
+              return (
+                <div key={co.id}>
+                  {/* Company row */}
+                  <button
+                    onClick={() => setExpanded(isExpanded ? null : co.id)}
+                    className="w-full flex items-center gap-3 px-6 py-4 hover:bg-gray-50 transition-colors text-left"
+                  >
+                    <div className="w-9 h-9 rounded-xl bg-[var(--brand-primary)]/10 flex items-center justify-center flex-shrink-0">
+                      <Building2 className="h-4 w-4 text-[var(--brand-primary)]" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-gray-900">{co.name}</p>
+                      <p className="text-xs text-gray-400">
+                        /{co.slug} · {coLinks.length} super admin{coLinks.length !== 1 ? 's' : ''}
+                      </p>
+                    </div>
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium mr-2 ${
+                      co.is_active ? 'bg-green-50 text-green-600' : 'bg-gray-100 text-gray-400'
+                    }`}>
+                      {co.is_active ? 'Active' : 'Inactive'}
+                    </span>
+                    {isExpanded
+                      ? <ChevronDown className="h-4 w-4 text-gray-300 flex-shrink-0" />
+                      : <ChevronRight className="h-4 w-4 text-gray-300 flex-shrink-0" />}
+                  </button>
+
+                  {/* Expanded: admin access panel */}
+                  {isExpanded && (
+                    <div className="px-6 pb-5 bg-gray-50/60">
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3 pt-3">
+                        Super Admin Access
+                      </p>
+                      <div className="space-y-2">
+                        {admins.map(admin => {
+                          const isLinked = links.some(l => l.super_admin_id === admin.id && l.company_id === co.id)
+                          const isMe     = admin.id === profile?.id
+                          return (
+                            <div
+                              key={admin.id}
+                              className={`flex items-center gap-3 p-3 rounded-xl border transition-colors ${
+                                isLinked ? 'border-[var(--brand-primary)]/20 bg-white' : 'border-gray-200 bg-white'
+                              }`}
+                            >
+                              <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-bold ${
+                                isLinked ? 'bg-[var(--brand-primary)] text-white' : 'bg-gray-100 text-gray-400'
+                              }`}>
+                                {admin.full_name.charAt(0).toUpperCase()}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium text-gray-900 truncate">
+                                  {admin.full_name}
+                                  {isMe && <span className="ml-1.5 text-[10px] text-[var(--brand-primary)] font-semibold">You</span>}
+                                </p>
+                                <p className="text-xs text-gray-400 truncate">{admin.email}</p>
+                              </div>
+                              <button
+                                onClick={() => toggleLink(admin.id, co.id, isLinked)}
+                                className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-all flex-shrink-0 ${
+                                  isLinked
+                                    ? 'border-red-200 text-red-500 hover:bg-red-50'
+                                    : 'border-[var(--brand-primary)] text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/5'
+                                }`}
+                              >
+                                {isLinked
+                                  ? <><UserX className="h-3 w-3" />Unlink</>
+                                  : <><UserCheck className="h-3 w-3" />Link</>}
+                              </button>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Add Company dialog */}
+      <Dialog open={showAdd} onOpenChange={setShowAdd}>
+        <DialogContent className="max-w-sm mx-4">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Building2 className="h-5 w-5 text-[var(--brand-primary)]" />
+              Add New Company
+            </DialogTitle>
+            <DialogDescription>
+              Create a new company. You can then link super admins to manage it.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label>Company Name *</Label>
+              <Input
+                value={newName}
+                onChange={e => {
+                  setNewName(e.target.value)
+                  setNewSlug(e.target.value.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, ''))
+                }}
+                placeholder="e.g. The Grand Resort"
+                autoFocus
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Slug *</Label>
+              <Input
+                value={newSlug}
+                onChange={e => setNewSlug(e.target.value.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, ''))}
+                placeholder="e.g. grand-resort"
+              />
+              <p className="text-xs text-gray-400">Unique identifier — auto-generated from the name.</p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setShowAdd(false); setNewName(''); setNewSlug('') }}>
+              Cancel
+            </Button>
+            <Button onClick={handleAddCompany} disabled={saving || !newName.trim() || !newSlug.trim()}>
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Add Company'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  )
+}
+
+// ── EditableListCard ─────────────────────────────────────────────────────────
 
 interface EditableListCardProps {
   icon?: React.ReactNode

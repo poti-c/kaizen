@@ -34,7 +34,7 @@ export function CompanyProvider({ children }: { children: React.ReactNode }) {
         .select('company:kaizen_companies(*)')
         .eq('super_admin_id', profile.id)
 
-      const cos = ((data || []) as { company: KaizenCompany }[])
+      const cos = ((data || []) as unknown as { company: KaizenCompany }[])
         .map(r => r.company)
         .filter(Boolean)
 
