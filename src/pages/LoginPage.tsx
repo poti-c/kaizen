@@ -114,8 +114,7 @@ export function LoginPage() {
           <div className="flex items-center gap-3">
             <img src="/kaizen-icon.svg" alt="Kaizen" className="w-[62px] h-[62px]" />
             <div className="text-left">
-              <h1 className="text-3xl font-bold text-white leading-tight">Na Nirand</h1>
-              <p className="text-[#E2C886] text-2xl font-bold leading-tight">Kaizen System</p>
+              <h1 className="text-4xl font-bold text-white leading-tight">Kaizen <span className="text-[#E2C886]">System</span></h1>
               <p className="text-white/70 text-sm mt-0.5">Improving Together</p>
             </div>
           </div>
