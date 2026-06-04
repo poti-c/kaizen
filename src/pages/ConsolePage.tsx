@@ -273,6 +273,12 @@ function Dashboard({ token, onLogout }: { token: string; onLogout: () => void })
         )}
       </main>
 
+      <footer className="border-t border-slate-800 mt-4">
+        <div className="max-w-5xl mx-auto px-4 py-5 text-center">
+          <p className="text-[11px] text-slate-600">© 2026 NNR Solutions · All rights reserved · Version 1.0</p>
+        </div>
+      </footer>
+
       {showCreate && (
         <CreateOwnerDialog
           companies={companies}

@@ -46,10 +46,10 @@ export default function App() {
   // ── System Console: fully isolated from app auth (own route tree) ──
   if (typeof window !== 'undefined' && window.location.pathname.startsWith('/admin')) {
     return (
-      <>
+      <div className="h-[100dvh] overflow-y-auto bg-slate-950">
         <ConsolePage />
         <Toaster position="top-right" richColors />
-      </>
+      </div>
     )
   }
 
