@@ -75,6 +75,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await supabase.auth.signOut()
       throw new Error('Access denied. Not a Super Admin account.')
     }
+    if (!p.is_active) {
+      await supabase.auth.signOut()
+      throw new Error('This account has been suspended. Please contact the system administrator.')
+    }
     setProfile(p)
   }
 
@@ -97,6 +101,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (p.department !== department) {
       await supabase.auth.signOut()
       throw new Error(`Department mismatch. Your account belongs to a different department.`)
+    }
+    if (!p.is_active) {
+      await supabase.auth.signOut()
+      throw new Error('This account has been suspended. Please contact the system administrator.')
     }
     setProfile(p)
   }

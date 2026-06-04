@@ -9,6 +9,7 @@ import { LanguageProvider } from '@/contexts/LanguageContext'
 import { ViewModeProvider } from '@/contexts/ViewModeContext'
 import { Layout } from '@/components/Layout'
 import { LoginPage } from '@/pages/LoginPage'
+import { ConsolePage } from '@/pages/ConsolePage'
 import { DashboardPage } from '@/pages/DashboardPage'
 import { CasesPage } from '@/pages/CasesPage'
 import { CaseDetailPage } from '@/pages/CaseDetailPage'
@@ -42,6 +43,16 @@ const queryClient = new QueryClient({
 })
 
 export default function App() {
+  // ── System Console: fully isolated from app auth (own route tree) ──
+  if (typeof window !== 'undefined' && window.location.pathname.startsWith('/admin')) {
+    return (
+      <>
+        <ConsolePage />
+        <Toaster position="top-right" richColors />
+      </>
+    )
+  }
+
   return (
     <LanguageProvider>
       <ViewModeProvider>
