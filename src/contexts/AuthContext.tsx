@@ -17,6 +17,21 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null)
 
+// Block access when a company's subscription is suspended. Signs the user out
+// and throws a clear message. (Super admins are gated per-company in CompanyContext.)
+async function assertCompanyActive(companyId: string | null) {
+  if (!companyId) return
+  const { data: co } = await supabase
+    .from('kaizen_companies')
+    .select('is_active')
+    .eq('id', companyId)
+    .maybeSingle()
+  if (co && co.is_active === false) {
+    await supabase.auth.signOut()
+    throw new Error('Your company’s access has been suspended. Please contact your administrator.')
+  }
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [profile, setProfile] = useState<KaizenProfile | null>(null)
@@ -102,6 +117,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await supabase.auth.signOut()
       throw new Error('This account has been suspended. Please contact the system administrator.')
     }
+    await assertCompanyActive(p.company_id)
     setProfile(p)
   }
 
@@ -132,6 +148,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await supabase.auth.signOut()
       throw new Error('This account has been suspended. Please contact your manager or HR.')
     }
+    await assertCompanyActive(p.company_id)
     setProfile(p)
   }
 

@@ -45,7 +45,8 @@ export function CompanyProvider({ children }: { children: React.ReactNode }) {
       const byId = new Map<string, KaizenCompany>()
       if (home) byId.set(home.id, home)
       for (const c of linked) byId.set(c.id, c)
-      const cos = [...byId.values()].sort((a, b) => a.name.localeCompare(b.name))
+      // Suspended companies (non-payment) are inaccessible — exclude from the switcher
+      const cos = [...byId.values()].filter(c => c.is_active).sort((a, b) => a.name.localeCompare(b.name))
 
       setCompanies(cos)
 
@@ -61,6 +62,14 @@ export function CompanyProvider({ children }: { children: React.ReactNode }) {
           .single()
         if (data) {
           const company = data as KaizenCompany
+          // Suspended company (non-payment): block access entirely
+          if (company.is_active === false) {
+            setCompanies([])
+            setActiveCompanyState(null)
+            await supabase.auth.signOut()
+            setLoading(false)
+            return
+          }
           setCompanies([company])
           setActiveCompanyState(company)
         }
