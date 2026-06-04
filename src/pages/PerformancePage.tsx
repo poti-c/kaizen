@@ -79,12 +79,13 @@ export function PerformancePage() {
     return cases.filter((c) => new Date(c.created_at) >= cutoff)
   }, [cases, range])
 
-  // Manager sees only their own department; super_admin/top management see all
-  const isManager = profile?.role === 'manager'
+  // Manager sees only their own department; HR Manager + super_admin see all
+  const isManager   = profile?.role === 'manager'
+  const isHRManager = profile?.role === 'manager' && profile?.department === 'human_resource'
   const visibleCases = useMemo(() => {
-    if (isManager && profile) return scopedCases.filter((c) => c.department === profile.department)
+    if (isManager && !isHRManager && profile) return scopedCases.filter((c) => c.department === profile.department)
     return scopedCases
-  }, [scopedCases, isManager, profile])
+  }, [scopedCases, isManager, isHRManager, profile])
 
   // ── Org summary ──
   const summary = useMemo(() => {
@@ -128,9 +129,10 @@ export function PerformancePage() {
 
   // ── Staff leaderboard (by reporter / resolver) ──
   const staffRows = useMemo<StaffRow[]>(() => {
-    // Eligible people: managers see own-dept staff; admins see all staff + managers
+    // Eligible people: HR Manager sees everyone except super_admin; regular managers see own-dept staff; admins see all
     const eligible = people.filter((p) => {
       if (p.role === 'super_admin') return false
+      if (isHRManager) return true  // HR sees all staff + managers
       if (isManager && profile) return p.department === profile.department && p.role === 'staff'
       return true
     })

@@ -61,8 +61,13 @@ export function UsersPage() {
     let query = supabase.from('kaizen_profiles').select('*').order('role').order('department').order('full_name')
 
     if (activeCompany) query = query.eq('company_id', activeCompany.id)
-    if (profile?.role === 'manager') {
+    const isHRMgr = profile?.role === 'manager' && profile?.department === 'human_resource'
+    if (profile?.role === 'manager' && !isHRMgr) {
+      // Regular manager: only their own dept staff
       query = query.eq('department', profile.department).eq('role', 'staff')
+    } else if (isHRMgr) {
+      // HR Manager: all staff + managers, never super_admin
+      query = query.neq('role', 'super_admin')
     }
 
     const { data } = await query
