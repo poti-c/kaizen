@@ -43,7 +43,7 @@ interface ConsoleCompany {
 }
 interface ConsoleOwner {
   id: string; full_name: string; email: string | null; job_title: string | null
-  is_active: boolean; created_at: string; companies: ConsoleCompany[]
+  is_active: boolean; created_at: string; company_id: string | null; companies: ConsoleCompany[]
 }
 interface Invoice {
   id: string; company_id: string; payee: string | null; amount: number | null
@@ -261,7 +261,7 @@ function Dashboard({ token, onLogout }: { token: string; onLogout: () => void })
         ) : selectedCompany ? (
           <CompanyDetailView
             company={selectedCompany}
-            owners={owners.filter(o => o.companies.some(c => c.id === selectedCompany.id))}
+            owners={owners}
             allCompanies={companies}
             call={call}
             reload={load}
@@ -380,6 +380,10 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
   onAssignUsers: () => void
 }) {
   const c = company
+  // Top Management = members homed at this company (created here).
+  // Linked = members homed elsewhere who were explicitly granted access here.
+  const topManagement = owners.filter((o) => o.company_id === c.id)
+  const linkedOwners = owners.filter((o) => o.company_id !== c.id && o.companies.some((lc) => lc.id === c.id))
   const [busy, setBusy] = useState<string | null>(null)
   const [editingName, setEditingName] = useState(false)
   const [nameValue, setNameValue] = useState(c.name)
@@ -625,16 +629,16 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
         <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-800">
           <Crown className="h-4 w-4 text-amber-400" />
           <h3 className="text-sm font-semibold text-white">Top Management</h3>
-          <span className="text-[11px] text-slate-500">{owners.length}</span>
+          <span className="text-[11px] text-slate-500">{topManagement.length}</span>
           <button onClick={onAddOwner} className="ml-auto flex items-center gap-1.5 text-xs font-medium text-amber-400 hover:text-amber-300">
             <Plus className="h-3.5 w-3.5" />Add Top Management
           </button>
         </div>
-        {owners.length === 0 ? (
-          <p className="px-4 py-8 text-center text-sm text-slate-600">No owners linked to this company.</p>
+        {topManagement.length === 0 ? (
+          <p className="px-4 py-8 text-center text-sm text-slate-600">No top management accounts yet.</p>
         ) : (
           <div className="divide-y divide-slate-800">
-            {owners.map((o) => (
+            {topManagement.map((o) => (
               <div key={o.id} className="flex items-center gap-3 px-4 py-3">
                 <div className="w-8 h-8 rounded-full bg-gradient-to-br from-amber-400/20 to-amber-600/20 border border-amber-500/30 flex items-center justify-center flex-shrink-0">
                   <Crown className="h-3.5 w-3.5 text-amber-400" />
@@ -673,11 +677,11 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
         </div>
         <div className="px-4 py-3">
           <p className="text-[11px] text-slate-500 mb-3">Give a Top Management member access to additional companies so they can switch between them in the app. Removing a link revokes that access. (Members themselves are created in Top Management.)</p>
-          {owners.length === 0 ? (
-            <p className="text-sm text-slate-600 py-2 text-center">No owners to link yet.</p>
+          {linkedOwners.length === 0 ? (
+            <p className="text-sm text-slate-600 py-2 text-center">No external members have access here yet. Use “Add Users” to grant a Top Management member from another company access to this one.</p>
           ) : (
             <div className="space-y-3">
-              {owners.map((o) => {
+              {linkedOwners.map((o) => {
                 const linkOptions = allCompanies.filter(ac => !o.companies.some(lc => lc.id === ac.id))
                 return (
                   <div key={o.id} className="bg-slate-800/40 rounded-lg p-3">
