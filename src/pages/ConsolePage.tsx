@@ -284,7 +284,6 @@ function Dashboard({ token, onLogout }: { token: string; onLogout: () => void })
 
       {showCreate && (
         <CreateOwnerDialog
-          companies={companies}
           preselectCompanyId={preselectCompany}
           call={call}
           onClose={() => { setShowCreate(false); setPreselectCompany(null) }}
@@ -1079,8 +1078,7 @@ function CreateCompanyDialog({ call, onClose, onCreated }: {
 }
 
 // ── Create owner dialog ──────────────────────────────────────────────────────
-function CreateOwnerDialog({ companies, preselectCompanyId, call, onClose, onCreated }: {
-  companies: ConsoleCompany[]
+function CreateOwnerDialog({ preselectCompanyId, call, onClose, onCreated }: {
   preselectCompanyId?: string | null
   call: <T,>(a: string, p?: Record<string, unknown>) => Promise<T>
   onClose: () => void
@@ -1092,30 +1090,22 @@ function CreateOwnerDialog({ companies, preselectCompanyId, call, onClose, onCre
   const [jobTitle, setJobTitle] = useState('Owner')
   const [isActive, setIsActive] = useState(true)
   const [showPw, setShowPw] = useState(false)
-  const [selectedIds, setSelectedIds] = useState<string[]>(preselectCompanyId ? [preselectCompanyId] : [])
-  const [addNew, setAddNew] = useState(false)
-  const [ncName, setNcName] = useState('')
-  const [ncMaxMgr, setNcMaxMgr] = useState('')
-  const [ncMaxStaff, setNcMaxStaff] = useState('')
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
-
-  function toggleCompany(id: string) { setSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]) }
 
   async function submit() {
     setError('')
     if (!fullName.trim() || !email.trim() || password.length < 6) { setError('Full name, email, and a password of at least 6 characters are required.'); return }
-    if (selectedIds.length === 0 && !(addNew && ncName.trim())) { setError('Assign at least one company (existing or new).'); return }
+    if (!preselectCompanyId) { setError('No company selected.'); return }
     setSaving(true)
     try {
-      const payload: Record<string, unknown> = {
+      await call('create_owner', {
         full_name: fullName.trim(), email: email.trim(), password,
-        job_title: jobTitle.trim() || 'Owner', is_active: isActive, company_ids: selectedIds,
-      }
-      if (addNew && ncName.trim()) payload.new_company = { name: ncName.trim(), plan: 'trial', max_managers: ncMaxMgr ? Number(ncMaxMgr) : null, max_staff: ncMaxStaff ? Number(ncMaxStaff) : null }
-      await call('create_owner', payload)
+        job_title: jobTitle.trim() || 'Owner', is_active: isActive,
+        company_ids: [preselectCompanyId],
+      })
       onCreated()
-    } catch (e) { setError(e instanceof Error ? e.message : 'Failed to create owner.') }
+    } catch (e) { setError(e instanceof Error ? e.message : 'Failed to create member.') }
     finally { setSaving(false) }
   }
 
@@ -1136,33 +1126,6 @@ function CreateOwnerDialog({ companies, preselectCompanyId, call, onClose, onCre
             </div>
           </Field>
           <Field label="Job Title"><input value={jobTitle} onChange={e => setJobTitle(e.target.value)} className={inputCls} placeholder="Owner" /></Field>
-        </div>
-        <div className="pt-1">
-          <p className="text-xs font-medium text-slate-400 mb-2">Assign Companies *</p>
-          {companies.length === 0 ? <p className="text-xs text-slate-600 mb-2">No companies yet — create one below.</p> : (
-            <div className="space-y-1.5 mb-2">
-              {companies.map(c => (
-                <label key={c.id} className={`flex items-center gap-2.5 px-3 py-2 rounded-lg border cursor-pointer ${selectedIds.includes(c.id) ? 'border-amber-500/40 bg-amber-500/5' : 'border-slate-700 hover:border-slate-600'}`}>
-                  <input type="checkbox" checked={selectedIds.includes(c.id)} onChange={() => toggleCompany(c.id)} className="accent-amber-500" />
-                  <Building2 className="h-3.5 w-3.5 text-slate-500" /><span className="text-sm text-slate-200 flex-1">{c.name}</span>
-                  <span className="text-[11px] text-slate-600">{c.live_managers}M / {c.live_staff}S</span>
-                </label>
-              ))}
-            </div>
-          )}
-          {!addNew ? (
-            <button onClick={() => setAddNew(true)} className="flex items-center gap-1.5 text-xs text-amber-400 hover:text-amber-300"><Plus className="h-3.5 w-3.5" />Create a new company</button>
-          ) : (
-            <div className="border border-slate-700 rounded-lg p-3 space-y-2.5 bg-slate-800/40">
-              <div className="flex items-center justify-between"><p className="text-xs font-medium text-slate-300">New Company</p><button onClick={() => setAddNew(false)} className="text-slate-500 hover:text-white"><X className="h-3.5 w-3.5" /></button></div>
-              <input value={ncName} onChange={e => setNcName(e.target.value)} className={inputCls} placeholder="Company name" />
-              <div className="grid grid-cols-2 gap-2">
-                <input value={ncMaxMgr} onChange={e => setNcMaxMgr(e.target.value.replace(/[^0-9]/g, ''))} className={inputCls} placeholder="Max managers" inputMode="numeric" />
-                <input value={ncMaxStaff} onChange={e => setNcMaxStaff(e.target.value.replace(/[^0-9]/g, ''))} className={inputCls} placeholder="Max staff" inputMode="numeric" />
-              </div>
-              <p className="text-[10px] text-slate-500">New companies start on the Trial package.</p>
-            </div>
-          )}
         </div>
         <label className="flex items-center gap-2.5 pt-1 cursor-pointer">
           <button type="button" onClick={() => setIsActive(!isActive)} className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${isActive ? 'bg-amber-500' : 'bg-slate-700'}`}>
