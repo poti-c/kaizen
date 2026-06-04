@@ -208,7 +208,6 @@ function Dashboard({ token, onLogout }: { token: string; onLogout: () => void })
   const [loading, setLoading] = useState(true)
   const [showCreate, setShowCreate] = useState(false)
   const [showCreateCompany, setShowCreateCompany] = useState(false)
-  const [showAssign, setShowAssign] = useState(false)
   const [preselectCompany, setPreselectCompany] = useState<string | null>(null)
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null)
   const [showSettings, setShowSettings] = useState(false)
@@ -273,7 +272,6 @@ function Dashboard({ token, onLogout }: { token: string; onLogout: () => void })
             reload={load}
             onBack={() => setSelectedCompanyId(null)}
             onAddOwner={() => { setPreselectCompany(selectedCompany.id); setShowCreate(true) }}
-            onAssignUsers={() => setShowAssign(true)}
           />
         ) : tab === 'companies' ? (
           <CompaniesListTab companies={companies} owners={owners} onOpen={setSelectedCompanyId} onCreate={() => setShowCreateCompany(true)} />
@@ -305,16 +303,6 @@ function Dashboard({ token, onLogout }: { token: string; onLogout: () => void })
         />
       )}
 
-      {showAssign && selectedCompany && (
-        <AssignUsersDialog
-          companies={companies}
-          owners={owners}
-          defaultCompanyId={selectedCompany.id}
-          call={call}
-          onClose={() => setShowAssign(false)}
-          onAssigned={() => { setShowAssign(false); load() }}
-        />
-      )}
     </div>
   )
 }
@@ -378,7 +366,7 @@ function SubscriptionBadge({ sub }: { sub?: Subscription }) {
 }
 
 // ── Company detail page ──────────────────────────────────────────────────────
-function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack, onAddOwner, onAssignUsers }: {
+function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack, onAddOwner }: {
   company: ConsoleCompany
   owners: ConsoleOwner[]
   allCompanies: ConsoleCompany[]
@@ -386,7 +374,6 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
   reload: () => void
   onBack: () => void
   onAddOwner: () => void
-  onAssignUsers: () => void
 }) {
   const c = company
   // Top Management of this company: members homed here, plus anyone granted
@@ -714,17 +701,12 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
           <Crown className="h-4 w-4 text-amber-400" />
           <h3 className="text-sm font-semibold text-white">Top Management</h3>
           <span className="text-[11px] text-slate-500">{teamMembers.length}</span>
-          <div className="ml-auto flex items-center gap-3">
-            <button onClick={onAssignUsers} className="flex items-center gap-1.5 text-xs font-medium text-slate-300 hover:text-white">
-              <Link2 className="h-3.5 w-3.5" />Add Users
-            </button>
-            <button onClick={onAddOwner} className="flex items-center gap-1.5 text-xs font-medium text-amber-400 hover:text-amber-300">
-              <Plus className="h-3.5 w-3.5" />Add Top Management
-            </button>
-          </div>
+          <button onClick={onAddOwner} className="ml-auto flex items-center gap-1.5 text-xs font-medium text-amber-400 hover:text-amber-300">
+            <Plus className="h-3.5 w-3.5" />Add Top Management
+          </button>
         </div>
         <div className="px-4 py-3">
-          <p className="text-[11px] text-slate-500 mb-3">Top Management accounts for this company. Use “+ Link company” or “Add Users” to give a member access to other companies so they can switch between them in the app.</p>
+          <p className="text-[11px] text-slate-500 mb-3">Top Management accounts for this company. Use “+ Link company” on a member to give them access to other companies so they can switch between them in the app.</p>
           {teamMembers.length === 0 ? (
             <p className="text-sm text-slate-600 py-2 text-center">No top management accounts yet. Use “Add Top Management” to create one.</p>
           ) : (
@@ -937,90 +919,6 @@ function AuditTab({ call }: { call: <T,>(a: string, p?: Record<string, unknown>)
         {entries.length === 0 && <div className="px-4 py-8 text-center text-sm text-slate-600">No events yet.</div>}
       </div>
     </div>
-  )
-}
-
-// ── Assign existing Top Management member to a company ───────────────────────
-function AssignUsersDialog({ companies, owners, defaultCompanyId, call, onClose, onAssigned }: {
-  companies: ConsoleCompany[]
-  owners: ConsoleOwner[]
-  defaultCompanyId?: string | null
-  call: <T,>(a: string, p?: Record<string, unknown>) => Promise<T>
-  onClose: () => void
-  onAssigned: () => void
-}) {
-  const sourceId = defaultCompanyId ?? companies[0]?.id ?? ''
-  const sourceCompany = companies.find((c) => c.id === sourceId)
-  const [userId, setUserId] = useState('')
-  const [targetId, setTargetId] = useState('')
-  const [error, setError] = useState('')
-  const [saving, setSaving] = useState(false)
-
-  // Only THIS company's own Top Management members (homed here), excluding the
-  // auto-listed Owner. They can be granted access to other companies.
-  const pool = owners.filter((o) => o.company_id === sourceId && o.job_title !== 'Owner')
-  const selectedUser = pool.find((o) => o.id === userId)
-  // Other companies the chosen member doesn't already have access to.
-  const targetOptions = companies.filter((c) => c.id !== sourceId && !selectedUser?.companies.some((lc) => lc.id === c.id))
-
-  async function submit() {
-    setError('')
-    if (!userId) { setError('Select a Top Management member.'); return }
-    if (!targetId) { setError('Select a company to grant access to.'); return }
-    setSaving(true)
-    try {
-      await call('link_owner_company', { owner_id: userId, company_id: targetId })
-      onAssigned()
-    } catch (e) { setError(e instanceof Error ? e.message : 'Failed to assign user.') }
-    finally { setSaving(false) }
-  }
-
-  return (
-    <Overlay onClose={onClose} wide>
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2"><Plus className="h-5 w-5 text-amber-400" /><h3 className="text-sm font-semibold text-white">Add Users</h3></div>
-        <button onClick={onClose} className="text-slate-500 hover:text-white"><X className="h-4 w-4" /></button>
-      </div>
-      <div className="space-y-3">
-        <Field label="Member *">
-          {pool.length === 0 ? (
-            <p className="text-xs text-slate-500 bg-slate-800/50 rounded-lg px-3 py-2.5">
-              {sourceCompany?.name ?? 'This company'} has no Top Management members yet. Add one in the Top Management section first.
-            </p>
-          ) : (
-            <select value={userId} onChange={(e) => { setUserId(e.target.value); setTargetId('') }} className={selectCls}>
-              <option value="" className="bg-slate-800">Select a member…</option>
-              {pool.map((o) => (
-                <option key={o.id} value={o.id} className="bg-slate-800">
-                  {o.full_name}{o.job_title ? ` — ${o.job_title}` : ''}
-                </option>
-              ))}
-            </select>
-          )}
-          <p className="text-[11px] text-slate-500 mt-1">Only {sourceCompany?.name ?? 'this company'}’s own Top Management members can be granted cross-company access.</p>
-        </Field>
-        {userId && (
-          <Field label="Grant access to *">
-            {targetOptions.length === 0 ? (
-              <p className="text-xs text-slate-500 bg-slate-800/50 rounded-lg px-3 py-2.5">This member already has access to every other company.</p>
-            ) : (
-              <select value={targetId} onChange={(e) => setTargetId(e.target.value)} className={selectCls}>
-                <option value="" className="bg-slate-800">Select a company…</option>
-                {targetOptions.map((c) => <option key={c.id} value={c.id} className="bg-slate-800">{c.name}</option>)}
-              </select>
-            )}
-            <p className="text-[11px] text-slate-500 mt-1">The member will be able to switch into this company in the app.</p>
-          </Field>
-        )}
-        {error && <div className="flex items-start gap-2 bg-red-500/10 border border-red-500/20 text-red-400 text-sm rounded-lg px-3 py-2"><AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" /><span>{error}</span></div>}
-      </div>
-      <div className="flex gap-2 justify-end pt-4 mt-2 border-t border-slate-800">
-        <button onClick={onClose} className="px-3 py-2 text-sm text-slate-300 hover:bg-slate-800 rounded-lg">Cancel</button>
-        <button onClick={submit} disabled={saving || !userId || !targetId} className="px-4 py-2 text-sm bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-slate-950 font-semibold rounded-lg flex items-center gap-1.5">
-          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}Assign
-        </button>
-      </div>
-    </Overlay>
   )
 }
 
