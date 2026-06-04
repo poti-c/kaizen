@@ -3,7 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom'
 import {
   ArrowLeft, Clock, CheckCircle2, XCircle, RefreshCw, Loader2,
   User, Calendar, Building2, AlertTriangle, MessageSquare, MessageCircle, Pencil, Printer,
-  Link2, X,
+  RotateCcw, X, ChevronDown, ChevronUp,
 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
@@ -73,12 +73,9 @@ export function CaseDetailPage() {
   // Previous resolution (reopened cases)
   const [prevResolutionCollapsed, setPrevResolutionCollapsed] = useState(true)
 
-  // Case linking
-  const [linkedCases, setLinkedCases] = useState<KaizenCase[]>([])
-  const [linkSearch, setLinkSearch] = useState('')
-  const [linkResults, setLinkResults] = useState<KaizenCase[]>([])
-  const [showLinkSearch, setShowLinkSearch] = useState(false)
-  const [linkSearchLoading, setLinkSearchLoading] = useState(false)
+  // Recurring issue detection
+  const [recurringCases, setRecurringCases] = useState<KaizenCase[]>([])
+  const [recurringOpen, setRecurringOpen] = useState(false)
 
   // ── Incomplete info detection & fix ────────────────────────────────────────
   const [validDeptValues, setValidDeptValues] = useState<string[]>(DEPARTMENTS.map(d => d.value))
@@ -169,15 +166,19 @@ export function CaseDetailPage() {
       setKcase(data as KaizenCase)
       setProposedSolution(data.proposed_solution || '')
 
-      // Fetch linked cases
-      if (data.linked_case_ids && data.linked_case_ids.length > 0) {
-        const { data: linked } = await supabase
+      // Fetch recurring cases — same location + company, excluding this case
+      if (data.location && data.company_id) {
+        const { data: recurring } = await supabase
           .from('kaizen_cases')
-          .select('*')
-          .in('id', data.linked_case_ids)
-        setLinkedCases((linked || []) as KaizenCase[])
+          .select('id, case_number, title, status, priority, created_at, category')
+          .eq('company_id', data.company_id)
+          .eq('location', data.location)
+          .neq('id', data.id)
+          .order('created_at', { ascending: false })
+          .limit(20)
+        setRecurringCases((recurring || []) as KaizenCase[])
       } else {
-        setLinkedCases([])
+        setRecurringCases([])
       }
     }
 
@@ -690,82 +691,6 @@ export function CaseDetailPage() {
     }
   }
 
-  // Case linking: search
-  async function handleLinkSearch(query: string) {
-    setLinkSearch(query)
-    if (query.length < 2) { setLinkResults([]); return }
-    setLinkSearchLoading(true)
-    const { data } = await supabase
-      .from('kaizen_cases')
-      .select('id, case_number, title, status, priority')
-      .or(`case_number.ilike.%${query}%,title.ilike.%${query}%`)
-      .neq('id', id!)
-      .limit(8)
-    setLinkResults((data || []) as KaizenCase[])
-    setLinkSearchLoading(false)
-  }
-
-  async function handleLinkCase(targetCase: KaizenCase) {
-    if (!kcase) return
-    setSubmitting(true)
-    try {
-      const currentLinked = kcase.linked_case_ids || []
-      if (currentLinked.includes(targetCase.id)) {
-        toast.error('Already linked.')
-        return
-      }
-      // Update this case
-      await supabase.from('kaizen_cases').update({
-        linked_case_ids: [...currentLinked, targetCase.id],
-        updated_at: new Date().toISOString(),
-      }).eq('id', id!)
-
-      // Update target case bidirectionally
-      const targetLinked = targetCase.linked_case_ids || []
-      await supabase.from('kaizen_cases').update({
-        linked_case_ids: [...targetLinked, id!],
-        updated_at: new Date().toISOString(),
-      }).eq('id', targetCase.id)
-
-      await addTimeline('case_linked', `Linked to case ${targetCase.case_number}`)
-      toast.success(`Linked to ${targetCase.case_number}`)
-      setLinkSearch('')
-      setLinkResults([])
-      setShowLinkSearch(false)
-      fetchCase()
-    } catch {
-      toast.error('Failed to link case.')
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
-  async function handleUnlinkCase(targetCaseId: string) {
-    if (!kcase) return
-    setSubmitting(true)
-    try {
-      // Remove from this case
-      const newLinked = (kcase.linked_case_ids || []).filter(lid => lid !== targetCaseId)
-      await supabase.from('kaizen_cases').update({
-        linked_case_ids: newLinked,
-        updated_at: new Date().toISOString(),
-      }).eq('id', id!)
-
-      // Remove from target case
-      const { data: targetData } = await supabase.from('kaizen_cases').select('linked_case_ids').eq('id', targetCaseId).single()
-      if (targetData) {
-        const targetLinked = (targetData.linked_case_ids || []).filter((lid: string) => lid !== id!)
-        await supabase.from('kaizen_cases').update({ linked_case_ids: targetLinked }).eq('id', targetCaseId)
-      }
-
-      toast.success('Case unlinked.')
-      fetchCase()
-    } catch {
-      toast.error('Failed to unlink case.')
-    } finally {
-      setSubmitting(false)
-    }
-  }
 
   if (loading) {
     return (
@@ -1111,75 +1036,65 @@ export function CaseDetailPage() {
             </div>
           </div>
 
-          {/* Related Cases — managers/admins only */}
-          {canManagerAssign && (
-            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2">
-                  <Link2 className="h-4 w-4 text-gray-400" />
-                  <h3 className="font-semibold text-gray-900">{t.caseDetail.relatedCases}</h3>
-                </div>
-                <Button variant="outline" size="sm" onClick={() => setShowLinkSearch(v => !v)}>
-                  <Link2 className="h-3 w-3" />
-                  {t.caseDetail.linkCase}
-                </Button>
-              </div>
-
-              {/* Link search */}
-              {showLinkSearch && (
-                <div className="mb-4 space-y-2">
-                  <Input
-                    placeholder={t.caseDetail.linkCase}
-                    value={linkSearch}
-                    onChange={(e) => handleLinkSearch(e.target.value)}
-                    autoFocus
-                  />
-                  {linkSearchLoading && <p className="text-xs text-gray-400">Searching...</p>}
-                  {linkResults.length > 0 && (
-                    <div className="border border-gray-200 rounded-lg overflow-hidden">
-                      {linkResults.map((r) => (
-                        <button
-                          key={r.id}
-                          type="button"
-                          onClick={() => handleLinkCase(r)}
-                          className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 border-b border-gray-100 last:border-0 flex items-center gap-3"
-                        >
-                          <span className="font-mono text-xs text-gray-500">{r.case_number}</span>
-                          <span className="font-medium text-gray-900 flex-1 truncate">{r.title}</span>
-                          <StatusBadge status={r.status} />
-                        </button>
-                      ))}
+          {/* Recurring Issue Detection — auto, managers/admins only */}
+          {canManagerAssign && recurringCases.length > 0 && (() => {
+            const count = recurringCases.length
+            const isChronic = count >= 3
+            const isRecurring = count >= 2
+            const borderColor = isChronic ? 'border-red-300' : isRecurring ? 'border-orange-300' : 'border-yellow-300'
+            const bgColor = isChronic ? 'bg-red-50' : isRecurring ? 'bg-orange-50' : 'bg-yellow-50'
+            const textColor = isChronic ? 'text-red-700' : isRecurring ? 'text-orange-700' : 'text-yellow-700'
+            const iconColor = isChronic ? 'text-red-500' : isRecurring ? 'text-orange-500' : 'text-yellow-500'
+            const badgeLabel = isChronic
+              ? `Chronic Issue · ${count} reports`
+              : isRecurring
+              ? `Recurring Issue · ${count} reports`
+              : `Reported Before · ${count} report`
+            const advice = isChronic
+              ? 'This location has been reported 3+ times. Consider a permanent fix or replacement.'
+              : isRecurring
+              ? 'This location has been reported multiple times. Monitor closely.'
+              : 'This location was reported once before.'
+            return (
+              <div className={`rounded-xl border ${borderColor} shadow-sm overflow-hidden`}>
+                <button
+                  type="button"
+                  onClick={() => setRecurringOpen(v => !v)}
+                  className={`w-full flex items-center justify-between px-5 py-4 ${bgColor} hover:opacity-90 transition-opacity`}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <RotateCcw className={`h-4 w-4 flex-shrink-0 ${iconColor}`} />
+                    <div className="text-left">
+                      <span className={`text-sm font-semibold ${textColor}`}>{badgeLabel}</span>
+                      <p className={`text-xs mt-0.5 ${textColor} opacity-80`}>{advice}</p>
                     </div>
-                  )}
-                </div>
-              )}
-
-              {linkedCases.length === 0 ? (
-                <p className="text-sm text-gray-400">{t.caseDetail.noRelatedCases}</p>
-              ) : (
-                <div className="space-y-2">
-                  {linkedCases.map((lc) => (
-                    <div key={lc.id} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
-                      <Link to={`/cases/${lc.id}`} className="flex-1 flex items-center gap-3 min-w-0 hover:underline">
-                        <span className="font-mono text-xs text-gray-500 flex-shrink-0">{lc.case_number}</span>
-                        <span className="font-medium text-gray-900 truncate text-sm">{lc.title}</span>
-                        <StatusBadge status={lc.status} />
-                      </Link>
-                      <button
-                        type="button"
-                        onClick={() => handleUnlinkCase(lc.id)}
-                        className="text-xs text-red-500 hover:text-red-700 flex items-center gap-1 flex-shrink-0"
-                        title={t.caseDetail.unlinkCase}
+                  </div>
+                  {recurringOpen
+                    ? <ChevronUp className={`h-4 w-4 ${iconColor} flex-shrink-0`} />
+                    : <ChevronDown className={`h-4 w-4 ${iconColor} flex-shrink-0`} />
+                  }
+                </button>
+                {recurringOpen && (
+                  <div className="bg-white divide-y divide-gray-50">
+                    {recurringCases.map((rc) => (
+                      <Link
+                        key={rc.id}
+                        to={`/cases/${rc.id}`}
+                        className="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 transition-colors"
                       >
-                        <X className="h-3 w-3" />
-                        {t.caseDetail.unlinkCase}
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
+                        <span className="font-mono text-xs text-gray-400 flex-shrink-0 w-20">{rc.case_number}</span>
+                        <span className="text-sm font-medium text-gray-800 flex-1 truncate">{rc.title}</span>
+                        <StatusBadge status={rc.status} />
+                        <span className="text-xs text-gray-400 flex-shrink-0">
+                          {new Date(rc.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                        </span>
+                      </Link>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })()}
 
           {/* Action panels */}
 
