@@ -79,8 +79,20 @@ export function generateCaseNumber(): string {
   return `KZN-${year}${month}-${random}`
 }
 
-export function staffEmailFromUsername(username: string): string {
-  return `${username.toLowerCase().replace(/\s+/g, '.')}@staff.kaizen.internal`
+// Normalize a company code/slug the same way slugs are generated
+export function normalizeCompanyCode(code: string): string {
+  return code.toLowerCase().trim().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
+}
+
+// Normalize a staff username (must match the edge function exactly)
+export function normalizeStaffUsername(username: string): string {
+  return username.trim().toLowerCase().split(' ').filter(Boolean).join('.')
+}
+
+// Staff auth email is synthetic and scoped per company so usernames can repeat
+// across companies, e.g. john@na-nirand.staff.kaizen.internal
+export function staffEmail(username: string, companyCode: string): string {
+  return `${normalizeStaffUsername(username)}@${normalizeCompanyCode(companyCode)}.staff.kaizen.internal`
 }
 
 export const DEPT_ABBR: Record<string, string> = {

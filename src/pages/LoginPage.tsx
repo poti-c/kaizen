@@ -6,10 +6,7 @@ import { useLanguage } from '@/contexts/LanguageContext'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { supabase } from '@/lib/supabase'
-import { DEPARTMENTS } from '@/types'
-import type { Department } from '@/types'
 
 type LoginRole = 'super_admin' | 'manager' | 'staff'
 
@@ -19,7 +16,7 @@ export function LoginPage() {
   const { lang, setLang, t } = useLanguage()
 
   const [role, setRole] = useState<LoginRole>('staff')
-  const [department, setDepartment] = useState<Department | ''>('')
+  const [companyCode, setCompanyCode] = useState('')
   const [emailOrUsername, setEmailOrUsername] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -73,8 +70,8 @@ export function LoginPage() {
     e.preventDefault()
     setError('')
 
-    if (role !== 'super_admin' && !department) {
-      setError(t.login.noDeptError)
+    if (role === 'staff' && !companyCode.trim()) {
+      setError(t.login.noCompanyCode)
       return
     }
 
@@ -83,9 +80,9 @@ export function LoginPage() {
       if (role === 'super_admin') {
         await signInAdmin(emailOrUsername, password)
       } else if (role === 'manager') {
-        await signInManager(emailOrUsername, password, department as Department)
+        await signInManager(emailOrUsername, password)
       } else {
-        await signInStaff(emailOrUsername, password, department as Department)
+        await signInStaff(emailOrUsername, password, companyCode)
       }
       navigate('/dashboard')
     } catch (err: unknown) {
@@ -133,7 +130,7 @@ export function LoginPage() {
                   <button
                     key={r}
                     type="button"
-                    onClick={() => { setRole(r); setDepartment(''); setEmailOrUsername(''); setError('') }}
+                    onClick={() => { setRole(r); setCompanyCode(''); setEmailOrUsername(''); setError('') }}
                     className={`py-1 px-2.5 rounded-lg text-xs font-medium border transition-all ${
                       role === r
                         ? 'border-[var(--brand-primary)] bg-[var(--brand-primary)] text-white'
@@ -197,20 +194,19 @@ export function LoginPage() {
           {/* ── Sign in form ── */}
           {!forgotMode && (
           <form onSubmit={handleSubmit} className="space-y-4 relative z-10">
-            {/* Department (not for super admin) */}
-            {role !== 'super_admin' && (
+            {/* Company Code (staff only — scopes their username to a company) */}
+            {role === 'staff' && (
               <div className="space-y-1.5">
-                <Label>{t.login.department}</Label>
-                <Select value={department} onValueChange={(v) => setDepartment(v as Department)}>
-                  <SelectTrigger>
-                    <SelectValue placeholder={t.login.selectDept} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {DEPARTMENTS.filter((d) => d.value !== 'top_management').map((d) => (
-                      <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Label>{t.login.companyCode}</Label>
+                <Input
+                  type="text"
+                  placeholder={t.login.enterCompanyCode}
+                  value={companyCode}
+                  onChange={(e) => setCompanyCode(e.target.value)}
+                  autoComplete="organization"
+                  autoCapitalize="none"
+                  required
+                />
               </div>
             )}
 

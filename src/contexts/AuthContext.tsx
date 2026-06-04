@@ -2,14 +2,14 @@ import React, { createContext, useContext, useEffect, useState, useCallback } fr
 import type { User } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
 import type { KaizenProfile, Role, Department } from '@/types'
-import { staffEmailFromUsername } from '@/lib/utils'
+import { staffEmail } from '@/lib/utils'
 
 interface AuthContextValue {
   user: User | null
   profile: KaizenProfile | null
   loading: boolean
-  signInManager: (email: string, password: string, department: Department) => Promise<void>
-  signInStaff: (username: string, password: string, department: Department) => Promise<void>
+  signInManager: (email: string, password: string) => Promise<void>
+  signInStaff: (username: string, password: string, companyCode: string) => Promise<void>
   signInAdmin: (email: string, password: string) => Promise<void>
   signOut: () => Promise<void>
   refreshProfile: () => Promise<void>
@@ -82,7 +82,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setProfile(p)
   }
 
-  async function signInManager(email: string, password: string, department: Department) {
+  async function signInManager(email: string, password: string) {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) throw error
 
@@ -98,10 +98,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await supabase.auth.signOut()
       throw new Error('Access denied. Not a Manager account.')
     }
-    if (p.department !== department) {
-      await supabase.auth.signOut()
-      throw new Error(`Department mismatch. Your account belongs to a different department.`)
-    }
     if (!p.is_active) {
       await supabase.auth.signOut()
       throw new Error('This account has been suspended. Please contact the system administrator.')
@@ -109,14 +105,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setProfile(p)
   }
 
-  async function signInStaff(username: string, password: string, department: Department) {
-    // Staff auth email is deterministic from the username — no pre-auth DB read needed.
-    const email = staffEmailFromUsername(username.trim())
+  async function signInStaff(username: string, password: string, companyCode: string) {
+    // Staff auth email is deterministic from username + company code — no pre-auth DB read.
+    const email = staffEmail(username, companyCode)
 
     const { data: signInData, error } = await supabase.auth.signInWithPassword({ email, password })
-    if (error || !signInData.user) throw new Error('Invalid username or password.')
+    if (error || !signInData.user) throw new Error('Invalid company code, username, or password.')
 
-    // Authenticated — now read own profile (RLS-allowed) and verify role/department/status
+    // Authenticated — now read own profile (RLS-allowed) and verify role/status
     const { data: prof, error: profError } = await supabase
       .from('kaizen_profiles')
       .select('*')
@@ -125,16 +121,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     if (profError || !prof) {
       await supabase.auth.signOut()
-      throw new Error('No staff account found with this username and department.')
+      throw new Error('No staff account found for this company and username.')
     }
     const p = prof as KaizenProfile
     if (p.role !== 'staff') {
       await supabase.auth.signOut()
       throw new Error('This is not a staff account.')
-    }
-    if (p.department !== department) {
-      await supabase.auth.signOut()
-      throw new Error('Department mismatch. Please select your correct department.')
     }
     if (!p.is_active) {
       await supabase.auth.signOut()
