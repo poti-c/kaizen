@@ -271,7 +271,12 @@ export function UsersPage() {
         </div>
       ) : (
         <div className="space-y-6">
-          {(profile?.role === 'super_admin' ? ['super_admin', 'manager', 'staff'] as Role[] : ['staff'] as Role[]).map((role) => {
+          {(profile?.role === 'super_admin'
+            ? ['super_admin', 'manager', 'staff'] as Role[]
+            : profile?.role === 'manager' && profile?.department === 'human_resource'
+              ? ['manager', 'staff'] as Role[]
+              : ['staff'] as Role[]
+          ).map((role) => {
             const group = roleGroups[role]
             if (group.length === 0) return null
             const Icon = roleIcons[role]
