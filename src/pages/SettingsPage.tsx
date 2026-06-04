@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Eye, EyeOff, Loader2, Palette, Lock, Info, Scale, Pencil, Check, X, Bell, BellOff, BellRing, Plus, Trash2, Building2, Tag, MapPin, AlertTriangle, LifeBuoy, HelpCircle, MessageSquare, Smartphone, Mail, ChevronRight, ChevronDown, UserCheck, UserX, Camera } from 'lucide-react'
+import { Eye, EyeOff, Loader2, Palette, Lock, Info, Scale, Pencil, Check, X, Bell, BellOff, BellRing, Plus, Trash2, Building2, Tag, MapPin, AlertTriangle, LifeBuoy, HelpCircle, MessageSquare, Smartphone, Mail, ChevronRight, ChevronDown, UserX, Camera } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useTheme } from '@/contexts/ThemeContext'
@@ -1102,8 +1102,14 @@ function CompaniesSection() {
         ) : (
           <div className="divide-y divide-gray-100">
             {companies.map(co => {
-              const coLinks    = links.filter(l => l.company_id === co.id)
               const isExpanded = expanded === co.id
+              // Who has access to this company: its Owner + cross-company guests granted access
+              const ownerList = admins.filter(a => a.company_id === co.id && a.job_title === 'Owner')
+              const guestList = admins.filter(a => a.company_id !== co.id && links.some(l => l.super_admin_id === a.id && l.company_id === co.id))
+              const accessList = [...ownerList, ...guestList]
+              // Only this company's Owner may remove cross-company guests
+              const iAmOwner = profile?.company_id === co.id && profile?.job_title === 'Owner'
+              const companyName = (id: string | null) => companies.find(c => c.id === id)?.name ?? 'another company'
               return (
                 <div key={co.id}>
                   {/* Company row */}
@@ -1117,7 +1123,7 @@ function CompaniesSection() {
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-semibold text-gray-900">{co.name}</p>
                       <p className="text-xs text-gray-400">
-                        /{co.slug} · {coLinks.length} super admin{coLinks.length !== 1 ? 's' : ''}
+                        /{co.slug} · {accessList.length} with access
                       </p>
                     </div>
                     <span className={`text-xs px-2 py-0.5 rounded-full font-medium mr-2 ${
@@ -1137,21 +1143,16 @@ function CompaniesSection() {
                         Super Admin Access
                       </p>
                       <div className="space-y-2">
-                        {admins.map(admin => {
-                          const isLinked = links.some(l => l.super_admin_id === admin.id && l.company_id === co.id)
-                          const isMe     = admin.id === profile?.id
-                          // Members whose home company is this one are fixed here — no link/unlink.
-                          const isHomeMember = admin.company_id === co.id
-                          const isOwner  = isHomeMember && admin.job_title === 'Owner'
+                        {accessList.map(admin => {
+                          const isMe    = admin.id === profile?.id
+                          const isOwner = admin.company_id === co.id && admin.job_title === 'Owner'
                           return (
                             <div
                               key={admin.id}
-                              className={`flex items-center gap-3 p-3 rounded-xl border transition-colors ${
-                                isLinked ? 'border-[var(--brand-primary)]/20 bg-white' : 'border-gray-200 bg-white'
-                              }`}
+                              className="flex items-center gap-3 p-3 rounded-xl border border-gray-200 bg-white transition-colors"
                             >
                               <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-bold ${
-                                isLinked ? 'bg-[var(--brand-primary)] text-white' : 'bg-gray-100 text-gray-400'
+                                isOwner ? 'bg-[var(--brand-primary)] text-white' : 'bg-gray-100 text-gray-400'
                               }`}>
                                 {admin.full_name.charAt(0).toUpperCase()}
                               </div>
@@ -1161,32 +1162,39 @@ function CompaniesSection() {
                                   {isMe && <span className="ml-1.5 text-[10px] text-[var(--brand-primary)] font-semibold">You</span>}
                                 </p>
                                 <p className="text-xs text-gray-400 truncate">{admin.email}</p>
+                                {!isOwner && (
+                                  <p className="text-[11px] text-gray-400 mt-0.5 flex items-center gap-1">
+                                    <Building2 className="h-3 w-3" />from {companyName(admin.company_id)}
+                                  </p>
+                                )}
                               </div>
                               {isOwner ? (
                                 <span className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border border-amber-200 text-amber-600 bg-amber-50 flex-shrink-0">
                                   Owner
                                 </span>
-                              ) : isHomeMember ? (
-                                <span className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border border-gray-200 text-gray-500 bg-gray-50 flex-shrink-0">
-                                  Top Management
-                                </span>
-                              ) : (
+                              ) : iAmOwner ? (
                                 <button
-                                  onClick={() => toggleLink(admin.id, co.id, isLinked)}
-                                  className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-all flex-shrink-0 ${
-                                    isLinked
-                                      ? 'border-red-200 text-red-500 hover:bg-red-50'
-                                      : 'border-[var(--brand-primary)] text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/5'
-                                  }`}
+                                  onClick={() => toggleLink(admin.id, co.id, true)}
+                                  className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border border-red-200 text-red-500 hover:bg-red-50 transition-all flex-shrink-0"
                                 >
-                                  {isLinked
-                                    ? <><UserX className="h-3 w-3" />Unlink</>
-                                    : <><UserCheck className="h-3 w-3" />Link</>}
+                                  <UserX className="h-3 w-3" />Remove
                                 </button>
+                              ) : (
+                                <span className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border border-gray-200 text-gray-500 bg-gray-50 flex-shrink-0">
+                                  Guest
+                                </span>
                               )}
                             </div>
                           )
                         })}
+                        {accessList.length === 0 && (
+                          <p className="text-xs text-gray-400 py-2">No owner assigned yet. Owners are managed in the System Console.</p>
+                        )}
+                        {iAmOwner && guestList.length === 0 && ownerList.length > 0 && (
+                          <p className="text-[11px] text-gray-400 pt-1">
+                            No cross-company users have been granted access to this company.
+                          </p>
+                        )}
                       </div>
                     </div>
                   )}
