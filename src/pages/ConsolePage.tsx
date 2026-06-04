@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
-  ShieldCheck, Lock, Loader2, LogOut, Plus, Building2, Crown, Power,
+  Lock, Loader2, LogOut, Plus, Building2, Crown, Power,
   Trash2, X, Eye, EyeOff, Users, UserCog, ScrollText, AlertTriangle, Check,
   ChevronRight, ChevronDown, Pencil, CalendarDays, ArrowLeft, Receipt, Upload, ImageIcon, Clock, Link2, KeyRound,
   Settings, Mail, UserPlus, Building,
@@ -162,9 +162,7 @@ function LoginScreen({ onLogin }: { onLogin: (t: string) => void }) {
     <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
       <div className="w-full max-w-sm">
         <div className="flex flex-col items-center mb-8">
-          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center shadow-lg shadow-amber-500/20 mb-4">
-            <ShieldCheck className="h-7 w-7 text-slate-950" />
-          </div>
+          <img src="/kaizen-icon.svg" alt="Kaizen" className="w-14 h-14 rounded-2xl object-contain shadow-lg shadow-amber-500/20 mb-4" />
           <h1 className="text-xl font-bold text-white">Kaizen System Console</h1>
           <p className="text-slate-500 text-sm mt-1">Restricted · Authorised personnel only</p>
         </div>
@@ -236,9 +234,7 @@ function Dashboard({ token, onLogout }: { token: string; onLogout: () => void })
     <div className="min-h-screen bg-slate-950 text-slate-200">
       <header className="border-b border-slate-800 bg-slate-900/80 backdrop-blur sticky top-0 z-10">
         <div className="max-w-5xl mx-auto px-4 h-14 flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center">
-            <ShieldCheck className="h-4 w-4 text-slate-950" />
-          </div>
+          <img src="/kaizen-icon.svg" alt="Kaizen" className="w-8 h-8 rounded-lg object-contain flex-shrink-0" />
           <div className="flex-1">
             <h1 className="text-sm font-bold text-white leading-tight">Kaizen System</h1>
             <p className="text-[11px] text-slate-500 leading-tight">System Console · by NNR Solutions</p>
