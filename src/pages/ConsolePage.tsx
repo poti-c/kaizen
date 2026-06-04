@@ -3,6 +3,7 @@ import {
   ShieldCheck, Lock, Loader2, LogOut, Plus, Building2, Crown, Power,
   Trash2, X, Eye, EyeOff, Users, UserCog, ScrollText, AlertTriangle, Check,
   ChevronRight, ChevronDown, Pencil, CalendarDays, ArrowLeft, Receipt, Upload, ImageIcon, Clock, Link2, KeyRound,
+  Settings, Mail, UserPlus, Building,
 } from 'lucide-react'
 
 // ── Console API client ───────────────────────────────────────────────────────
@@ -212,6 +213,7 @@ function Dashboard({ token, onLogout }: { token: string; onLogout: () => void })
   const [showAssign, setShowAssign] = useState(false)
   const [preselectCompany, setPreselectCompany] = useState<string | null>(null)
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null)
+  const [showSettings, setShowSettings] = useState(false)
 
   const call = useCallback(async <T,>(action: string, payload: Record<string, unknown> = {}): Promise<T> => {
     try { return await callConsole<T>(action, payload, token) }
@@ -241,11 +243,15 @@ function Dashboard({ token, onLogout }: { token: string; onLogout: () => void })
             <h1 className="text-sm font-bold text-white leading-tight">System Console</h1>
             <p className="text-[11px] text-slate-500 leading-tight">Kaizen by NNR Solutions</p>
           </div>
+          <button onClick={() => { setShowSettings(true); setSelectedCompanyId(null) }} title="Admin Settings"
+            className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg hover:bg-slate-800 ${showSettings ? 'text-amber-400' : 'text-slate-400 hover:text-white'}`}>
+            <Settings className="h-3.5 w-3.5" />Settings
+          </button>
           <button onClick={onLogout} className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-white px-3 py-1.5 rounded-lg hover:bg-slate-800">
             <LogOut className="h-3.5 w-3.5" />Sign Out
           </button>
         </div>
-        {!selectedCompany && (
+        {!selectedCompany && !showSettings && (
           <div className="max-w-5xl mx-auto px-4 flex gap-1">
             {([['companies', 'Companies', Building2], ['audit', 'Audit Log', ScrollText]] as const).map(([key, label, Icon]) => (
               <button key={key} onClick={() => setTab(key)}
@@ -258,7 +264,9 @@ function Dashboard({ token, onLogout }: { token: string; onLogout: () => void })
       </header>
 
       <main className="max-w-5xl mx-auto px-4 py-6">
-        {loading ? (
+        {showSettings ? (
+          <AdminSettingsView call={call} onBack={() => setShowSettings(false)} />
+        ) : loading ? (
           <div className="flex justify-center py-20"><Loader2 className="h-6 w-6 animate-spin text-slate-600" /></div>
         ) : selectedCompany ? (
           <CompanyDetailView
@@ -1226,6 +1234,201 @@ function CreateOwnerDialog({ preselectCompanyId, call, onClose, onCreated }: {
 }
 
 // ── Shared bits ──────────────────────────────────────────────────────────────
+// ── Admin Settings ─────────────────────────────────────────────────────────
+interface ConsoleAdmin { id: string; username: string; email: string | null; is_active: boolean; created_at: string }
+interface ConsoleSettings { company_name: string | null; office_type: string; branch_name: string | null; address: string | null; tax_id: string | null }
+
+function AdminSettingsView({ call, onBack }: { call: <T,>(a: string, p?: Record<string, unknown>) => Promise<T>; onBack: () => void }) {
+  const [loading, setLoading] = useState(true)
+  const [admins, setAdmins] = useState<ConsoleAdmin[]>([])
+  const [company, setCompany] = useState<ConsoleSettings | null>(null)
+  const [busy, setBusy] = useState<string | null>(null)
+
+  // admin editing
+  const [editId, setEditId] = useState<string | null>(null)
+  const [eUser, setEUser] = useState(''); const [eEmail, setEEmail] = useState(''); const [ePass, setEPass] = useState('')
+  const [adding, setAdding] = useState(false)
+  const [nUser, setNUser] = useState(''); const [nEmail, setNEmail] = useState(''); const [nPass, setNPass] = useState('')
+
+  // company editing
+  const [editCo, setEditCo] = useState(false)
+  const [co, setCo] = useState<ConsoleSettings>({ company_name: '', office_type: 'head_office', branch_name: '', address: '', tax_id: '' })
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const d = await call<{ admins: ConsoleAdmin[]; company: ConsoleSettings | null }>('get_settings')
+      setAdmins(d.admins); setCompany(d.company)
+    } catch { /* handled */ } finally { setLoading(false) }
+  }, [call])
+  useEffect(() => { load() }, [load])
+
+  function startEdit(a: ConsoleAdmin) { setEditId(a.id); setEUser(a.username); setEEmail(a.email ?? ''); setEPass('') }
+  async function saveAdmin(id: string) {
+    setBusy('admin')
+    try { await call('update_admin', { admin_id: id, username: eUser, email: eEmail, password: ePass || undefined }); setEditId(null); load() }
+    catch (e) { alert(e instanceof Error ? e.message : 'Failed') } finally { setBusy(null) }
+  }
+  async function addAdmin() {
+    setBusy('add')
+    try { await call('add_admin', { username: nUser, email: nEmail, password: nPass }); setAdding(false); setNUser(''); setNEmail(''); setNPass(''); load() }
+    catch (e) { alert(e instanceof Error ? e.message : 'Failed') } finally { setBusy(null) }
+  }
+  async function delAdmin(a: ConsoleAdmin) {
+    if (!confirm(`Remove admin "${a.username}"? They will no longer be able to sign in to the console.`)) return
+    setBusy(a.id)
+    try { await call('delete_admin', { admin_id: a.id }); load() }
+    catch (e) { alert(e instanceof Error ? e.message : 'Failed') } finally { setBusy(null) }
+  }
+  function startCoEdit() {
+    setCo({
+      company_name: company?.company_name ?? '', office_type: company?.office_type ?? 'head_office',
+      branch_name: company?.branch_name ?? '', address: company?.address ?? '', tax_id: company?.tax_id ?? '',
+    })
+    setEditCo(true)
+  }
+  async function saveCo() {
+    setBusy('co')
+    try {
+      await call('update_settings', {
+        company_name: co.company_name, office_type: co.office_type,
+        branch_name: co.office_type === 'branch' ? co.branch_name : null,
+        address: co.address, tax_id: co.tax_id,
+      })
+      setEditCo(false); load()
+    } catch (e) { alert(e instanceof Error ? e.message : 'Failed') } finally { setBusy(null) }
+  }
+
+  return (
+    <div>
+      <button onClick={onBack} className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-white mb-4">
+        <ArrowLeft className="h-3.5 w-3.5" />Back
+      </button>
+      <h2 className="text-lg font-bold text-white mb-1">Admin Settings</h2>
+      <p className="text-xs text-slate-500 mb-5">Console access &amp; your company details for invoicing</p>
+
+      {loading ? (
+        <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-slate-600" /></div>
+      ) : (
+        <div className="space-y-4">
+          {/* Console Administrators */}
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <KeyRound className="h-4 w-4 text-slate-400" />
+              <h3 className="text-sm font-semibold text-white">Console Login &amp; Administrators</h3>
+              {!adding && (
+                <button onClick={() => setAdding(true)} className="ml-auto flex items-center gap-1 text-xs text-amber-400 hover:text-amber-300">
+                  <UserPlus className="h-3.5 w-3.5" />Add User
+                </button>
+              )}
+            </div>
+            <p className="text-[11px] text-slate-500 mb-3">These accounts can sign in to this System Console. Email is used for password-reset notifications.</p>
+
+            <div className="space-y-2">
+              {admins.map((a) => (
+                <div key={a.id} className="bg-slate-800/50 rounded-lg p-3">
+                  {editId === a.id ? (
+                    <div className="space-y-2.5">
+                      <Field label="Username"><input value={eUser} onChange={(e) => setEUser(e.target.value)} className={inputCls} autoComplete="off" /></Field>
+                      <Field label="Admin Email (for password reset)"><input type="email" value={eEmail} onChange={(e) => setEEmail(e.target.value)} className={inputCls} placeholder="admin@nnr-solutions.com" autoComplete="off" /></Field>
+                      <Field label="New Password (leave blank to keep)"><input type="text" value={ePass} onChange={(e) => setEPass(e.target.value)} className={inputCls} placeholder="••••••••" autoComplete="new-password" /></Field>
+                      <div className="flex items-center gap-2 pt-1">
+                        <button onClick={() => saveAdmin(a.id)} disabled={busy === 'admin'} className="flex items-center gap-1.5 px-3 h-8 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-semibold disabled:opacity-50">
+                          {busy === 'admin' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}Save
+                        </button>
+                        <button onClick={() => setEditId(null)} className="px-3 h-8 rounded-lg text-slate-400 hover:bg-slate-800 text-xs">Cancel</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center shrink-0"><UserCog className="h-4 w-4 text-slate-300" /></div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-white truncate">{a.username}</p>
+                        <p className="text-[11px] text-slate-500 truncate flex items-center gap-1"><Mail className="h-3 w-3" />{a.email || 'no email set'}</p>
+                      </div>
+                      <button onClick={() => startEdit(a)} className="p-1.5 rounded text-slate-500 hover:text-amber-400 hover:bg-slate-800"><Pencil className="h-3.5 w-3.5" /></button>
+                      {admins.length > 1 && (
+                        <button onClick={() => delAdmin(a)} disabled={busy === a.id} className="p-1.5 rounded text-slate-500 hover:text-red-400 hover:bg-slate-800">
+                          {busy === a.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))}
+
+              {adding && (
+                <div className="bg-slate-800/50 rounded-lg p-3 border border-amber-500/30 space-y-2.5">
+                  <p className="text-xs font-semibold text-amber-400">New Administrator</p>
+                  <Field label="Username"><input value={nUser} onChange={(e) => setNUser(e.target.value)} className={inputCls} placeholder="username" autoComplete="off" /></Field>
+                  <Field label="Admin Email"><input type="email" value={nEmail} onChange={(e) => setNEmail(e.target.value)} className={inputCls} placeholder="admin@nnr-solutions.com" autoComplete="off" /></Field>
+                  <Field label="Password (min 6 chars)"><input type="text" value={nPass} onChange={(e) => setNPass(e.target.value)} className={inputCls} placeholder="••••••••" autoComplete="new-password" /></Field>
+                  <div className="flex items-center gap-2 pt-1">
+                    <button onClick={addAdmin} disabled={busy === 'add' || !nUser || nPass.length < 6} className="flex items-center gap-1.5 px-3 h-8 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-semibold disabled:opacity-50">
+                      {busy === 'add' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}Create
+                    </button>
+                    <button onClick={() => setAdding(false)} className="px-3 h-8 rounded-lg text-slate-400 hover:bg-slate-800 text-xs">Cancel</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* NNR-Solutions company profile */}
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Building className="h-4 w-4 text-slate-400" />
+              <h3 className="text-sm font-semibold text-white">Company Details</h3>
+              {!editCo ? (
+                <button onClick={startCoEdit} className="ml-auto p-1 rounded text-slate-500 hover:text-amber-400 hover:bg-slate-800"><Pencil className="h-3.5 w-3.5" /></button>
+              ) : (
+                <div className="ml-auto flex items-center gap-1">
+                  <button onClick={saveCo} disabled={busy === 'co'} className="p-1.5 rounded-lg text-green-400 hover:bg-green-500/10">
+                    {busy === 'co' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                  </button>
+                  <button onClick={() => setEditCo(false)} className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-800"><X className="h-4 w-4" /></button>
+                </div>
+              )}
+            </div>
+            <p className="text-[11px] text-slate-500 mb-3">Used as the issuer on invoices generated for your customers.</p>
+
+            {editCo ? (
+              <div className="space-y-2.5">
+                <Field label="Company Name"><input value={co.company_name ?? ''} onChange={(e) => setCo({ ...co, company_name: e.target.value })} className={inputCls} placeholder="NNR-Solutions Co., LTD" /></Field>
+                <div>
+                  <label className="text-xs font-medium text-slate-400">Office Type</label>
+                  <div className="flex items-center gap-4 mt-1.5">
+                    <label className="flex items-center gap-2 text-sm text-slate-200 cursor-pointer">
+                      <input type="radio" name="office_type" checked={co.office_type === 'head_office'} onChange={() => setCo({ ...co, office_type: 'head_office' })} className="accent-amber-500" />
+                      Head Office
+                    </label>
+                    <label className="flex items-center gap-2 text-sm text-slate-200 cursor-pointer">
+                      <input type="radio" name="office_type" checked={co.office_type === 'branch'} onChange={() => setCo({ ...co, office_type: 'branch' })} className="accent-amber-500" />
+                      Branch
+                    </label>
+                  </div>
+                </div>
+                {co.office_type === 'branch' && (
+                  <Field label="Branch (specify)"><input value={co.branch_name ?? ''} onChange={(e) => setCo({ ...co, branch_name: e.target.value })} className={inputCls} placeholder="e.g. Branch 00001" /></Field>
+                )}
+                <Field label="Company Tax ID"><input value={co.tax_id ?? ''} onChange={(e) => setCo({ ...co, tax_id: e.target.value })} className={inputCls} placeholder="0505557003971" /></Field>
+                <Field label="Company Address"><textarea value={co.address ?? ''} onChange={(e) => setCo({ ...co, address: e.target.value })} rows={3} className={inputCls + ' h-auto py-2 resize-none'} placeholder="Company address" /></Field>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-3">
+                <div className="col-span-2"><Detail label="Company Name">{company?.company_name || '—'}</Detail></div>
+                <Detail label="Office Type">{company?.office_type === 'branch' ? `Branch${company?.branch_name ? ` · ${company.branch_name}` : ''}` : 'Head Office'}</Detail>
+                <Detail label="Tax ID">{company?.tax_id || '—'}</Detail>
+                <div className="col-span-2"><Detail label="Address">{company?.address || '—'}</Detail></div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 const inputCls = 'w-full h-9 rounded-lg bg-slate-800 border border-slate-700 px-3 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-amber-500/50'
 const selectCls = 'w-full h-9 rounded-lg bg-slate-800 border border-slate-700 px-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-amber-500/50'
 
