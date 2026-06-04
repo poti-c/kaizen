@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ArrowLeft, Loader2, RefreshCw } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
@@ -41,6 +41,33 @@ export function CreateCasePage() {
   const [isRecurring, setIsRecurring] = useState(false)
   const [photoUrls, setPhotoUrls] = useState<string[]>([])
   const [loading, setLoading] = useState(false)
+
+  // Load company's custom categories + locations from settings
+  const [customCategories, setCustomCategories] = useState<{ slug: string; label: string }[]>(
+    CATEGORIES.map(c => ({ slug: c, label: CATEGORY_LABELS_EN[c] ?? c }))
+  )
+  const [customLocations, setCustomLocations] = useState<string[]>([...LOCATIONS] as string[])
+
+  useEffect(() => {
+    supabase.from('kaizen_settings').select('key, value')
+      .in('key', ['custom_categories', 'custom_locations'])
+      .then(({ data }) => {
+        if (!data) return
+        data.forEach((row: { key: string; value: unknown }) => {
+          if (!Array.isArray(row.value) || row.value.length === 0) return
+          if (row.key === 'custom_categories') {
+            const cats = (row.value as string[]).map(label => ({
+              slug: label.toLowerCase().replace(/ /g, '_'),
+              label,
+            }))
+            setCustomCategories(cats)
+          }
+          if (row.key === 'custom_locations') {
+            setCustomLocations(row.value as string[])
+          }
+        })
+      })
+  }, [activeCompany?.id])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -211,8 +238,8 @@ export function CreateCasePage() {
                   <SelectValue placeholder={t.createCase.selectCategory} />
                 </SelectTrigger>
                 <SelectContent>
-                  {CATEGORIES.map((c) => (
-                    <SelectItem key={c} value={c}>{CATEGORY_LABELS_EN[c]}</SelectItem>
+                  {customCategories.map(({ slug, label }) => (
+                    <SelectItem key={slug} value={slug}>{label}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -225,7 +252,7 @@ export function CreateCasePage() {
                   <SelectValue placeholder="Select location" />
                 </SelectTrigger>
                 <SelectContent className="max-h-72">
-                  {LOCATIONS.map((l) => (
+                  {customLocations.map((l) => (
                     <SelectItem key={l} value={l}>{l}</SelectItem>
                   ))}
                 </SelectContent>
