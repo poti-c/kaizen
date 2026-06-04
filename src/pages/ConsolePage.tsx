@@ -686,10 +686,10 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
                       <p className="text-sm font-medium text-white">{o.full_name}</p>
                       {o.job_title && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-400 font-medium">{o.job_title}</span>}
                       {busy === 'link-' + o.id && <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-500" />}
-                      {o.email !== 'poti@nanirand.com' && (
-                        <button onClick={() => setConfirmDeleteOwner(o)} disabled={busy === o.id} title="Remove this account"
+                      {o.email !== 'poti@nanirand.com' && o.companies.length > 1 && (
+                        <button onClick={() => unlinkOwner(o.id, c.id)} disabled={busy === 'link-' + o.id} title="Remove from this company (keeps the account in Top Management)"
                           className="ml-auto p-1 rounded text-slate-500 hover:text-red-400 hover:bg-red-500/10">
-                          {busy === o.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                          <X className="h-4 w-4" />
                         </button>
                       )}
                     </div>
@@ -697,8 +697,8 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
                       {o.companies.map((lc) => (
                         <span key={lc.id} className={`inline-flex items-center gap-1.5 text-[11px] rounded-md pl-2 pr-1 py-1 border ${lc.id === c.id ? 'bg-amber-500/10 border-amber-500/30 text-amber-300' : 'bg-slate-800 border-slate-700 text-slate-200'}`}>
                           <Building2 className="h-3 w-3 opacity-70" />{lc.name}
-                          {o.companies.length > 1 && (
-                            <button onClick={() => unlinkOwner(o.id, lc.id)} disabled={busy === 'link-' + o.id} title="Remove link"
+                          {lc.id !== c.id && (
+                            <button onClick={() => unlinkOwner(o.id, lc.id)} disabled={busy === 'link-' + o.id} title="Remove access to this company"
                               className="rounded hover:bg-red-500/20 text-slate-500 hover:text-red-400 p-0.5">
                               <X className="h-3 w-3" />
                             </button>
