@@ -54,6 +54,14 @@ interface AuditEntry {
   id: string; action: string; ip: string | null; success: boolean
   detail: Record<string, unknown>; created_at: string
 }
+interface CompanyUser {
+  id: string; full_name: string; email: string | null; username: string | null
+  role: 'manager' | 'staff'; department: string; is_active: boolean
+}
+
+function prettyDept(d: string) {
+  return d.replace(/_/g, ' ').replace(/\b\w/g, (ch) => ch.toUpperCase())
+}
 
 // SaaS package tiers
 const PACKAGES = [
@@ -390,6 +398,26 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
   }, [call, c.id])
   useEffect(() => { loadInvoices() }, [loadInvoices])
 
+  // Managers & staff
+  const [companyUsers, setCompanyUsers] = useState<CompanyUser[]>([])
+  const [usersLoading, setUsersLoading] = useState(true)
+  const [confirmDeleteUser, setConfirmDeleteUser] = useState<CompanyUser | null>(null)
+
+  const loadCompanyUsers = useCallback(async () => {
+    setUsersLoading(true)
+    try {
+      const d = await call<{ users: CompanyUser[] }>('list_company_users', { company_id: c.id })
+      setCompanyUsers(d.users)
+    } catch { /* */ } finally { setUsersLoading(false) }
+  }, [call, c.id])
+  useEffect(() => { loadCompanyUsers() }, [loadCompanyUsers])
+
+  async function deleteCompanyUser(u: CompanyUser) {
+    setBusy(u.id)
+    try { await call('delete_user', { user_id: u.id }); setConfirmDeleteUser(null); loadCompanyUsers(); reload() }
+    catch (e) { alert(e instanceof Error ? e.message : 'Failed') } finally { setBusy(null) }
+  }
+
   async function patch(p: Record<string, unknown>, key: string) {
     setBusy(key)
     try { await call('update_company', { company_id: c.id, ...p }); reload() }
@@ -697,7 +725,59 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
         </div>
       </div>
 
+      {/* Managers & Staff */}
+      <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden mt-4">
+        <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-800">
+          <Users className="h-4 w-4 text-slate-400" />
+          <h3 className="text-sm font-semibold text-white">Managers &amp; Staff</h3>
+          <span className="text-[11px] text-slate-500">{companyUsers.length}</span>
+        </div>
+        {usersLoading ? (
+          <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-slate-600" /></div>
+        ) : companyUsers.length === 0 ? (
+          <p className="px-4 py-8 text-center text-sm text-slate-600">No managers or staff in this company yet.</p>
+        ) : (
+          <div className="divide-y divide-slate-800">
+            {companyUsers.map((u) => (
+              <div key={u.id} className="flex items-center gap-3 px-4 py-3">
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${u.role === 'manager' ? 'bg-blue-500/15 text-blue-400' : 'bg-slate-700/50 text-slate-400'}`}>
+                  {u.role === 'manager' ? <UserCog className="h-3.5 w-3.5" /> : <Users className="h-3.5 w-3.5" />}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <p className="text-sm font-medium text-white truncate">{u.full_name}</p>
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${u.role === 'manager' ? 'bg-blue-500/15 text-blue-400' : 'bg-slate-700 text-slate-300'}`}>
+                      {u.role === 'manager' ? 'Manager' : 'Staff'}
+                    </span>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700">{prettyDept(u.department)}</span>
+                    {!u.is_active && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-red-500/15 text-red-400">Suspended</span>}
+                  </div>
+                  <p className="text-[11px] text-slate-500 truncate">{u.role === 'staff' ? `@${u.username}` : u.email}</p>
+                </div>
+                <button onClick={() => setConfirmDeleteUser(u)} title="Remove user" className="p-1.5 rounded-lg text-slate-500 hover:text-red-400 hover:bg-red-500/10 flex-shrink-0">
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       {/* Dialogs */}
+      {confirmDeleteUser && (
+        <Overlay onClose={() => setConfirmDeleteUser(null)}>
+          <div className="flex items-center gap-2 mb-3"><AlertTriangle className="h-5 w-5 text-red-400" /><h3 className="text-sm font-semibold text-white">Remove {confirmDeleteUser.role}?</h3></div>
+          <p className="text-sm text-slate-400 mb-5">
+            Permanently removes <strong className="text-white">{confirmDeleteUser.full_name}</strong> ({confirmDeleteUser.role === 'staff' ? '@' + confirmDeleteUser.username : confirmDeleteUser.email}) and revokes their access. Cases they reported stay in the system.
+          </p>
+          <div className="flex gap-2 justify-end">
+            <button onClick={() => setConfirmDeleteUser(null)} className="px-3 py-2 text-sm text-slate-300 hover:bg-slate-800 rounded-lg">Cancel</button>
+            <button onClick={() => deleteCompanyUser(confirmDeleteUser)} disabled={busy === confirmDeleteUser.id} className="px-3 py-2 text-sm bg-red-500 hover:bg-red-400 text-white rounded-lg flex items-center gap-1.5">
+              {busy === confirmDeleteUser.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}Remove
+            </button>
+          </div>
+        </Overlay>
+      )}
       {showPay && <RecordPaymentDialog companyId={c.id} call={call} onClose={() => setShowPay(false)} onSaved={() => { setShowPay(false); loadInvoices(); reload() }} />}
       {lightbox && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80" onClick={() => setLightbox(null)}>
