@@ -667,7 +667,14 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
                     <div className="flex items-center gap-1.5 mb-2">
                       <Crown className="h-3.5 w-3.5 text-amber-400" />
                       <p className="text-sm font-medium text-white">{o.full_name}</p>
+                      {o.job_title && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-400 font-medium">{o.job_title}</span>}
                       {busy === 'link-' + o.id && <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-500" />}
+                      {o.email !== 'poti@nanirand.com' && (
+                        <button onClick={() => setConfirmDeleteOwner(o)} disabled={busy === o.id} title="Remove this account"
+                          className="ml-auto p-1 rounded text-slate-500 hover:text-red-400 hover:bg-red-500/10">
+                          {busy === o.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                        </button>
+                      )}
                     </div>
                     <div className="flex flex-wrap items-center gap-1.5">
                       {o.companies.map((lc) => (
