@@ -1179,7 +1179,7 @@ function CreateOwnerDialog({ preselectCompanyId, call, onClose, onCreated }: {
   const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [jobTitle, setJobTitle] = useState('Owner')
+  const [jobTitle, setJobTitle] = useState('')
   const [isActive, setIsActive] = useState(true)
   const [showPw, setShowPw] = useState(false)
   const [error, setError] = useState('')
@@ -1193,7 +1193,7 @@ function CreateOwnerDialog({ preselectCompanyId, call, onClose, onCreated }: {
     try {
       await call('create_owner', {
         full_name: fullName.trim(), email: email.trim(), password,
-        job_title: jobTitle.trim() || 'Owner', is_active: isActive,
+        job_title: jobTitle.trim(), is_active: isActive,
         company_ids: [preselectCompanyId],
       })
       onCreated()
@@ -1217,8 +1217,9 @@ function CreateOwnerDialog({ preselectCompanyId, call, onClose, onCreated }: {
               <button type="button" onClick={() => setShowPw(!showPw)} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300">{showPw ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}</button>
             </div>
           </Field>
-          <Field label="Job Title"><input value={jobTitle} onChange={e => setJobTitle(e.target.value)} className={inputCls} placeholder="Owner" /></Field>
+          <Field label="Job Title"><input value={jobTitle} onChange={e => setJobTitle(e.target.value)} className={inputCls} placeholder="e.g. General Manager" /></Field>
         </div>
+        <p className="text-[11px] text-slate-500 -mt-1">Enter <span className="text-amber-400 font-medium">Owner</span> to grant full owner authority over the company. Leave other titles for Top Management.</p>
         <label className="flex items-center gap-2.5 pt-1 cursor-pointer">
           <button type="button" onClick={() => setIsActive(!isActive)} className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${isActive ? 'bg-amber-500' : 'bg-slate-700'}`}>
             <span className={`inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform ${isActive ? 'translate-x-5' : 'translate-x-1'}`} />
@@ -1230,7 +1231,7 @@ function CreateOwnerDialog({ preselectCompanyId, call, onClose, onCreated }: {
       <div className="flex gap-2 justify-end pt-4 mt-2 border-t border-slate-800">
         <button onClick={onClose} className="px-3 py-2 text-sm text-slate-300 hover:bg-slate-800 rounded-lg">Cancel</button>
         <button onClick={submit} disabled={saving} className="px-4 py-2 text-sm bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold rounded-lg flex items-center gap-1.5">
-          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}Create Owner
+          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}Add Member
         </button>
       </div>
     </Overlay>
