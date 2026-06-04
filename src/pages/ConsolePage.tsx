@@ -989,7 +989,7 @@ function CreateCompanyDialog({ call, onClose, onCreated }: {
     try {
       // Create the company AND its owner together (server rolls back the
       // company if the owner can't be created).
-      const { company_id } = await call<{ company_id: string }>('create_owner', {
+      const res = await call<{ company_id: string; linked_existing?: boolean; owner_name?: string }>('create_owner', {
         full_name: ownerName.trim(),
         email: ownerEmail.trim(),
         password: ownerPassword,
@@ -1002,7 +1002,10 @@ function CreateCompanyDialog({ call, onClose, onCreated }: {
           max_staff: maxStaff ? Number(maxStaff) : null,
         },
       })
-      onCreated(company_id)
+      if (res.linked_existing) {
+        alert(`Company created. The existing owner "${res.owner_name}" was linked to it — their current login works, and the password you entered was ignored.`)
+      }
+      onCreated(res.company_id)
     } catch (e) { setError(e instanceof Error ? e.message : 'Failed to create company.') }
     finally { setSaving(false) }
   }
@@ -1048,7 +1051,7 @@ function CreateCompanyDialog({ call, onClose, onCreated }: {
             <Crown className="h-3.5 w-3.5 text-amber-400" />
             <p className="text-xs font-semibold text-white">Owner Account</p>
           </div>
-          <p className="text-[11px] text-slate-500 mb-2.5">The Owner is the super admin of this company in the Kaizen System app.</p>
+          <p className="text-[11px] text-slate-500 mb-2.5">The Owner is the super admin of this company. If this email already belongs to an owner, they&apos;ll be linked to this company instead (same login — they can switch between their companies).</p>
           <div className="space-y-2.5">
             <Field label="Full Name *"><input value={ownerName} onChange={(e) => setOwnerName(e.target.value)} className={inputCls} placeholder="e.g. John Smith" /></Field>
             <Field label="Email *"><input type="email" value={ownerEmail} onChange={(e) => setOwnerEmail(e.target.value)} className={inputCls} placeholder="owner@company.com" autoComplete="off" /></Field>
