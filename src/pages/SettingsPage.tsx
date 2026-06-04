@@ -1112,9 +1112,6 @@ function CompaniesSection() {
           <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full font-medium">
             {companies.length}
           </span>
-          <span className="text-xs text-amber-600 bg-amber-50 border border-amber-100 px-2 py-0.5 rounded-full ml-1 font-medium">
-            Founder only
-          </span>
           <button
             onClick={() => setShowAdd(true)}
             className="ml-auto flex items-center gap-1.5 text-xs font-medium text-[var(--brand-primary)] hover:opacity-80 transition-opacity"
