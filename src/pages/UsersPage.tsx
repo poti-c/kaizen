@@ -224,6 +224,9 @@ export function UsersPage() {
 
   const staffDepts = DEPARTMENTS.filter(d => users.some(u => u.role === 'staff' && u.department === d.value))
 
+  // Only the Owner (super_admin with job_title 'Owner') can manage/create top-level accounts
+  const isOwner = profile?.role === 'super_admin' && profile?.job_title === 'Owner'
+
   const roleGroups = {
     super_admin: visibleUsers.filter((u) => u.role === 'super_admin'),
     manager: visibleUsers.filter((u) => u.role === 'manager'),
@@ -317,6 +320,12 @@ export function UsersPage() {
                     {group.map((user) => {
                       // Determine if the viewer can tap to open this user's profile
                       const isHRManager = profile?.role === 'manager' && profile?.department === 'human_resource'
+                      const canManageTarget =
+                        profile?.role === 'super_admin' &&
+                        user.id !== profile.id &&
+                        user.job_title !== 'Owner' &&                  // the Owner account is managed only from the console
+                        user.email !== 'poti@nanirand.com' &&          // founder safety net
+                        (user.role !== 'super_admin' || isOwner)       // top-level targets: Owner only
                       const canViewProfile =
                         // Super admin: can view manager + staff (not other super admins)
                         (profile?.role === 'super_admin' && user.role !== 'super_admin') ||
@@ -366,7 +375,7 @@ export function UsersPage() {
                           </>
                         )}
                         <div className="hidden sm:block text-xs text-gray-400 flex-shrink-0">{formatDate(user.created_at)}</div>
-                        {profile?.role === 'super_admin' && user.email !== 'poti@nanirand.com' && user.id !== profile.id && (
+                        {canManageTarget && (
                           <div className="flex items-center gap-1">
                             <Button
                               variant="ghost"
@@ -421,10 +430,10 @@ export function UsersPage() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
-            {/* Role selector — super_admin only; managers always create staff */}
+            {/* Role selector — super_admin only; only the Owner can create another top-level account */}
             {profile?.role === 'super_admin' && (
-              <div className="grid grid-cols-3 gap-2">
-                {(['staff', 'manager', 'super_admin'] as Role[]).map((r) => (
+              <div className={`grid ${isOwner ? 'grid-cols-3' : 'grid-cols-2'} gap-2`}>
+                {((isOwner ? ['staff', 'manager', 'super_admin'] : ['staff', 'manager']) as Role[]).map((r) => (
                   <button
                     key={r}
                     type="button"
@@ -523,7 +532,7 @@ export function UsersPage() {
                 <SelectContent>
                   <SelectItem value="staff">{t.login.staff}</SelectItem>
                   <SelectItem value="manager">{t.login.manager}</SelectItem>
-                  <SelectItem value="super_admin">{t.login.superAdmin}</SelectItem>
+                  {isOwner && <SelectItem value="super_admin">{t.login.superAdmin}</SelectItem>}
                 </SelectContent>
               </Select>
             </div>
