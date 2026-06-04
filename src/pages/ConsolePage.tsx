@@ -1231,7 +1231,7 @@ function CreateOwnerDialog({ preselectCompanyId, call, onClose, onCreated }: {
       <div className="flex gap-2 justify-end pt-4 mt-2 border-t border-slate-800">
         <button onClick={onClose} className="px-3 py-2 text-sm text-slate-300 hover:bg-slate-800 rounded-lg">Cancel</button>
         <button onClick={submit} disabled={saving} className="px-4 py-2 text-sm bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold rounded-lg flex items-center gap-1.5">
-          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}Add Member
+          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}Create User
         </button>
       </div>
     </Overlay>
