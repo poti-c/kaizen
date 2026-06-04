@@ -330,13 +330,10 @@ function CompaniesListTab({ companies, owners, onOpen, onCreate }: {
   onOpen: (id: string) => void
   onCreate: () => void
 }) {
-  // An "owner" of a company = an Owner-role super admin linked to it, whether
-  // homed here or granted to run it from elsewhere. Mirrors the Owner badge
-  // shown in the company detail's Top Management section.
-  function ownerCount(id: string) {
-    return owners.filter(o =>
-      o.job_title === 'Owner' && (o.company_id === id || o.companies.some(c => c.id === id))
-    ).length
+  // Number of Super Admins appointed to a company: those homed here plus any
+  // granted cross-company access to it.
+  function superAdminCount(id: string) {
+    return owners.filter(o => o.company_id === id || o.companies.some(c => c.id === id)).length
   }
   return (
     <div>
@@ -366,7 +363,7 @@ function CompaniesListTab({ companies, owners, onOpen, onCreate }: {
                 <SubscriptionBadge sub={c.subscription} />
               </div>
               <p className="text-[11px] text-slate-500 truncate mt-0.5">
-                /{c.slug} · {ownerCount(c.id)} owner{ownerCount(c.id) !== 1 ? 's' : ''} · {c.live_managers}M / {c.live_staff}S
+                /{c.slug} · {superAdminCount(c.id)} super admin{superAdminCount(c.id) !== 1 ? 's' : ''} · {c.live_managers}M / {c.live_staff}S
               </p>
             </div>
             <ChevronRight className="h-4 w-4 text-slate-500 flex-shrink-0" />
