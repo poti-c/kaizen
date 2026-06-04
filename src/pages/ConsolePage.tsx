@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import {
   ShieldCheck, Lock, Loader2, LogOut, Plus, Building2, Crown, Power,
   Trash2, X, Eye, EyeOff, Users, UserCog, ScrollText, AlertTriangle, Check,
+  ChevronDown, ChevronRight,
 } from 'lucide-react'
 
 // ── Console API client ───────────────────────────────────────────────────────
@@ -188,14 +189,15 @@ function LoginScreen({ onLogin }: { onLogin: (t: string) => void }) {
 }
 
 // ── Dashboard ────────────────────────────────────────────────────────────────
-type Tab = 'owners' | 'companies' | 'audit'
+type Tab = 'companies' | 'audit'
 
 function Dashboard({ token, onLogout }: { token: string; onLogout: () => void }) {
-  const [tab, setTab] = useState<Tab>('owners')
+  const [tab, setTab] = useState<Tab>('companies')
   const [owners, setOwners] = useState<ConsoleOwner[]>([])
   const [companies, setCompanies] = useState<ConsoleCompany[]>([])
   const [loading, setLoading] = useState(true)
   const [showCreate, setShowCreate] = useState(false)
+  const [preselectCompany, setPreselectCompany] = useState<string | null>(null)
 
   // Wrap calls so a 401 (expired/invalid token) logs out cleanly
   const call = useCallback(async <T,>(action: string, payload: Record<string, unknown> = {}): Promise<T> => {
@@ -238,7 +240,7 @@ function Dashboard({ token, onLogout }: { token: string; onLogout: () => void })
         </div>
         {/* Tabs */}
         <div className="max-w-5xl mx-auto px-4 flex gap-1">
-          {([['owners', 'Owners', Crown], ['companies', 'Companies', Building2], ['audit', 'Audit Log', ScrollText]] as const).map(([key, label, Icon]) => (
+          {([['companies', 'Companies', Building2], ['audit', 'Audit Log', ScrollText]] as const).map(([key, label, Icon]) => (
             <button
               key={key}
               onClick={() => setTab(key)}
@@ -255,10 +257,14 @@ function Dashboard({ token, onLogout }: { token: string; onLogout: () => void })
       <main className="max-w-5xl mx-auto px-4 py-6">
         {loading ? (
           <div className="flex justify-center py-20"><Loader2 className="h-6 w-6 animate-spin text-slate-600" /></div>
-        ) : tab === 'owners' ? (
-          <OwnersTab owners={owners} call={call} reload={load} onCreate={() => setShowCreate(true)} />
         ) : tab === 'companies' ? (
-          <CompaniesTab companies={companies} call={call} reload={load} />
+          <CompaniesTab
+            companies={companies}
+            owners={owners}
+            call={call}
+            reload={load}
+            onAddOwner={(companyId) => { setPreselectCompany(companyId); setShowCreate(true) }}
+          />
         ) : (
           <AuditTab call={call} />
         )}
@@ -267,103 +273,146 @@ function Dashboard({ token, onLogout }: { token: string; onLogout: () => void })
       {showCreate && (
         <CreateOwnerDialog
           companies={companies}
+          preselectCompanyId={preselectCompany}
           call={call}
-          onClose={() => setShowCreate(false)}
-          onCreated={() => { setShowCreate(false); load() }}
+          onClose={() => { setShowCreate(false); setPreselectCompany(null) }}
+          onCreated={() => { setShowCreate(false); setPreselectCompany(null); load() }}
         />
       )}
     </div>
   )
 }
 
-// ── Owners tab ───────────────────────────────────────────────────────────────
-function OwnersTab({ owners, call, reload, onCreate }: {
+// ── Companies tab (companies + their owners) ─────────────────────────────────
+function CompaniesTab({ companies, owners, call, reload, onAddOwner }: {
+  companies: ConsoleCompany[]
   owners: ConsoleOwner[]
   call: <T,>(a: string, p?: Record<string, unknown>) => Promise<T>
   reload: () => void
-  onCreate: () => void
+  onAddOwner: (companyId: string) => void
 }) {
+  const [expanded, setExpanded] = useState<string | null>(companies[0]?.id ?? null)
   const [busy, setBusy] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<ConsoleOwner | null>(null)
 
-  async function toggleStatus(o: ConsoleOwner) {
+  async function toggleCompany(c: ConsoleCompany) {
+    setBusy(c.id)
+    try { await call('update_company', { company_id: c.id, is_active: !c.is_active }); reload() }
+    catch (e) { alert(e instanceof Error ? e.message : 'Failed') }
+    finally { setBusy(null) }
+  }
+  async function toggleOwner(o: ConsoleOwner) {
     setBusy(o.id)
     try { await call('set_owner_status', { owner_id: o.id, is_active: !o.is_active }); reload() }
     catch (e) { alert(e instanceof Error ? e.message : 'Failed') }
     finally { setBusy(null) }
   }
-  async function doDelete(o: ConsoleOwner) {
+  async function doDeleteOwner(o: ConsoleOwner) {
     setBusy(o.id)
     try { await call('delete_owner', { owner_id: o.id }); setConfirmDelete(null); reload() }
     catch (e) { alert(e instanceof Error ? e.message : 'Failed') }
     finally { setBusy(null) }
   }
 
+  function ownersOf(companyId: string) {
+    return owners.filter((o) => o.companies.some((c) => c.id === companyId))
+  }
+
   return (
     <div>
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h2 className="text-base font-semibold text-white">Owner Accounts</h2>
-          <p className="text-xs text-slate-500">{owners.length} owner{owners.length !== 1 ? 's' : ''} · top-management super admins</p>
-        </div>
-        <button onClick={onCreate} className="flex items-center gap-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-semibold px-3 py-2 rounded-lg transition-colors">
-          <Plus className="h-3.5 w-3.5" />Add Owner
-        </button>
-      </div>
+      <h2 className="text-base font-semibold text-white mb-1">Companies</h2>
+      <p className="text-xs text-slate-500 mb-4">{companies.length} compan{companies.length !== 1 ? 'ies' : 'y'} · click to view owner accounts</p>
 
       <div className="space-y-3">
-        {owners.map((o) => (
-          <div key={o.id} className="bg-slate-900 border border-slate-800 rounded-xl p-4">
-            <div className="flex items-start gap-3">
-              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-amber-400/20 to-amber-600/20 border border-amber-500/30 flex items-center justify-center flex-shrink-0">
-                <Crown className="h-4 w-4 text-amber-400" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <p className="text-sm font-semibold text-white truncate">{o.full_name}</p>
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${o.is_active ? 'bg-green-500/15 text-green-400' : 'bg-slate-700 text-slate-400'}`}>
-                    {o.is_active ? 'Active' : 'Suspended'}
-                  </span>
-                  {o.job_title && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-400 font-medium">{o.job_title}</span>}
-                </div>
-                <p className="text-xs text-slate-500 truncate">{o.email}</p>
-                {/* Companies */}
-                <div className="flex flex-wrap gap-1.5 mt-2">
-                  {o.companies.length === 0 ? (
-                    <span className="text-[11px] text-slate-600">No companies linked</span>
-                  ) : o.companies.map((c) => (
-                    <span key={c.id} className="inline-flex items-center gap-1 text-[11px] bg-slate-800 border border-slate-700 rounded-md px-2 py-0.5 text-slate-300">
-                      <Building2 className="h-3 w-3 text-slate-500" />
-                      {c.name}
-                      <span className="text-slate-500">· {c.live_managers}M / {c.live_staff}S</span>
-                    </span>
-                  ))}
-                </div>
-              </div>
-              {/* Actions */}
-              <div className="flex items-center gap-1 flex-shrink-0">
-                <button
-                  onClick={() => toggleStatus(o)}
-                  disabled={busy === o.id}
-                  title={o.is_active ? 'Suspend' : 'Activate'}
-                  className={`p-2 rounded-lg transition-colors ${o.is_active ? 'text-amber-400 hover:bg-amber-500/10' : 'text-slate-500 hover:bg-slate-800'}`}
-                >
-                  {busy === o.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Power className="h-4 w-4" />}
+        {companies.map((c) => {
+          const isOpen = expanded === c.id
+          const coOwners = ownersOf(c.id)
+          return (
+            <div key={c.id} className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+              {/* Company header — click to expand */}
+              <div className="flex items-center gap-3 p-4">
+                <button onClick={() => setExpanded(isOpen ? null : c.id)} className="flex items-center gap-3 flex-1 min-w-0 text-left">
+                  <div className="w-10 h-10 rounded-lg bg-slate-800 flex items-center justify-center flex-shrink-0">
+                    <Building2 className="h-4.5 w-4.5 text-slate-400" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-semibold text-white truncate">{c.name}</p>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${c.is_active ? 'bg-green-500/15 text-green-400' : 'bg-slate-700 text-slate-400'}`}>
+                        {c.is_active ? 'Active' : 'Suspended'}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 truncate">
+                      /{c.slug} · {c.plan} · {coOwners.length} owner{coOwners.length !== 1 ? 's' : ''} · {c.live_managers}M / {c.live_staff}S
+                    </p>
+                  </div>
+                  {isOpen ? <ChevronDown className="h-4 w-4 text-slate-500 flex-shrink-0" /> : <ChevronRight className="h-4 w-4 text-slate-500 flex-shrink-0" />}
                 </button>
-                <button
-                  onClick={() => setConfirmDelete(o)}
-                  title="Delete"
-                  className="p-2 rounded-lg text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-colors"
-                >
-                  <Trash2 className="h-4 w-4" />
+                <button onClick={() => toggleCompany(c)} disabled={busy === c.id} title={c.is_active ? 'Suspend company' : 'Activate company'}
+                  className={`p-2 rounded-lg flex-shrink-0 ${c.is_active ? 'text-green-400 hover:bg-green-500/10' : 'text-slate-500 hover:bg-slate-800'}`}>
+                  {busy === c.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Power className="h-4 w-4" />}
                 </button>
               </div>
+
+              {/* Expanded: quota stats + owners */}
+              {isOpen && (
+                <div className="border-t border-slate-800 p-4 bg-slate-950/40">
+                  <div className="grid grid-cols-2 gap-3 mb-4">
+                    <Stat icon={UserCog} label="Managers" live={c.live_managers} max={c.max_managers} />
+                    <Stat icon={Users} label="Staff" live={c.live_staff} max={c.max_staff} />
+                  </div>
+
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide">Owner Accounts</p>
+                    <button onClick={() => onAddOwner(c.id)} className="flex items-center gap-1.5 text-xs font-medium text-amber-400 hover:text-amber-300">
+                      <Plus className="h-3.5 w-3.5" />Add Owner
+                    </button>
+                  </div>
+
+                  {coOwners.length === 0 ? (
+                    <p className="text-xs text-slate-600 py-3 text-center">No owners linked to this company yet.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {coOwners.map((o) => (
+                        <div key={o.id} className="flex items-center gap-3 bg-slate-900 border border-slate-800 rounded-lg p-3">
+                          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-amber-400/20 to-amber-600/20 border border-amber-500/30 flex items-center justify-center flex-shrink-0">
+                            <Crown className="h-3.5 w-3.5 text-amber-400" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <p className="text-sm font-medium text-white truncate">{o.full_name}</p>
+                              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${o.is_active ? 'bg-green-500/15 text-green-400' : 'bg-slate-700 text-slate-400'}`}>
+                                {o.is_active ? 'Active' : 'Suspended'}
+                              </span>
+                              {o.job_title && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-400 font-medium">{o.job_title}</span>}
+                            </div>
+                            <p className="text-[11px] text-slate-500 truncate">{o.email}</p>
+                            {o.companies.length > 1 && (
+                              <p className="text-[10px] text-slate-600 mt-0.5">Also manages: {o.companies.filter(x => x.id !== c.id).map(x => x.name).join(', ')}</p>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1 flex-shrink-0">
+                            <button onClick={() => toggleOwner(o)} disabled={busy === o.id} title={o.is_active ? 'Suspend' : 'Activate'}
+                              className={`p-1.5 rounded-lg ${o.is_active ? 'text-amber-400 hover:bg-amber-500/10' : 'text-slate-500 hover:bg-slate-800'}`}>
+                              {busy === o.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Power className="h-4 w-4" />}
+                            </button>
+                            <button onClick={() => setConfirmDelete(o)} title="Delete owner"
+                              className="p-1.5 rounded-lg text-slate-500 hover:text-red-400 hover:bg-red-500/10">
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
-          </div>
-        ))}
+          )
+        })}
       </div>
 
-      {/* Delete confirm */}
+      {/* Delete owner confirm */}
       {confirmDelete && (
         <Overlay onClose={() => setConfirmDelete(null)}>
           <div className="flex items-center gap-2 mb-3">
@@ -376,60 +425,12 @@ function OwnersTab({ owners, call, reload, onCreate }: {
           <p className="text-xs text-slate-500 mb-5">Their companies and the data within remain intact.</p>
           <div className="flex gap-2 justify-end">
             <button onClick={() => setConfirmDelete(null)} className="px-3 py-2 text-sm text-slate-300 hover:bg-slate-800 rounded-lg">Cancel</button>
-            <button onClick={() => doDelete(confirmDelete)} disabled={busy === confirmDelete.id} className="px-3 py-2 text-sm bg-red-500 hover:bg-red-400 text-white rounded-lg flex items-center gap-1.5">
+            <button onClick={() => doDeleteOwner(confirmDelete)} disabled={busy === confirmDelete.id} className="px-3 py-2 text-sm bg-red-500 hover:bg-red-400 text-white rounded-lg flex items-center gap-1.5">
               {busy === confirmDelete.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}Delete
             </button>
           </div>
         </Overlay>
       )}
-    </div>
-  )
-}
-
-// ── Companies tab ────────────────────────────────────────────────────────────
-function CompaniesTab({ companies, call, reload }: {
-  companies: ConsoleCompany[]
-  call: <T,>(a: string, p?: Record<string, unknown>) => Promise<T>
-  reload: () => void
-}) {
-  const [busy, setBusy] = useState<string | null>(null)
-
-  async function toggle(c: ConsoleCompany) {
-    setBusy(c.id)
-    try { await call('update_company', { company_id: c.id, is_active: !c.is_active }); reload() }
-    catch (e) { alert(e instanceof Error ? e.message : 'Failed') }
-    finally { setBusy(null) }
-  }
-
-  return (
-    <div>
-      <h2 className="text-base font-semibold text-white mb-1">Companies</h2>
-      <p className="text-xs text-slate-500 mb-4">{companies.length} compan{companies.length !== 1 ? 'ies' : 'y'} · live headcount vs quota</p>
-      <div className="grid gap-3 sm:grid-cols-2">
-        {companies.map((c) => (
-          <div key={c.id} className="bg-slate-900 border border-slate-800 rounded-xl p-4">
-            <div className="flex items-start justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-lg bg-slate-800 flex items-center justify-center">
-                  <Building2 className="h-4 w-4 text-slate-400" />
-                </div>
-                <div>
-                  <p className="text-sm font-semibold text-white">{c.name}</p>
-                  <p className="text-[11px] text-slate-500">/{c.slug} · {c.plan}</p>
-                </div>
-              </div>
-              <button onClick={() => toggle(c)} disabled={busy === c.id} title={c.is_active ? 'Suspend' : 'Activate'}
-                className={`p-1.5 rounded-lg ${c.is_active ? 'text-green-400 hover:bg-green-500/10' : 'text-slate-500 hover:bg-slate-800'}`}>
-                {busy === c.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Power className="h-4 w-4" />}
-              </button>
-            </div>
-            <div className="grid grid-cols-2 gap-3 mt-3">
-              <Stat icon={UserCog} label="Managers" live={c.live_managers} max={c.max_managers} />
-              <Stat icon={Users} label="Staff" live={c.live_staff} max={c.max_staff} />
-            </div>
-          </div>
-        ))}
-      </div>
     </div>
   )
 }
@@ -480,8 +481,9 @@ function AuditTab({ call }: { call: <T,>(a: string, p?: Record<string, unknown>)
 }
 
 // ── Create owner dialog ──────────────────────────────────────────────────────
-function CreateOwnerDialog({ companies, call, onClose, onCreated }: {
+function CreateOwnerDialog({ companies, preselectCompanyId, call, onClose, onCreated }: {
   companies: ConsoleCompany[]
+  preselectCompanyId?: string | null
   call: <T,>(a: string, p?: Record<string, unknown>) => Promise<T>
   onClose: () => void
   onCreated: () => void
@@ -492,7 +494,7 @@ function CreateOwnerDialog({ companies, call, onClose, onCreated }: {
   const [jobTitle, setJobTitle] = useState('Owner')
   const [isActive, setIsActive] = useState(true)
   const [showPw, setShowPw] = useState(false)
-  const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const [selectedIds, setSelectedIds] = useState<string[]>(preselectCompanyId ? [preselectCompanyId] : [])
   // New company (optional)
   const [addNew, setAddNew] = useState(false)
   const [ncName, setNcName] = useState('')
