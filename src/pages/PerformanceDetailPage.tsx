@@ -6,7 +6,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useCompany } from '@/contexts/CompanyContext'
 import { useLanguage } from '@/contexts/LanguageContext'
 import { StatusBadge, PriorityBadge } from '@/components/StatusBadge'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { getInitials, formatDateTime, isSLABreached } from '@/lib/utils'
 import { DEPARTMENT_LABELS } from '@/types'
@@ -116,6 +116,7 @@ export function PerformanceDetailPage() {
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
         <div className="flex items-center gap-4">
           <Avatar className="h-14 w-14 flex-shrink-0">
+            {user.avatar_url && <AvatarImage src={user.avatar_url} alt={user.full_name} className="object-cover" />}
             <AvatarFallback className="text-lg font-semibold">{getInitials(user.full_name)}</AvatarFallback>
           </Avatar>
           <div className="flex-1 min-w-0">

@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useCompany } from '@/contexts/CompanyContext'
 import { useLanguage } from '@/contexts/LanguageContext'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
 import { getInitials, isSLABreached } from '@/lib/utils'
 import { DEPARTMENT_LABELS } from '@/types'
 import type { KaizenCase, KaizenProfile, Department } from '@/types'
@@ -26,6 +26,7 @@ interface DeptRow {
 interface StaffRow {
   id: string
   name: string
+  avatar_url: string | null
   department: Department
   reported: number
   resolved: number
@@ -148,6 +149,7 @@ export function PerformancePage() {
       return {
         id: p.id,
         name: p.full_name,
+        avatar_url: p.avatar_url,
         department: p.department,
         reported: reported.length,
         resolved: resolved.length,
@@ -279,6 +281,7 @@ export function PerformancePage() {
                   {i + 1}
                 </span>
                 <Avatar className="h-9 w-9 flex-shrink-0">
+                  {s.avatar_url && <AvatarImage src={s.avatar_url} alt={s.name} className="object-cover" />}
                   <AvatarFallback className="text-xs">{getInitials(s.name)}</AvatarFallback>
                 </Avatar>
                 <div className="flex-1 min-w-0">

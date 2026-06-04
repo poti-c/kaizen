@@ -5,7 +5,7 @@ import {
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useLanguage } from '@/contexts/LanguageContext'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
 import { getInitials } from '@/lib/utils'
 import { DEPARTMENT_LABELS } from '@/types'
 import { useState } from 'react'
@@ -92,6 +92,7 @@ export function Sidebar() {
         {profile && (
           <div className={cn('flex items-center gap-3 mb-2', collapsed && 'justify-center')}>
             <Avatar className="h-8 w-8 flex-shrink-0">
+              {profile.avatar_url && <AvatarImage src={profile.avatar_url} alt={profile.full_name} className="object-cover" />}
               <AvatarFallback className="text-xs">{getInitials(profile.full_name)}</AvatarFallback>
             </Avatar>
             {!collapsed && (

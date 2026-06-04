@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
 import { DepartmentBadge } from '@/components/StatusBadge'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
 import { getInitials, formatDate } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 import { DEPARTMENTS } from '@/types'
@@ -351,6 +351,7 @@ export function UsersPage() {
                         {canViewProfile ? (
                           <Link to={`/performance/${user.id}`} className="flex items-center gap-4 flex-1 min-w-0">
                             <Avatar className="h-9 w-9 flex-shrink-0">
+                              {user.avatar_url && <AvatarImage src={user.avatar_url} alt={user.full_name} className="object-cover" />}
                               <AvatarFallback className="text-xs">{getInitials(user.full_name)}</AvatarFallback>
                             </Avatar>
                             {nameContent}
@@ -358,6 +359,7 @@ export function UsersPage() {
                         ) : (
                           <>
                             <Avatar className="h-9 w-9 flex-shrink-0">
+                              {user.avatar_url && <AvatarImage src={user.avatar_url} alt={user.full_name} className="object-cover" />}
                               <AvatarFallback className="text-xs">{getInitials(user.full_name)}</AvatarFallback>
                             </Avatar>
                             {nameContent}
