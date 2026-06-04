@@ -653,9 +653,12 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
         <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-800">
           <Link2 className="h-4 w-4 text-slate-400" />
           <h3 className="text-sm font-semibold text-white">Linked Companies</h3>
+          <button onClick={onAddOwner} className="ml-auto flex items-center gap-1.5 text-xs font-medium text-amber-400 hover:text-amber-300">
+            <Plus className="h-3.5 w-3.5" />Add Top Management
+          </button>
         </div>
         <div className="px-4 py-3">
-          <p className="text-[11px] text-slate-500 mb-3">Give an owner access to additional companies. Removing a link revokes that owner&apos;s access to that company.</p>
+          <p className="text-[11px] text-slate-500 mb-3">Add a Top Management member or give them access to additional companies. Removing a link revokes that access.</p>
           {owners.length === 0 ? (
             <p className="text-sm text-slate-600 py-2 text-center">No owners to link yet.</p>
           ) : (
