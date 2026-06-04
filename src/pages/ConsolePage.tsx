@@ -240,8 +240,8 @@ function Dashboard({ token, onLogout }: { token: string; onLogout: () => void })
             <ShieldCheck className="h-4 w-4 text-slate-950" />
           </div>
           <div className="flex-1">
-            <h1 className="text-sm font-bold text-white leading-tight">System Console</h1>
-            <p className="text-[11px] text-slate-500 leading-tight">Kaizen by NNR Solutions</p>
+            <h1 className="text-sm font-bold text-white leading-tight">Kaizen System</h1>
+            <p className="text-[11px] text-slate-500 leading-tight">System Console · by NNR Solutions</p>
           </div>
           <button onClick={() => { setShowSettings(true); setSelectedCompanyId(null) }} title="Admin Settings"
             className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg hover:bg-slate-800 ${showSettings ? 'text-amber-400' : 'text-slate-400 hover:text-white'}`}>
