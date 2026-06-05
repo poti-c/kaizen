@@ -77,11 +77,12 @@ export function CaseDetailPage() {
   const [recurringCases, setRecurringCases] = useState<KaizenCase[]>([])
   const [recurringOpen, setRecurringOpen] = useState(false)
 
-  // Person in Charge
-  const [picProfile, setPicProfile] = useState<KaizenProfile | null>(null)
+  // Person in Charge (multi-select)
+  const [picProfiles, setPicProfiles] = useState<KaizenProfile[]>([])
   const [showPicEditor, setShowPicEditor] = useState(false)
   const [picCandidates, setPicCandidates] = useState<KaizenProfile[]>([])
-  const [selectedPic, setSelectedPic] = useState<string>('')
+  const [selectedPics, setSelectedPics] = useState<string[]>([])
+  const [notifyDept, setNotifyDept] = useState(false)
   const [savingPic, setSavingPic] = useState(false)
 
   // Due date (manager can set if missing)
@@ -159,24 +160,62 @@ export function CaseDetailPage() {
   // ── Person in Charge ───────────────────────────────────────────────────────
   async function loadPicCandidates() {
     if (!kcase) return
-    let q = supabase.from('kaizen_profiles').select('*').eq('is_active', true).eq('company_id', kcase.company_id).in('role', ['staff', 'manager'])
-    if (profile?.role === 'manager') {
-      // Manager: same department only
-      q = q.eq('department', kcase.department)
-    }
-    // Super admin: all departments — no extra filter
-    const { data } = await q.order('department').order('role', { ascending: false }).order('full_name')
+    // Both manager and super_admin can pick from all departments
+    const { data } = await supabase
+      .from('kaizen_profiles').select('*')
+      .eq('is_active', true)
+      .eq('company_id', kcase.company_id)
+      .in('role', ['staff', 'manager'])
+      .order('department').order('role', { ascending: false }).order('full_name')
     setPicCandidates((data || []) as KaizenProfile[])
   }
 
   async function savePic() {
-    if (!kcase || !selectedPic) return
+    if (!kcase || selectedPics.length === 0) return
     setSavingPic(true)
     try {
-      await supabase.from('kaizen_cases').update({ person_in_charge: selectedPic, updated_at: new Date().toISOString() }).eq('id', id!)
-      const picName = picCandidates.find(p => p.id === selectedPic)?.full_name || 'Unknown'
-      await addTimeline('pic_changed', `Person in Charge set to ${picName}`)
+      await supabase.from('kaizen_cases').update({
+        pic_ids: selectedPics,
+        person_in_charge: selectedPics[0],
+        updated_at: new Date().toISOString(),
+      }).eq('id', id!)
+
+      const names = selectedPics.map(id => picCandidates.find(p => p.id === id)?.full_name || 'Unknown').join(', ')
+      await addTimeline('pic_changed', `In Charge set to: ${names}`)
+
+      // Notify selected PICs
+      const notifRows = selectedPics.map(uid => ({
+        user_id: uid,
+        case_id: id!,
+        title: 'Assigned as In Charge',
+        message: `You have been assigned as In Charge for case ${kcase.case_number}: "${kcase.title}"`,
+        notification_type: 'assignment',
+      }))
+
+      // Optionally notify whole department
+      if (notifyDept) {
+        const { data: deptMembers } = await supabase
+          .from('kaizen_profiles').select('id')
+          .eq('company_id', kcase.company_id)
+          .eq('department', kcase.department)
+          .eq('is_active', true)
+          .not('id', 'in', `(${selectedPics.join(',')})`)
+        if (deptMembers?.length) {
+          deptMembers.forEach((m: { id: string }) => notifRows.push({
+            user_id: m.id,
+            case_id: id!,
+            title: 'Department Case Update',
+            message: `${names} assigned as In Charge for case ${kcase.case_number}: "${kcase.title}"`,
+            notification_type: 'info',
+          }))
+        }
+        await addTimeline('dept_notified', `Whole department notified about In Charge assignment`)
+      }
+
+      if (notifRows.length) await supabase.from('kaizen_notifications').insert(notifRows)
+
       setShowPicEditor(false)
+      setNotifyDept(false)
       fetchCase()
     } finally { setSavingPic(false) }
   }
@@ -232,12 +271,12 @@ export function CaseDetailPage() {
         setRecurringCases([])
       }
 
-      // Fetch PIC profile
-      const picId = data.person_in_charge || data.created_by
-      if (picId) {
-        const { data: pic } = await supabase.from('kaizen_profiles').select('*').eq('id', picId).single()
-        setPicProfile(pic as KaizenProfile | null)
-        setSelectedPic(picId)
+      // Fetch PIC profiles (array)
+      const ids: string[] = data.pic_ids?.length ? data.pic_ids : (data.person_in_charge ? [data.person_in_charge] : [data.created_by])
+      if (ids.length) {
+        const { data: pics } = await supabase.from('kaizen_profiles').select('*').in('id', ids)
+        setPicProfiles((pics || []) as KaizenProfile[])
+        setSelectedPics(ids)
       }
     }
 
@@ -945,80 +984,104 @@ export function CaseDetailPage() {
 
           {/* Row 2: Person in Charge + Open duration */}
           <div className="grid grid-cols-2 gap-x-4">
-            <div className="flex items-center gap-1.5">
-              <User className="h-3.5 w-3.5 flex-shrink-0 text-[var(--brand-primary)]" />
-              <span className="text-gray-400 mr-0.5">In Charge:</span>
-              {showPicEditor ? (
-                <div className="flex items-center gap-1 flex-1">
-                  <Select value={selectedPic} onValueChange={setSelectedPic}>
-                    <SelectTrigger className="h-6 text-xs flex-1 min-w-0">
-                      <SelectValue placeholder="Select…" />
-                    </SelectTrigger>
-                    <SelectContent className="max-h-80">
+            <div className="flex items-start gap-1.5">
+              <User className="h-3.5 w-3.5 flex-shrink-0 text-[var(--brand-primary)] mt-0.5" />
+              <div className="flex-1 min-w-0">
+                <span className="text-gray-400 mr-0.5">In Charge:</span>
+                {showPicEditor ? (
+                  <div className="mt-1 border border-gray-200 rounded-lg bg-white shadow-sm overflow-hidden">
+                    {/* Grouped checkboxes */}
+                    <div className="max-h-56 overflow-y-auto p-2 space-y-1">
                       {(() => {
                         const managers = picCandidates.filter(p => p.role === 'manager')
                         const staff = picCandidates.filter(p => p.role === 'staff')
-                        // Group staff by department
                         const staffByDept: Record<string, KaizenProfile[]> = {}
                         staff.forEach(p => {
                           const dept = p.department || 'other'
                           if (!staffByDept[dept]) staffByDept[dept] = []
                           staffByDept[dept].push(p)
                         })
+                        const Row = ({ p }: { p: KaizenProfile }) => (
+                          <label key={p.id} className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              className="h-3.5 w-3.5 rounded border-gray-300 accent-[var(--brand-primary)]"
+                              checked={selectedPics.includes(p.id)}
+                              onChange={() => setSelectedPics(prev =>
+                                prev.includes(p.id) ? prev.filter(x => x !== p.id) : [...prev, p.id]
+                              )}
+                            />
+                            <span className="text-xs text-gray-800 flex-1">{p.full_name}</span>
+                            {p.role === 'manager' && <span className="text-[10px] text-gray-400">{DEPARTMENT_LABELS[p.department] ?? p.department}</span>}
+                          </label>
+                        )
                         return (
                           <>
-                            {/* Managers section */}
                             {managers.length > 0 && (
-                              <SelectGroup>
-                                <SelectLabel className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Managers</SelectLabel>
-                                {managers.map(p => (
-                                  <SelectItem key={p.id} value={p.id}>
-                                    <span>{p.full_name}</span>
-                                    <span className="ml-1.5 text-[10px] text-gray-400">{DEPARTMENT_LABELS[p.department] ?? p.department}</span>
-                                  </SelectItem>
-                                ))}
-                              </SelectGroup>
+                              <div>
+                                <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide px-2 mb-0.5">Managers</p>
+                                {managers.map(p => <Row key={p.id} p={p} />)}
+                              </div>
                             )}
-                            {/* Staff grouped by department */}
                             {Object.entries(staffByDept).map(([dept, members], idx) => (
-                              <React.Fragment key={dept}>
+                              <div key={dept}>
                                 {(managers.length > 0 || idx > 0) && <div className="my-1 border-t border-gray-100" />}
-                                <SelectGroup>
-                                  <SelectLabel className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                                    {DEPARTMENT_LABELS[dept as Department] ?? dept}
-                                  </SelectLabel>
-                                  {members.map(p => (
-                                    <SelectItem key={p.id} value={p.id}>{p.full_name}</SelectItem>
-                                  ))}
-                                </SelectGroup>
-                              </React.Fragment>
+                                <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide px-2 mb-0.5">
+                                  {DEPARTMENT_LABELS[dept as Department] ?? dept}
+                                </p>
+                                {members.map(p => <Row key={p.id} p={p} />)}
+                              </div>
                             ))}
                           </>
                         )
                       })()}
-                    </SelectContent>
-                  </Select>
-                  <button onClick={savePic} disabled={savingPic} className="text-[var(--brand-primary)] font-semibold hover:opacity-75 flex-shrink-0">
-                    {savingPic ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Save'}
-                  </button>
-                  <button onClick={() => setShowPicEditor(false)} className="text-gray-400 hover:text-gray-600 flex-shrink-0">
-                    <X className="h-3 w-3" />
-                  </button>
-                </div>
-              ) : (
-                <>
-                  <span className="font-medium text-gray-700 truncate">{picProfile?.full_name || (kcase.creator as KaizenProfile)?.full_name || 'Unknown'}</span>
-                  {canManagerAssign && kcase.status !== 'closed' && (
-                    <button
-                      onClick={() => { loadPicCandidates(); setShowPicEditor(true) }}
-                      className="ml-1 text-gray-400 hover:text-[var(--brand-primary)] flex-shrink-0"
-                      title="Change Person in Charge"
-                    >
-                      <Pencil className="h-3 w-3" />
-                    </button>
-                  )}
-                </>
-              )}
+                    </div>
+                    {/* Notify dept checkbox */}
+                    <div className="border-t border-gray-100 px-3 py-2 bg-gray-50">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          className="h-3.5 w-3.5 rounded border-gray-300 accent-[var(--brand-primary)]"
+                          checked={notifyDept}
+                          onChange={e => setNotifyDept(e.target.checked)}
+                        />
+                        <span className="text-xs text-gray-600">Notify whole department</span>
+                      </label>
+                    </div>
+                    {/* Actions */}
+                    <div className="border-t border-gray-100 px-3 py-2 flex items-center justify-between">
+                      <span className="text-[10px] text-gray-400">{selectedPics.length} selected</span>
+                      <div className="flex items-center gap-2">
+                        <button onClick={() => { setShowPicEditor(false); setNotifyDept(false) }} className="text-xs text-gray-400 hover:text-gray-600">Cancel</button>
+                        <button
+                          onClick={savePic}
+                          disabled={savingPic || selectedPics.length === 0}
+                          className="text-xs font-semibold text-white bg-[var(--brand-primary)] px-2.5 py-1 rounded hover:opacity-90 disabled:opacity-50 flex items-center gap-1"
+                        >
+                          {savingPic ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Save'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <span className="inline-flex items-center gap-1 flex-wrap">
+                    <span className="font-medium text-gray-700">
+                      {picProfiles.length > 0
+                        ? picProfiles.map(p => p.full_name).join(', ')
+                        : (kcase.creator as KaizenProfile)?.full_name || 'Unknown'}
+                    </span>
+                    {canManagerAssign && kcase.status !== 'closed' && (
+                      <button
+                        onClick={() => { loadPicCandidates(); setShowPicEditor(true) }}
+                        className="text-gray-400 hover:text-[var(--brand-primary)] flex-shrink-0"
+                        title="Edit In Charge"
+                      >
+                        <Pencil className="h-3 w-3" />
+                      </button>
+                    )}
+                  </span>
+                )}
+              </div>
             </div>
             <span className="flex items-center gap-1.5">
               <Clock className="h-3.5 w-3.5 flex-shrink-0 text-gray-400" />

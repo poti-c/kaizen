@@ -68,6 +68,8 @@ export interface KaizenCase {
   location_other?: string | null
   is_recurring?: boolean
   linked_case_ids?: string[]
+  person_in_charge?: string | null
+  pic_ids?: string[] | null
   resolved_by: string | null
   resolution_note?: string | null
   manager_approved_by: string | null
