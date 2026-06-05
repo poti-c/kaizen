@@ -361,17 +361,15 @@ export function UsersPage() {
                               <AvatarFallback className="text-xs">{getInitials(user.full_name)}</AvatarFallback>
                             </Avatar>
                             <div className="flex-1 min-w-0 cursor-pointer">
-                              <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-2 flex-wrap">
                                 <p className="text-sm font-medium truncate text-[var(--brand-primary)]">{user.full_name}</p>
                                 {!user.is_active && <span className="text-xs text-red-500 font-medium">{t.users.inactive}</span>}
                                 {user.must_change_password && <span className="text-xs text-amber-600 font-medium">· change pwd</span>}
                               </div>
-                              <div className="mt-0.5 space-y-0.5">
-                                <div className="flex items-center gap-2">
-                                  {user.username && <span className="text-xs text-gray-400">@{user.username}</span>}
-                                  {user.email && <span className="text-xs text-gray-400">{user.email}</span>}
-                                  {user.position && <span className="text-xs text-gray-500 font-medium">{user.position}</span>}
-                                </div>
+                              {user.position && <p className="text-xs font-medium text-gray-600 mt-0.5">{user.position}</p>}
+                              <div className="mt-0.5 flex items-center gap-2 flex-wrap">
+                                {user.username && <span className="text-xs text-gray-400">@{user.username}</span>}
+                                {user.email && <span className="text-xs text-gray-400">{user.email}</span>}
                                 <DepartmentBadge department={user.department} />
                               </div>
                             </div>
@@ -383,15 +381,13 @@ export function UsersPage() {
                               <AvatarFallback className="text-xs">{getInitials(user.full_name)}</AvatarFallback>
                             </Avatar>
                             <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-2 flex-wrap">
                                 <p className="text-sm font-medium truncate text-gray-900">{user.full_name}</p>
                                 {!user.is_active && <span className="text-xs text-red-500 font-medium">{t.users.inactive}</span>}
                               </div>
-                              <div className="mt-0.5 space-y-0.5">
-                                <div className="flex items-center gap-2">
-                                  {user.username && <span className="text-xs text-gray-400">@{user.username}</span>}
-                                  {user.position && <span className="text-xs text-gray-500 font-medium">{user.position}</span>}
-                                </div>
+                              {user.position && <p className="text-xs font-medium text-gray-600 mt-0.5">{user.position}</p>}
+                              <div className="mt-0.5 flex items-center gap-2 flex-wrap">
+                                {user.username && <span className="text-xs text-gray-400">@{user.username}</span>}
                                 <DepartmentBadge department={user.department} />
                               </div>
                             </div>
