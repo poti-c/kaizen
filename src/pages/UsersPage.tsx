@@ -198,7 +198,11 @@ export function UsersPage() {
 
       toast.success('User updated.')
       setShowEdit(false); fetchUsers()
-    } catch (err) { toast.error(err instanceof Error ? err.message : 'Failed to save changes.') }
+    } catch (err: unknown) {
+      const msg = (err as { message?: string })?.message ?? 'Failed to save changes.'
+      toast.error(msg)
+      console.error('Edit user error:', err)
+    }
     finally { setSaving(false) }
   }
 
