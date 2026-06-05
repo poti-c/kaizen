@@ -142,7 +142,7 @@ export function Header() {
       <div className="flex items-center gap-3 flex-1 min-w-0">
         {/* Mobile logo — tap to open nav drawer */}
         <button
-          className="flex items-center gap-2 md:hidden active:opacity-70 transition-opacity"
+          className="flex items-center gap-2 md:hidden active:opacity-70 transition-opacity min-w-0"
           onClick={() => setShowMobileNav(true)}
         >
           <img src="/kaizen-icon.svg" alt="Kaizen" className="w-8 h-8 object-contain flex-shrink-0" />
@@ -163,7 +163,7 @@ export function Header() {
         </div>
       </div>
 
-      <div className="flex items-center gap-1 md:gap-2">
+      <div className="flex items-center gap-1 md:gap-2 flex-shrink-0">
         {/* Company Switcher — super admin with 2+ companies only */}
         {showSwitcher && (
           <div className="relative">
