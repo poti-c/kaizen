@@ -928,7 +928,7 @@ export function CaseDetailPage() {
           <div className="grid grid-cols-2 gap-x-4">
             <span className="flex items-center gap-1.5">
               <User className="h-3.5 w-3.5 flex-shrink-0 text-gray-400" />
-              <span className="text-gray-400 mr-0.5">By:</span>
+              <span className="text-gray-400 mr-0.5">Opened by:</span>
               {(profile?.role === 'super_admin' || profile?.role === 'manager') && kcase.created_by ? (
                 <Link to={`/performance/${kcase.created_by}`} className="truncate text-[var(--brand-primary)] hover:underline font-medium">
                   {(kcase.creator as KaizenProfile)?.full_name || 'Unknown'}
