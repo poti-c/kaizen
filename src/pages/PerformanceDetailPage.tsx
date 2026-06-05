@@ -121,6 +121,7 @@ export function PerformanceDetailPage() {
           </Avatar>
           <div className="flex-1 min-w-0">
             <h1 className="text-lg font-bold text-gray-900">{user.full_name}</h1>
+            {user.position && <p className="text-sm font-medium text-gray-700">{user.position}</p>}
             <p className="text-sm text-gray-500">{t.roles[user.role]} · {DEPARTMENT_LABELS[user.department]}</p>
             {!user.is_active && <span className="text-xs text-red-500 font-medium">{t.users.inactive}</span>}
           </div>
