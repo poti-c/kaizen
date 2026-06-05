@@ -146,7 +146,7 @@ export function Header() {
           onClick={() => setShowMobileNav(true)}
         >
           <img src="/kaizen-icon.svg" alt="Kaizen" className="w-8 h-8 object-contain flex-shrink-0" />
-          <span className="text-sm font-semibold text-gray-900 truncate">Kaizen System</span>
+          <span className="text-[11px] font-semibold text-gray-900 leading-tight text-left flex-shrink-0">Kaizen<br />System</span>
         </button>
 
         {/* Desktop search */}
