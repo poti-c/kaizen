@@ -486,22 +486,50 @@ export function CaseDetailPage() {
   async function handleManagerApprove() {
     setSubmitting(true)
     try {
-      await supabase.from('kaizen_cases').update({
-        status: 'pending_admin_approval',
-        manager_approved_by: profile?.id,
-        manager_approved_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      }).eq('id', id!)
+      const isSuperAdmin = profile?.role === 'super_admin'
 
-      await addTimeline('manager_approved', `Manager approved the resolution.`)
+      if (isSuperAdmin) {
+        // Super admin skips pending_admin_approval and closes directly
+        await supabase.from('kaizen_cases').update({
+          status: 'closed',
+          manager_approved_by: profile?.id,
+          manager_approved_at: new Date().toISOString(),
+          admin_approved_by: profile?.id,
+          admin_approved_at: new Date().toISOString(),
+          closed_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }).eq('id', id!)
 
-      await notifyByDeptRole(
-        { roles: ['super_admin'] },
-        'Case Awaiting Final Closure',
-        `Case ${kcase?.case_number} has been approved by ${profile?.full_name} — ready for Top Management review and closure.`,
-      )
+        await addTimeline('closed', `Case approved and closed by Top Management (${profile?.full_name}).`)
 
-      toast.success('Approved. Top Management has been notified for final closure.')
+        const picIds = kcase?.pic_ids || (kcase?.person_in_charge ? [kcase.person_in_charge] : [])
+        await notifyByDeptRole(
+          { extraIds: [kcase?.created_by, kcase?.resolved_by, ...picIds] },
+          'Case Closed',
+          `Case ${kcase?.case_number} has been reviewed and officially closed by Top Management.`,
+        )
+
+        toast.success('Case approved and closed.')
+      } else {
+        // Regular manager: move to pending_admin_approval for Top Management to close
+        await supabase.from('kaizen_cases').update({
+          status: 'pending_admin_approval',
+          manager_approved_by: profile?.id,
+          manager_approved_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }).eq('id', id!)
+
+        await addTimeline('manager_approved', `Resolution approved by ${profile?.full_name}.`)
+
+        await notifyByDeptRole(
+          { roles: ['super_admin'] },
+          'Case Awaiting Final Closure',
+          `Case ${kcase?.case_number} approved by ${profile?.full_name} — ready for Top Management review and closure.`,
+        )
+
+        toast.success('Approved. Top Management has been notified for final closure.')
+      }
+
       fetchCase()
     } catch {
       toast.error('Failed to approve.')
