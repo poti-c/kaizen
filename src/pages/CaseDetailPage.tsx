@@ -1456,7 +1456,9 @@ export function CaseDetailPage() {
               Confirm Approval
             </DialogTitle>
             <DialogDescription>
-              Are you sure you want to approve this resolution? It will be forwarded to General Manager for final closure.
+              {profile?.role === 'super_admin'
+                ? 'Are you sure you want to approve this case for final closure?'
+                : 'Are you sure you want to approve this resolution? It will be forwarded to Top Management for final closure.'}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2">
