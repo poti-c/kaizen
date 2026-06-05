@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Bell, Search, X, Monitor, Smartphone, LayoutDashboard, FolderOpen, PlusCircle, Users, Settings, LogOut, CalendarDays, ChevronDown, Building2 } from 'lucide-react'
+import { Bell, Search, X, LayoutDashboard, FolderOpen, PlusCircle, Users, Settings, LogOut, CalendarDays, ChevronDown, Building2 } from 'lucide-react'
 import { useNavigate, Link, NavLink } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
 import { useCompany } from '@/contexts/CompanyContext'
@@ -16,7 +16,7 @@ export function Header() {
   const { profile, signOut } = useAuth()
   const { activeCompany, companies, setActiveCompany } = useCompany()
   const { t } = useLanguage()
-  const { viewMode, toggleViewMode, showSidebar } = useViewMode()
+  const { showSidebar } = useViewMode()
   const navigate = useNavigate()
   const [notifications, setNotifications] = useState<KaizenNotification[]>([])
   const [showNotifs, setShowNotifs] = useState(false)
@@ -243,18 +243,6 @@ export function Header() {
             </>
           )}
         </div>
-
-        {/* View mode toggle */}
-        <button
-          onClick={toggleViewMode}
-          className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
-          title={viewMode === 'auto' ? t.common.switchToDesktop : t.common.switchToMobile}
-        >
-          {showSidebar
-            ? <Smartphone className="h-4 w-4 text-gray-500" />
-            : <Monitor className="h-4 w-4 text-gray-500" />
-          }
-        </button>
 
         {profile && (
           <Link to="/settings" className="flex items-center gap-2 hover:opacity-80 transition-opacity ml-1">

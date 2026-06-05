@@ -1,13 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react'
 
-// auto  = adapt to screen size (default)
-// desktop = force sidebar layout even on small screens
-// mobile  = force bottom-nav layout even on large screens
-type ViewMode = 'auto' | 'desktop' | 'mobile'
-
+// The layout now adapts purely to screen size — no manual override.
 interface ViewModeContextValue {
-  viewMode: ViewMode
-  toggleViewMode: () => void
   showSidebar: boolean
   showBottomNav: boolean
 }
@@ -15,10 +9,9 @@ interface ViewModeContextValue {
 const ViewModeContext = createContext<ViewModeContextValue | null>(null)
 
 export function ViewModeProvider({ children }: { children: React.ReactNode }) {
-  const [viewMode, setViewMode] = useState<ViewMode>(
-    () => (localStorage.getItem('kaizen-view') as ViewMode) || 'auto'
+  const [isDesktop, setIsDesktop] = useState(
+    typeof window !== 'undefined' ? window.innerWidth >= 768 : true
   )
-  const [isDesktop, setIsDesktop] = useState(window.innerWidth >= 768)
 
   useEffect(() => {
     const handler = () => setIsDesktop(window.innerWidth >= 768)
@@ -26,24 +19,12 @@ export function ViewModeProvider({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener('resize', handler)
   }, [])
 
-  function toggleViewMode() {
-    let next: ViewMode
-    if (viewMode === 'auto') {
-      // From auto: flip to the opposite of what the current screen naturally shows
-      next = isDesktop ? 'mobile' : 'desktop'
-    } else {
-      // From a forced mode: return to auto
-      next = 'auto'
-    }
-    setViewMode(next)
-    localStorage.setItem('kaizen-view', next)
-  }
-
-  const showSidebar = viewMode === 'desktop' || (viewMode === 'auto' && isDesktop)
-  const showBottomNav = viewMode === 'mobile' || (viewMode === 'auto' && !isDesktop)
+  // Desktop (>=768px) → sidebar layout. Mobile → bottom nav.
+  const showSidebar = isDesktop
+  const showBottomNav = !isDesktop
 
   return (
-    <ViewModeContext.Provider value={{ viewMode, toggleViewMode, showSidebar, showBottomNav }}>
+    <ViewModeContext.Provider value={{ showSidebar, showBottomNav }}>
       {children}
     </ViewModeContext.Provider>
   )
