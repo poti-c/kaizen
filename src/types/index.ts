@@ -58,6 +58,7 @@ export interface KaizenCase {
   title: string
   description: string
   department: Department
+  company_id: string | null
   created_by: string
   status: CaseStatus
   priority: CasePriority

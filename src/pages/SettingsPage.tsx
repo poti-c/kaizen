@@ -99,6 +99,8 @@ export function SettingsPage() {
   const [editName, setEditName] = useState('')
   const [editUsername, setEditUsername] = useState('')
   const [savingProfile, setSavingProfile] = useState(false)
+  // Editable-lists tab (declared at top level — hooks must not live inside the JSX IIFE below)
+  const [activeListTab, setActiveListTab] = useState<'dept' | 'cat' | 'loc'>('dept')
 
   function openProfileEdit() {
     setEditName(profile?.full_name ?? '')
@@ -675,7 +677,6 @@ export function SettingsPage() {
           { key: 'loc',  label: lang === 'th' ? 'สถานที่' : 'Locations',   count: locList.length },
         ] as const
         type TabKey = 'dept' | 'cat' | 'loc'
-        const [activeListTab, setActiveListTab] = React.useState<TabKey>('dept')
 
         const tabProps: Record<TabKey, object> = {
           dept: {

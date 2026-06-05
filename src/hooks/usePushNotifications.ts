@@ -55,7 +55,7 @@ export function usePushNotifications(userId: string | undefined) {
       const existing = await reg.pushManager.getSubscription()
       const sub = existing ?? await reg.pushManager.subscribe({
         userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY) as BufferSource,
       })
       const json = sub.toJSON()
       const { error } = await supabase.from('kaizen_push_subscriptions').upsert({

@@ -195,7 +195,18 @@ const en = {
   },
 } as const
 
-type Translations = typeof en
+// Widen the `as const` English shape: string/number literals -> primitives,
+// functions preserved, nesting recursed, readonly stripped. This lets the Thai
+// translation object satisfy the same structure without literal-type mismatches.
+type DeepWiden<T> = T extends (...args: never[]) => unknown
+  ? T
+  : T extends object
+    ? { -readonly [K in keyof T]: DeepWiden<T[K]> }
+    : T extends string ? string
+    : T extends number ? number
+    : T extends boolean ? boolean
+    : T
+type Translations = DeepWiden<typeof en>
 
 const th: Translations = {
   nav: {

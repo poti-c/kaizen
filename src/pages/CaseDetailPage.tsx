@@ -357,7 +357,7 @@ export function CaseDetailPage() {
       const { data } = await query
       ;(data || []).forEach((u: { id: string }) => ids.add(u.id))
     }
-    ;(opts.extraIds || []).forEach((uid) => { if (uid) ids.add(uid) })
+    (opts.extraIds || []).forEach((uid) => { if (uid) ids.add(uid) })
     return Array.from(ids).filter((uid) => uid !== profile?.id)
   }
 

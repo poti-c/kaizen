@@ -23,8 +23,7 @@ export function PerformanceDetailPage() {
   const { activeCompany } = useCompany()
   const { t, lang } = useLanguage()
 
-  // Staff: no access at all
-  if (myProfile && myProfile.role === 'staff') return <Navigate to="/cases" replace />
+  const isStaffViewer = myProfile?.role === 'staff'
 
   const [user, setUser] = useState<KaizenProfile | null>(null)
   const [cases, setCases] = useState<KaizenCase[]>([])
@@ -32,8 +31,11 @@ export function PerformanceDetailPage() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    if (userId) load()
-  }, [userId])
+    if (userId && !isStaffViewer) load()
+  }, [userId, isStaffViewer])
+
+  // Staff: no access (returned after hooks so hook order stays stable)
+  if (isStaffViewer) return <Navigate to="/cases" replace />
 
   async function load() {
     setLoading(true)

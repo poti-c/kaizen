@@ -74,9 +74,12 @@ export function UsersPage() {
   const isHRManager = profile?.role === 'manager' && profile?.department === 'human_resource'
   const isOwner = profile?.role === 'super_admin' && profile?.job_title === 'Owner'
 
-  if (profile && profile.role === 'staff') return <Navigate to="/dashboard" replace />
+  const isStaffViewer = profile?.role === 'staff'
 
-  useEffect(() => { fetchUsers() }, [profile, activeCompany])
+  useEffect(() => { if (!isStaffViewer) fetchUsers() }, [profile, activeCompany, isStaffViewer])
+
+  // Staff have no access (returned after hooks so hook order stays stable)
+  if (isStaffViewer) return <Navigate to="/dashboard" replace />
 
   async function fetchUsers() {
     setLoading(true)
