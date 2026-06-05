@@ -485,7 +485,7 @@ export function CaseDetailPage() {
       }).eq('id', id!)
       if (resErr) throw resErr
 
-      await addTimeline('resolved', `Staff resolved the case: ${resolutionNote}`)
+      await addTimeline('resolved', `${profile?.full_name || 'Staff'} resolved the case: ${resolutionNote}`)
 
       // Notify the manager of the CASE's department
       await notifyByDeptRole(
