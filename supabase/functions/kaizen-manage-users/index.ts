@@ -98,6 +98,29 @@ serve(async (req) => {
       const built = await staffLoginEmail(username, targetCompany);
       if (!built) return json({ error: "Company not found for staff account" }, 400);
       authEmail = built;
+
+      // If a SOFT-DELETED staff account already holds this login email, release
+      // it so the username can be reused for a new hire. We keep the old row's
+      // full_name (so historical cases still show who it was) but rename its
+      // username + auth email to a tombstone, freeing the slot.
+      const { data: removedStaff } = await supabaseAdmin
+        .from("kaizen_profiles")
+        .select("id, username, company_id")
+        .eq("company_id", targetCompany)
+        .eq("role", "staff")
+        .not("deleted_at", "is", null);
+      const clash = (removedStaff ?? []).find(
+        (r: any) => normUser(r.username ?? "") === normUser(username)
+      );
+      if (clash) {
+        const tomb = `.removed.${Math.floor(Date.now() / 1000)}`;
+        const freedUsername = `${clash.username ?? "removed"}${tomb}`;
+        await supabaseAdmin.from("kaizen_profiles").update({ username: freedUsername }).eq("id", clash.id);
+        const freedEmail = await staffLoginEmail(freedUsername, clash.company_id);
+        if (freedEmail) {
+          try { await supabaseAdmin.auth.admin.updateUserById(clash.id, { email: freedEmail }); } catch (_) { /* best effort */ }
+        }
+      }
     } else {
       authEmail = email?.trim().toLowerCase();
       if (!authEmail) return json({ error: "email is required for manager/admin" }, 400);
@@ -109,7 +132,14 @@ serve(async (req) => {
       email_confirm: true,
     });
 
-    if (createErr) return json({ error: createErr.message }, 400);
+    if (createErr) {
+      const msg = /already.*registered|already.*exists|email.*taken/i.test(createErr.message)
+        ? (role === "staff"
+            ? "This username is already taken by an active account. Please choose a different username."
+            : "This email is already registered.")
+        : createErr.message;
+      return json({ error: msg }, 400);
+    }
 
     const userId = newUser.user.id;
     const targetCompanyId = company_id ?? callerCompany;
