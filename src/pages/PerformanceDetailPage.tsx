@@ -216,7 +216,7 @@ export function PerformanceDetailPage() {
         const activeDaysScore = Math.min(100, Math.round((activeDays / 15) * 100))
         const actionsScore = Math.min(100, Math.round((activity.length / 20) * 100))
         const engagementScore = Math.round(activeDaysScore * 0.5 + actionsScore * 0.5)
-        const engagementNote = `${activeDays} active ${activeDays === 1 ? 'day' : 'days'} · ${activity.length} actions`
+        const engagementNote = `${activeDays} ${activeDays === 1 ? t.perf.activeDay : t.perf.activeDays} · ${activity.length} ${t.perf.actions}`
 
         type Crit = { key: string; label: string; value: number | null; weight: number; color: string; note: string; info: string }
         let criteria: Crit[]
@@ -234,11 +234,11 @@ export function PerformanceDetailPage() {
           const overdueRate = teamTotal ? (scOverdue.length / teamTotal) * 100 : 0
           const leadershipScore = teamTotal ? Math.round(((100 - reopenRate) + (100 - overdueRate)) / 2) : null
           criteria = [
-            { key: 'approval', label: 'Approval Responsiveness', value: approvalScore, weight: 25, color: '#3b82f6', note: approved.length ? `~${formatRes(avgApprovalH)} avg` : 'no approvals yet', info: 'How quickly you approve cases your team submits — the average time from a staff resolution to your approval (target: within 24h). Faster unblocking scores higher.' },
-            { key: 'teamres', label: 'Team Resolution Rate', value: teamResRate, weight: 20, color: '#22c55e', note: `${scClosed.length}/${teamTotal} closed`, info: 'The share of your department\'s cases that have been resolved and closed — your team\'s overall output.' },
-            { key: 'teamsla', label: 'Team SLA Health', value: teamSlaScore, weight: 20, color: '#0ea5e9', note: `${scOverdue.length} overdue`, info: 'The share of your department\'s cases that are NOT overdue — how well you keep the team on schedule.' },
-            { key: 'leadership', label: 'Leadership & Quality', value: leadershipScore, weight: 20, color: '#a855f7', note: `${scReopened.length} reopened`, info: 'A blend of work quality (few cases reopened) and backlog control (few cases overdue) across your department — how healthy your team\'s pipeline is.' },
-            { key: 'engagement', label: 'Oversight Engagement', value: engagementScore, weight: 15, color: '#f59e0b', note: engagementNote, info: 'How actively you use Kaizen to manage — your active days over the last 30 days combined with in-system actions (assignments, approvals, comments). A missed day barely moves it; consistent absence lowers it.' },
+            { key: 'approval', label: t.perf.approval, value: approvalScore, weight: 25, color: '#3b82f6', note: approved.length ? `~${formatRes(avgApprovalH)} ${t.perf.avg}` : t.perf.noApprovals, info: t.perf.approvalInfo },
+            { key: 'teamres', label: t.perf.teamRes, value: teamResRate, weight: 20, color: '#22c55e', note: `${scClosed.length}/${teamTotal} ${t.perf.closed}`, info: t.perf.teamResInfo },
+            { key: 'teamsla', label: t.perf.teamSla, value: teamSlaScore, weight: 20, color: '#0ea5e9', note: `${scOverdue.length} ${t.perf.overdue}`, info: t.perf.teamSlaInfo },
+            { key: 'leadership', label: t.perf.leadership, value: leadershipScore, weight: 20, color: '#a855f7', note: `${scReopened.length} ${t.perf.reopened}`, info: t.perf.leadershipInfo },
+            { key: 'engagement', label: t.perf.oversight, value: engagementScore, weight: 15, color: '#f59e0b', note: engagementNote, info: t.perf.oversightInfo },
           ]
         } else {
           const total = sc.length
@@ -251,11 +251,11 @@ export function PerformanceDetailPage() {
           const closedOrReopened = scClosed.length + scReopened.length
           const qualityScore = closedOrReopened ? Math.round(100 - (scReopened.length / closedOrReopened) * 100) : null
           criteria = [
-            { key: 'resolution', label: 'Resolution Rate', value: resRate, weight: 30, color: '#22c55e', note: `${scClosed.length}/${total} closed`, info: 'The share of cases you\'re responsible for (reported or In Charge) that you\'ve resolved and closed.' },
-            { key: 'ontime', label: 'On-Time Delivery', value: onTime, weight: 25, color: '#3b82f6', note: `${scOverdue.length} overdue`, info: 'The share of your cases that are NOT past their due date — how reliably you deliver on time.' },
-            { key: 'speed', label: 'Resolution Speed', value: speedScore, weight: 15, color: '#0ea5e9', note: avgResH != null ? `${formatRes(avgResH)} avg` : 'no closed cases', info: 'How fast you resolve cases on average, scored against a 48-hour target. Resolving within 48h scores full marks.' },
-            { key: 'quality', label: 'Quality', value: qualityScore, weight: 10, color: '#a855f7', note: `${scReopened.length} reopened`, info: 'How well your fixes hold up — the share of your resolved cases that did NOT get reopened. Fewer reopens = higher quality.' },
-            { key: 'engagement', label: 'Engagement', value: engagementScore, weight: 20, color: '#f59e0b', note: engagementNote, info: 'How actively you engage with Kaizen — your active days over the last 30 days plus in-system actions (updates, comments, resolutions). Measured over a month, so one missed login barely affects it.' },
+            { key: 'resolution', label: t.perf.resolutionRate, value: resRate, weight: 30, color: '#22c55e', note: `${scClosed.length}/${total} ${t.perf.closed}`, info: t.perf.resolutionRateInfo },
+            { key: 'ontime', label: t.perf.onTime, value: onTime, weight: 25, color: '#3b82f6', note: `${scOverdue.length} ${t.perf.overdue}`, info: t.perf.onTimeInfo },
+            { key: 'speed', label: t.perf.speed, value: speedScore, weight: 15, color: '#0ea5e9', note: avgResH != null ? `${formatRes(avgResH)} ${t.perf.avg}` : t.perf.noClosed, info: t.perf.speedInfo },
+            { key: 'quality', label: t.perf.quality, value: qualityScore, weight: 10, color: '#a855f7', note: `${scReopened.length} ${t.perf.reopened}`, info: t.perf.qualityInfo },
+            { key: 'engagement', label: t.perf.engagement, value: engagementScore, weight: 20, color: '#f59e0b', note: engagementNote, info: t.perf.engagementInfo },
           ]
         }
 
@@ -275,11 +275,11 @@ export function PerformanceDetailPage() {
             <div className="flex items-center gap-3 mb-1">
               <div className="flex items-center gap-2 flex-1">
                 <TrendingUp className="h-4 w-4 text-[var(--brand-primary)]" />
-                <h3 className="font-semibold text-sm text-gray-900">{lang === 'th' ? 'คะแนนประสิทธิภาพโดยรวม' : 'Overall Performance Score'}</h3>
+                <h3 className="font-semibold text-sm text-gray-900">{t.perf.overallTitle}</h3>
               </div>
               <span className={`px-3 py-1 rounded-full text-sm font-bold border ${tier.bg} ${tier.text} ${tier.border}`}>{tier.label}</span>
             </div>
-            <p className="text-[11px] text-gray-400 mb-4">{user.role === 'manager' ? 'Leadership scorecard' : 'Staff scorecard'} · tap an indicator to see how it’s measured</p>
+            <p className="text-[11px] text-gray-400 mb-4">{user.role === 'manager' ? t.perf.leadershipCard : t.perf.staffCard} · {t.perf.tapHint}</p>
             <div className="flex items-center gap-4 mb-5">
               <div className="relative flex-shrink-0 w-16 h-16">
                 <svg className="w-16 h-16 -rotate-90" viewBox="0 0 56 56">
@@ -289,7 +289,7 @@ export function PerformanceDetailPage() {
                 <div className="absolute inset-0 flex items-center justify-center"><span className="text-lg font-bold text-gray-900">{overall}</span></div>
               </div>
               <div className="flex-1">
-                <p className="text-xs text-gray-400 mb-1">{lang === 'th' ? 'คะแนนเต็ม 100' : 'Score out of 100'}</p>
+                <p className="text-xs text-gray-400 mb-1">{t.perf.scoreOutOf}</p>
                 <div className="h-2.5 bg-gray-100 rounded-full overflow-hidden">
                   <div className="h-full rounded-full transition-all" style={{ width: `${overall}%`, backgroundColor: tier.color }} />
                 </div>
@@ -316,7 +316,7 @@ export function PerformanceDetailPage() {
                   </button>
                   {openInfo === c.key && (
                     <div className="mt-2 text-[11px] leading-relaxed text-gray-600 bg-gray-50 border border-gray-100 rounded-lg p-2.5">
-                      <span className="font-semibold text-gray-700">Weight {c.weight}%. </span>{c.info}
+                      <span className="font-semibold text-gray-700">{t.perf.weight} {c.weight}%. </span>{c.info}
                     </div>
                   )}
                 </div>
