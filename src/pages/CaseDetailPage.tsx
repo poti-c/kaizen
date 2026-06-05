@@ -82,7 +82,7 @@ export function CaseDetailPage() {
   const [showPicEditor, setShowPicEditor] = useState(false)
   const [picCandidates, setPicCandidates] = useState<KaizenProfile[]>([])
   const [selectedPics, setSelectedPics] = useState<string[]>([])
-  const [notifyDept, setNotifyDept] = useState(false)
+  const [notifyDepts, setNotifyDepts] = useState<string[]>([])
   const [savingPic, setSavingPic] = useState(false)
 
   // Due date (manager can set if missing)
@@ -192,16 +192,16 @@ export function CaseDetailPage() {
         notification_type: 'assignment',
       }))
 
-      // Optionally notify whole department
-      if (notifyDept) {
+      // Notify selected departments
+      if (notifyDepts.length > 0) {
         const { data: deptMembers } = await supabase
-          .from('kaizen_profiles').select('id')
+          .from('kaizen_profiles').select('id, department')
           .eq('company_id', kcase.company_id)
-          .eq('department', kcase.department)
+          .in('department', notifyDepts)
           .eq('is_active', true)
           .not('id', 'in', `(${selectedPics.join(',')})`)
         if (deptMembers?.length) {
-          deptMembers.forEach((m: { id: string }) => notifRows.push({
+          deptMembers.forEach((m: { id: string; department: string }) => notifRows.push({
             user_id: m.id,
             case_id: id!,
             title: 'Department Case Update',
@@ -209,13 +209,14 @@ export function CaseDetailPage() {
             notification_type: 'info',
           }))
         }
-        await addTimeline('dept_notified', `Whole department notified about In Charge assignment`)
+        const deptNames = notifyDepts.map(d => DEPARTMENT_LABELS[d as Department] ?? d).join(', ')
+        await addTimeline('dept_notified', `Departments notified: ${deptNames}`)
       }
 
       if (notifRows.length) await supabase.from('kaizen_notifications').insert(notifRows)
 
       setShowPicEditor(false)
-      setNotifyDept(false)
+      setNotifyDepts([])
       fetchCase()
     } finally { setSavingPic(false) }
   }
@@ -1020,9 +1021,23 @@ export function CaseDetailPage() {
                             {Object.entries(staffByDept).map(([dept, members], idx) => (
                               <div key={dept}>
                                 {(managers.length > 0 || idx > 0) && <div className="my-1 border-t border-gray-100" />}
-                                <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide px-2 mb-0.5">
-                                  {DEPARTMENT_LABELS[dept as Department] ?? dept}
-                                </p>
+                                {/* Dept header with notify tickbox */}
+                                <div className="flex items-center justify-between px-2 mb-0.5">
+                                  <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">
+                                    {DEPARTMENT_LABELS[dept as Department] ?? dept}
+                                  </p>
+                                  <label className="flex items-center gap-1 cursor-pointer">
+                                    <input
+                                      type="checkbox"
+                                      className="h-3 w-3 rounded border-gray-300 accent-[var(--brand-primary)]"
+                                      checked={notifyDepts.includes(dept)}
+                                      onChange={() => setNotifyDepts(prev =>
+                                        prev.includes(dept) ? prev.filter(d => d !== dept) : [...prev, dept]
+                                      )}
+                                    />
+                                    <span className="text-[10px] text-gray-400">Notify all</span>
+                                  </label>
+                                </div>
                                 {members.map(p => <Row key={p.id} p={p} />)}
                               </div>
                             ))}
@@ -1030,23 +1045,11 @@ export function CaseDetailPage() {
                         )
                       })()}
                     </div>
-                    {/* Notify dept checkbox */}
-                    <div className="border-t border-gray-100 px-3 py-2 bg-gray-50">
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          className="h-3.5 w-3.5 rounded border-gray-300 accent-[var(--brand-primary)]"
-                          checked={notifyDept}
-                          onChange={e => setNotifyDept(e.target.checked)}
-                        />
-                        <span className="text-xs text-gray-600">Notify whole department</span>
-                      </label>
-                    </div>
                     {/* Actions */}
                     <div className="border-t border-gray-100 px-3 py-2 flex items-center justify-between">
                       <span className="text-[10px] text-gray-400">{selectedPics.length} selected</span>
                       <div className="flex items-center gap-2">
-                        <button onClick={() => { setShowPicEditor(false); setNotifyDept(false) }} className="text-xs text-gray-400 hover:text-gray-600">Cancel</button>
+                        <button onClick={() => { setShowPicEditor(false); setNotifyDepts([]) }} className="text-xs text-gray-400 hover:text-gray-600">Cancel</button>
                         <button
                           onClick={savePic}
                           disabled={savingPic || selectedPics.length === 0}
