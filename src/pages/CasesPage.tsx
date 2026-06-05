@@ -619,13 +619,13 @@ export function CasesPage() {
 
         {/* Advanced Filters (shown when enabled) */}
         {advancedSearchEnabled && (
-          <div className="p-3 md:p-4 space-y-4">
+          <div className="p-3 space-y-2.5">
             {/* Status Checkboxes */}
             <div>
-              <p className="text-xs font-semibold text-gray-700 uppercase mb-2">Status</p>
-              <div className="flex flex-wrap gap-3">
+              <p className="text-xs font-semibold text-gray-700 uppercase mb-1.5">Status</p>
+              <div className="flex flex-wrap gap-x-3 gap-y-1.5">
                 {STATUS_FILTERS.filter(s => s !== 'all').map((s) => (
-                  <label key={s} className="flex items-center gap-2 cursor-pointer text-sm">
+                  <label key={s} className="flex items-center gap-1.5 cursor-pointer text-xs">
                     <Checkbox
                       checked={advFilters.statuses.includes(s as CaseStatus)}
                       onCheckedChange={(checked) => {
@@ -645,10 +645,10 @@ export function CasesPage() {
 
             {/* Department Checkboxes */}
             <div>
-              <p className="text-xs font-semibold text-gray-700 uppercase mb-2">Department</p>
-              <div className="flex flex-wrap gap-3">
+              <p className="text-xs font-semibold text-gray-700 uppercase mb-1.5">Department</p>
+              <div className="flex flex-wrap gap-x-3 gap-y-1.5">
                 {DEPARTMENTS.filter(d => d.value !== 'top_management').map((d) => (
-                  <label key={d.value} className="flex items-center gap-2 cursor-pointer text-sm">
+                  <label key={d.value} className="flex items-center gap-1.5 cursor-pointer text-xs">
                     <Checkbox
                       checked={advFilters.departments.includes(d.value as Department)}
                       onCheckedChange={(checked) => {
@@ -668,10 +668,10 @@ export function CasesPage() {
 
             {/* Priority Checkboxes */}
             <div>
-              <p className="text-xs font-semibold text-gray-700 uppercase mb-2">Priority</p>
-              <div className="flex flex-wrap gap-3">
+              <p className="text-xs font-semibold text-gray-700 uppercase mb-1.5">Priority</p>
+              <div className="flex flex-wrap gap-x-3 gap-y-1.5">
                 {(['critical', 'high', 'medium', 'low'] as CasePriority[]).map((p) => (
-                  <label key={p} className="flex items-center gap-2 cursor-pointer text-sm">
+                  <label key={p} className="flex items-center gap-1.5 cursor-pointer text-xs">
                     <Checkbox
                       checked={advFilters.priorities.includes(p)}
                       onCheckedChange={(checked) => {
@@ -691,10 +691,10 @@ export function CasesPage() {
 
             {/* Category Checkboxes */}
             <div>
-              <p className="text-xs font-semibold text-gray-700 uppercase mb-2">Category</p>
-              <div className="flex flex-wrap gap-3">
+              <p className="text-xs font-semibold text-gray-700 uppercase mb-1.5">Category</p>
+              <div className="flex flex-wrap gap-x-3 gap-y-1.5">
                 {CATEGORIES.map((c) => (
-                  <label key={c} className="flex items-center gap-2 cursor-pointer text-sm">
+                  <label key={c} className="flex items-center gap-1.5 cursor-pointer text-xs">
                     <Checkbox
                       checked={advFilters.categories.includes(c)}
                       onCheckedChange={(checked) => {
