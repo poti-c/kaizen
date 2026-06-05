@@ -434,6 +434,10 @@ export function CasesPage() {
   const showActive = statusFilter === 'all' || statusFilter !== 'closed'
   const showClosed = statusFilter === 'all' || statusFilter === 'closed'
 
+  // Tab state
+  const [activeTab, setActiveTab] = useState<'active' | 'pending' | 'closed'>('active')
+  const pendingTotal = pendingMgrCases.length + pendingAdminCases.length
+
   // Incomplete cases: department, location or category no longer exists in the current custom lists
   const incompleteCases = cases.filter(c => {
     if (c.status === 'closed') return false
@@ -743,10 +747,40 @@ export function CasesPage() {
           </Link>
         </div>
       ) : (
-        <div className="space-y-8">
+        <div className="space-y-5">
+
+          {/* ── Tabs ── */}
+          <div className="flex gap-1 bg-gray-100 rounded-xl p-1">
+            {([
+              { key: 'active',  label: 'Active',  count: activeCases.length,  color: 'text-gray-800' },
+              { key: 'pending', label: 'Pending', count: pendingTotal,         color: 'text-amber-700' },
+              { key: 'closed',  label: 'Closed',  count: closedCases.length,  color: 'text-gray-500' },
+            ] as const).map(tab => (
+              <button
+                key={tab.key}
+                onClick={() => setActiveTab(tab.key)}
+                className={cn(
+                  'flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-sm font-medium transition-all',
+                  activeTab === tab.key
+                    ? 'bg-white shadow-sm text-gray-900'
+                    : 'text-gray-500 hover:text-gray-700'
+                )}
+              >
+                {tab.label}
+                <span className={cn(
+                  'text-xs font-semibold px-1.5 py-0.5 rounded-full',
+                  activeTab === tab.key
+                    ? tab.key === 'pending' ? 'bg-amber-100 text-amber-700' : tab.key === 'closed' ? 'bg-gray-100 text-gray-500' : 'bg-[var(--brand-primary)]/10 text-[var(--brand-primary)]'
+                    : 'bg-gray-200 text-gray-500'
+                )}>
+                  {tab.count}
+                </span>
+              </button>
+            ))}
+          </div>
 
           {/* ── Active Cases ── */}
-          {showActive && (
+          {activeTab === 'active' && showActive && (
             <div>
               <div className="flex items-center justify-between mb-3">
                 <h2 className="text-base font-semibold text-gray-800">
@@ -783,7 +817,7 @@ export function CasesPage() {
           )}
 
           {/* ── Pending Manager Approval ── */}
-          {showActive && pendingMgrCases.length > 0 && (
+          {activeTab === 'pending' && pendingMgrCases.length > 0 && (
             <div>
               <div className="flex items-center justify-between mb-3">
                 <h2 className="text-base font-semibold text-amber-700">
@@ -811,7 +845,7 @@ export function CasesPage() {
           )}
 
           {/* ── Pending Top Management Approval ── */}
-          {showActive && pendingAdminCases.length > 0 && (
+          {activeTab === 'pending' && pendingAdminCases.length > 0 && (
             <div>
               <div className="flex items-center justify-between mb-3">
                 <h2 className="text-base font-semibold text-violet-700">
@@ -838,8 +872,15 @@ export function CasesPage() {
             </div>
           )}
 
+          {/* ── Pending: empty state ── */}
+          {activeTab === 'pending' && pendingTotal === 0 && (
+            <div className="bg-white rounded-xl border border-gray-200 shadow-sm py-10 text-center">
+              <p className="text-gray-400 text-sm">No cases pending approval</p>
+            </div>
+          )}
+
           {/* ── Closed Cases ── */}
-          {showClosed && closedCases.length > 0 && (
+          {activeTab === 'closed' && showClosed && closedCases.length > 0 && (
             <div>
               <div className="flex items-center justify-between mb-3">
                 <h2 className="text-base font-semibold text-gray-500">
@@ -872,6 +913,12 @@ export function CasesPage() {
                 onPrev={() => setPageClosed(p => Math.max(1, p - 1))}
                 onNext={() => setPageClosed(p => Math.min(totalClosedPages, p + 1))}
               />
+            </div>
+          )}
+
+          {activeTab === 'closed' && closedCases.length === 0 && (
+            <div className="bg-white rounded-xl border border-gray-200 shadow-sm py-10 text-center">
+              <p className="text-gray-400 text-sm">No closed cases</p>
             </div>
           )}
 
