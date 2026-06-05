@@ -35,7 +35,7 @@ export function PerformanceDetailPage() {
   }, [userId, isStaffViewer])
 
   // Staff: no access (returned after hooks so hook order stays stable)
-  if (isStaffViewer) return <Navigate to="/cases" replace />
+  if (isStaffViewer) return <Navigate to="/dashboard" replace />
 
   async function load() {
     setLoading(true)

@@ -1,4 +1,4 @@
-import { Outlet, Navigate } from 'react-router-dom'
+import { Outlet, Navigate, useLocation } from 'react-router-dom'
 import { Sidebar } from './Sidebar'
 import { Header } from './Header'
 import { BottomNav } from './BottomNav'
@@ -8,6 +8,7 @@ import { useViewMode } from '@/contexts/ViewModeContext'
 export function Layout() {
   const { user, profile, loading } = useAuth()
   const { showSidebar, showBottomNav } = useViewMode()
+  const location = useLocation()
 
   if (loading) {
     return (
@@ -22,6 +23,11 @@ export function Layout() {
 
   if (!user || !profile) {
     return <Navigate to="/login" replace />
+  }
+
+  // Force a password change before allowing access to any app route
+  if (profile.must_change_password && location.pathname !== '/change-password') {
+    return <Navigate to="/change-password" replace />
   }
 
   return (

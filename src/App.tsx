@@ -34,7 +34,7 @@ function RoleRedirect() {
 function ProtectedRoute({ roles, children }: { roles: string[]; children: React.ReactNode }) {
   const { profile } = useAuth()
   if (!profile) return null
-  if (!roles.includes(profile.role)) return <Navigate to="/cases" replace />
+  if (!roles.includes(profile.role)) return <Navigate to="/dashboard" replace />
   return <>{children}</>
 }
 

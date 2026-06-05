@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Plus, Trash2, Shield, Users, Loader2, Eye, EyeOff, Pencil, PowerOff, Power, KeyRound, History } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { createClient } from '@supabase/supabase-js'
 import { useAuth } from '@/contexts/AuthContext'
 import { useCompany } from '@/contexts/CompanyContext'
 import { useLanguage } from '@/contexts/LanguageContext'
@@ -189,8 +190,11 @@ export function UsersPage() {
         full_name: editFullName.trim(),
         position: editPosition.trim() || null,
         username: editUsername.trim() || null,
-        department: editDepartment,
-        role: editRole,
+      }
+      // Only super admins can change role/department (the edge function also re-validates this)
+      if (profile?.role === 'super_admin') {
+        updates.department = editDepartment
+        updates.role = editRole
       }
 
       if (editNewPassword.trim().length >= 6) {
@@ -236,8 +240,14 @@ export function UsersPage() {
     setActioning(deleteUser.id)
     setDeleteErr('')
     try {
-      // Verify manager's own password
-      const { error: authErr } = await supabase.auth.signInWithPassword({
+      // Verify the actor's own password on a THROWAWAY client so the active
+      // app session/tokens are never disturbed by this confirmation check.
+      const verifyClient = createClient(
+        import.meta.env.VITE_SUPABASE_URL,
+        import.meta.env.VITE_SUPABASE_ANON_KEY,
+        { auth: { persistSession: false, autoRefreshToken: false } }
+      )
+      const { error: authErr } = await verifyClient.auth.signInWithPassword({
         email: profile?.email ?? '',
         password: deletePw,
       })

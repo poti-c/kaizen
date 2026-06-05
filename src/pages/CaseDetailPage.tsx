@@ -147,7 +147,8 @@ export function CaseDetailPage() {
 
     if (Object.keys(updates).length === 0) { setSavingFix(false); return }
 
-    await supabase.from('kaizen_cases').update(updates).eq('id', id)
+    const { error: fixErr } = await supabase.from('kaizen_cases').update(updates).eq('id', id)
+    if (fixErr) { toast.error('Failed to update case information.'); setSavingFix(false); return }
     await addTimeline('info_corrected', `Registration info updated: ${changes.join(', ')}`)
     toast.success('Case information updated.')
     setSavingFix(false)
@@ -174,12 +175,13 @@ export function CaseDetailPage() {
     try {
       // If case is open/reopened, move to assigned when PIC is set
       const statusUpdate = ['open', 'reopened'].includes(kcase.status) ? { status: 'assigned' } : {}
-      await supabase.from('kaizen_cases').update({
+      const { error: picErr } = await supabase.from('kaizen_cases').update({
         pic_ids: selectedPics,
         person_in_charge: selectedPics[0],
         updated_at: new Date().toISOString(),
         ...statusUpdate,
       }).eq('id', id!)
+      if (picErr) { toast.error('Failed to update In Charge.'); return }
 
       // Create/update assignment record for the case's primary department
       if (['open', 'reopened'].includes(kcase.status)) {
@@ -254,7 +256,8 @@ export function CaseDetailPage() {
     if (!kcase || !newDueDate) return
     setSavingDueDate(true)
     try {
-      await supabase.from('kaizen_cases').update({ due_date: newDueDate, updated_at: new Date().toISOString() }).eq('id', id!)
+      const { error: dueErr } = await supabase.from('kaizen_cases').update({ due_date: newDueDate, updated_at: new Date().toISOString() }).eq('id', id!)
+      if (dueErr) { toast.error('Failed to set due date.'); return }
       await addTimeline('due_date_set', `Due date set to ${new Date(newDueDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`)
       setShowDueDateEditor(false)
       setNewDueDate('')
@@ -457,13 +460,14 @@ export function CaseDetailPage() {
         }))
       )
 
-      await supabase.from('kaizen_cases').update({
+      const { error: resErr } = await supabase.from('kaizen_cases').update({
         status: 'pending_manager_approval',
         resolved_by: profile?.id,
         resolution_note: resolutionNote.trim(),
         resolved_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       }).eq('id', id!)
+      if (resErr) throw resErr
 
       await addTimeline('resolved', `Staff resolved the case: ${resolutionNote}`)
 
@@ -491,7 +495,7 @@ export function CaseDetailPage() {
 
       if (isSuperAdmin) {
         // Super admin skips pending_admin_approval and closes directly
-        await supabase.from('kaizen_cases').update({
+        const { error: closeErr } = await supabase.from('kaizen_cases').update({
           status: 'closed',
           manager_approved_by: profile?.id,
           manager_approved_at: new Date().toISOString(),
@@ -500,6 +504,7 @@ export function CaseDetailPage() {
           closed_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         }).eq('id', id!)
+        if (closeErr) throw closeErr
 
         await addTimeline('closed', `Case approved and closed by Top Management (${profile?.full_name}).`)
 
@@ -513,12 +518,13 @@ export function CaseDetailPage() {
         toast.success('Case approved and closed.')
       } else {
         // Regular manager: move to pending_admin_approval for Top Management to close
-        await supabase.from('kaizen_cases').update({
+        const { error: mgrErr } = await supabase.from('kaizen_cases').update({
           status: 'pending_admin_approval',
           manager_approved_by: profile?.id,
           manager_approved_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         }).eq('id', id!)
+        if (mgrErr) throw mgrErr
 
         await addTimeline('manager_approved', `Resolution approved by ${profile?.full_name}.`)
 
@@ -543,13 +549,14 @@ export function CaseDetailPage() {
   async function handleAdminApprove() {
     setSubmitting(true)
     try {
-      await supabase.from('kaizen_cases').update({
+      const { error: adminErr } = await supabase.from('kaizen_cases').update({
         status: 'closed',
         admin_approved_by: profile?.id,
         admin_approved_at: new Date().toISOString(),
         closed_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       }).eq('id', id!)
+      if (adminErr) throw adminErr
 
       await addTimeline('closed', `Case closed after final admin approval.`)
 
@@ -574,7 +581,7 @@ export function CaseDetailPage() {
   async function handleReopen() {
     setSubmitting(true)
     try {
-      await supabase.from('kaizen_cases').update({
+      const { error: reopenErr } = await supabase.from('kaizen_cases').update({
         status: 'reopened',
         // Clear closure/approval state so the case counts as open again.
         // (resolution_note + resolution photos are kept intentionally so the
@@ -587,6 +594,7 @@ export function CaseDetailPage() {
         admin_approved_by: null,
         updated_at: new Date().toISOString(),
       }).eq('id', id!)
+      if (reopenErr) throw reopenErr
 
       await addTimeline('reopened', `Case reopened by ${profile?.full_name}`)
 
@@ -839,9 +847,16 @@ export function CaseDetailPage() {
     (profile?.role === 'manager' && !isHRManager && profile?.department === kcase.department)
   )
   const canStaffResolve   = !isHRManager &&
-    (profile?.role === 'staff' || profile?.role === 'manager' || profile?.role === 'super_admin') &&
+    (
+      profile?.role === 'staff' ||
+      profile?.role === 'super_admin' ||
+      (profile?.role === 'manager' && profile?.department === kcase.department)
+    ) &&
     ['in_progress', 'assigned', 'reopened'].includes(kcase.status)
-  const canManagerApprove = !isHRManager && (profile?.role === 'manager' || profile?.role === 'super_admin') && kcase.status === 'pending_manager_approval'
+  const canManagerApprove = !isHRManager && (
+      profile?.role === 'super_admin' ||
+      (profile?.role === 'manager' && profile?.department === kcase.department)
+    ) && kcase.status === 'pending_manager_approval'
   const canAdminApprove   = profile?.role === 'super_admin' && kcase.status === 'pending_admin_approval'
   const canReopen         = profile?.role === 'super_admin' && kcase.status === 'closed'
   const canDelete         = profile?.role === 'super_admin'

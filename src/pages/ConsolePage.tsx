@@ -222,7 +222,7 @@ function Dashboard({ token, onLogout }: { token: string; onLogout: () => void })
     try {
       const data = await call<{ owners: ConsoleOwner[]; companies: ConsoleCompany[] }>('list')
       setOwners(data.owners); setCompanies(data.companies)
-    } catch { /* handled */ } finally { setLoading(false) }
+    } catch (e) { console.error('Console load failed:', e) } finally { setLoading(false) }
   }, [call])
 
   useEffect(() => { load() }, [load])
@@ -411,7 +411,7 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
     try {
       const d = await call<{ invoices: Invoice[]; subscription: Subscription }>('list_invoices', { company_id: c.id })
       setInvoices(d.invoices); setSub(d.subscription)
-    } catch { /* */ } finally { setInvLoading(false) }
+    } catch (e) { console.error('Invoice load failed:', e) } finally { setInvLoading(false) }
   }, [call, c.id])
   useEffect(() => { loadInvoices() }, [loadInvoices])
 
@@ -967,7 +967,7 @@ function RecordPaymentDialog({ companyId, call, onClose, onSaved }: {
 function AuditTab({ call }: { call: <T,>(a: string, p?: Record<string, unknown>) => Promise<T> }) {
   const [entries, setEntries] = useState<AuditEntry[]>([])
   const [loading, setLoading] = useState(true)
-  useEffect(() => { call<{ entries: AuditEntry[] }>('audit_log').then(d => setEntries(d.entries)).catch(() => {}).finally(() => setLoading(false)) }, [call])
+  useEffect(() => { call<{ entries: AuditEntry[] }>('audit_log').then(d => setEntries(d.entries)).catch((e) => console.error('Audit log load failed:', e)).finally(() => setLoading(false)) }, [call])
   if (loading) return <div className="flex justify-center py-20"><Loader2 className="h-6 w-6 animate-spin text-slate-600" /></div>
   return (
     <div>
@@ -1230,19 +1230,21 @@ function AdminSettingsView({ call, onBack }: { call: <T,>(a: string, p?: Record<
     try {
       const d = await call<{ admins: ConsoleAdmin[]; company: ConsoleSettings | null }>('get_settings')
       setAdmins(d.admins); setCompany(d.company)
-    } catch { /* handled */ } finally { setLoading(false) }
+    } catch (e) { console.error('Console load failed:', e) } finally { setLoading(false) }
   }, [call])
   useEffect(() => { load() }, [load])
 
   function startEdit(a: ConsoleAdmin) { setEditId(a.id); setEUser(a.username); setEEmail(a.email ?? ''); setEPass('') }
   async function saveAdmin(id: string) {
+    if (ePass && ePass.length < 6) { alert('Password must be at least 6 characters.'); return }
     setBusy('admin')
-    try { await call('update_admin', { admin_id: id, username: eUser, email: eEmail, password: ePass || undefined }); setEditId(null); load() }
+    try { await call('update_admin', { admin_id: id, username: eUser.trim(), email: eEmail.trim(), password: ePass || undefined }); setEditId(null); load() }
     catch (e) { alert(e instanceof Error ? e.message : 'Failed') } finally { setBusy(null) }
   }
   async function addAdmin() {
+    if (!nUser.trim() || nPass.length < 6) { alert('Username and a password of at least 6 characters are required.'); return }
     setBusy('add')
-    try { await call('add_admin', { username: nUser, email: nEmail, password: nPass }); setAdding(false); setNUser(''); setNEmail(''); setNPass(''); load() }
+    try { await call('add_admin', { username: nUser.trim(), email: nEmail.trim(), password: nPass }); setAdding(false); setNUser(''); setNEmail(''); setNPass(''); load() }
     catch (e) { alert(e instanceof Error ? e.message : 'Failed') } finally { setBusy(null) }
   }
   async function delAdmin(a: ConsoleAdmin) {

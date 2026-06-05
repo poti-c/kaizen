@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Navigate } from 'react-router-dom'
 import { KeyRound, Eye, EyeOff, Loader2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
@@ -9,25 +9,30 @@ import { Label } from '@/components/ui/label'
 import { toast } from 'sonner'
 
 export function ChangePasswordPage() {
-  const { profile } = useAuth()
+  const { user, profile, loading, refreshProfile } = useAuth()
   const navigate = useNavigate()
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [showPw, setShowPw] = useState(false)
   const [saving, setSaving] = useState(false)
 
+  // Must be signed in to change a password
+  if (loading) return null
+  if (!user) return <Navigate to="/login" replace />
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (newPassword.length < 6) { toast.error('Password must be at least 6 characters.'); return }
     if (newPassword !== confirmPassword) { toast.error('Passwords do not match.'); return }
+    if (!profile?.id) { toast.error('Your profile is still loading — please wait a moment and try again.'); return }
     setSaving(true)
     try {
-      const { error } = await supabase.auth.updateUser({ password: newPassword })
-      if (error) throw error
-      // Clear the must_change_password flag
-      if (profile?.id) {
-        await supabase.from('kaizen_profiles').update({ must_change_password: false }).eq('id', profile.id)
-      }
+      const { error: pwErr } = await supabase.auth.updateUser({ password: newPassword })
+      if (pwErr) throw pwErr
+      // Clear the must_change_password flag (verify it persisted)
+      const { error: flagErr } = await supabase.from('kaizen_profiles').update({ must_change_password: false }).eq('id', profile.id)
+      if (flagErr) throw flagErr
+      await refreshProfile?.()
       toast.success('Password changed successfully.')
       navigate('/dashboard', { replace: true })
     } catch (err) {
