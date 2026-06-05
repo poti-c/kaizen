@@ -964,23 +964,24 @@ export function CaseDetailPage() {
         {/* Meta info */}
         <div className="space-y-2 text-xs text-gray-500">
 
-          {/* Row 1: Opened by + open date */}
-          <span className="flex items-center gap-1.5 flex-wrap">
-            <User className="h-3.5 w-3.5 flex-shrink-0 text-gray-400" />
-            <span className="text-gray-400 mr-0.5">Opened by:</span>
-            {(profile?.role === 'super_admin' || profile?.role === 'manager') && kcase.created_by ? (
-              <Link to={`/performance/${kcase.created_by}`} className="truncate text-[var(--brand-primary)] hover:underline font-medium">
-                {(kcase.creator as KaizenProfile)?.full_name || 'Unknown'}
-              </Link>
-            ) : (
-              <span className="truncate font-medium text-gray-700">{(kcase.creator as KaizenProfile)?.full_name || 'Unknown'}</span>
-            )}
-            <span className="text-gray-300">·</span>
-            <span className="flex items-center gap-1 text-gray-400">
-              <Calendar className="h-3 w-3 flex-shrink-0" />
+          {/* Row 1: Opened by | Open date — same 2-col grid as Row 3 */}
+          <div className="grid grid-cols-2 gap-x-4">
+            <span className="flex items-center gap-1.5">
+              <User className="h-3.5 w-3.5 flex-shrink-0 text-gray-400" />
+              <span className="text-gray-400 mr-0.5">Opened by:</span>
+              {(profile?.role === 'super_admin' || profile?.role === 'manager') && kcase.created_by ? (
+                <Link to={`/performance/${kcase.created_by}`} className="truncate text-[var(--brand-primary)] hover:underline font-medium">
+                  {(kcase.creator as KaizenProfile)?.full_name || 'Unknown'}
+                </Link>
+              ) : (
+                <span className="truncate font-medium text-gray-700">{(kcase.creator as KaizenProfile)?.full_name || 'Unknown'}</span>
+              )}
+            </span>
+            <span className="flex items-center gap-1.5">
+              <Calendar className="h-3.5 w-3.5 flex-shrink-0 text-gray-400" />
               <span>{new Date(kcase.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
             </span>
-          </span>
+          </div>
 
           {/* Row 2: In Charge — full width */}
           <div className="grid grid-cols-1 gap-x-4">
