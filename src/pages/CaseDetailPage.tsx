@@ -159,15 +159,13 @@ export function CaseDetailPage() {
   // ── Person in Charge ───────────────────────────────────────────────────────
   async function loadPicCandidates() {
     if (!kcase) return
-    let q = supabase.from('kaizen_profiles').select('*').eq('is_active', true).eq('company_id', kcase.company_id)
+    let q = supabase.from('kaizen_profiles').select('*').eq('is_active', true).eq('company_id', kcase.company_id).in('role', ['staff', 'manager'])
     if (profile?.role === 'manager') {
-      // Manager: same department staff + themselves
-      q = q.in('role', ['staff', 'manager']).eq('department', kcase.department)
-    } else {
-      // Super admin: all staff + managers (not other super_admins)
-      q = q.in('role', ['staff', 'manager'])
+      // Manager: same department only
+      q = q.eq('department', kcase.department)
     }
-    const { data } = await q.order('full_name')
+    // Super admin: all departments — no extra filter
+    const { data } = await q.order('department').order('role', { ascending: false }).order('full_name')
     setPicCandidates((data || []) as KaizenProfile[])
   }
 
@@ -956,30 +954,45 @@ export function CaseDetailPage() {
                     <SelectTrigger className="h-6 text-xs flex-1 min-w-0">
                       <SelectValue placeholder="Select…" />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent className="max-h-80">
                       {(() => {
                         const managers = picCandidates.filter(p => p.role === 'manager')
                         const staff = picCandidates.filter(p => p.role === 'staff')
-                        const deptLabel = DEPARTMENT_LABELS[kcase.department] || kcase.department
+                        // Group staff by department
+                        const staffByDept: Record<string, KaizenProfile[]> = {}
+                        staff.forEach(p => {
+                          const dept = p.department || 'other'
+                          if (!staffByDept[dept]) staffByDept[dept] = []
+                          staffByDept[dept].push(p)
+                        })
                         return (
                           <>
+                            {/* Managers section */}
                             {managers.length > 0 && (
                               <SelectGroup>
-                                <SelectLabel className="text-xs text-gray-400">{deptLabel} Manager</SelectLabel>
+                                <SelectLabel className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Managers</SelectLabel>
                                 {managers.map(p => (
-                                  <SelectItem key={p.id} value={p.id}>{p.full_name}</SelectItem>
+                                  <SelectItem key={p.id} value={p.id}>
+                                    <span>{p.full_name}</span>
+                                    <span className="ml-1.5 text-[10px] text-gray-400">{DEPARTMENT_LABELS[p.department] ?? p.department}</span>
+                                  </SelectItem>
                                 ))}
                               </SelectGroup>
                             )}
-                            {managers.length > 0 && staff.length > 0 && <div className="my-1 border-t border-gray-100" />}
-                            {staff.length > 0 && (
-                              <SelectGroup>
-                                <SelectLabel className="text-xs text-gray-400">{deptLabel} Staff</SelectLabel>
-                                {staff.map(p => (
-                                  <SelectItem key={p.id} value={p.id}>{p.full_name}</SelectItem>
-                                ))}
-                              </SelectGroup>
-                            )}
+                            {/* Staff grouped by department */}
+                            {Object.entries(staffByDept).map(([dept, members], idx) => (
+                              <React.Fragment key={dept}>
+                                {(managers.length > 0 || idx > 0) && <div className="my-1 border-t border-gray-100" />}
+                                <SelectGroup>
+                                  <SelectLabel className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                                    {DEPARTMENT_LABELS[dept as Department] ?? dept}
+                                  </SelectLabel>
+                                  {members.map(p => (
+                                    <SelectItem key={p.id} value={p.id}>{p.full_name}</SelectItem>
+                                  ))}
+                                </SelectGroup>
+                              </React.Fragment>
+                            ))}
                           </>
                         )
                       })()}
