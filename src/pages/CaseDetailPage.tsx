@@ -1177,18 +1177,25 @@ export function CaseDetailPage() {
           </div>
 
 
-          {/* Department assignments */}
-          {assignments.length > 0 && (
-            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
-              <h3 className="font-semibold text-gray-900 mb-3">{t.caseDetail.assignedDepts}</h3>
-              {/* Departments are derived automatically from the In Charge selection — read-only */}
-              <div className="flex flex-wrap gap-2">
-                {assignments.map((asn) => (
-                  <DepartmentBadge key={asn.id} department={asn.department} />
-                ))}
+          {/* Assigned Departments — auto-derived (read-only): the case's own
+              department + every In Charge member's department + any notified
+              departments. Top Management has no operational department. */}
+          {(() => {
+            const assignedDepts = [...new Set([
+              kcase.department,
+              ...picProfiles.map(p => p.department),
+              ...(kcase.assigned_departments || []),
+            ].filter((d): d is Department => !!d && d !== 'top_management'))]
+            if (assignedDepts.length === 0) return null
+            return (
+              <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
+                <h3 className="font-semibold text-gray-900 mb-3">{t.caseDetail.assignedDepts}</h3>
+                <div className="flex flex-wrap gap-2">
+                  {assignedDepts.map((dept) => <DepartmentBadge key={dept} department={dept} />)}
+                </div>
               </div>
-            </div>
-          )}
+            )
+          })()}
 
           {/* Resolution description + photos (if resolved / previously resolved) */}
           <ResolutionCard
