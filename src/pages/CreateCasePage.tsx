@@ -95,6 +95,7 @@ export function CreateCasePage() {
           category: category || null,
           category_other: category === 'other' ? categoryOther.trim() || null : null,
           location: location || null,
+          person_in_charge: profile.id,
           location_other: location === 'Others' ? locationOther.trim() || null : null,
           is_recurring: isRecurring,
         })

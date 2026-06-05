@@ -77,6 +77,18 @@ export function CaseDetailPage() {
   const [recurringCases, setRecurringCases] = useState<KaizenCase[]>([])
   const [recurringOpen, setRecurringOpen] = useState(false)
 
+  // Person in Charge
+  const [picProfile, setPicProfile] = useState<KaizenProfile | null>(null)
+  const [showPicEditor, setShowPicEditor] = useState(false)
+  const [picCandidates, setPicCandidates] = useState<KaizenProfile[]>([])
+  const [selectedPic, setSelectedPic] = useState<string>('')
+  const [savingPic, setSavingPic] = useState(false)
+
+  // Due date (manager can set if missing)
+  const [showDueDateEditor, setShowDueDateEditor] = useState(false)
+  const [newDueDate, setNewDueDate] = useState('')
+  const [savingDueDate, setSavingDueDate] = useState(false)
+
   // ── Incomplete info detection & fix ────────────────────────────────────────
   const [validDeptValues, setValidDeptValues] = useState<string[]>(DEPARTMENTS.map(d => d.value))
   const [validLocations, setValidLocations] = useState<string[]>([...LOCATIONS] as string[])
@@ -144,6 +156,47 @@ export function CaseDetailPage() {
   }
   // ───────────────────────────────────────────────────────────────────────────
 
+  // ── Person in Charge ───────────────────────────────────────────────────────
+  async function loadPicCandidates() {
+    if (!kcase) return
+    let q = supabase.from('kaizen_profiles').select('*').eq('is_active', true).eq('company_id', kcase.company_id)
+    if (profile?.role === 'manager') {
+      // Manager: same department staff + themselves
+      q = q.in('role', ['staff', 'manager']).eq('department', kcase.department)
+    } else {
+      // Super admin: all staff + managers (not other super_admins)
+      q = q.in('role', ['staff', 'manager'])
+    }
+    const { data } = await q.order('full_name')
+    setPicCandidates((data || []) as KaizenProfile[])
+  }
+
+  async function savePic() {
+    if (!kcase || !selectedPic) return
+    setSavingPic(true)
+    try {
+      await supabase.from('kaizen_cases').update({ person_in_charge: selectedPic, updated_at: new Date().toISOString() }).eq('id', id!)
+      const picName = picCandidates.find(p => p.id === selectedPic)?.full_name || 'Unknown'
+      await addTimeline('pic_changed', `Person in Charge set to ${picName}`)
+      setShowPicEditor(false)
+      fetchCase()
+    } finally { setSavingPic(false) }
+  }
+
+  // ── Due Date (manager can add if missing) ──────────────────────────────────
+  async function saveManagerDueDate() {
+    if (!kcase || !newDueDate) return
+    setSavingDueDate(true)
+    try {
+      await supabase.from('kaizen_cases').update({ due_date: newDueDate, updated_at: new Date().toISOString() }).eq('id', id!)
+      await addTimeline('due_date_set', `Due date set to ${new Date(newDueDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`)
+      setShowDueDateEditor(false)
+      setNewDueDate('')
+      fetchCase()
+    } finally { setSavingDueDate(false) }
+  }
+  // ───────────────────────────────────────────────────────────────────────────
+
   useEffect(() => {
     if (id) fetchCase()
   }, [id])
@@ -179,6 +232,14 @@ export function CaseDetailPage() {
         setRecurringCases((recurring || []) as KaizenCase[])
       } else {
         setRecurringCases([])
+      }
+
+      // Fetch PIC profile
+      const picId = data.person_in_charge || data.created_by
+      if (picId) {
+        const { data: pic } = await supabase.from('kaizen_profiles').select('*').eq('id', picId).single()
+        setPicProfile(pic as KaizenProfile | null)
+        setSelectedPic(picId)
       }
     }
 
@@ -862,35 +923,105 @@ export function CaseDetailPage() {
           )
         })()}
 
-        {/* Meta info — 2-column grid */}
-        <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs text-gray-500">
-          <span className="flex items-center gap-1.5">
-            <User className="h-3.5 w-3.5 flex-shrink-0 text-gray-400" />
-            {(profile?.role === 'super_admin' || profile?.role === 'manager') && kcase.created_by ? (
-              <Link
-                to={`/performance/${kcase.created_by}`}
-                className="truncate text-[var(--brand-primary)] hover:underline font-medium"
-              >
-                {(kcase.creator as KaizenProfile)?.full_name || 'Unknown'}
-              </Link>
-            ) : (
-              <span className="truncate">{(kcase.creator as KaizenProfile)?.full_name || 'Unknown'}</span>
-            )}
-          </span>
-          <span className="flex items-center gap-1.5">
-            <Calendar className="h-3.5 w-3.5 flex-shrink-0 text-gray-400" />
-            <span className="truncate">{new Date(kcase.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
-          </span>
-          <span className="flex items-center gap-1.5">
-            <Clock className="h-3.5 w-3.5 flex-shrink-0 text-gray-400" />
-            <span>{t.caseDetail.openFor} {formatDuration(kcase.created_at, kcase.closed_at || undefined)}</span>
-          </span>
-          {kcase.due_date && (
-            <span className={cn('flex items-center gap-1.5', new Date(kcase.due_date) < new Date() && kcase.status !== 'closed' ? 'text-red-500 font-semibold' : '')}>
-              <Calendar className="h-3.5 w-3.5 flex-shrink-0 text-gray-400" />
-              <span>{new Date(kcase.due_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}{new Date(kcase.due_date) < new Date() && kcase.status !== 'closed' && ' ⚠️'}</span>
+        {/* Meta info */}
+        <div className="space-y-2 text-xs text-gray-500">
+
+          {/* Row 1: Reported By + Date */}
+          <div className="grid grid-cols-2 gap-x-4">
+            <span className="flex items-center gap-1.5">
+              <User className="h-3.5 w-3.5 flex-shrink-0 text-gray-400" />
+              <span className="text-gray-400 mr-0.5">By:</span>
+              {(profile?.role === 'super_admin' || profile?.role === 'manager') && kcase.created_by ? (
+                <Link to={`/performance/${kcase.created_by}`} className="truncate text-[var(--brand-primary)] hover:underline font-medium">
+                  {(kcase.creator as KaizenProfile)?.full_name || 'Unknown'}
+                </Link>
+              ) : (
+                <span className="truncate font-medium text-gray-700">{(kcase.creator as KaizenProfile)?.full_name || 'Unknown'}</span>
+              )}
             </span>
-          )}
+            <span className="flex items-center gap-1.5">
+              <Calendar className="h-3.5 w-3.5 flex-shrink-0 text-gray-400" />
+              <span>{new Date(kcase.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
+            </span>
+          </div>
+
+          {/* Row 2: Person in Charge + Open duration */}
+          <div className="grid grid-cols-2 gap-x-4">
+            <div className="flex items-center gap-1.5">
+              <User className="h-3.5 w-3.5 flex-shrink-0 text-[var(--brand-primary)]" />
+              <span className="text-gray-400 mr-0.5">PIC:</span>
+              {showPicEditor ? (
+                <div className="flex items-center gap-1 flex-1">
+                  <Select value={selectedPic} onValueChange={setSelectedPic}>
+                    <SelectTrigger className="h-6 text-xs flex-1 min-w-0">
+                      <SelectValue placeholder="Select…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {picCandidates.map(p => (
+                        <SelectItem key={p.id} value={p.id}>{p.full_name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <button onClick={savePic} disabled={savingPic} className="text-[var(--brand-primary)] font-semibold hover:opacity-75 flex-shrink-0">
+                    {savingPic ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Save'}
+                  </button>
+                  <button onClick={() => setShowPicEditor(false)} className="text-gray-400 hover:text-gray-600 flex-shrink-0">
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <span className="font-medium text-gray-700 truncate">{picProfile?.full_name || (kcase.creator as KaizenProfile)?.full_name || 'Unknown'}</span>
+                  {canManagerAssign && kcase.status !== 'closed' && (
+                    <button
+                      onClick={() => { loadPicCandidates(); setShowPicEditor(true) }}
+                      className="ml-1 text-gray-400 hover:text-[var(--brand-primary)] flex-shrink-0"
+                      title="Change Person in Charge"
+                    >
+                      <Pencil className="h-3 w-3" />
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
+            <span className="flex items-center gap-1.5">
+              <Clock className="h-3.5 w-3.5 flex-shrink-0 text-gray-400" />
+              <span>{t.caseDetail.openFor} {formatDuration(kcase.created_at, kcase.closed_at || undefined)}</span>
+            </span>
+          </div>
+
+          {/* Row 3: Due date (or add-due-date for managers) */}
+          <div className="flex items-center gap-1.5">
+            <Calendar className="h-3.5 w-3.5 flex-shrink-0 text-gray-400" />
+            {kcase.due_date ? (
+              <span className={cn(new Date(kcase.due_date) < new Date() && kcase.status !== 'closed' ? 'text-red-500 font-semibold' : '')}>
+                Due: {new Date(kcase.due_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                {new Date(kcase.due_date) < new Date() && kcase.status !== 'closed' && ' ⚠️'}
+              </span>
+            ) : canManagerAssign && kcase.status !== 'closed' ? (
+              showDueDateEditor ? (
+                <div className="flex items-center gap-1">
+                  <Input type="date" value={newDueDate} onChange={e => setNewDueDate(e.target.value)}
+                    className="h-6 text-xs w-32 px-1.5" />
+                  <button onClick={saveManagerDueDate} disabled={savingDueDate || !newDueDate}
+                    className="text-[var(--brand-primary)] font-semibold hover:opacity-75 flex-shrink-0 text-xs">
+                    {savingDueDate ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Save'}
+                  </button>
+                  <button onClick={() => setShowDueDateEditor(false)} className="text-gray-400 hover:text-gray-600">
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              ) : (
+                <button onClick={() => setShowDueDateEditor(true)}
+                  className="text-gray-400 hover:text-[var(--brand-primary)] flex items-center gap-1 transition-colors">
+                  <span>+ Add due date</span>
+                </button>
+              )
+            ) : (
+              <span className="text-gray-300">No due date</span>
+            )}
+          </div>
+
         </div>
       </div>
 
