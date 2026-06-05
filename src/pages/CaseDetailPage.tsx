@@ -224,7 +224,10 @@ export function CaseDetailPage() {
         await addTimeline('dept_notified', `Departments notified: ${deptNames}`)
       }
 
-      if (notifRows.length) await supabase.from('kaizen_notifications').insert(notifRows)
+      if (notifRows.length) {
+        await supabase.from('kaizen_notifications').insert(notifRows)
+        toast.success(`Notified ${notifRows.length} ${notifRows.length === 1 ? 'person' : 'people'}`)
+      }
 
       // Auto-add departments of selected PICs + notified depts to assigned_departments
       const picDepts = selectedPics
