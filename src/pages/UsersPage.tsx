@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Plus, Trash2, Shield, Users, Loader2, Eye, EyeOff, Pencil, PowerOff, Power, KeyRound, History } from 'lucide-react'
+import { Plus, Trash2, Shield, Users, Loader2, Eye, EyeOff, Pencil, PowerOff, Power, KeyRound, History, AlertTriangle } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { createClient } from '@supabase/supabase-js'
 import { useAuth } from '@/contexts/AuthContext'
@@ -26,6 +26,7 @@ export function UsersPage() {
   const { isOnline } = usePresence()
   const { t, lang } = useLanguage()
   const [users, setUsers] = useState<KaizenProfile[]>([])
+  const [usage, setUsage] = useState<{ managers: number; staff: number }>({ managers: 0, staff: 0 })
   const [loading, setLoading] = useState(true)
   const [showCreate, setShowCreate] = useState(false)
   const [creating, setCreating] = useState(false)
@@ -96,6 +97,20 @@ export function UsersPage() {
     const { data } = await query
     setUsers((data || []) as KaizenProfile[])
     setLoading(false)
+    fetchUsage()
+  }
+
+  // Company-wide active manager/staff counts (independent of the dept-filtered
+  // list a manager sees) so the package limit hint is accurate for everyone.
+  async function fetchUsage() {
+    if (!activeCompany) return
+    const base = () => supabase.from('kaizen_profiles').select('id', { count: 'exact', head: true })
+      .eq('company_id', activeCompany.id).eq('is_active', true).is('deleted_at', null)
+    const [{ count: managers }, { count: staff }] = await Promise.all([
+      base().eq('role', 'manager'),
+      base().eq('role', 'staff'),
+    ])
+    setUsage({ managers: managers ?? 0, staff: staff ?? 0 })
   }
 
   async function logActivity(targetUser: KaizenProfile, action: string, details?: string) {
@@ -285,6 +300,20 @@ export function UsersPage() {
   const roleIcons = { super_admin: Shield, manager: Shield, staff: Users }
   const roleLabels = { super_admin: t.users.superAdmins, manager: t.users.managers, staff: t.users.staff }
 
+  // ── Package user limits ──────────────────────────────────────────────────
+  const maxManagers = activeCompany?.max_managers ?? null
+  const maxStaff = activeCompany?.max_staff ?? null
+  const managersFull = maxManagers != null && usage.managers >= maxManagers
+  const staffFull = maxStaff != null && usage.staff >= maxStaff
+  // Role that the create dialog will produce (managers always create staff)
+  const creatingRole: Role = profile?.role === 'manager' ? 'staff' : newRole
+  const selectedRoleFull = creatingRole === 'manager' ? managersFull : creatingRole === 'staff' ? staffFull : false
+  // Managers only add staff, so their header button can hard-disable at the cap
+  const managerAddBlocked = profile?.role === 'manager' && staffFull
+  const limitMsg = (role: Role) => role === 'manager'
+    ? `Manager limit reached (${usage.managers}/${maxManagers}). Upgrade the package to add more.`
+    : `Staff limit reached (${usage.staff}/${maxStaff}). Upgrade the package to add more.`
+
   const ACTION_LABELS: Record<string, string> = {
     edit_profile: 'Edited profile',
     reset_password: 'Reset password',
@@ -308,9 +337,19 @@ export function UsersPage() {
             </Button>
           )}
           {(profile?.role === 'super_admin' || profile?.role === 'manager') && (
-            <Button onClick={() => setShowCreate(true)}>
-              <Plus className="h-4 w-4" />{profile?.role === 'manager' ? 'Add Staff' : t.users.addUser}
-            </Button>
+            <div className="flex flex-col items-end gap-1">
+              <Button onClick={() => setShowCreate(true)} disabled={managerAddBlocked}
+                title={managerAddBlocked ? limitMsg('staff') : undefined}>
+                <Plus className="h-4 w-4" />{profile?.role === 'manager' ? 'Add Staff' : t.users.addUser}
+              </Button>
+              {(maxManagers != null || maxStaff != null) && (
+                <p className="text-[11px] text-gray-400">
+                  {maxManagers != null && <span className={managersFull ? 'text-amber-600 font-medium' : ''}>Managers {usage.managers}/{maxManagers}</span>}
+                  {maxManagers != null && maxStaff != null && ' · '}
+                  {maxStaff != null && <span className={staffFull ? 'text-amber-600 font-medium' : ''}>Staff {usage.staff}/{maxStaff}</span>}
+                </p>
+              )}
+            </div>
           )}
         </div>
       </div>
@@ -501,10 +540,16 @@ export function UsersPage() {
                 <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">{showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}</button>
               </div>
             </div>
+            {selectedRoleFull && (
+              <div className="flex items-start gap-2 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-xs px-3 py-2">
+                <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+                <span>{limitMsg(creatingRole)}</span>
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => { setShowCreate(false); resetForm() }}>{t.users.cancel}</Button>
-            <Button onClick={handleCreate} disabled={creating}>{creating ? <Loader2 className="h-4 w-4 animate-spin" /> : t.users.createAccount}</Button>
+            <Button onClick={handleCreate} disabled={creating || selectedRoleFull}>{creating ? <Loader2 className="h-4 w-4 animate-spin" /> : t.users.createAccount}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
