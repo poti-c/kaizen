@@ -3,8 +3,9 @@ import {
   Lock, Loader2, LogOut, Plus, Building2, Crown, Power,
   Trash2, X, Eye, EyeOff, Users, UserCog, ScrollText, AlertTriangle, Check,
   ChevronRight, ChevronDown, Pencil, CalendarDays, ArrowLeft, Receipt, Upload, ImageIcon, Clock, Link2, KeyRound,
-  Settings, Mail, UserPlus, Building,
+  Settings, Mail, UserPlus, Building, FileText,
 } from 'lucide-react'
+import { FormGeneratorView } from './console/FormGenerator'
 
 // ── Console API client ───────────────────────────────────────────────────────
 const FN_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/kaizen-console`
@@ -211,6 +212,7 @@ function Dashboard({ token, onLogout }: { token: string; onLogout: () => void })
   const [preselectCompany, setPreselectCompany] = useState<string | null>(null)
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null)
   const [showSettings, setShowSettings] = useState(false)
+  const [showForms, setShowForms] = useState(false)
 
   const call = useCallback(async <T,>(action: string, payload: Record<string, unknown> = {}): Promise<T> => {
     try { return await callConsole<T>(action, payload, token) }
@@ -238,7 +240,11 @@ function Dashboard({ token, onLogout }: { token: string; onLogout: () => void })
             <h1 className="text-sm font-bold text-white leading-tight">Kaizen System</h1>
             <p className="text-[11px] text-slate-500 leading-tight">System Console · by NNR Solutions</p>
           </div>
-          <button onClick={() => { setShowSettings(true); setSelectedCompanyId(null) }} title="Admin Settings"
+          <button onClick={() => { setShowForms(true); setShowSettings(false); setSelectedCompanyId(null) }} title="Form Generator"
+            className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg hover:bg-slate-800 ${showForms ? 'text-amber-400' : 'text-slate-400 hover:text-white'}`}>
+            <FileText className="h-3.5 w-3.5" />Form Generator
+          </button>
+          <button onClick={() => { setShowSettings(true); setShowForms(false); setSelectedCompanyId(null) }} title="Admin Settings"
             className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg hover:bg-slate-800 ${showSettings ? 'text-amber-400' : 'text-slate-400 hover:text-white'}`}>
             <Settings className="h-3.5 w-3.5" />Settings
           </button>
@@ -246,7 +252,7 @@ function Dashboard({ token, onLogout }: { token: string; onLogout: () => void })
             <LogOut className="h-3.5 w-3.5" />Sign Out
           </button>
         </div>
-        {!selectedCompany && !showSettings && (
+        {!selectedCompany && !showSettings && !showForms && (
           <div className="max-w-5xl mx-auto px-4 flex gap-1">
             {([['companies', 'Companies', Building2], ['audit', 'Audit Log', ScrollText]] as const).map(([key, label, Icon]) => (
               <button key={key} onClick={() => setTab(key)}
@@ -259,7 +265,9 @@ function Dashboard({ token, onLogout }: { token: string; onLogout: () => void })
       </header>
 
       <main className="max-w-5xl mx-auto px-4 py-6">
-        {showSettings ? (
+        {showForms ? (
+          <FormGeneratorView call={call} onBack={() => setShowForms(false)} />
+        ) : showSettings ? (
           <AdminSettingsView call={call} onBack={() => setShowSettings(false)} />
         ) : loading ? (
           <div className="flex justify-center py-20"><Loader2 className="h-6 w-6 animate-spin text-slate-600" /></div>
