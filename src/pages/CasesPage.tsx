@@ -208,19 +208,22 @@ export function CasesPage() {
     })
   }
 
-  // Split into active, pending approval, and closed
-  const PENDING_STATUSES = ['pending_manager_approval', 'pending_admin_approval']
-  const activeCases  = sortCases(filtered.filter(c => c.status !== 'closed' && !PENDING_STATUSES.includes(c.status)))
-  const pendingCases = sortCases(filtered.filter(c => PENDING_STATUSES.includes(c.status)))
-  const closedCases  = sortCases(filtered.filter(c => c.status === 'closed'))
+  // Split into active, two pending levels, and closed
+  const activeCases       = sortCases(filtered.filter(c => !['closed','pending_manager_approval','pending_admin_approval'].includes(c.status)))
+  const pendingMgrCases   = sortCases(filtered.filter(c => c.status === 'pending_manager_approval'))
+  const pendingAdminCases = sortCases(filtered.filter(c => c.status === 'pending_admin_approval'))
+  const closedCases       = sortCases(filtered.filter(c => c.status === 'closed'))
 
-  const totalActivePages  = Math.ceil(activeCases.length / PAGE_SIZE)
-  const totalPendingPages = Math.ceil(pendingCases.length / PAGE_SIZE)
-  const totalClosedPages  = Math.ceil(closedCases.length / PAGE_SIZE)
-  const [pagePending, setPagePending] = React.useState(1)
-  const paginatedActive  = activeCases.slice((pageActive - 1) * PAGE_SIZE, pageActive * PAGE_SIZE)
-  const paginatedPending = pendingCases.slice((pagePending - 1) * PAGE_SIZE, pagePending * PAGE_SIZE)
-  const paginatedClosed  = closedCases.slice((pageClosed - 1) * PAGE_SIZE, pageClosed * PAGE_SIZE)
+  const totalActivePages     = Math.ceil(activeCases.length / PAGE_SIZE)
+  const totalPendingMgrPages = Math.ceil(pendingMgrCases.length / PAGE_SIZE)
+  const totalPendingAdmPages = Math.ceil(pendingAdminCases.length / PAGE_SIZE)
+  const totalClosedPages     = Math.ceil(closedCases.length / PAGE_SIZE)
+  const [pagePendingMgr, setPagePendingMgr] = React.useState(1)
+  const [pagePendingAdm, setPagePendingAdm] = React.useState(1)
+  const paginatedActive     = activeCases.slice((pageActive - 1) * PAGE_SIZE, pageActive * PAGE_SIZE)
+  const paginatedPendingMgr = pendingMgrCases.slice((pagePendingMgr - 1) * PAGE_SIZE, pagePendingMgr * PAGE_SIZE)
+  const paginatedPendingAdm = pendingAdminCases.slice((pagePendingAdm - 1) * PAGE_SIZE, pagePendingAdm * PAGE_SIZE)
+  const paginatedClosed     = closedCases.slice((pageClosed - 1) * PAGE_SIZE, pageClosed * PAGE_SIZE)
 
   function exportCSV() {
     const headers = ['Case #', 'Date', 'Title', 'Description', 'Department', 'Category', 'Priority', 'Status', 'Due Date', 'Duration']
@@ -654,31 +657,59 @@ export function CasesPage() {
             </div>
           )}
 
-          {/* ── Pending Approval ── */}
-          {showActive && pendingCases.length > 0 && (
+          {/* ── Pending Manager Approval ── */}
+          {showActive && pendingMgrCases.length > 0 && (
             <div>
               <div className="flex items-center justify-between mb-3">
                 <h2 className="text-base font-semibold text-amber-700">
-                  Pending Approval
-                  <span className="ml-2 text-sm font-normal text-amber-400">{pendingCases.length}</span>
+                  Pending Manager Approval
+                  <span className="ml-2 text-sm font-normal text-amber-400">{pendingMgrCases.length}</span>
                 </h2>
               </div>
               <div className="md:hidden space-y-2">
-                {paginatedPending.map((c) => <MobileCard key={c.id} c={c} />)}
+                {paginatedPendingMgr.map((c) => <MobileCard key={c.id} c={c} />)}
               </div>
               <div className="hidden md:block bg-white rounded-xl border border-amber-200 shadow-sm overflow-hidden">
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead><CaseTableHeader /></thead>
                     <tbody className="divide-y divide-gray-50">
-                      {paginatedPending.map((c) => <CaseRow key={c.id} c={c} />)}
+                      {paginatedPendingMgr.map((c) => <CaseRow key={c.id} c={c} />)}
                     </tbody>
                   </table>
                 </div>
               </div>
-              <Pagination page={pagePending} totalPages={totalPendingPages} total={pendingCases.length}
-                onPrev={() => setPagePending(p => Math.max(1, p - 1))}
-                onNext={() => setPagePending(p => Math.min(totalPendingPages, p + 1))} />
+              <Pagination page={pagePendingMgr} totalPages={totalPendingMgrPages} total={pendingMgrCases.length}
+                onPrev={() => setPagePendingMgr(p => Math.max(1, p - 1))}
+                onNext={() => setPagePendingMgr(p => Math.min(totalPendingMgrPages, p + 1))} />
+            </div>
+          )}
+
+          {/* ── Pending Top Management Approval ── */}
+          {showActive && pendingAdminCases.length > 0 && (
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-base font-semibold text-violet-700">
+                  Pending Top Management Approval
+                  <span className="ml-2 text-sm font-normal text-violet-400">{pendingAdminCases.length}</span>
+                </h2>
+              </div>
+              <div className="md:hidden space-y-2">
+                {paginatedPendingAdm.map((c) => <MobileCard key={c.id} c={c} />)}
+              </div>
+              <div className="hidden md:block bg-white rounded-xl border border-violet-200 shadow-sm overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead><CaseTableHeader /></thead>
+                    <tbody className="divide-y divide-gray-50">
+                      {paginatedPendingAdm.map((c) => <CaseRow key={c.id} c={c} />)}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+              <Pagination page={pagePendingAdm} totalPages={totalPendingAdmPages} total={pendingAdminCases.length}
+                onPrev={() => setPagePendingAdm(p => Math.max(1, p - 1))}
+                onNext={() => setPagePendingAdm(p => Math.min(totalPendingAdmPages, p + 1))} />
             </div>
           )}
 
