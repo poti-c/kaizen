@@ -963,27 +963,21 @@ export function CaseDetailPage() {
         {/* Meta info */}
         <div className="space-y-2 text-xs text-gray-500">
 
-          {/* Row 1: Reported By + Date */}
-          <div className="grid grid-cols-2 gap-x-4">
-            <span className="flex items-center gap-1.5">
-              <User className="h-3.5 w-3.5 flex-shrink-0 text-gray-400" />
-              <span className="text-gray-400 mr-0.5">Opened by:</span>
-              {(profile?.role === 'super_admin' || profile?.role === 'manager') && kcase.created_by ? (
-                <Link to={`/performance/${kcase.created_by}`} className="truncate text-[var(--brand-primary)] hover:underline font-medium">
-                  {(kcase.creator as KaizenProfile)?.full_name || 'Unknown'}
-                </Link>
-              ) : (
-                <span className="truncate font-medium text-gray-700">{(kcase.creator as KaizenProfile)?.full_name || 'Unknown'}</span>
-              )}
-            </span>
-            <span className="flex items-center gap-1.5">
-              <Calendar className="h-3.5 w-3.5 flex-shrink-0 text-gray-400" />
-              <span>{new Date(kcase.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
-            </span>
-          </div>
+          {/* Row 1: Opened by (full width) */}
+          <span className="flex items-center gap-1.5">
+            <User className="h-3.5 w-3.5 flex-shrink-0 text-gray-400" />
+            <span className="text-gray-400 mr-0.5">Opened by:</span>
+            {(profile?.role === 'super_admin' || profile?.role === 'manager') && kcase.created_by ? (
+              <Link to={`/performance/${kcase.created_by}`} className="truncate text-[var(--brand-primary)] hover:underline font-medium">
+                {(kcase.creator as KaizenProfile)?.full_name || 'Unknown'}
+              </Link>
+            ) : (
+              <span className="truncate font-medium text-gray-700">{(kcase.creator as KaizenProfile)?.full_name || 'Unknown'}</span>
+            )}
+          </span>
 
-          {/* Row 2: Person in Charge + Open duration */}
-          <div className="grid grid-cols-2 gap-x-4">
+          {/* Row 2: In Charge — full width */}
+          <div className="grid grid-cols-1 gap-x-4">
             <div className="flex items-start gap-1.5">
               <User className="h-3.5 w-3.5 flex-shrink-0 text-[var(--brand-primary)] mt-0.5" />
               <div className="flex-1 min-w-0">
@@ -1083,42 +1077,44 @@ export function CaseDetailPage() {
                 )}
               </div>
             </div>
-            <span className="flex items-center gap-1.5">
-              <Clock className="h-3.5 w-3.5 flex-shrink-0 text-gray-400" />
-              <span>{t.caseDetail.openFor} {formatDuration(kcase.created_at, kcase.closed_at || undefined)}</span>
-            </span>
           </div>
 
-          {/* Row 3: Due date (or add-due-date for managers) */}
-          <div className="flex items-center gap-1.5">
-            <Calendar className="h-3.5 w-3.5 flex-shrink-0 text-gray-400" />
-            {kcase.due_date ? (
-              <span className={cn(new Date(kcase.due_date) < new Date() && kcase.status !== 'closed' ? 'text-red-500 font-semibold' : '')}>
-                Due: {new Date(kcase.due_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
-                {new Date(kcase.due_date) < new Date() && kcase.status !== 'closed' && ' ⚠️'}
-              </span>
-            ) : canManagerAssign && kcase.status !== 'closed' ? (
-              showDueDateEditor ? (
-                <div className="flex items-center gap-1">
-                  <Input type="date" value={newDueDate} onChange={e => setNewDueDate(e.target.value)}
-                    className="h-6 text-xs w-32 px-1.5" />
-                  <button onClick={saveManagerDueDate} disabled={savingDueDate || !newDueDate}
-                    className="text-[var(--brand-primary)] font-semibold hover:opacity-75 flex-shrink-0 text-xs">
-                    {savingDueDate ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Save'}
+          {/* Row 3: Open date | Due date */}
+          <div className="grid grid-cols-2 gap-x-4">
+            <span className="flex items-center gap-1.5">
+              <Calendar className="h-3.5 w-3.5 flex-shrink-0 text-gray-400" />
+              <span>{new Date(kcase.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
+            </span>
+            <div className="flex items-center gap-1.5">
+              <Calendar className="h-3.5 w-3.5 flex-shrink-0 text-gray-400" />
+              {kcase.due_date ? (
+                <span className={cn(new Date(kcase.due_date) < new Date() && kcase.status !== 'closed' ? 'text-red-500 font-semibold' : '')}>
+                  Due: {new Date(kcase.due_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                  {new Date(kcase.due_date) < new Date() && kcase.status !== 'closed' && ' ⚠️'}
+                </span>
+              ) : canManagerAssign && kcase.status !== 'closed' ? (
+                showDueDateEditor ? (
+                  <div className="flex items-center gap-1">
+                    <Input type="date" value={newDueDate} onChange={e => setNewDueDate(e.target.value)}
+                      className="h-6 text-xs w-32 px-1.5" />
+                    <button onClick={saveManagerDueDate} disabled={savingDueDate || !newDueDate}
+                      className="text-[var(--brand-primary)] font-semibold hover:opacity-75 flex-shrink-0 text-xs">
+                      {savingDueDate ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Save'}
+                    </button>
+                    <button onClick={() => setShowDueDateEditor(false)} className="text-gray-400 hover:text-gray-600">
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                ) : (
+                  <button onClick={() => setShowDueDateEditor(true)}
+                    className="text-gray-400 hover:text-[var(--brand-primary)] flex items-center gap-1 transition-colors">
+                    <span>+ Add due date</span>
                   </button>
-                  <button onClick={() => setShowDueDateEditor(false)} className="text-gray-400 hover:text-gray-600">
-                    <X className="h-3 w-3" />
-                  </button>
-                </div>
+                )
               ) : (
-                <button onClick={() => setShowDueDateEditor(true)}
-                  className="text-gray-400 hover:text-[var(--brand-primary)] flex items-center gap-1 transition-colors">
-                  <span>+ Add due date</span>
-                </button>
-              )
-            ) : (
-              <span className="text-gray-300">No due date</span>
-            )}
+                <span className="text-gray-300">No due date</span>
+              )}
+            </div>
           </div>
 
         </div>
