@@ -185,7 +185,8 @@ export function UsersPage() {
         })
       }
 
-      await supabase.from('kaizen_profiles').update(updates).eq('id', editUser.id)
+      const { error: updateErr } = await supabase.from('kaizen_profiles').update(updates).eq('id', editUser.id)
+      if (updateErr) throw updateErr
 
       const changes: string[] = []
       if (editFullName.trim() !== editUser.full_name) changes.push(`Name → ${editFullName.trim()}`)
@@ -197,7 +198,7 @@ export function UsersPage() {
 
       toast.success('User updated.')
       setShowEdit(false); fetchUsers()
-    } catch { toast.error(t.users.failedCreate) }
+    } catch (err) { toast.error(err instanceof Error ? err.message : 'Failed to save changes.') }
     finally { setSaving(false) }
   }
 
