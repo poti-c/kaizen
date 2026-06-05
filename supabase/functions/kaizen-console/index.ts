@@ -547,11 +547,97 @@ Deno.serve(async (req) => {
   const FORM_PREFIX = { quotation: "QT", invoice: "INV", tax_invoice_receipt: "TAX", receipt: "RC" };
 
   if (action === "list_forms") {
-    const { data: forms } = await admin.from("kaizen_generated_forms").select("*").order("created_at", { ascending: false });
-    const { data: companies } = await admin.from("kaizen_companies")
-      .select("id, name, address, tax_id, contact_person, contact_phone, contact_email").order("name");
-    const { data: settings } = await admin.from("kaizen_console_settings").select("*").eq("id", true).maybeSingle();
-    return json({ forms: forms ?? [], companies: companies ?? [], issuer: settings ?? null });
+    const [formsRes, companiesRes, settingsRes, productsRes, promosRes] = await Promise.all([
+      admin.from("kaizen_generated_forms").select("*").order("created_at", { ascending: false }),
+      admin.from("kaizen_companies").select("id, name, address, tax_id, contact_person, contact_phone, contact_email").order("name"),
+      admin.from("kaizen_console_settings").select("*").eq("id", true).maybeSingle(),
+      admin.from("kaizen_products").select("*").eq("is_active", true).order("sort_order"),
+      admin.from("kaizen_promo_codes").select("*").eq("is_active", true).order("created_at", { ascending: false }),
+    ]);
+    return json({
+      forms: formsRes.data ?? [], companies: companiesRes.data ?? [], issuer: settingsRes.data ?? null,
+      products: productsRes.data ?? [], promos: promosRes.data ?? [],
+    });
+  }
+
+  // ── Products catalog ──────────────────────────────────────────────────────
+  if (action === "list_products") {
+    const { data } = await admin.from("kaizen_products").select("*").order("kind").order("sort_order");
+    return json({ products: data ?? [] });
+  }
+
+  if (action === "upsert_product") {
+    const p = body.product ?? {};
+    const kind = ["package", "addon", "custom"].includes(p.kind) ? p.kind : "custom";
+    const name = cleanStr(p.name);
+    if (!name) return json({ error: "Product name is required." }, 400);
+    const row = {
+      kind, name,
+      key: cleanStr(p.key),
+      description: cleanStr(p.description),
+      price: Number(p.price) || 0,
+      currency: cleanStr(p.currency) ?? "THB",
+      duration_label: cleanStr(p.duration_label),
+      duration_days: (p.duration_days === null || p.duration_days === undefined || p.duration_days === "") ? null : Number(p.duration_days),
+      max_managers: (p.max_managers === null || p.max_managers === undefined || p.max_managers === "") ? null : Number(p.max_managers),
+      max_staff: (p.max_staff === null || p.max_staff === undefined || p.max_staff === "") ? null : Number(p.max_staff),
+      multi_company: !!p.multi_company,
+      features: (p.features && typeof p.features === "object") ? p.features : {},
+      sort_order: Number(p.sort_order) || 0,
+      is_active: p.is_active === undefined ? true : !!p.is_active,
+      updated_at: new Date().toISOString(),
+    };
+    let res;
+    if (p.id) res = await admin.from("kaizen_products").update(row).eq("id", String(p.id)).select("*").single();
+    else res = await admin.from("kaizen_products").insert(row).select("*").single();
+    if (res.error) return json({ error: res.error.message }, 400);
+    await audit("upsert_product", { id: res.data.id, name, kind }, ip, true);
+    return json({ success: true, product: res.data });
+  }
+
+  if (action === "delete_product") {
+    const product_id = String(body.product_id ?? "");
+    if (!product_id) return json({ error: "product_id required" }, 400);
+    const { error } = await admin.from("kaizen_products").delete().eq("id", product_id);
+    if (error) return json({ error: error.message }, 400);
+    await audit("delete_product", { product_id }, ip, true);
+    return json({ success: true });
+  }
+
+  // ── Promo codes ───────────────────────────────────────────────────────────
+  if (action === "list_promos") {
+    const { data } = await admin.from("kaizen_promo_codes").select("*").order("created_at", { ascending: false });
+    return json({ promos: data ?? [] });
+  }
+
+  if (action === "upsert_promo") {
+    const p = body.promo ?? {};
+    const code = cleanStr(p.code);
+    if (!code) return json({ error: "Promo code is required." }, 400);
+    const row = {
+      code: code.toUpperCase(),
+      discount_percent: Math.max(0, Math.min(100, Number(p.discount_percent) || 0)),
+      valid_from: cleanStr(p.valid_from),
+      valid_to: cleanStr(p.valid_to),
+      is_active: p.is_active === undefined ? true : !!p.is_active,
+      notes: cleanStr(p.notes),
+      updated_at: new Date().toISOString(),
+    };
+    let res;
+    if (p.id) res = await admin.from("kaizen_promo_codes").update(row).eq("id", String(p.id)).select("*").single();
+    else res = await admin.from("kaizen_promo_codes").insert(row).select("*").single();
+    if (res.error) return json({ error: res.error.message }, 400);
+    await audit("upsert_promo", { id: res.data.id, code: row.code }, ip, true);
+    return json({ success: true, promo: res.data });
+  }
+
+  if (action === "delete_promo") {
+    const promo_id = String(body.promo_id ?? "");
+    if (!promo_id) return json({ error: "promo_id required" }, 400);
+    const { error } = await admin.from("kaizen_promo_codes").delete().eq("id", promo_id);
+    if (error) return json({ error: error.message }, 400);
+    await audit("delete_promo", { promo_id }, ip, true);
+    return json({ success: true });
   }
 
   if (action === "create_form") {
@@ -572,8 +658,13 @@ Deno.serve(async (req) => {
     const vat_rate = (body.vat_rate !== undefined && body.vat_rate !== null && body.vat_rate !== "") ? Number(body.vat_rate) : 7;
     const non_vat_amount = Number(body.non_vat_amount) || 0;
     const subtotal = Math.round(cleanItems.reduce((s, it) => s + it.qty * it.unit_price, 0) * 100) / 100;
-    const vat_amount = Math.round(subtotal * (vat_rate / 100) * 100) / 100;
-    const total = Math.round((subtotal + vat_amount + non_vat_amount) * 100) / 100;
+    // Promo discount applies to the subtotal BEFORE VAT.
+    const discount_percent = Math.max(0, Math.min(100, Number(body.discount_percent) || 0));
+    const discount_code = cleanStr(body.discount_code);
+    const discount_amount = Math.round(subtotal * (discount_percent / 100) * 100) / 100;
+    const net = Math.round((subtotal - discount_amount) * 100) / 100;
+    const vat_amount = Math.round(net * (vat_rate / 100) * 100) / 100;
+    const total = Math.round((net + vat_amount + non_vat_amount) * 100) / 100;
 
     const issue_date = String(body.issue_date || new Date().toISOString().slice(0, 10));
     const year = issue_date.slice(0, 4);
@@ -598,6 +689,7 @@ Deno.serve(async (req) => {
       line_items: cleanItems,
       currency: cleanStr(body.currency) ?? "THB",
       non_vat_amount, subtotal, vat_rate, vat_amount, total,
+      discount_code, discount_percent, discount_amount,
       notes: cleanStr(body.notes),
       status: cleanStr(body.status) ?? "draft",
     };

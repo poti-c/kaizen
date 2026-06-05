@@ -13,8 +13,11 @@ interface GeneratedForm {
   client_contact: string | null; client_phone: string | null; client_email: string | null
   issue_date: string; due_date: string | null; line_items: LineItem[]; currency: string
   non_vat_amount: number; subtotal: number; vat_rate: number; vat_amount: number; total: number
+  discount_code: string | null; discount_percent: number; discount_amount: number
   notes: string | null; status: string; created_at: string
 }
+interface CatalogProduct { id: string; kind: string; name: string; price: number; currency: string }
+interface CatalogPromo { id: string; code: string; discount_percent: number; valid_from: string | null; valid_to: string | null }
 interface FormCompany {
   id: string; name: string; address: string | null; tax_id: string | null
   contact_person: string | null; contact_phone: string | null; contact_email: string | null
@@ -103,6 +106,8 @@ export function FormGeneratorView({ call, onBack }: { call: Call; onBack: () => 
   const [forms, setForms] = useState<GeneratedForm[]>([])
   const [companies, setCompanies] = useState<FormCompany[]>([])
   const [issuer, setIssuer] = useState<Issuer | null>(null)
+  const [products, setProducts] = useState<CatalogProduct[]>([])
+  const [promos, setPromos] = useState<CatalogPromo[]>([])
   const [tab, setTab] = useState<FormType>('quotation')
   const [preview, setPreview] = useState<GeneratedForm | null>(null)
   const [filterType, setFilterType] = useState<'all' | FormType>('all')
@@ -110,8 +115,9 @@ export function FormGeneratorView({ call, onBack }: { call: Call; onBack: () => 
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const d = await call<{ forms: GeneratedForm[]; companies: FormCompany[]; issuer: Issuer | null }>('list_forms')
+      const d = await call<{ forms: GeneratedForm[]; companies: FormCompany[]; issuer: Issuer | null; products: CatalogProduct[]; promos: CatalogPromo[] }>('list_forms')
       setForms(d.forms); setCompanies(d.companies); setIssuer(d.issuer)
+      setProducts(d.products ?? []); setPromos(d.promos ?? [])
     } catch (e) { console.error('Forms load failed:', e) } finally { setLoading(false) }
   }, [call])
   useEffect(() => { load() }, [load])
@@ -149,6 +155,8 @@ export function FormGeneratorView({ call, onBack }: { call: Call; onBack: () => 
         key={tab}
         formType={tab}
         companies={companies}
+        products={products}
+        promos={promos}
         onCreated={(f) => { load(); setPreview(f) }}
         call={call}
       />
@@ -253,8 +261,8 @@ function DeleteFormBtn({ form, call, onDeleted }: { form: GeneratedForm; call: C
 }
 
 // ── Editor ───────────────────────────────────────────────────────────────────
-function FormEditor({ formType, companies, onCreated, call }: {
-  formType: FormType; companies: FormCompany[]
+function FormEditor({ formType, companies, products, promos, onCreated, call }: {
+  formType: FormType; companies: FormCompany[]; products: CatalogProduct[]; promos: CatalogPromo[]
   onCreated: (f: GeneratedForm) => void; call: Call
 }) {
   const today = new Date().toISOString().slice(0, 10)
@@ -265,10 +273,26 @@ function FormEditor({ formType, companies, onCreated, call }: {
   const [currency, setCurrency] = useState('THB')
   const [vatRate, setVatRate] = useState('7')
   const [items, setItems] = useState<LineItem[]>([{ description: '', qty: 1, unit_price: 0 }])
+  const [promoId, setPromoId] = useState('')
   const [notes, setNotes] = useState('')
   const [status, setStatus] = useState(STATUSES[formType][0])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+
+  // Promo codes valid on the issue date
+  const validPromos = useMemo(() => promos.filter(p =>
+    (!p.valid_from || p.valid_from <= issueDate) && (!p.valid_to || p.valid_to >= issueDate)
+  ), [promos, issueDate])
+  const promo = validPromos.find(p => p.id === promoId) || null
+
+  function addProduct(id: string) {
+    const p = products.find(x => x.id === id)
+    if (!p) return
+    setItems(its => {
+      const base = its.filter(it => it.description.trim() || it.qty || it.unit_price)
+      return [...base, { description: p.name, qty: 1, unit_price: p.price }]
+    })
+  }
 
   function pickCompany(id: string) {
     setCompanyId(id)
@@ -283,8 +307,10 @@ function FormEditor({ formType, companies, onCreated, call }: {
   }
 
   const subtotal = useMemo(() => items.reduce((s, it) => s + (Number(it.qty) || 0) * (Number(it.unit_price) || 0), 0), [items])
-  const vat = useMemo(() => subtotal * (Number(vatRate) || 0) / 100, [subtotal, vatRate])
-  const total = subtotal + vat
+  const discount = useMemo(() => subtotal * (promo?.discount_percent || 0) / 100, [subtotal, promo])
+  const net = subtotal - discount
+  const vat = useMemo(() => net * (Number(vatRate) || 0) / 100, [net, vatRate])
+  const total = net + vat
 
   async function generate() {
     setError('')
@@ -300,6 +326,7 @@ function FormEditor({ formType, companies, onCreated, call }: {
         client_contact: client.contact, client_phone: client.phone, client_email: client.email,
         issue_date: issueDate, due_date: dueDate || undefined,
         line_items: valid, currency, vat_rate: Number(vatRate) || 0,
+        discount_code: promo?.code, discount_percent: promo?.discount_percent || 0,
         notes: notes.trim() || undefined, status,
       })
       // reset items, keep client for convenience
@@ -347,9 +374,17 @@ function FormEditor({ formType, companies, onCreated, call }: {
 
       {/* Line items */}
       <div>
-        <div className="flex items-center justify-between mb-1.5">
+        <div className="flex items-center justify-between mb-1.5 gap-2">
           <label className="text-xs font-medium text-slate-400">Items</label>
-          <button onClick={() => setItems([...items, { description: '', qty: 1, unit_price: 0 }])} className="flex items-center gap-1 text-[11px] text-amber-400 hover:text-amber-300"><Plus className="h-3.5 w-3.5" />Add item</button>
+          <div className="flex items-center gap-2">
+            {products.length > 0 && (
+              <select value="" onChange={e => { if (e.target.value) { addProduct(e.target.value); e.target.value = '' } }} className={selectCls + ' h-7 text-[11px] text-amber-400 border-dashed'}>
+                <option value="">+ Add from products…</option>
+                {products.map(p => <option key={p.id} value={p.id} className="text-slate-200">{p.name} — {p.currency} {money(p.price)}</option>)}
+              </select>
+            )}
+            <button onClick={() => setItems([...items, { description: '', qty: 1, unit_price: 0 }])} className="flex items-center gap-1 text-[11px] text-amber-400 hover:text-amber-300"><Plus className="h-3.5 w-3.5" />Add item</button>
+          </div>
         </div>
         <div className="space-y-2">
           {items.map((it, i) => (
@@ -364,11 +399,23 @@ function FormEditor({ formType, companies, onCreated, call }: {
         </div>
       </div>
 
-      {/* Totals */}
-      <div className="flex flex-col items-end gap-1 text-sm border-t border-slate-800 pt-3">
-        <div className="flex gap-8 text-slate-400"><span>Subtotal (excl. VAT)</span><span className="w-32 text-right text-slate-200">{currency} {money(subtotal)}</span></div>
-        <div className="flex gap-8 text-slate-400"><span>VAT {vatRate || 0}%</span><span className="w-32 text-right text-slate-200">{currency} {money(vat)}</span></div>
-        <div className="flex gap-8 font-semibold text-white"><span>Grand Total</span><span className="w-32 text-right text-amber-400">{currency} {money(total)}</span></div>
+      {/* Promo + Totals */}
+      <div className="border-t border-slate-800 pt-3 flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+        {validPromos.length > 0 ? (
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-slate-400">Promo Code</label>
+            <select value={promoId} onChange={e => setPromoId(e.target.value)} className={selectCls + ' w-full sm:w-56'}>
+              <option value="">— None —</option>
+              {validPromos.map(p => <option key={p.id} value={p.id}>{p.code} ({p.discount_percent}% off)</option>)}
+            </select>
+          </div>
+        ) : <div className="text-[11px] text-slate-600">No active promo codes for this date.</div>}
+        <div className="flex flex-col items-end gap-1 text-sm">
+          <div className="flex gap-8 text-slate-400"><span>Subtotal (excl. VAT)</span><span className="w-32 text-right text-slate-200">{currency} {money(subtotal)}</span></div>
+          {promo && <div className="flex gap-8 text-emerald-400"><span>Discount {promo.code} ({promo.discount_percent}%)</span><span className="w-32 text-right">− {currency} {money(discount)}</span></div>}
+          <div className="flex gap-8 text-slate-400"><span>VAT {vatRate || 0}%</span><span className="w-32 text-right text-slate-200">{currency} {money(vat)}</span></div>
+          <div className="flex gap-8 font-semibold text-white"><span>Grand Total</span><span className="w-32 text-right text-amber-400">{currency} {money(total)}</span></div>
+        </div>
       </div>
 
       <Field label="Notes (optional)"><input value={notes} onChange={e => setNotes(e.target.value)} className={inputCls} placeholder="Payment terms, remarks…" /></Field>
@@ -481,6 +528,7 @@ function PrintPreview({ form, issuer, onClose }: { form: GeneratedForm; issuer: 
           <div className="flex justify-end mt-4">
             <div className="w-72 text-[11px] space-y-1">
               <Row label="Subtotal (excl. VAT)" val={`${form.currency} ${money(form.subtotal)}`} />
+              {form.discount_amount > 0 && <Row label={`Discount${form.discount_code ? ` (${form.discount_code}, ${form.discount_percent}%)` : ''}`} val={`− ${form.currency} ${money(form.discount_amount)}`} />}
               {form.non_vat_amount > 0 && <Row label="Non-VAT / exempt" val={`${form.currency} ${money(form.non_vat_amount)}`} />}
               {showVat && <Row label={`VAT ${form.vat_rate}%`} val={`${form.currency} ${money(form.vat_amount)}`} />}
               <div className="flex justify-between border-t border-slate-300 pt-1.5 font-bold text-indigo-800 text-sm">
