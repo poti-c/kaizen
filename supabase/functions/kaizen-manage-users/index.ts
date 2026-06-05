@@ -192,7 +192,11 @@ serve(async (req) => {
     return json({ success: true });
   }
 
-  // ── DELETE ──────────────────────────────────────────────────────────────────
+  // ── DELETE (soft) ─────────────────────────────────────────────────────────────
+  // Keep the profile row so the person's name survives on historical cases
+  // (shown struck-through). Block their login, and remove them from every case
+  // they were In Charge of — falling back to the CASE's department manager when
+  // no other person in charge remains.
   if (action === "delete") {
     const { userId } = body;
     if (!userId) return json({ error: "userId is required" }, 400);
@@ -204,8 +208,54 @@ serve(async (req) => {
       if (callerDept === "human_resource") return json({ error: "HR Manager cannot delete users" }, 403);
     }
 
-    const { error: deleteErr } = await supabaseAdmin.auth.admin.deleteUser(userId);
-    if (deleteErr) return json({ error: deleteErr.message }, 400);
+    // 1) Mark the profile removed and deactivate it (blocks login via the app's is_active check).
+    const nowIso = new Date().toISOString();
+    const { error: softErr } = await supabaseAdmin.from("kaizen_profiles")
+      .update({ deleted_at: nowIso, is_active: false }).eq("id", userId);
+    if (softErr) return json({ error: softErr.message }, 400);
+
+    // 2) Ban the auth user so they can't obtain a session either (best-effort).
+    try { await supabaseAdmin.auth.admin.updateUserById(userId, { ban_duration: "876000h" }); } catch (_) { /* non-fatal */ }
+
+    // 3) Remove them from In Charge on every case; fall back to the case's department manager.
+    const { data: picCases } = await supabaseAdmin
+      .from("kaizen_cases")
+      .select("id, case_number, title, department, company_id, pic_ids")
+      .contains("pic_ids", [userId]);
+
+    for (const c of picCases ?? []) {
+      const remaining = ((c.pic_ids as string[]) ?? []).filter((id) => id !== userId);
+      if (remaining.length > 0) {
+        await supabaseAdmin.from("kaizen_cases")
+          .update({ pic_ids: remaining, person_in_charge: remaining[0], updated_at: nowIso })
+          .eq("id", c.id);
+        continue;
+      }
+      // No one left in charge → assign the CASE's department manager (active, not deleted).
+      const { data: mgr } = await supabaseAdmin.from("kaizen_profiles")
+        .select("id, full_name")
+        .eq("company_id", c.company_id).eq("department", c.department).eq("role", "manager")
+        .eq("is_active", true).is("deleted_at", null)
+        .neq("id", userId)
+        .limit(1).maybeSingle();
+      if (mgr) {
+        await supabaseAdmin.from("kaizen_cases")
+          .update({ pic_ids: [mgr.id], person_in_charge: mgr.id, updated_at: nowIso })
+          .eq("id", c.id);
+        await supabaseAdmin.from("kaizen_notifications").insert({
+          user_id: mgr.id,
+          case_id: c.id,
+          title: "Auto-assigned as In Charge",
+          message: `A removed team member left case ${c.case_number} without an owner — you have been assigned as In Charge. You can reassign it anytime.`,
+          notification_type: "assignment",
+        });
+      } else {
+        // No active manager for that department → leave it unassigned.
+        await supabaseAdmin.from("kaizen_cases")
+          .update({ pic_ids: [], person_in_charge: null, updated_at: nowIso })
+          .eq("id", c.id);
+      }
+    }
 
     return json({ success: true });
   }

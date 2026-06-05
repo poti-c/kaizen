@@ -86,7 +86,7 @@ export function UsersPage() {
 
   async function fetchUsers() {
     setLoading(true)
-    let query = supabase.from('kaizen_profiles').select('*').order('role').order('department').order('full_name')
+    let query = supabase.from('kaizen_profiles').select('*').is('deleted_at', null).order('role').order('department').order('full_name')
     if (activeCompany) query = query.eq('company_id', activeCompany.id)
     if (profile?.role === 'manager' && !isHRManager) {
       query = query.eq('department', profile.department).eq('role', 'staff')

@@ -57,7 +57,7 @@ export function PerformancePage() {
       supabase.from('kaizen_cases').select('*')
         .eq('company_id', companyFilter!)
         .order('created_at', { ascending: false }),
-      supabase.from('kaizen_profiles').select('*')
+      supabase.from('kaizen_profiles').select('*').is('deleted_at', null)
         .eq('company_id', companyFilter!),
     ])
     setCases((casesRes.data || []) as KaizenCase[])

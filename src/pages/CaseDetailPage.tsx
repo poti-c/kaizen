@@ -163,6 +163,7 @@ export function CaseDetailPage() {
     const { data } = await supabase
       .from('kaizen_profiles').select('*')
       .eq('is_active', true)
+      .is('deleted_at', null)
       .eq('company_id', kcase.company_id)
       .in('role', ['staff', 'manager', 'super_admin'])
       .order('department').order('role', { ascending: false }).order('full_name')
@@ -280,7 +281,7 @@ export function CaseDetailPage() {
 
   // Load all active users for @mentions
   useEffect(() => {
-    supabase.from('kaizen_profiles').select('*').eq('is_active', true)
+    supabase.from('kaizen_profiles').select('*').eq('is_active', true).is('deleted_at', null)
       .then(({ data }) => setMentionUsers((data || []) as KaizenProfile[]))
   }, [])
 
@@ -990,13 +991,17 @@ export function CaseDetailPage() {
             <span className="flex items-center gap-1.5">
               <User className="h-3.5 w-3.5 flex-shrink-0 text-gray-400" />
               <span className="text-gray-400 mr-0.5">{t.caseDetail.openedBy}</span>
-              {(profile?.role === 'super_admin' || profile?.role === 'manager') && kcase.created_by ? (
-                <Link to={`/performance/${kcase.created_by}`} className="truncate text-[var(--brand-primary)] hover:underline font-medium">
-                  {(kcase.creator as KaizenProfile)?.full_name || 'Unknown'}
-                </Link>
-              ) : (
-                <span className="truncate font-medium text-gray-700">{(kcase.creator as KaizenProfile)?.full_name || 'Unknown'}</span>
-              )}
+              {(() => {
+                const creator = kcase.creator as KaizenProfile | undefined
+                const name = creator?.full_name || 'Unknown'
+                if (creator?.deleted_at) {
+                  return <span className="truncate font-medium text-red-500 line-through" title={t.caseDetail.removedFromCompany}>{name}</span>
+                }
+                if ((profile?.role === 'super_admin' || profile?.role === 'manager') && kcase.created_by) {
+                  return <Link to={`/performance/${kcase.created_by}`} className="truncate text-[var(--brand-primary)] hover:underline font-medium">{name}</Link>
+                }
+                return <span className="truncate font-medium text-gray-700">{name}</span>
+              })()}
             </span>
             <span className="flex items-center gap-1.5">
               <Calendar className="h-3.5 w-3.5 flex-shrink-0 text-gray-400" />
@@ -1097,11 +1102,17 @@ export function CaseDetailPage() {
                   </div>
                 ) : (
                   <span className="inline-flex items-center gap-1 flex-wrap">
-                    <span className="font-medium text-gray-700">
-                      {picProfiles.length > 0
-                        ? picProfiles.map(p => p.full_name).join(', ')
-                        : (kcase.creator as KaizenProfile)?.full_name || 'Unknown'}
-                    </span>
+                    {picProfiles.length > 0 ? (
+                      <span className="font-medium inline-flex items-center gap-1 flex-wrap">
+                        {picProfiles.map((p, i) => (
+                          <span key={p.id} className={p.deleted_at ? 'text-red-500 line-through' : 'text-gray-700'} title={p.deleted_at ? t.caseDetail.removedFromCompany : undefined}>
+                            {p.full_name}{i < picProfiles.length - 1 ? ',' : ''}
+                          </span>
+                        ))}
+                      </span>
+                    ) : (
+                      <span className="font-medium text-gray-700">{(kcase.creator as KaizenProfile)?.full_name || 'Unknown'}</span>
+                    )}
                     {canManagerAssign && kcase.status !== 'closed' && (
                       <button
                         onClick={() => { loadPicCandidates(); setShowPicEditor(true) }}
