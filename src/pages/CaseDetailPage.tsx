@@ -964,8 +964,8 @@ export function CaseDetailPage() {
         {/* Meta info */}
         <div className="space-y-2 text-xs text-gray-500">
 
-          {/* Row 1: Opened by (full width) */}
-          <span className="flex items-center gap-1.5">
+          {/* Row 1: Opened by + duration */}
+          <span className="flex items-center gap-1.5 flex-wrap">
             <User className="h-3.5 w-3.5 flex-shrink-0 text-gray-400" />
             <span className="text-gray-400 mr-0.5">Opened by:</span>
             {(profile?.role === 'super_admin' || profile?.role === 'manager') && kcase.created_by ? (
@@ -975,6 +975,11 @@ export function CaseDetailPage() {
             ) : (
               <span className="truncate font-medium text-gray-700">{(kcase.creator as KaizenProfile)?.full_name || 'Unknown'}</span>
             )}
+            <span className="text-gray-300">·</span>
+            <span className="flex items-center gap-1 text-gray-400">
+              <Clock className="h-3 w-3 flex-shrink-0" />
+              <span>{t.caseDetail.openFor} {formatDuration(kcase.created_at, kcase.closed_at || undefined)}</span>
+            </span>
           </span>
 
           {/* Row 2: In Charge — full width */}
