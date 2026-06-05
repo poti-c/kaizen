@@ -837,11 +837,20 @@ export function CaseDetailPage() {
     profile?.role === 'super_admin' ||
     (profile?.role === 'manager' && !isHRManager && profile?.department === kcase.department)
   )
+  // Anyone explicitly named In Charge (PIC) can resolve the case — even if the
+  // case belongs to a different department, and even Top Management / managers
+  // from other departments. They still must upload evidence photos, and the
+  // resolution is registered under their name (resolved_by below).
+  const picIdsForResolve = kcase.pic_ids?.length
+    ? kcase.pic_ids
+    : (kcase.person_in_charge ? [kcase.person_in_charge] : [])
+  const isInCharge = !!profile?.id && picIdsForResolve.includes(profile.id)
   const canStaffResolve   = !isHRManager &&
     (
       profile?.role === 'staff' ||
       profile?.role === 'super_admin' ||
-      (profile?.role === 'manager' && profile?.department === kcase.department)
+      (profile?.role === 'manager' && profile?.department === kcase.department) ||
+      isInCharge
     ) &&
     ['in_progress', 'assigned', 'reopened'].includes(kcase.status)
   const canManagerApprove = !isHRManager && (
