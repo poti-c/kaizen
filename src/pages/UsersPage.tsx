@@ -287,7 +287,7 @@ export function UsersPage() {
           )}
           {(profile?.role === 'super_admin' || profile?.role === 'manager') && (
             <Button onClick={() => setShowCreate(true)}>
-              <Plus className="h-4 w-4" />{t.users.addUser}
+              <Plus className="h-4 w-4" />{profile?.role === 'manager' ? 'Add Staff' : t.users.addUser}
             </Button>
           )}
         </div>
