@@ -127,6 +127,8 @@ const en = {
   },
   caseDetail: {
     caseInfo: 'Case Information', createdBy: 'Created by', reportedOn: 'Reported on',
+    translate: 'Translate', showOriginal: 'Show original',
+    machineTranslation: 'Machine translation', translateFailed: 'Translation unavailable — please try again.',
     lastUpdated: 'Last updated', duration: 'Duration',
     proposedSolution: 'Proposed Solution', assignedDepts: 'Assigned Departments',
     timeline: 'Timeline', problemPhotos: 'Problem Photos', resolutionPhotos: 'Resolution Photos',
@@ -334,6 +336,8 @@ const th: Translations = {
   },
   caseDetail: {
     caseInfo: 'ข้อมูลเคส', createdBy: 'สร้างโดย', reportedOn: 'รายงานเมื่อ',
+    translate: 'แปล', showOriginal: 'ดูต้นฉบับ',
+    machineTranslation: 'แปลด้วยเครื่อง', translateFailed: 'แปลไม่สำเร็จ — กรุณาลองใหม่',
     lastUpdated: 'อัปเดตล่าสุด', duration: 'ระยะเวลา',
     proposedSolution: 'แนวทางแก้ไขที่เสนอ', assignedDepts: 'แผนกที่ได้รับมอบหมาย',
     timeline: 'ไทม์ไลน์', problemPhotos: 'ภาพถ่ายปัญหา', resolutionPhotos: 'ภาพถ่ายการแก้ไข',

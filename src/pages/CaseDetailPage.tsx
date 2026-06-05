@@ -17,6 +17,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { StatusBadge, PriorityBadge, DepartmentBadge } from '@/components/StatusBadge'
 import { PhotoUpload, PhotoGallery } from '@/components/PhotoUpload'
 import { ResolutionCard } from '@/components/case/ResolutionCard'
+import { TranslatableSection } from '@/components/TranslatableSection'
 import { CaseTimeline } from '@/components/case/CaseTimeline'
 import { formatDateTime, formatDuration, LOCATIONS, CATEGORIES } from '@/lib/utils'
 import { DEPARTMENTS, DEPARTMENT_LABELS, STATUS_LABELS } from '@/types'
@@ -1161,10 +1162,7 @@ export function CaseDetailPage() {
         {/* Main content */}
         <div className="lg:col-span-2 space-y-5">
           {/* Description */}
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
-            <h3 className="font-semibold text-gray-900 mb-3">{t.caseDetail.caseInfo}</h3>
-            <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">{kcase.description}</p>
-          </div>
+          <TranslatableSection title={t.caseDetail.caseInfo} text={kcase.description} />
 
           {/* Problem photos */}
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
