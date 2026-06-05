@@ -117,7 +117,7 @@ export function Sidebar() {
           {!collapsed && t.nav.signOut}
         </button>
         {!collapsed && (
-          <p className="text-white/20 text-[10px] text-center mt-2 tracking-wide">Kaizen System by NNR Ver. 1.0</p>
+          <p className="text-white/20 text-[10px] text-center mt-2 tracking-wide">Kaizen System V.1 by NNR-Solutions</p>
         )}
       </div>
     </aside>

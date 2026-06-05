@@ -271,7 +271,7 @@ export function LoginPage() {
             {t.login.footer}
           </p>
           <p className="text-center text-[10px] text-gray-300 mt-2 relative z-10 leading-relaxed">
-            © {new Date().getFullYear()} Dr. Poti Chaopaisarn / NNR Solutions. All rights reserved.
+            Kaizen System V.1 by NNR-Solutions {new Date().getFullYear()} ©
           </p>
         </div>
       </div>

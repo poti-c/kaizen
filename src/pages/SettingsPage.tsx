@@ -1015,8 +1015,7 @@ export function SettingsPage() {
                   All intellectual property rights relating to this application, including but not limited to its software,
                   source code, system design, user interface, workflow logic, database structure, documentation, name, logo,
                   and related materials, shall remain the exclusive property of{' '}
-                  <span className="font-semibold text-gray-700">Dr. Poti Chaopaisarn</span>, operating under the business
-                  name <span className="font-semibold text-gray-700">NNR Solutions</span>.
+                  <span className="font-semibold text-gray-700">NNR-Solutions Co., Ltd.</span>
                 </p>
                 <p>
                   Authorised users are granted a limited, non-exclusive, non-transferable, and revocable right to access
@@ -1027,7 +1026,7 @@ export function SettingsPage() {
                 <p>
                   Users shall not copy, modify, reproduce, distribute, sell, sublicense, reverse-engineer, decompile, or
                   create derivative works from the application, in whole or in part, without prior written permission from{' '}
-                  <span className="font-semibold text-gray-700">Dr. Poti Chaopaisarn / NNR Solutions</span>.
+                  <span className="font-semibold text-gray-700">NNR-Solutions Co., Ltd.</span>
                 </p>
               </div>
               <DialogFooter>
@@ -1040,7 +1039,7 @@ export function SettingsPage() {
 
       {/* Copyright footer */}
       <p className="text-center text-[11px] text-gray-400 leading-relaxed px-4 pb-2">
-        © {new Date().getFullYear()} Dr. Poti Chaopaisarn / NNR Solutions · Kaizen System by NNR Ver. 1.0
+        Kaizen System V.1 by NNR-Solutions {new Date().getFullYear()} ©
       </p>
 
     </div>
