@@ -1278,15 +1278,15 @@ export function CaseDetailPage() {
             const textColor = isChronic ? 'text-red-700' : isRecurring ? 'text-orange-700' : 'text-yellow-700'
             const iconColor = isChronic ? 'text-red-500' : isRecurring ? 'text-orange-500' : 'text-yellow-500'
             const badgeLabel = isChronic
-              ? `Chronic Issue · ${count} reports`
+              ? t.caseDetail.recurringChronic(count)
               : isRecurring
-              ? `Recurring Issue · ${count} reports`
-              : `Reported Before · ${count} report`
+              ? t.caseDetail.recurringRecurring(count)
+              : t.caseDetail.recurringOnce(count)
             const advice = isChronic
-              ? 'This location has been reported 3+ times. Consider a permanent fix or replacement.'
+              ? t.caseDetail.recurringChronicAdvice
               : isRecurring
-              ? 'This location has been reported multiple times. Monitor closely.'
-              : 'This location was reported once before.'
+              ? t.caseDetail.recurringRecurringAdvice
+              : t.caseDetail.recurringOnceAdvice
             return (
               <div className={`rounded-xl border ${borderColor} shadow-sm overflow-hidden`}>
                 <button
