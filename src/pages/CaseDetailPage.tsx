@@ -38,9 +38,6 @@ export function CaseDetailPage() {
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
 
-  // Manager assignment form
-  const [proposedSolution, setProposedSolution] = useState('')
-
   // Staff resolution form
   const [resolutionNote, setResolutionNote] = useState('')
   const [resolutionPhotos, setResolutionPhotos] = useState<string[]>([])
@@ -174,11 +171,25 @@ export function CaseDetailPage() {
     if (!kcase || selectedPics.length === 0) return
     setSavingPic(true)
     try {
+      // If case is open/reopened, move to assigned when PIC is set
+      const statusUpdate = ['open', 'reopened'].includes(kcase.status) ? { status: 'assigned' } : {}
       await supabase.from('kaizen_cases').update({
         pic_ids: selectedPics,
         person_in_charge: selectedPics[0],
         updated_at: new Date().toISOString(),
+        ...statusUpdate,
       }).eq('id', id!)
+
+      // Create/update assignment record for the case's primary department
+      if (['open', 'reopened'].includes(kcase.status)) {
+        await supabase.from('kaizen_case_assignments').upsert({
+          case_id: id!,
+          department: kcase.department,
+          assigned_by: profile?.id,
+          status: 'pending',
+        }, { onConflict: 'case_id,department' })
+        await addTimeline('case_assigned', `Case assigned to ${DEPARTMENT_LABELS[kcase.department] ?? kcase.department}`)
+      }
 
       const names = selectedPics.map(id => picCandidates.find(p => p.id === id)?.full_name || 'Unknown').join(', ')
       await addTimeline('pic_changed', `In Charge set to: ${names}`)
@@ -268,7 +279,6 @@ export function CaseDetailPage() {
 
     if (data) {
       setKcase(data as KaizenCase)
-      setProposedSolution(data.proposed_solution || '')
 
       // Fetch recurring cases — same location + company, excluding this case
       if (data.location && data.company_id) {
@@ -421,46 +431,6 @@ export function CaseDetailPage() {
   }
 
   // Manager: assign departments + propose solution
-  async function handleManagerAssign() {
-    if (!proposedSolution.trim()) {
-      toast.error('Please provide a proposed solution.')
-      return
-    }
-    setSubmitting(true)
-    try {
-      const dept = kcase!.department
-
-      await supabase.from('kaizen_case_assignments').upsert({
-        case_id: id!,
-        department: dept,
-        assigned_by: profile?.id,
-        status: 'pending',
-      }, { onConflict: 'case_id,department' })
-
-      await supabase.from('kaizen_cases').update({
-        status: 'assigned',
-        assigned_departments: [dept],
-        proposed_solution: proposedSolution.trim(),
-        updated_at: new Date().toISOString(),
-      }).eq('id', id!)
-
-      await addTimeline('solution_proposed', `Manager proposed solution: ${proposedSolution}`)
-
-      await notifyByDeptRole(
-        { departments: [dept], roles: ['staff'] },
-        'Solution Proposed',
-        `Case ${kcase?.case_number}: ${proposedSolution}`,
-      )
-
-      toast.success('Solution proposed successfully.')
-      fetchCase()
-    } catch {
-      toast.error('Failed to propose solution.')
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
   // Manager: assign staff to an assignment
   // Staff: resolve case
   async function handleResolve() {
@@ -1170,16 +1140,6 @@ export function CaseDetailPage() {
             <PhotoGallery urls={problemPhotos.map((p) => p.photo_url)} />
           </div>
 
-          {/* Proposed solution (if set) */}
-          {kcase.proposed_solution && (
-            <div className="bg-blue-50 border border-blue-200 rounded-xl p-5">
-              <div className="flex items-center gap-2 mb-2">
-                <MessageSquare className="h-4 w-4 text-blue-600" />
-                <h3 className="font-semibold text-blue-900">{t.caseDetail.proposedSolution}</h3>
-              </div>
-              <p className="text-sm text-blue-800 leading-relaxed">{kcase.proposed_solution}</p>
-            </div>
-          )}
 
           {/* Department assignments */}
           {assignments.length > 0 && (
@@ -1336,26 +1296,6 @@ export function CaseDetailPage() {
           })()}
 
           {/* Action panels */}
-
-          {/* Manager: propose solution */}
-          {canManagerAssign && ['open', 'reopened'].includes(kcase.status) && (
-            <div className="bg-white rounded-xl border border-[var(--brand-primary)] shadow-sm p-5">
-              <h3 className="font-semibold text-gray-900 mb-4">{t.caseDetail.proposeSolution}</h3>
-              <div className="space-y-4">
-                <div>
-                  <Textarea
-                    placeholder={t.caseDetail.solutionPlaceholder}
-                    value={proposedSolution}
-                    onChange={(e) => setProposedSolution(e.target.value)}
-                    className="min-h-[100px]"
-                  />
-                </div>
-                <Button onClick={handleManagerAssign} disabled={submitting} className="w-full">
-                  {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : t.caseDetail.assignBtn}
-                </Button>
-              </div>
-            </div>
-          )}
 
           {/* Staff: resolve */}
           {canStaffResolve && (
