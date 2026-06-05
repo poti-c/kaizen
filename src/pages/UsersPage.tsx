@@ -30,6 +30,7 @@ export function UsersPage() {
 
   // Create form
   const [newFullName, setNewFullName] = useState('')
+  const [newPosition, setNewPosition] = useState('')
   const [newEmail, setNewEmail] = useState('')
   const [newUsername, setNewUsername] = useState('')
   const [newPassword, setNewPassword] = useState('')
@@ -115,7 +116,7 @@ export function UsersPage() {
   }
 
   function resetForm() {
-    setNewFullName(''); setNewEmail(''); setNewUsername(''); setNewPassword('')
+    setNewFullName(''); setNewPosition(''); setNewEmail(''); setNewUsername(''); setNewPassword('')
     setNewRole('staff')
     setNewDepartment(profile?.role === 'manager' ? profile.department : 'front_office')
     setShowPassword(false)
@@ -148,6 +149,7 @@ export function UsersPage() {
           action: 'create',
           role: profile?.role === 'manager' ? 'staff' : newRole,
           full_name: newFullName.trim(),
+          position: newPosition.trim() || undefined,
           username: newUsername.trim() || undefined,
           email: newEmail.trim() || undefined,
           department: profile?.role === 'manager' ? profile.department : newRole === 'super_admin' ? 'top_management' : newDepartment,
@@ -443,6 +445,7 @@ export function UsersPage() {
               </div>
             )}
             <div className="space-y-1.5"><Label>{t.users.fullName} *</Label><Input value={newFullName} onChange={(e) => setNewFullName(e.target.value)} placeholder={t.users.fullNamePlaceholder} /></div>
+            <div className="space-y-1.5"><Label>Position / Job Title</Label><Input value={newPosition} onChange={(e) => setNewPosition(e.target.value)} placeholder="e.g. Front Office Supervisor" /></div>
             {(profile?.role === 'manager' || newRole === 'staff') ? (
               <div className="space-y-1.5"><Label>{t.users.username} *</Label><Input value={newUsername} onChange={(e) => setNewUsername(e.target.value)} placeholder="e.g. somchai.k" /></div>
             ) : (
