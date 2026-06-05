@@ -549,9 +549,20 @@ export function CasesPage() {
                 {/* Clear */}
                 <div className="flex items-center justify-between pb-1.5 border-b border-gray-100">
                   <span className="text-xs font-semibold text-gray-500">Filter by month</span>
-                  {selectedMonths.size > 0 && (
-                    <button onClick={() => setSelectedMonths(new Set())} className="text-xs text-[var(--brand-primary)] hover:underline">Clear</button>
-                  )}
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => {
+                        const now = new Date()
+                        setSelectedMonths(new Set([monthKey(now.getFullYear(), now.getMonth())]))
+                      }}
+                      className="text-xs text-[var(--brand-primary)] font-medium hover:underline"
+                    >
+                      This Month
+                    </button>
+                    {selectedMonths.size > 0 && (
+                      <button onClick={() => setSelectedMonths(new Set())} className="text-xs text-gray-400 hover:underline">Clear</button>
+                    )}
+                  </div>
                 </div>
                 {caseByYear.map(({ year, months }) => {
                   const yearKeys = months.map(m => m.key)
