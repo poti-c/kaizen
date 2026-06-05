@@ -964,7 +964,7 @@ export function CaseDetailPage() {
         {/* Meta info */}
         <div className="space-y-2 text-xs text-gray-500">
 
-          {/* Row 1: Opened by + duration */}
+          {/* Row 1: Opened by + open date */}
           <span className="flex items-center gap-1.5 flex-wrap">
             <User className="h-3.5 w-3.5 flex-shrink-0 text-gray-400" />
             <span className="text-gray-400 mr-0.5">Opened by:</span>
@@ -977,8 +977,8 @@ export function CaseDetailPage() {
             )}
             <span className="text-gray-300">·</span>
             <span className="flex items-center gap-1 text-gray-400">
-              <Clock className="h-3 w-3 flex-shrink-0" />
-              <span>{t.caseDetail.openFor} {formatDuration(kcase.created_at, kcase.closed_at || undefined)}</span>
+              <Calendar className="h-3 w-3 flex-shrink-0" />
+              <span>{new Date(kcase.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
             </span>
           </span>
 
@@ -1087,11 +1087,11 @@ export function CaseDetailPage() {
             </div>
           </div>
 
-          {/* Row 3: Open date | Due date */}
+          {/* Row 3: Open for | Due date */}
           <div className="grid grid-cols-2 gap-x-4">
             <span className="flex items-center gap-1.5">
-              <Calendar className="h-3.5 w-3.5 flex-shrink-0 text-gray-400" />
-              <span>{new Date(kcase.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
+              <Clock className="h-3.5 w-3.5 flex-shrink-0 text-gray-400" />
+              <span>{t.caseDetail.openFor} {formatDuration(kcase.created_at, kcase.closed_at || undefined)}</span>
             </span>
             <div className="flex items-center gap-1.5">
               <Calendar className="h-3.5 w-3.5 flex-shrink-0 text-gray-400" />
