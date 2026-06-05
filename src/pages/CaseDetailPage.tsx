@@ -991,7 +991,7 @@ export function CaseDetailPage() {
           <div className="grid grid-cols-2 gap-x-4">
             <span className="flex items-center gap-1.5">
               <User className="h-3.5 w-3.5 flex-shrink-0 text-gray-400" />
-              <span className="text-gray-400 mr-0.5">Opened by:</span>
+              <span className="text-gray-400 mr-0.5">{t.caseDetail.openedBy}</span>
               {(profile?.role === 'super_admin' || profile?.role === 'manager') && kcase.created_by ? (
                 <Link to={`/performance/${kcase.created_by}`} className="truncate text-[var(--brand-primary)] hover:underline font-medium">
                   {(kcase.creator as KaizenProfile)?.full_name || 'Unknown'}
@@ -1011,7 +1011,7 @@ export function CaseDetailPage() {
             <div className="flex items-start gap-1.5">
               <User className="h-3.5 w-3.5 flex-shrink-0 text-[var(--brand-primary)] mt-0.5" />
               <div className="flex-1 min-w-0">
-                <span className="text-gray-400 mr-0.5">In Charge:</span>
+                <span className="text-gray-400 mr-0.5">{t.caseDetail.inCharge}</span>
                 {showPicEditor ? (
                   <div className="mt-1 border border-gray-200 rounded-lg bg-white shadow-sm overflow-hidden">
                     {/* Grouped checkboxes */}
@@ -1064,7 +1064,7 @@ export function CaseDetailPage() {
                                         prev.includes(dept) ? prev.filter(d => d !== dept) : [...prev, dept]
                                       )}
                                     />
-                                    <span className="text-[10px] text-gray-400">Notify all</span>
+                                    <span className="text-[10px] text-gray-400">{t.caseDetail.notifyAll}</span>
                                   </label>
                                 </div>
                                 {members.map(p => <Row key={p.id} p={p} />)}
@@ -1134,7 +1134,7 @@ export function CaseDetailPage() {
               ) : kcase.due_date ? (
                 <span className="flex items-center gap-1">
                   <span className={cn(new Date(kcase.due_date) < new Date() && kcase.status !== 'closed' ? 'text-red-500 font-semibold' : '')}>
-                    Due: {new Date(kcase.due_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                    {t.caseDetail.dueLabel} {new Date(kcase.due_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
                     {new Date(kcase.due_date) < new Date() && kcase.status !== 'closed' && ' ⚠️'}
                   </span>
                   {canEditDueDate && (
@@ -1147,10 +1147,10 @@ export function CaseDetailPage() {
               ) : canEditDueDate ? (
                 <button onClick={() => setShowDueDateEditor(true)}
                   className="text-gray-400 hover:text-[var(--brand-primary)] flex items-center gap-1 transition-colors">
-                  <span>+ Add due date</span>
+                  <span>{t.caseDetail.addDueDate}</span>
                 </button>
               ) : (
-                <span className="text-gray-300">No due date</span>
+                <span className="text-gray-300">{t.caseDetail.noDueDate}</span>
               )}
             </div>
           </div>
