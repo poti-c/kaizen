@@ -46,6 +46,8 @@ export interface KaizenProfile {
   is_active: boolean
   avatar_url: string | null
   job_title: string | null
+  position: string | null
+  must_change_password: boolean
   created_at: string
   updated_at: string
 }

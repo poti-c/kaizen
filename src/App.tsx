@@ -20,11 +20,13 @@ import { SettingsPage } from '@/pages/SettingsPage'
 import { CasesCalendarPage } from '@/pages/CasesCalendarPage'
 import { PerformancePage } from '@/pages/PerformancePage'
 import { PerformanceDetailPage } from '@/pages/PerformanceDetailPage'
+import { ChangePasswordPage } from '@/pages/ChangePasswordPage'
 
-// All roles land on /dashboard
+// All roles land on /dashboard; staff with must_change_password go to /change-password
 function RoleRedirect() {
   const { profile } = useAuth()
   if (!profile) return null
+  if (profile.must_change_password) return <Navigate to="/change-password" replace />
   return <Navigate to="/dashboard" replace />
 }
 
@@ -63,6 +65,7 @@ export default function App() {
               <BrowserRouter>
                 <Routes>
                   <Route path="/login" element={<LoginPage />} />
+                  <Route path="/change-password" element={<ChangePasswordPage />} />
                   <Route path="/" element={<Layout />}>
                     <Route index element={<RoleRedirect />} />
                     <Route path="dashboard" element={<DashboardPage />} />
