@@ -466,11 +466,11 @@ export function CaseDetailPage() {
 
       await addTimeline('resolved', `Staff resolved the case: ${resolutionNote}`)
 
-      // Notify the manager of the staff's own department (not the case's department)
+      // Notify the manager of the CASE's department
       await notifyByDeptRole(
-        { departments: [profile?.department], roles: ['manager'] },
+        { departments: [kcase?.department], roles: ['manager'] },
         'Case Ready for Approval',
-        `Case ${kcase?.case_number} has been resolved and is awaiting your approval.`,
+        `${profile?.full_name} resolved case ${kcase?.case_number} — awaiting your approval.`,
       )
 
       toast.success('Case marked as resolved. Awaiting manager approval.')
@@ -497,11 +497,11 @@ export function CaseDetailPage() {
 
       await notifyByDeptRole(
         { roles: ['super_admin'] },
-        'Case Awaiting Final Approval',
-        `Case ${kcase?.case_number} has been approved by the manager and requires your final approval.`,
+        'Case Awaiting Final Closure',
+        `Case ${kcase?.case_number} has been approved by ${profile?.full_name} — ready for Top Management review and closure.`,
       )
 
-      toast.success('Resolution approved. Sent to Super Admin for final approval.')
+      toast.success('Approved. Top Management has been notified for final closure.')
       fetchCase()
     } catch {
       toast.error('Failed to approve.')
@@ -524,11 +524,12 @@ export function CaseDetailPage() {
 
       await addTimeline('closed', `Case closed after final admin approval.`)
 
-      // Notify the case reporter and resolver that the case is officially closed
+      // Notify reporter, resolver, and all In Charge members that the case is closed
+      const picIds = kcase?.pic_ids || (kcase?.person_in_charge ? [kcase.person_in_charge] : [])
       await notifyByDeptRole(
-        { extraIds: [kcase?.created_by, kcase?.resolved_by] },
+        { extraIds: [kcase?.created_by, kcase?.resolved_by, ...picIds] },
         'Case Closed',
-        `Case ${kcase?.case_number} has been officially closed.`,
+        `Case ${kcase?.case_number} has been reviewed and officially closed by Top Management.`,
       )
 
       toast.success('Case officially closed.')
