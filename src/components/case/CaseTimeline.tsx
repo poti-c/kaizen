@@ -24,7 +24,12 @@ export function CaseTimeline({ timeline, title, emptyLabel }: CaseTimelineProps)
               <div className="flex-1 min-w-0 pb-3">
                 <p className="text-xs font-medium text-gray-900 capitalize">{entry.action.replace(/_/g, ' ')}</p>
                 {entry.description && <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{entry.description}</p>}
-                <p className="text-xs text-gray-400 mt-1">{formatDateTime(entry.created_at)}</p>
+                <p className="text-xs text-gray-400 mt-1">
+                  {formatDateTime(entry.created_at)}
+                  {entry.performer?.full_name && (
+                    <span> · by <span className="font-medium text-gray-500">{entry.performer.full_name}</span></span>
+                  )}
+                </p>
               </div>
             </div>
           ))}
