@@ -947,7 +947,7 @@ export function CaseDetailPage() {
           <div className="grid grid-cols-2 gap-x-4">
             <div className="flex items-center gap-1.5">
               <User className="h-3.5 w-3.5 flex-shrink-0 text-[var(--brand-primary)]" />
-              <span className="text-gray-400 mr-0.5">PIC:</span>
+              <span className="text-gray-400 mr-0.5">In Charge:</span>
               {showPicEditor ? (
                 <div className="flex items-center gap-1 flex-1">
                   <Select value={selectedPic} onValueChange={setSelectedPic}>
