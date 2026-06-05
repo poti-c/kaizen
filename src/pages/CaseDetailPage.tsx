@@ -814,7 +814,10 @@ export function CaseDetailPage() {
   // HR Manager is read-only across all cases
   const isHRManager = profile?.role === 'manager' && profile?.department === 'human_resource'
 
-  const canManagerAssign  = !isHRManager && (profile?.role === 'manager' || profile?.role === 'super_admin')
+  const canManagerAssign  = !isHRManager && (
+    profile?.role === 'super_admin' ||
+    (profile?.role === 'manager' && profile?.department === kcase.department)
+  )
   const canEditDueDate    = kcase.status !== 'closed' && (
     profile?.role === 'super_admin' ||
     (profile?.role === 'manager' && !isHRManager && profile?.department === kcase.department)

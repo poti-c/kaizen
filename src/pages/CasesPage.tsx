@@ -170,9 +170,8 @@ export function CasesPage() {
     const isHRMgr = profile.role === 'manager' && profile.department === 'human_resource'
     if (profile.role === 'staff') {
       query = query.eq('department', profile.department)
-    } else if (profile.role === 'manager' && !isHRMgr) {
-      query = query.or(`department.eq.${profile.department},assigned_departments.cs.{${profile.department}}`)
     }
+    // Managers see all cases (cross-dept view) — edit restrictions enforced in CaseDetailPage
     // HR Manager: no filter — sees all cases (read-only enforced in detail page)
 
     const { data } = await query
