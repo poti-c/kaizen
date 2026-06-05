@@ -19,16 +19,6 @@ const MONTH_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct'
 
 function monthKey(year: number, month: number) { return `${year}-${month}` }
 
-// Build a list of months going back `back` months from today
-function buildMonthList(back = 18) {
-  const now = new Date()
-  const result: { year: number; month: number; label: string; key: string }[] = []
-  for (let i = back; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
-    result.push({ year: d.getFullYear(), month: d.getMonth(), label: MONTH_SHORT[d.getMonth()], key: monthKey(d.getFullYear(), d.getMonth()) })
-  }
-  return result
-}
 
 export function DashboardPage() {
   const { profile } = useAuth()
@@ -42,7 +32,28 @@ export function DashboardPage() {
   const defaultKey = monthKey(now.getFullYear(), now.getMonth())
   const [selectedMonths, setSelectedMonths] = useState<Set<string>>(new Set([defaultKey]))
   const [pickerOpen, setPickerOpen] = useState(false)
-  const monthList = useMemo(() => buildMonthList(18), [])
+
+  // Build month list from actual case data (created_at + due_date), always include current month
+  const monthList = useMemo(() => {
+    const keys = new Set<string>()
+    const now = new Date()
+    keys.add(monthKey(now.getFullYear(), now.getMonth()))
+    allCases.forEach(c => {
+      const d = new Date(c.created_at)
+      keys.add(monthKey(d.getFullYear(), d.getMonth()))
+      if (c.due_date) {
+        const dd = new Date(c.due_date)
+        keys.add(monthKey(dd.getFullYear(), dd.getMonth()))
+      }
+    })
+    return Array.from(keys)
+      .map(k => {
+        const [y, m] = k.split('-').map(Number)
+        return { year: y, month: m, label: MONTH_SHORT[m], key: k }
+      })
+      .sort((a, b) => a.year !== b.year ? a.year - b.year : a.month - b.month)
+  }, [allCases])
+
   const byYear = useMemo(() => {
     const map: Record<number, typeof monthList> = {}
     monthList.forEach(m => { if (!map[m.year]) map[m.year] = []; map[m.year].push(m) })
