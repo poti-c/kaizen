@@ -11,7 +11,7 @@ import { useLanguage } from '@/contexts/LanguageContext'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Input } from '@/components/ui/input'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectGroup, SelectLabel } from '@/components/ui/select'
 import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { StatusBadge, PriorityBadge, DepartmentBadge } from '@/components/StatusBadge'
@@ -957,9 +957,32 @@ export function CaseDetailPage() {
                       <SelectValue placeholder="Select…" />
                     </SelectTrigger>
                     <SelectContent>
-                      {picCandidates.map(p => (
-                        <SelectItem key={p.id} value={p.id}>{p.full_name}</SelectItem>
-                      ))}
+                      {(() => {
+                        const managers = picCandidates.filter(p => p.role === 'manager')
+                        const staff = picCandidates.filter(p => p.role === 'staff')
+                        const deptLabel = DEPARTMENT_LABELS[kcase.department] || kcase.department
+                        return (
+                          <>
+                            {managers.length > 0 && (
+                              <SelectGroup>
+                                <SelectLabel className="text-xs text-gray-400">{deptLabel} Manager</SelectLabel>
+                                {managers.map(p => (
+                                  <SelectItem key={p.id} value={p.id}>{p.full_name}</SelectItem>
+                                ))}
+                              </SelectGroup>
+                            )}
+                            {managers.length > 0 && staff.length > 0 && <div className="my-1 border-t border-gray-100" />}
+                            {staff.length > 0 && (
+                              <SelectGroup>
+                                <SelectLabel className="text-xs text-gray-400">{deptLabel} Staff</SelectLabel>
+                                {staff.map(p => (
+                                  <SelectItem key={p.id} value={p.id}>{p.full_name}</SelectItem>
+                                ))}
+                              </SelectGroup>
+                            )}
+                          </>
+                        )
+                      })()}
                     </SelectContent>
                   </Select>
                   <button onClick={savePic} disabled={savingPic} className="text-[var(--brand-primary)] font-semibold hover:opacity-75 flex-shrink-0">
