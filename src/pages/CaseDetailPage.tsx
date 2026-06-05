@@ -815,6 +815,10 @@ export function CaseDetailPage() {
   const isHRManager = profile?.role === 'manager' && profile?.department === 'human_resource'
 
   const canManagerAssign  = !isHRManager && (profile?.role === 'manager' || profile?.role === 'super_admin')
+  const canEditDueDate    = kcase.status !== 'closed' && (
+    profile?.role === 'super_admin' ||
+    (profile?.role === 'manager' && !isHRManager && profile?.department === kcase.department)
+  )
   const canStaffResolve   = !isHRManager &&
     (profile?.role === 'staff' || profile?.role === 'manager' || profile?.role === 'super_admin') &&
     ['in_progress', 'assigned', 'reopened'].includes(kcase.status)
@@ -1096,30 +1100,36 @@ export function CaseDetailPage() {
             </span>
             <div className="flex items-center gap-1.5">
               <Calendar className="h-3.5 w-3.5 flex-shrink-0 text-gray-400" />
-              {kcase.due_date ? (
-                <span className={cn(new Date(kcase.due_date) < new Date() && kcase.status !== 'closed' ? 'text-red-500 font-semibold' : '')}>
-                  Due: {new Date(kcase.due_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
-                  {new Date(kcase.due_date) < new Date() && kcase.status !== 'closed' && ' ⚠️'}
-                </span>
-              ) : canManagerAssign && kcase.status !== 'closed' ? (
-                showDueDateEditor ? (
-                  <div className="flex items-center gap-1">
-                    <Input type="date" value={newDueDate} onChange={e => setNewDueDate(e.target.value)}
-                      className="h-6 text-xs w-32 px-1.5" />
-                    <button onClick={saveManagerDueDate} disabled={savingDueDate || !newDueDate}
-                      className="text-[var(--brand-primary)] font-semibold hover:opacity-75 flex-shrink-0 text-xs">
-                      {savingDueDate ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Save'}
-                    </button>
-                    <button onClick={() => setShowDueDateEditor(false)} className="text-gray-400 hover:text-gray-600">
-                      <X className="h-3 w-3" />
-                    </button>
-                  </div>
-                ) : (
-                  <button onClick={() => setShowDueDateEditor(true)}
-                    className="text-gray-400 hover:text-[var(--brand-primary)] flex items-center gap-1 transition-colors">
-                    <span>+ Add due date</span>
+              {showDueDateEditor ? (
+                <div className="flex items-center gap-1">
+                  <Input type="date" value={newDueDate} onChange={e => setNewDueDate(e.target.value)}
+                    className="h-6 text-xs w-32 px-1.5" />
+                  <button onClick={saveManagerDueDate} disabled={savingDueDate || !newDueDate}
+                    className="text-[var(--brand-primary)] font-semibold hover:opacity-75 flex-shrink-0 text-xs">
+                    {savingDueDate ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Save'}
                   </button>
-                )
+                  <button onClick={() => { setShowDueDateEditor(false); setNewDueDate('') }} className="text-gray-400 hover:text-gray-600">
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              ) : kcase.due_date ? (
+                <span className="flex items-center gap-1">
+                  <span className={cn(new Date(kcase.due_date) < new Date() && kcase.status !== 'closed' ? 'text-red-500 font-semibold' : '')}>
+                    Due: {new Date(kcase.due_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                    {new Date(kcase.due_date) < new Date() && kcase.status !== 'closed' && ' ⚠️'}
+                  </span>
+                  {canEditDueDate && (
+                    <button onClick={() => { setNewDueDate(kcase.due_date!.split('T')[0]); setShowDueDateEditor(true) }}
+                      className="text-gray-400 hover:text-[var(--brand-primary)] transition-colors" title="Edit due date">
+                      <Pencil className="h-3 w-3" />
+                    </button>
+                  )}
+                </span>
+              ) : canEditDueDate ? (
+                <button onClick={() => setShowDueDateEditor(true)}
+                  className="text-gray-400 hover:text-[var(--brand-primary)] flex items-center gap-1 transition-colors">
+                  <span>+ Add due date</span>
+                </button>
               ) : (
                 <span className="text-gray-300">No due date</span>
               )}
