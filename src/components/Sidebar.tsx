@@ -7,7 +7,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useCompany } from '@/contexts/CompanyContext'
 import { useLanguage } from '@/contexts/LanguageContext'
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
-import { getInitials } from '@/lib/utils'
+import { getInitials, companyHasFeature, type FeatureKey } from '@/lib/utils'
 import { DEPARTMENT_LABELS } from '@/types'
 import { useState } from 'react'
 import { cn } from '@/lib/utils'
@@ -19,9 +19,9 @@ export function Sidebar() {
   const navigate = useNavigate()
   const [collapsed, setCollapsed] = useState(false)
 
-  const NAV_ITEMS = [
+  const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; roles: string[]; feature?: FeatureKey }[] = [
     { to: '/dashboard', icon: LayoutDashboard, label: t.nav.dashboard, roles: ['super_admin', 'manager'] },
-    { to: '/performance', icon: TrendingUp, label: t.nav.performance, roles: ['super_admin', 'manager'] },
+    { to: '/performance', icon: TrendingUp, label: t.nav.performance, roles: ['super_admin', 'manager'], feature: 'performance_analytics' },
     { to: '/cases', icon: FolderOpen, label: t.nav.cases, roles: ['super_admin', 'manager', 'staff'] },
     { to: '/cases/calendar', icon: CalendarDays, label: t.nav.calendar, roles: ['super_admin', 'manager', 'staff'] },
     { to: '/cases/new', icon: PlusCircle, label: t.nav.newCase, roles: ['staff', 'manager', 'super_admin'] },
@@ -35,9 +35,11 @@ export function Sidebar() {
     navigate('/login')
   }
 
-  const visibleItems = NAV_ITEMS.filter((item) =>
-    profile ? item.roles.includes(profile.role) : false
-  )
+  const visibleItems = NAV_ITEMS.filter((item) => {
+    if (!profile || !item.roles.includes(profile.role)) return false
+    if (item.feature && !companyHasFeature(activeCompany, item.feature)) return false
+    return true
+  })
 
   return (
     <aside

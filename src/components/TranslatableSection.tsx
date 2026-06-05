@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { Languages, Loader2, RotateCcw } from 'lucide-react'
 import { useLanguage } from '@/contexts/LanguageContext'
+import { useCompany } from '@/contexts/CompanyContext'
+import { companyHasFeature } from '@/lib/utils'
 import { toast } from 'sonner'
 
 const THAI_RE = /[฀-๿]/g
@@ -41,6 +43,7 @@ export function TranslatableSection({
   className?: string
 }) {
   const { lang, t } = useLanguage()
+  const { activeCompany } = useCompany()
   const [translated, setTranslated] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [showingTranslation, setShowingTranslation] = useState(false)
@@ -51,7 +54,7 @@ export function TranslatableSection({
   const latinCount = (text.match(LATIN_RE) || []).length
   const target: 'th' | 'en' = lang === 'th' ? 'th' : 'en'
   const source: 'th' | 'en' | null = thaiCount > latinCount ? 'th' : latinCount > 0 ? 'en' : null
-  const canTranslate = !!text.trim() && source !== null && source !== target
+  const canTranslate = !!text.trim() && source !== null && source !== target && companyHasFeature(activeCompany, 'translation')
 
   async function translateChunk(chunk: string): Promise<string> {
     const res = await fetch(

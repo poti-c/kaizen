@@ -8,7 +8,7 @@ import { useLanguage } from '@/contexts/LanguageContext'
 import { StatusBadge, PriorityBadge } from '@/components/StatusBadge'
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
-import { getInitials, formatDateTime, isSLABreached, activityLabel } from '@/lib/utils'
+import { getInitials, formatDateTime, isSLABreached, activityLabel, companyHasFeature } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 import { usePresence } from '@/contexts/PresenceContext'
 import { DEPARTMENT_LABELS } from '@/types'
@@ -371,6 +371,7 @@ export function PerformanceDetailPage() {
       </div>
 
       {/* Recent activity */}
+      {companyHasFeature(activeCompany, 'activity_log') && (
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
         <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
           <h3 className="font-semibold text-sm text-gray-900">{lang === 'th' ? 'กิจกรรมล่าสุด' : 'Recent Activity'}</h3>
@@ -396,6 +397,7 @@ export function PerformanceDetailPage() {
           </div>
         )}
       </div>
+      )}
     </div>
   )
 }

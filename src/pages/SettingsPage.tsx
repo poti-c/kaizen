@@ -11,7 +11,7 @@ import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
 import { DEPARTMENT_LABELS, DEPARTMENTS } from '@/types'
 import type { KaizenCompany } from '@/types'
-import { CATEGORIES, LOCATIONS, getInitials } from '@/lib/utils'
+import { CATEGORIES, LOCATIONS, getInitials, companyHasFeature } from '@/lib/utils'
 import { toast } from 'sonner'
 import { usePushNotifications } from '@/hooks/usePushNotifications'
 
@@ -799,8 +799,8 @@ export function SettingsPage() {
       {/* ── Companies — founder only ── */}
       {profile?.email === 'poti@nanirand.com' && <CompaniesSection />}
 
-      {/* Theme settings — super admin only (hidden for managers & staff) */}
-      {profile?.role === 'super_admin' && (
+      {/* Theme settings — super admin only, and only if the package includes it */}
+      {profile?.role === 'super_admin' && companyHasFeature(activeCompany, 'custom_theme') && (
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
         <div className="flex items-center gap-2 mb-4">
           <Palette className="h-4 w-4 text-gray-400" />

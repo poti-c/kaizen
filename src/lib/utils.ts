@@ -11,6 +11,28 @@ export function formatRelativeTime(date: string | Date) {
   return formatDistanceToNow(new Date(date), { addSuffix: true })
 }
 
+// ── Package feature authorities ──────────────────────────────────────────────
+// A company's package stores which capabilities are unlocked as a { key: bool }
+// map (denormalised from kaizen_products onto the company row). Returns true
+// when the feature is granted. Fail-open when the map is empty/unconfigured so
+// existing installs aren't accidentally locked out.
+export type FeatureKey =
+  | 'recurring_detection'
+  | 'performance_analytics'
+  | 'translation'
+  | 'activity_log'
+  | 'custom_theme'
+  | 'priority_support'
+
+export function companyHasFeature(
+  company: { features?: Record<string, boolean> | null } | null | undefined,
+  key: FeatureKey,
+): boolean {
+  const f = company?.features
+  if (!f || typeof f !== 'object' || Object.keys(f).length === 0) return true
+  return f[key] === true
+}
+
 // "Online" = active within the last 5 minutes.
 export function isOnline(lastActiveAt?: string | null): boolean {
   if (!lastActiveAt) return false

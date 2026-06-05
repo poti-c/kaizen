@@ -4,7 +4,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from 'sonner'
 import { AuthProvider, useAuth } from '@/contexts/AuthContext'
 import { PresenceProvider } from '@/contexts/PresenceContext'
-import { CompanyProvider } from '@/contexts/CompanyContext'
+import { CompanyProvider, useCompany } from '@/contexts/CompanyContext'
+import { companyHasFeature, type FeatureKey } from '@/lib/utils'
 import { ThemeProvider } from '@/contexts/ThemeContext'
 import { LanguageProvider } from '@/contexts/LanguageContext'
 import { ViewModeProvider } from '@/contexts/ViewModeContext'
@@ -31,11 +32,14 @@ function RoleRedirect() {
   return <Navigate to="/dashboard" replace />
 }
 
-// Blocks access to a route if the user's role is not in the allowed list
-function ProtectedRoute({ roles, children }: { roles: string[]; children: React.ReactNode }) {
+// Blocks access to a route if the user's role is not in the allowed list, or
+// if the company's package doesn't include the required feature.
+function ProtectedRoute({ roles, feature, children }: { roles: string[]; feature?: FeatureKey; children: React.ReactNode }) {
   const { profile } = useAuth()
+  const { activeCompany } = useCompany()
   if (!profile) return null
   if (!roles.includes(profile.role)) return <Navigate to="/dashboard" replace />
+  if (feature && !companyHasFeature(activeCompany, feature)) return <Navigate to="/dashboard" replace />
   return <>{children}</>
 }
 
@@ -71,8 +75,8 @@ export default function App() {
                   <Route path="/" element={<Layout />}>
                     <Route index element={<RoleRedirect />} />
                     <Route path="dashboard" element={<DashboardPage />} />
-                    <Route path="performance" element={<ProtectedRoute roles={['super_admin', 'manager']}><PerformancePage /></ProtectedRoute>} />
-                    <Route path="performance/:userId" element={<ProtectedRoute roles={['super_admin', 'manager']}><PerformanceDetailPage /></ProtectedRoute>} />
+                    <Route path="performance" element={<ProtectedRoute roles={['super_admin', 'manager']} feature="performance_analytics"><PerformancePage /></ProtectedRoute>} />
+                    <Route path="performance/:userId" element={<ProtectedRoute roles={['super_admin', 'manager']} feature="performance_analytics"><PerformanceDetailPage /></ProtectedRoute>} />
                     <Route path="cases" element={<CasesPage />} />
                     <Route path="cases/calendar" element={<CasesCalendarPage />} />
                     <Route path="cases/new" element={<CreateCasePage />} />

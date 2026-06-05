@@ -33,6 +33,12 @@ export interface KaizenCompany {
   logo_url: string | null
   is_active: boolean
   created_at: string
+  // Package-derived (denormalised from the assigned product/package)
+  plan?: string
+  max_managers?: number | null
+  max_staff?: number | null
+  multi_company?: boolean
+  features?: Record<string, boolean> | null
 }
 
 export interface KaizenProfile {

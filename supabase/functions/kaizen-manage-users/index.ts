@@ -91,6 +91,21 @@ serve(async (req) => {
       if (department !== callerDept) return json({ error: "Managers can only create staff in their own department" }, 403);
     }
 
+    // Enforce the company package's user limits (max_managers / max_staff).
+    const limitCompany = company_id ?? callerCompany;
+    if ((role === "manager" || role === "staff") && limitCompany) {
+      const { data: co } = await supabaseAdmin.from("kaizen_companies").select("max_managers, max_staff").eq("id", limitCompany).maybeSingle();
+      const limit = role === "manager" ? co?.max_managers : co?.max_staff;
+      if (limit !== null && limit !== undefined) {
+        const { count } = await supabaseAdmin.from("kaizen_profiles")
+          .select("id", { count: "exact", head: true })
+          .eq("company_id", limitCompany).eq("role", role).eq("is_active", true).is("deleted_at", null);
+        if ((count ?? 0) >= limit) {
+          return json({ error: `Your plan allows up to ${limit} ${role === "manager" ? "managers" : "staff"}. Upgrade the package to add more.` }, 400);
+        }
+      }
+    }
+
     let authEmail: string | undefined;
     if (role === "staff") {
       if (!username) return json({ error: "username is required for staff" }, 400);

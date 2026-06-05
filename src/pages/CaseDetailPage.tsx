@@ -7,7 +7,9 @@ import {
 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
+import { useCompany } from '@/contexts/CompanyContext'
 import { useLanguage } from '@/contexts/LanguageContext'
+import { companyHasFeature } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Input } from '@/components/ui/input'
@@ -30,6 +32,7 @@ export function CaseDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { profile } = useAuth()
+  const { activeCompany } = useCompany()
   const { t } = useLanguage()
 
   const [kcase, setKcase] = useState<KaizenCase | null>(null)
@@ -914,7 +917,7 @@ export function CaseDetailPage() {
               📍 {kcase.location === 'Others' && kcase.location_other ? kcase.location_other : kcase.location}
             </span>
           )}
-          {kcase.is_recurring && (
+          {kcase.is_recurring && companyHasFeature(activeCompany, 'recurring_detection') && (
             <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 bg-orange-100 text-orange-700 rounded-full border border-orange-200 font-medium">
               <RefreshCw className="h-3 w-3" />{t.caseDetail.recurringBadge}
             </span>
@@ -1295,7 +1298,7 @@ export function CaseDetailPage() {
           </div>
 
           {/* Recurring Issue Detection — auto, managers/admins only */}
-          {canManagerAssign && recurringCases.length > 0 && (() => {
+          {canManagerAssign && companyHasFeature(activeCompany, 'recurring_detection') && recurringCases.length > 0 && (() => {
             const count = recurringCases.length
             const isChronic = count >= 3
             const isRecurring = count >= 2

@@ -103,6 +103,15 @@ async function audit(action, detail, ip, success) {
   } catch { /* never block on audit */ }
 }
 
+// Limits/features/multi-company defaults for a given package key.
+async function packageDefaults(planKey) {
+  if (!planKey) return null;
+  const { data } = await admin.from("kaizen_products")
+    .select("max_managers, max_staff, multi_company, features")
+    .eq("kind", "package").eq("key", planKey).maybeSingle();
+  return data ?? null;
+}
+
 function subscriptionFromEnd(period_end) {
   if (!period_end) return { period_end: null, days_remaining: null, overdue: false, has_payment: false };
   const today = new Date(); today.setUTCHours(0, 0, 0, 0);
@@ -290,7 +299,14 @@ Deno.serve(async (req) => {
     const max_staff = (body.max_staff !== undefined && body.max_staff !== null && body.max_staff !== "") ? Number(body.max_staff) : null;
     const { data: dup } = await admin.from("kaizen_companies").select("id").eq("login_code", login_code).maybeSingle();
     if (dup) return json({ error: "That login code is already in use." }, 400);
-    const { data, error } = await admin.from("kaizen_companies").insert({ name, slug, plan, max_managers, max_staff, login_code }).select("id").single();
+    const pkg = await packageDefaults(plan);
+    const { data, error } = await admin.from("kaizen_companies").insert({
+      name, slug, plan, login_code,
+      max_managers: max_managers ?? (pkg?.max_managers ?? null),
+      max_staff: max_staff ?? (pkg?.max_staff ?? null),
+      multi_company: !!(pkg?.multi_company),
+      features: pkg?.features ?? {},
+    }).select("id").single();
     if (error) return json({ error: error.message.includes("duplicate") ? "A company with that slug already exists." : error.message }, 400);
     await audit("create_company", { name, slug, plan, login_code }, ip, true);
     return json({ success: true, id: data.id });
@@ -314,10 +330,15 @@ Deno.serve(async (req) => {
       const login_code = normCode(nc.login_code || slug);
       const { data: dupc } = await admin.from("kaizen_companies").select("id").eq("login_code", login_code).maybeSingle();
       if (dupc) return json({ error: "That company login code is already in use." }, 400);
+      const ncPlan = nc.plan ?? "trial";
+      const ncPkg = await packageDefaults(ncPlan);
       const { data: co, error: coErr } = await admin.from("kaizen_companies").insert({
         name: String(nc.name).trim(), slug, login_code,
-        max_managers: nc.max_managers ?? null, max_staff: nc.max_staff ?? null,
-        plan: nc.plan ?? "trial",
+        max_managers: nc.max_managers ?? (ncPkg?.max_managers ?? null),
+        max_staff: nc.max_staff ?? (ncPkg?.max_staff ?? null),
+        multi_company: !!(ncPkg?.multi_company),
+        features: ncPkg?.features ?? {},
+        plan: ncPlan,
       }).select("id").single();
       if (coErr) return json({ error: "Company: " + (coErr.message.includes("duplicate") ? "slug already exists" : coErr.message) }, 400);
       newCompanyId = co.id;
@@ -396,8 +417,15 @@ Deno.serve(async (req) => {
     const owner_id = String(body.owner_id ?? "");
     const company_id = String(body.company_id ?? "");
     if (!owner_id || !company_id) return json({ error: "owner_id and company_id required" }, 400);
-    const { data: prof } = await admin.from("kaizen_profiles").select("id").eq("id", owner_id).eq("role", "super_admin").maybeSingle();
+    const { data: prof } = await admin.from("kaizen_profiles").select("id, company_id").eq("id", owner_id).eq("role", "super_admin").maybeSingle();
     if (!prof) return json({ error: "Member not found." }, 400);
+    // Multi-company access requires the owner's home-company package to include it.
+    if (prof.company_id) {
+      const { data: homeCo } = await admin.from("kaizen_companies").select("multi_company, name, plan").eq("id", prof.company_id).maybeSingle();
+      if (homeCo && homeCo.multi_company !== true) {
+        return json({ error: `The ${homeCo.plan ?? "current"} package on ${homeCo.name ?? "this owner's home company"} does not include the multi-company feature. Upgrade to a package with multi-company to grant access to more companies.` }, 400);
+      }
+    }
     const { error } = await admin.from("kaizen_super_admin_companies").upsert({ super_admin_id: owner_id, company_id }, { onConflict: "super_admin_id,company_id", ignoreDuplicates: true });
     if (error) return json({ error: error.message }, 400);
     await audit("link_owner_company", { owner_id, company_id }, ip, true);
@@ -420,7 +448,17 @@ Deno.serve(async (req) => {
     const patch = {};
     if (body.max_managers !== undefined) patch.max_managers = body.max_managers;
     if (body.max_staff !== undefined) patch.max_staff = body.max_staff;
-    if (body.plan !== undefined) patch.plan = body.plan;
+    if (body.plan !== undefined) {
+      patch.plan = String(body.plan);
+      // Assigning a package applies its limits, multi-company flag and features.
+      const pkg = await packageDefaults(patch.plan);
+      if (pkg) {
+        if (body.max_managers === undefined) patch.max_managers = pkg.max_managers;
+        if (body.max_staff === undefined) patch.max_staff = pkg.max_staff;
+        patch.multi_company = !!pkg.multi_company;
+        patch.features = pkg.features ?? {};
+      }
+    }
     if (body.is_active !== undefined) patch.is_active = body.is_active;
     if (body.name !== undefined) patch.name = String(body.name).trim();
     if (body.contact_person !== undefined) patch.contact_person = cleanStr(body.contact_person);
@@ -591,6 +629,15 @@ Deno.serve(async (req) => {
     if (p.id) res = await admin.from("kaizen_products").update(row).eq("id", String(p.id)).select("*").single();
     else res = await admin.from("kaizen_products").insert(row).select("*").single();
     if (res.error) return json({ error: res.error.message }, 400);
+    // Keep companies on this package in sync with edited limits/authorities.
+    if (res.data.kind === "package" && res.data.key) {
+      await admin.from("kaizen_companies").update({
+        max_managers: res.data.max_managers,
+        max_staff: res.data.max_staff,
+        multi_company: !!res.data.multi_company,
+        features: res.data.features ?? {},
+      }).eq("plan", res.data.key);
+    }
     await audit("upsert_product", { id: res.data.id, name, kind }, ip, true);
     return json({ success: true, product: res.data });
   }
