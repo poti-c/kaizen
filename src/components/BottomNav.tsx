@@ -39,11 +39,11 @@ export function BottomNav() {
 
   const items: NavItem[] = isStaff
     ? [
-        { to: '/cases',          icon: FolderOpen,   label: t.nav.cases,    accent: false },
-        { to: '/cases/calendar', icon: CalendarDays, label: t.nav.calendar, accent: false },
-        { to: '/cases/new',      icon: PlusCircle,   label: t.nav.newCase,  accent: true  },
-        { to: '/notifications',  icon: Bell,         label: t.nav.alerts,   accent: false, badge: unread },
-        { to: '/settings',       icon: Settings,     label: t.nav.settings, accent: false },
+        { to: '/dashboard',      icon: LayoutDashboard, label: t.nav.home,     accent: false },
+        { to: '/cases',          icon: FolderOpen,      label: t.nav.cases,    accent: false },
+        { to: '/cases/new',      icon: PlusCircle,      label: t.nav.newCase,  accent: true  },
+        { to: '/cases/calendar', icon: CalendarDays,    label: t.nav.calendar, accent: false },
+        { to: '/notifications',  icon: Bell,            label: t.nav.alerts,   accent: false, badge: unread },
       ]
     : [
         { to: '/dashboard',    icon: LayoutDashboard, label: t.nav.home,        accent: false },

@@ -21,11 +21,11 @@ import { CasesCalendarPage } from '@/pages/CasesCalendarPage'
 import { PerformancePage } from '@/pages/PerformancePage'
 import { PerformanceDetailPage } from '@/pages/PerformanceDetailPage'
 
-// Redirects to /cases for staff, /dashboard for managers and admins
+// All roles land on /dashboard
 function RoleRedirect() {
   const { profile } = useAuth()
   if (!profile) return null
-  return <Navigate to={profile.role === 'staff' ? '/cases' : '/dashboard'} replace />
+  return <Navigate to="/dashboard" replace />
 }
 
 // Blocks access to a route if the user's role is not in the allowed list
@@ -65,7 +65,7 @@ export default function App() {
                   <Route path="/login" element={<LoginPage />} />
                   <Route path="/" element={<Layout />}>
                     <Route index element={<RoleRedirect />} />
-                    <Route path="dashboard" element={<ProtectedRoute roles={['super_admin', 'manager']}><DashboardPage /></ProtectedRoute>} />
+                    <Route path="dashboard" element={<DashboardPage />} />
                     <Route path="performance" element={<ProtectedRoute roles={['super_admin', 'manager']}><PerformancePage /></ProtectedRoute>} />
                     <Route path="performance/:userId" element={<ProtectedRoute roles={['super_admin', 'manager']}><PerformanceDetailPage /></ProtectedRoute>} />
                     <Route path="cases" element={<CasesPage />} />
