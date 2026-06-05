@@ -1217,6 +1217,9 @@ export function CaseDetailPage() {
               <h3 className="font-semibold text-gray-900">{t.caseDetail.internalNotes}</h3>
               {comments.length > 0 && <span className="text-xs text-gray-400 ml-auto">{t.caseDetail.noteCount(comments.length)}</span>}
             </div>
+            <p className="text-xs text-[var(--brand-primary)] bg-[var(--brand-primary)]/5 border border-[var(--brand-primary)]/15 rounded-lg px-3 py-1.5 mb-3 inline-flex items-center gap-1.5">
+              <span className="font-semibold">@</span>{t.caseDetail.mentionHint}
+            </p>
             {comments.length === 0 && <p className="text-sm text-gray-400 mb-4">{t.caseDetail.noNotes}</p>}
             {comments.length > 0 && (
               <div className="space-y-3 mb-4">
