@@ -103,6 +103,19 @@ export function UsersPage() {
     })
   }
 
+  // Call the kaizen-manage-users edge function (service role; bypasses RLS with server-side checks)
+  async function callManageUsers(payload: Record<string, unknown>) {
+    const { data: { session } } = await supabase.auth.getSession()
+    const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/kaizen-manage-users`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY, 'Authorization': `Bearer ${session?.access_token}` },
+      body: JSON.stringify(payload),
+    })
+    const result = await res.json()
+    if (!res.ok) throw new Error(result.error || 'Request failed')
+    return result
+  }
+
   async function fetchLog() {
     setLoadingLog(true)
     const { data } = await supabase
@@ -179,16 +192,10 @@ export function UsersPage() {
 
       if (editNewPassword.trim().length >= 6) {
         updates.must_change_password = true
-        const { data: { session } } = await supabase.auth.getSession()
-        await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/kaizen-manage-users`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY, 'Authorization': `Bearer ${session?.access_token}` },
-          body: JSON.stringify({ action: 'reset_password', userId: editUser.id, password: editNewPassword }),
-        })
+        await callManageUsers({ action: 'reset_password', userId: editUser.id, password: editNewPassword })
       }
 
-      const { error: updateErr } = await supabase.from('kaizen_profiles').update(updates).eq('id', editUser.id)
-      if (updateErr) throw updateErr
+      await callManageUsers({ action: 'update_profile', userId: editUser.id, updates })
 
       const changes: string[] = []
       if (editFullName.trim() !== editUser.full_name) changes.push(`Name → ${editFullName.trim()}`)
@@ -213,11 +220,11 @@ export function UsersPage() {
     setActioning(suspendUser.id)
     const newState = !suspendUser.is_active
     try {
-      await supabase.from('kaizen_profiles').update({ is_active: newState }).eq('id', suspendUser.id)
+      await callManageUsers({ action: 'set_active', userId: suspendUser.id, is_active: newState })
       await logActivity(suspendUser, newState ? 'reactivated' : 'suspended')
       toast.success(newState ? t.users.reactivated : t.users.deactivated)
       setSuspendUser(null); fetchUsers()
-    } catch { toast.error(t.users.failedStatus) }
+    } catch (err) { toast.error(err instanceof Error ? err.message : t.users.failedStatus) }
     finally { setActioning(null) }
   }
 
@@ -360,7 +367,7 @@ export function UsersPage() {
                     const canDelete = canManage && !isHRManager
 
                     return (
-                      <div key={user.id} className={cn('flex items-center gap-4 px-5 py-3.5', !user.is_active && 'bg-red-50/30')}>
+                      <div key={user.id} className={cn('flex items-center gap-4 px-5 py-3.5', !user.is_active && 'bg-red-50 opacity-90')}>
                         {canViewProfile ? (
                           <Link to={`/performance/${user.id}`} className="flex items-center gap-4 flex-1 min-w-0">
                             <Avatar className="h-9 w-9 flex-shrink-0">
@@ -370,7 +377,7 @@ export function UsersPage() {
                             <div className="flex-1 min-w-0 cursor-pointer">
                               <div className="flex items-center gap-2 flex-wrap">
                                 <p className="text-sm font-medium truncate text-[var(--brand-primary)]">{user.full_name}</p>
-                                {!user.is_active && <span className="text-xs text-red-500 font-medium">{t.users.inactive}</span>}
+                                {!user.is_active && <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-red-700 bg-red-100 border border-red-200 px-2 py-0.5 rounded-full"><PowerOff className="h-3 w-3" />Suspended</span>}
                                 {user.must_change_password && <span className="text-xs text-amber-600 font-medium">· change pwd</span>}
                               </div>
                               {user.position && <p className="text-xs font-medium text-gray-600 mt-0.5">{user.position}</p>}
@@ -390,7 +397,7 @@ export function UsersPage() {
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2 flex-wrap">
                                 <p className="text-sm font-medium truncate text-gray-900">{user.full_name}</p>
-                                {!user.is_active && <span className="text-xs text-red-500 font-medium">{t.users.inactive}</span>}
+                                {!user.is_active && <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-red-700 bg-red-100 border border-red-200 px-2 py-0.5 rounded-full"><PowerOff className="h-3 w-3" />Suspended</span>}
                               </div>
                               {user.position && <p className="text-xs font-medium text-gray-600 mt-0.5">{user.position}</p>}
                               <div className="mt-0.5 flex items-center gap-2 flex-wrap">
