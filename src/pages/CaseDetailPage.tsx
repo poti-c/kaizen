@@ -243,7 +243,13 @@ export function CaseDetailPage() {
       const toAdd = allNewDepts.filter(d => !existingDepts.includes(d))
       if (toAdd.length > 0) {
         const merged = [...existingDepts, ...toAdd]
-        await supabase.from('kaizen_cases').update({ assigned_departments: merged }).eq('id', id!)
+        const { error: deptErr } = await supabase.from('kaizen_cases').update({ assigned_departments: merged }).eq('id', id!)
+        if (deptErr) { toast.error('Failed to update assigned departments.'); return }
+        // Also create assignment records so the added departments show as badges
+        await supabase.from('kaizen_case_assignments').upsert(
+          toAdd.map(dept => ({ case_id: id!, department: dept, assigned_by: profile?.id, status: 'pending' })),
+          { onConflict: 'case_id,department' }
+        )
         await addTimeline('department_added', `Departments added: ${toAdd.map(d => DEPARTMENT_LABELS[d] ?? d).join(', ')}`)
       }
 
@@ -658,31 +664,6 @@ export function CaseDetailPage() {
   }
 
   // Admin: remove a department assignment
-  async function handleRemoveDepartment(dept: Department, assignmentId: string) {
-    if (!confirm(`Remove ${DEPARTMENT_LABELS[dept]} from this case?`)) return
-    setSubmitting(true)
-    try {
-      // Delete assignment record
-      await supabase.from('kaizen_case_assignments').delete().eq('id', assignmentId)
-
-      // Update assigned_departments array on the case
-      const newDepts = (kcase?.assigned_departments || []).filter(d => d !== dept)
-      await supabase.from('kaizen_cases').update({
-        assigned_departments: newDepts.length > 0 ? newDepts : null,
-        updated_at: new Date().toISOString(),
-      }).eq('id', id!)
-
-      await addTimeline('department_removed', `${profile?.full_name} removed ${DEPARTMENT_LABELS[dept]} from the case.`)
-
-      toast.success(`${DEPARTMENT_LABELS[dept]} removed from the case.`)
-      fetchCase()
-    } catch {
-      toast.error('Failed to remove department.')
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
   // Admin: add additional department
   async function handleAddDepartment() {
     if (!addDeptValue) return
@@ -1200,24 +1181,10 @@ export function CaseDetailPage() {
           {assignments.length > 0 && (
             <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
               <h3 className="font-semibold text-gray-900 mb-3">{t.caseDetail.assignedDepts}</h3>
+              {/* Departments are derived automatically from the In Charge selection — read-only */}
               <div className="flex flex-wrap gap-2">
                 {assignments.map((asn) => (
-                  profile?.role === 'super_admin' && kcase.status !== 'closed' ? (
-                    <span key={asn.id} className="inline-flex items-center gap-1 group">
-                      <DepartmentBadge department={asn.department} />
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveDepartment(asn.department, asn.id)}
-                        disabled={submitting}
-                        className="ml-[-6px] w-4 h-4 rounded-full bg-gray-200 hover:bg-red-500 text-gray-500 hover:text-white flex items-center justify-center transition-all"
-                        title={`Remove ${DEPARTMENT_LABELS[asn.department]}`}
-                      >
-                        <X className="h-2.5 w-2.5" />
-                      </button>
-                    </span>
-                  ) : (
-                    <DepartmentBadge key={asn.id} department={asn.department} />
-                  )
+                  <DepartmentBadge key={asn.id} department={asn.department} />
                 ))}
               </div>
             </div>
