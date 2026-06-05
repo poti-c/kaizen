@@ -48,6 +48,8 @@ export interface KaizenProfile {
   job_title: string | null
   position: string | null
   must_change_password: boolean
+  last_active_at?: string | null
+  last_login_at?: string | null
   created_at: string
   updated_at: string
 }

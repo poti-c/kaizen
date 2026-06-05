@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate, Link, Navigate } from 'react-router-dom'
-import { ArrowLeft, User, Mail, FolderOpen, Clock, CheckCircle2, AlertTriangle, TrendingUp, CalendarDays } from 'lucide-react'
+import { ArrowLeft, User, Mail, FolderOpen, Clock, CheckCircle2, AlertTriangle, TrendingUp, CalendarDays, LogIn } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useCompany } from '@/contexts/CompanyContext'
@@ -8,7 +8,8 @@ import { useLanguage } from '@/contexts/LanguageContext'
 import { StatusBadge, PriorityBadge } from '@/components/StatusBadge'
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
-import { getInitials, formatDateTime, isSLABreached } from '@/lib/utils'
+import { getInitials, formatDateTime, isSLABreached, isOnline, activityLabel } from '@/lib/utils'
+import { cn } from '@/lib/utils'
 import { DEPARTMENT_LABELS } from '@/types'
 import type { KaizenProfile, KaizenCase, KaizenCaseTimeline } from '@/types'
 import { differenceInHours, format } from 'date-fns'
@@ -138,6 +139,18 @@ export function PerformanceDetailPage() {
           <span className="flex items-center gap-2">
             <CalendarDays className="h-4 w-4 text-gray-400 flex-shrink-0" />
             {lang === 'th' ? 'เริ่มงาน' : 'Joined'}: {format(new Date(user.created_at), 'dd MMM yyyy')}
+          </span>
+          {/* Last active (with online indicator) */}
+          <span className="flex items-center gap-2">
+            <span className={cn('w-2 h-2 rounded-full flex-shrink-0', isOnline(user.last_active_at) ? 'bg-green-500' : 'bg-gray-300')} />
+            <span className={isOnline(user.last_active_at) ? 'text-green-600 font-medium' : ''}>
+              {lang === 'th' ? 'ใช้งานล่าสุด' : 'Last active'}: {activityLabel(user.last_active_at)}
+            </span>
+          </span>
+          {/* Last login */}
+          <span className="flex items-center gap-2">
+            <LogIn className="h-4 w-4 text-gray-400 flex-shrink-0" />
+            {lang === 'th' ? 'เข้าระบบล่าสุด' : 'Last login'}: {user.last_login_at ? formatDateTime(user.last_login_at) : (lang === 'th' ? 'ไม่เคย' : 'Never')}
           </span>
         </div>
       </div>

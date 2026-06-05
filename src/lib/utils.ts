@@ -11,6 +11,19 @@ export function formatRelativeTime(date: string | Date) {
   return formatDistanceToNow(new Date(date), { addSuffix: true })
 }
 
+// "Online" = active within the last 5 minutes.
+export function isOnline(lastActiveAt?: string | null): boolean {
+  if (!lastActiveAt) return false
+  return Date.now() - new Date(lastActiveAt).getTime() < 5 * 60 * 1000
+}
+
+// Compact activity label for user lists: "Online", "Active 12m ago", "Never".
+export function activityLabel(lastActiveAt?: string | null): string {
+  if (!lastActiveAt) return 'Never logged in'
+  if (isOnline(lastActiveAt)) return 'Online now'
+  return `Active ${formatDistanceToNow(new Date(lastActiveAt), { addSuffix: true })}`
+}
+
 export function formatDateTime(date: string | Date) {
   return format(new Date(date), 'dd MMM yyyy, HH:mm')
 }

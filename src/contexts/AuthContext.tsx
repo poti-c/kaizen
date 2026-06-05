@@ -1,8 +1,15 @@
-import React, { createContext, useContext, useEffect, useState, useCallback } from 'react'
+import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react'
 import type { User } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
 import type { KaizenProfile, Role, Department } from '@/types'
 import { staffEmail } from '@/lib/utils'
+
+// Stamp last_login_at + last_active_at when a user signs in (fire-and-forget;
+// safe to call before the columns exist — the error is just ignored).
+async function stampLogin(userId: string) {
+  const now = new Date().toISOString()
+  try { await supabase.from('kaizen_profiles').update({ last_login_at: now, last_active_at: now }).eq('id', userId) } catch { /* ignore */ }
+}
 
 interface AuthContextValue {
   user: User | null
@@ -36,6 +43,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [profile, setProfile] = useState<KaizenProfile | null>(null)
   const [loading, setLoading] = useState(true)
+  const lastBeatRef = useRef(0)
 
   const fetchProfile = useCallback(async (userId: string) => {
     const { data, error } = await supabase
@@ -74,6 +82,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => subscription.unsubscribe()
   }, [fetchProfile])
 
+  // Activity heartbeat: bump last_active_at on mount, periodically, and when the
+  // tab regains focus — throttled to at most once every 3 minutes.
+  useEffect(() => {
+    if (!user) return
+    const beat = () => {
+      const now = Date.now()
+      if (now - lastBeatRef.current < 3 * 60 * 1000) return
+      lastBeatRef.current = now
+      supabase.from('kaizen_profiles').update({ last_active_at: new Date().toISOString() }).eq('id', user.id).then(() => {}, () => {})
+    }
+    beat()
+    const interval = setInterval(beat, 3 * 60 * 1000)
+    const onVisible = () => { if (document.visibilityState === 'visible') beat() }
+    window.addEventListener('focus', onVisible)
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      clearInterval(interval)
+      window.removeEventListener('focus', onVisible)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [user])
+
   async function signInAdmin(email: string, password: string) {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) throw error
@@ -95,6 +125,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       throw new Error('This account has been suspended. Please contact the system administrator.')
     }
     setProfile(p)
+    stampLogin(p.id)
   }
 
   async function signInManager(email: string, password: string) {
@@ -119,6 +150,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     await assertCompanyActive(p.company_id)
     setProfile(p)
+    stampLogin(p.id)
   }
 
   async function signInStaff(username: string, password: string, companyCode: string) {
@@ -150,6 +182,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     await assertCompanyActive(p.company_id)
     setProfile(p)
+    stampLogin(p.id)
   }
 
   async function signOut() {
