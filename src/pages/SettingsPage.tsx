@@ -799,14 +799,12 @@ export function SettingsPage() {
       {/* ── Companies — founder only ── */}
       {profile?.email === 'poti@nanirand.com' && <CompaniesSection />}
 
-      {/* Theme settings */}
+      {/* Theme settings — super admin only (hidden for managers & staff) */}
+      {profile?.role === 'super_admin' && (
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
         <div className="flex items-center gap-2 mb-4">
           <Palette className="h-4 w-4 text-gray-400" />
           <h2 className="font-semibold text-gray-900">{t.settings.theme}</h2>
-          {profile?.role !== 'super_admin' && (
-            <span className="text-xs text-gray-400 ml-auto">{t.settings.adminOnly}</span>
-          )}
         </div>
 
         {/* Presets */}
@@ -897,6 +895,7 @@ export function SettingsPage() {
           )}
         </div>
       </div>
+      )}
       {/* ── Support ── */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
         <div className="flex items-center gap-2 px-6 pt-6 pb-3">
