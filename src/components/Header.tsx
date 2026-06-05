@@ -169,10 +169,10 @@ export function Header() {
           <div className="relative">
             <button
               onClick={() => setShowCompanySwitcher(!showCompanySwitcher)}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors text-sm font-medium text-gray-700 max-w-[140px]"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors text-sm font-medium text-gray-700 w-[140px]"
             >
               <Building2 className="h-4 w-4 text-gray-500 flex-shrink-0" />
-              <span className="truncate">{activeCompany?.name}</span>
+              <span className="truncate flex-1 text-left">{activeCompany?.name}</span>
               <ChevronDown className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
             </button>
             {showCompanySwitcher && (
