@@ -172,14 +172,18 @@ export function CaseDetailPage() {
   }
 
   async function savePic() {
-    if (!kcase || selectedPics.length === 0) return
+    if (!kcase) return
+    // Only keep ids that resolve to a real, selectable person (drops any
+    // removed/deleted user so we never write a dead person_in_charge).
+    const validPics = selectedPics.filter(id => picCandidates.some(c => c.id === id))
+    if (validPics.length === 0) { toast.error('Please select at least one person who is still with the company.'); return }
     setSavingPic(true)
     try {
       // If case is open/reopened, move to assigned when PIC is set
       const statusUpdate = ['open', 'reopened'].includes(kcase.status) ? { status: 'assigned' } : {}
       const { error: picErr } = await supabase.from('kaizen_cases').update({
-        pic_ids: selectedPics,
-        person_in_charge: selectedPics[0],
+        pic_ids: validPics,
+        person_in_charge: validPics[0],
         updated_at: new Date().toISOString(),
         ...statusUpdate,
       }).eq('id', id!)
@@ -196,11 +200,11 @@ export function CaseDetailPage() {
         await addTimeline('case_assigned', `Case assigned to ${DEPARTMENT_LABELS[kcase.department] ?? kcase.department}`)
       }
 
-      const names = selectedPics.map(id => picCandidates.find(p => p.id === id)?.full_name || 'Unknown').join(', ')
+      const names = validPics.map(id => picCandidates.find(p => p.id === id)?.full_name || 'Unknown').join(', ')
       await addTimeline('pic_changed', `In Charge set to: ${names}`)
 
       // Notify selected PICs
-      const notifRows = selectedPics.map(uid => ({
+      const notifRows = validPics.map(uid => ({
         user_id: uid,
         case_id: id!,
         title: 'Assigned as In Charge',
@@ -215,7 +219,7 @@ export function CaseDetailPage() {
           .eq('company_id', kcase.company_id)
           .in('department', notifyDepts)
           .eq('is_active', true)
-          .not('id', 'in', `(${selectedPics.join(',')})`)
+          .not('id', 'in', `(${validPics.join(',')})`)
         if (deptMembers?.length) {
           deptMembers.forEach((m: { id: string; department: string }) => notifRows.push({
             user_id: m.id,
@@ -236,7 +240,7 @@ export function CaseDetailPage() {
 
       // Auto-add departments of selected PICs + notified depts to assigned_departments
       // (Top Management has no operational department, so it never adds a dept badge.)
-      const picDepts = selectedPics
+      const picDepts = validPics
         .map(uid => picCandidates.find(p => p.id === uid)?.department)
         .filter((d): d is Department => !!d && d !== 'top_management' && d !== kcase.department)
       const allNewDepts = [...new Set([...picDepts, ...notifyDepts as Department[]])]
@@ -311,12 +315,15 @@ export function CaseDetailPage() {
         setRecurringCases([])
       }
 
-      // Fetch PIC profiles (array)
+      // Fetch PIC profiles (array). Drop any ids that no longer resolve to a
+      // profile (e.g. a hard-deleted user) so we never try to re-save a dead
+      // person_in_charge (which would violate the foreign key).
       const ids: string[] = data.pic_ids?.length ? data.pic_ids : (data.person_in_charge ? [data.person_in_charge] : [data.created_by])
       if (ids.length) {
         const { data: pics } = await supabase.from('kaizen_profiles').select('*').in('id', ids)
-        setPicProfiles((pics || []) as KaizenProfile[])
-        setSelectedPics(ids)
+        const validProfiles = (pics || []) as KaizenProfile[]
+        setPicProfiles(validProfiles)
+        setSelectedPics(ids.filter(id => validProfiles.some(p => p.id === id)))
       }
     }
 
