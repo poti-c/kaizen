@@ -3,6 +3,7 @@ import React from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from 'sonner'
 import { AuthProvider, useAuth } from '@/contexts/AuthContext'
+import { PresenceProvider } from '@/contexts/PresenceContext'
 import { CompanyProvider } from '@/contexts/CompanyContext'
 import { ThemeProvider } from '@/contexts/ThemeContext'
 import { LanguageProvider } from '@/contexts/LanguageContext'
@@ -60,6 +61,7 @@ export default function App() {
       <ViewModeProvider>
         <QueryClientProvider client={queryClient}>
           <AuthProvider>
+            <PresenceProvider>
             <CompanyProvider>
             <ThemeProvider>
               <BrowserRouter>
@@ -85,6 +87,7 @@ export default function App() {
               <Toaster position="top-right" richColors />
             </ThemeProvider>
             </CompanyProvider>
+            </PresenceProvider>
           </AuthProvider>
         </QueryClientProvider>
       </ViewModeProvider>

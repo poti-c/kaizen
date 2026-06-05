@@ -12,7 +12,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
 import { DepartmentBadge } from '@/components/StatusBadge'
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
-import { getInitials, formatDate, isOnline, activityLabel } from '@/lib/utils'
+import { getInitials, formatDate, activityLabel } from '@/lib/utils'
+import { usePresence } from '@/contexts/PresenceContext'
 import { cn } from '@/lib/utils'
 import { DEPARTMENTS } from '@/types'
 import type { KaizenProfile, Role, Department } from '@/types'
@@ -22,6 +23,7 @@ import { Navigate, Link } from 'react-router-dom'
 export function UsersPage() {
   const { profile } = useAuth()
   const { activeCompany } = useCompany()
+  const { isOnline } = usePresence()
   const { t, lang } = useLanguage()
   const [users, setUsers] = useState<KaizenProfile[]>([])
   const [loading, setLoading] = useState(true)
@@ -400,8 +402,8 @@ export function UsersPage() {
                                 <DepartmentBadge department={user.department} />
                               </div>
                               <div className="mt-1 flex items-center gap-1.5">
-                                <span className={cn('w-1.5 h-1.5 rounded-full flex-shrink-0', isOnline(user.last_active_at) ? 'bg-green-500' : 'bg-gray-300')} />
-                                <span className={cn('text-[11px]', isOnline(user.last_active_at) ? 'text-green-600 font-medium' : 'text-gray-400')}>{activityLabel(user.last_active_at)}</span>
+                                <span className={cn('w-1.5 h-1.5 rounded-full flex-shrink-0', isOnline(user.id) ? 'bg-green-500' : 'bg-gray-300')} />
+                                <span className={cn('text-[11px]', isOnline(user.id) ? 'text-green-600 font-medium' : 'text-gray-400')}>{activityLabel(user.last_active_at, isOnline(user.id))}</span>
                               </div>
                             </div>
                           </Link>
@@ -422,8 +424,8 @@ export function UsersPage() {
                                 <DepartmentBadge department={user.department} />
                               </div>
                               <div className="mt-1 flex items-center gap-1.5">
-                                <span className={cn('w-1.5 h-1.5 rounded-full flex-shrink-0', isOnline(user.last_active_at) ? 'bg-green-500' : 'bg-gray-300')} />
-                                <span className={cn('text-[11px]', isOnline(user.last_active_at) ? 'text-green-600 font-medium' : 'text-gray-400')}>{activityLabel(user.last_active_at)}</span>
+                                <span className={cn('w-1.5 h-1.5 rounded-full flex-shrink-0', isOnline(user.id) ? 'bg-green-500' : 'bg-gray-300')} />
+                                <span className={cn('text-[11px]', isOnline(user.id) ? 'text-green-600 font-medium' : 'text-gray-400')}>{activityLabel(user.last_active_at, isOnline(user.id))}</span>
                               </div>
                             </div>
                           </>

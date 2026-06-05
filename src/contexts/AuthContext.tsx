@@ -44,6 +44,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [profile, setProfile] = useState<KaizenProfile | null>(null)
   const [loading, setLoading] = useState(true)
   const lastBeatRef = useRef(0)
+  const companyRef = useRef<string | null>(null)
 
   const fetchProfile = useCallback(async (userId: string) => {
     const { data, error } = await supabase
@@ -52,7 +53,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       .eq('id', userId)
       .single()
     if (!error && data) {
-      setProfile(data as KaizenProfile)
+      const p = data as KaizenProfile
+      companyRef.current = p.company_id
+      setProfile(p)
     }
   }, [])
 
@@ -90,7 +93,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const now = Date.now()
       if (now - lastBeatRef.current < 3 * 60 * 1000) return
       lastBeatRef.current = now
-      supabase.from('kaizen_profiles').update({ last_active_at: new Date().toISOString() }).eq('id', user.id).then(() => {}, () => {})
+      const iso = new Date().toISOString()
+      supabase.from('kaizen_profiles').update({ last_active_at: iso }).eq('id', user.id).then(() => {}, () => {})
+      // Log the active day (one row per user per day) for engagement scoring.
+      supabase.from('kaizen_user_activity').upsert(
+        { user_id: user.id, active_date: iso.slice(0, 10), company_id: companyRef.current },
+        { onConflict: 'user_id,active_date', ignoreDuplicates: true }
+      ).then(() => {}, () => {})
     }
     beat()
     const interval = setInterval(beat, 3 * 60 * 1000)
@@ -124,6 +133,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await supabase.auth.signOut()
       throw new Error('This account has been suspended. Please contact the system administrator.')
     }
+    companyRef.current = p.company_id
     setProfile(p)
     stampLogin(p.id)
   }
@@ -149,6 +159,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       throw new Error('This account has been suspended. Please contact the system administrator.')
     }
     await assertCompanyActive(p.company_id)
+    companyRef.current = p.company_id
     setProfile(p)
     stampLogin(p.id)
   }
@@ -181,6 +192,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       throw new Error('This account has been suspended. Please contact your manager or HR.')
     }
     await assertCompanyActive(p.company_id)
+    companyRef.current = p.company_id
     setProfile(p)
     stampLogin(p.id)
   }

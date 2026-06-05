@@ -8,8 +8,9 @@ import { useLanguage } from '@/contexts/LanguageContext'
 import { StatusBadge, PriorityBadge } from '@/components/StatusBadge'
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
-import { getInitials, formatDateTime, isSLABreached, isOnline, activityLabel } from '@/lib/utils'
+import { getInitials, formatDateTime, isSLABreached, activityLabel } from '@/lib/utils'
 import { cn } from '@/lib/utils'
+import { usePresence } from '@/contexts/PresenceContext'
 import { DEPARTMENT_LABELS } from '@/types'
 import type { KaizenProfile, KaizenCase, KaizenCaseTimeline } from '@/types'
 import { differenceInHours, format } from 'date-fns'
@@ -25,11 +26,15 @@ export function PerformanceDetailPage() {
   const { t, lang } = useLanguage()
 
   const isStaffViewer = myProfile?.role === 'staff'
+  const { isOnline } = usePresence()
 
   const [user, setUser] = useState<KaizenProfile | null>(null)
-  const [cases, setCases] = useState<KaizenCase[]>([])
+  const [cases, setCases] = useState<KaizenCase[]>([])            // their reported cases (KPI cards + list)
+  const [scoreCases, setScoreCases] = useState<KaizenCase[]>([])  // scoring caseload (staff: own; manager: dept)
   const [activity, setActivity] = useState<(KaizenCaseTimeline & { case_number?: string; case_title?: string })[]>([])
+  const [activeDays, setActiveDays] = useState(0)                 // distinct active days in last 30
   const [loading, setLoading] = useState(true)
+  const [openInfo, setOpenInfo] = useState<string | null>(null)  // which indicator's explainer is open
 
   useEffect(() => {
     if (userId && !isStaffViewer) load()
@@ -40,20 +45,29 @@ export function PerformanceDetailPage() {
 
   async function load() {
     setLoading(true)
-    const [profileRes, casesRes, activityRes] = await Promise.all([
-      supabase.from('kaizen_profiles').select('*').eq('id', userId!).single(),
-      supabase.from('kaizen_cases').select('*').eq('created_by', userId!).eq('company_id', activeCompany?.id ?? '').order('created_at', { ascending: false }),
-      supabase.from('kaizen_case_timeline')
-        .select('*, case:kaizen_cases(case_number, title)')
-        .eq('performed_by', userId!)
-        .order('created_at', { ascending: false })
-        .limit(30),
+    const profileRes = await supabase.from('kaizen_profiles').select('*').eq('id', userId!).single()
+    const u = profileRes.data as KaizenProfile | null
+    if (!u) { setLoading(false); return }
+    setUser(u)
+
+    const companyId = activeCompany?.id ?? u.company_id ?? ''
+    const since30 = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10)
+
+    // Role-specific scoring caseload: managers are scored on their whole dept; others on their own work.
+    const scoreCasesQuery = u.role === 'manager'
+      ? supabase.from('kaizen_cases').select('*').eq('company_id', companyId).eq('department', u.department)
+      : supabase.from('kaizen_cases').select('*').eq('company_id', companyId).or(`created_by.eq.${userId},pic_ids.cs.{${userId}}`)
+
+    const [ownCasesRes, activityRes, activeDaysRes, scoreCasesRes] = await Promise.all([
+      supabase.from('kaizen_cases').select('*').eq('created_by', userId!).eq('company_id', companyId).order('created_at', { ascending: false }),
+      supabase.from('kaizen_case_timeline').select('*, case:kaizen_cases(case_number, title)').eq('performed_by', userId!).order('created_at', { ascending: false }).limit(30),
+      supabase.from('kaizen_user_activity').select('active_date').eq('user_id', userId!).gte('active_date', since30),
+      scoreCasesQuery,
     ])
-    if (profileRes.data) setUser(profileRes.data as KaizenProfile)
-    if (casesRes.data) setCases(casesRes.data as KaizenCase[])
-    if (activityRes.data) setActivity(
-      activityRes.data.map((a: any) => ({ ...a, case_number: a.case?.case_number, case_title: a.case?.title }))
-    )
+    setCases((ownCasesRes.data || []) as KaizenCase[])
+    setActivity((activityRes.data || []).map((a: any) => ({ ...a, case_number: a.case?.case_number, case_title: a.case?.title })))
+    setActiveDays((activeDaysRes.data || []).length)
+    setScoreCases((scoreCasesRes.data || []) as KaizenCase[])
     setLoading(false)
   }
 
@@ -140,11 +154,11 @@ export function PerformanceDetailPage() {
             <CalendarDays className="h-4 w-4 text-gray-400 flex-shrink-0" />
             {lang === 'th' ? 'เริ่มงาน' : 'Joined'}: {format(new Date(user.created_at), 'dd MMM yyyy')}
           </span>
-          {/* Last active (with online indicator) */}
+          {/* Last active (with real-time online indicator) */}
           <span className="flex items-center gap-2">
-            <span className={cn('w-2 h-2 rounded-full flex-shrink-0', isOnline(user.last_active_at) ? 'bg-green-500' : 'bg-gray-300')} />
-            <span className={isOnline(user.last_active_at) ? 'text-green-600 font-medium' : ''}>
-              {lang === 'th' ? 'ใช้งานล่าสุด' : 'Last active'}: {activityLabel(user.last_active_at)}
+            <span className={cn('w-2 h-2 rounded-full flex-shrink-0', isOnline(user.id) ? 'bg-green-500' : 'bg-gray-300')} />
+            <span className={isOnline(user.id) ? 'text-green-600 font-medium' : ''}>
+              {lang === 'th' ? 'ใช้งานล่าสุด' : 'Last active'}: {activityLabel(user.last_active_at, isOnline(user.id))}
             </span>
           </span>
           {/* Last login */}
@@ -191,60 +205,120 @@ export function PerformanceDetailPage() {
         </div>
       </div>
 
-      {/* Performance Score */}
-      {totalCases > 0 && (() => {
-        const onTimeScore = Math.round(((totalCases - overdueCases.length) / totalCases) * 100)
-        const activityScore = Math.min(100, Math.round((activity.length / Math.max(totalCases * 5, 1)) * 100))
-        const weighted = Math.round(resolutionRate * 0.4 + onTimeScore * 0.4 + activityScore * 0.2)
-        const tier = weighted >= 80
+      {/* Overall Performance Score — role-specific (manager vs staff) with click-to-explain indicators */}
+      {(() => {
+        const sc = scoreCases
+        const scClosed = sc.filter(c => c.status === 'closed')
+        const scOverdue = sc.filter(c => isSLABreached(c))
+        const scReopened = sc.filter(c => c.status === 'reopened')
+
+        // Shared engagement: 50% active-days regularity (15 days = full), 50% in-system actions (20 = full)
+        const activeDaysScore = Math.min(100, Math.round((activeDays / 15) * 100))
+        const actionsScore = Math.min(100, Math.round((activity.length / 20) * 100))
+        const engagementScore = Math.round(activeDaysScore * 0.5 + actionsScore * 0.5)
+        const engagementNote = `${activeDays} active ${activeDays === 1 ? 'day' : 'days'} · ${activity.length} actions`
+
+        type Crit = { key: string; label: string; value: number | null; weight: number; color: string; note: string; info: string }
+        let criteria: Crit[]
+
+        if (user.role === 'manager') {
+          const approved = sc.filter(c => c.manager_approved_by === userId && c.resolved_at && c.manager_approved_at)
+          const avgApprovalH = approved.length
+            ? approved.reduce((s, c) => s + differenceInHours(new Date(c.manager_approved_at!), new Date(c.resolved_at!)), 0) / approved.length
+            : null
+          const approvalScore = avgApprovalH == null ? null : avgApprovalH <= 24 ? 100 : Math.max(0, Math.round((24 / avgApprovalH) * 100))
+          const teamTotal = sc.length
+          const teamResRate = teamTotal ? Math.round((scClosed.length / teamTotal) * 100) : null
+          const teamSlaScore = teamTotal ? Math.round(((teamTotal - scOverdue.length) / teamTotal) * 100) : null
+          const reopenRate = teamTotal ? (scReopened.length / teamTotal) * 100 : 0
+          const overdueRate = teamTotal ? (scOverdue.length / teamTotal) * 100 : 0
+          const leadershipScore = teamTotal ? Math.round(((100 - reopenRate) + (100 - overdueRate)) / 2) : null
+          criteria = [
+            { key: 'approval', label: 'Approval Responsiveness', value: approvalScore, weight: 25, color: '#3b82f6', note: approved.length ? `~${formatRes(avgApprovalH)} avg` : 'no approvals yet', info: 'How quickly you approve cases your team submits — the average time from a staff resolution to your approval (target: within 24h). Faster unblocking scores higher.' },
+            { key: 'teamres', label: 'Team Resolution Rate', value: teamResRate, weight: 20, color: '#22c55e', note: `${scClosed.length}/${teamTotal} closed`, info: 'The share of your department\'s cases that have been resolved and closed — your team\'s overall output.' },
+            { key: 'teamsla', label: 'Team SLA Health', value: teamSlaScore, weight: 20, color: '#0ea5e9', note: `${scOverdue.length} overdue`, info: 'The share of your department\'s cases that are NOT overdue — how well you keep the team on schedule.' },
+            { key: 'leadership', label: 'Leadership & Quality', value: leadershipScore, weight: 20, color: '#a855f7', note: `${scReopened.length} reopened`, info: 'A blend of work quality (few cases reopened) and backlog control (few cases overdue) across your department — how healthy your team\'s pipeline is.' },
+            { key: 'engagement', label: 'Oversight Engagement', value: engagementScore, weight: 15, color: '#f59e0b', note: engagementNote, info: 'How actively you use Kaizen to manage — your active days over the last 30 days combined with in-system actions (assignments, approvals, comments). A missed day barely moves it; consistent absence lowers it.' },
+          ]
+        } else {
+          const total = sc.length
+          const resRate = total ? Math.round((scClosed.length / total) * 100) : null
+          const onTime = total ? Math.round(((total - scOverdue.length) / total) * 100) : null
+          const avgResH = scClosed.length
+            ? scClosed.reduce((s, c) => s + differenceInHours(new Date(c.closed_at!), new Date(c.created_at)), 0) / scClosed.length
+            : null
+          const speedScore = avgResH == null ? null : avgResH <= 48 ? 100 : Math.max(0, Math.round((48 / avgResH) * 100))
+          const closedOrReopened = scClosed.length + scReopened.length
+          const qualityScore = closedOrReopened ? Math.round(100 - (scReopened.length / closedOrReopened) * 100) : null
+          criteria = [
+            { key: 'resolution', label: 'Resolution Rate', value: resRate, weight: 30, color: '#22c55e', note: `${scClosed.length}/${total} closed`, info: 'The share of cases you\'re responsible for (reported or In Charge) that you\'ve resolved and closed.' },
+            { key: 'ontime', label: 'On-Time Delivery', value: onTime, weight: 25, color: '#3b82f6', note: `${scOverdue.length} overdue`, info: 'The share of your cases that are NOT past their due date — how reliably you deliver on time.' },
+            { key: 'speed', label: 'Resolution Speed', value: speedScore, weight: 15, color: '#0ea5e9', note: avgResH != null ? `${formatRes(avgResH)} avg` : 'no closed cases', info: 'How fast you resolve cases on average, scored against a 48-hour target. Resolving within 48h scores full marks.' },
+            { key: 'quality', label: 'Quality', value: qualityScore, weight: 10, color: '#a855f7', note: `${scReopened.length} reopened`, info: 'How well your fixes hold up — the share of your resolved cases that did NOT get reopened. Fewer reopens = higher quality.' },
+            { key: 'engagement', label: 'Engagement', value: engagementScore, weight: 20, color: '#f59e0b', note: engagementNote, info: 'How actively you engage with Kaizen — your active days over the last 30 days plus in-system actions (updates, comments, resolutions). Measured over a month, so one missed login barely affects it.' },
+          ]
+        }
+
+        const scored = criteria.filter(c => c.value != null)
+        const weightSum = scored.reduce((s, c) => s + c.weight, 0)
+        const overall = weightSum ? Math.round(scored.reduce((s, c) => s + (c.value! * c.weight), 0) / weightSum) : 0
+        const tier = overall >= 85
           ? { label: lang === 'th' ? 'ดีเยี่ยม' : 'Excellent', color: '#22c55e', bg: 'bg-green-50', text: 'text-green-700', border: 'border-green-200' }
-          : weighted >= 60
+          : overall >= 70
           ? { label: lang === 'th' ? 'ดี' : 'Good', color: '#3b82f6', bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200' }
-          : weighted >= 40
+          : overall >= 50
           ? { label: lang === 'th' ? 'ปานกลาง' : 'Fair', color: '#f59e0b', bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200' }
           : { label: lang === 'th' ? 'ต้องปรับปรุง' : 'Needs Attention', color: '#ef4444', bg: 'bg-red-50', text: 'text-red-700', border: 'border-red-200' }
-        const criteria = [
-          { label: lang === 'th' ? 'อัตราการแก้ไข' : 'Resolution Rate', value: resolutionRate, color: '#22c55e', note: `${closedCases.length} / ${totalCases} ${lang === 'th' ? 'เคส' : 'cases'}` },
-          { label: lang === 'th' ? 'ตรงตามกำหนดเวลา' : 'On-Time Delivery', value: onTimeScore, color: '#3b82f6', note: `${totalCases - overdueCases.length} / ${totalCases} ${lang === 'th' ? 'ตรงเวลา' : 'on time'}` },
-          { label: lang === 'th' ? 'ความมีส่วนร่วม' : 'Engagement', value: activityScore, color: '#8b5cf6', note: `${activity.length} ${lang === 'th' ? 'กิจกรรม' : 'actions'}` },
-        ]
+
         return (
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
-            <div className="flex items-center gap-3 mb-4">
+            <div className="flex items-center gap-3 mb-1">
               <div className="flex items-center gap-2 flex-1">
                 <TrendingUp className="h-4 w-4 text-[var(--brand-primary)]" />
                 <h3 className="font-semibold text-sm text-gray-900">{lang === 'th' ? 'คะแนนประสิทธิภาพโดยรวม' : 'Overall Performance Score'}</h3>
               </div>
               <span className={`px-3 py-1 rounded-full text-sm font-bold border ${tier.bg} ${tier.text} ${tier.border}`}>{tier.label}</span>
             </div>
+            <p className="text-[11px] text-gray-400 mb-4">{user.role === 'manager' ? 'Leadership scorecard' : 'Staff scorecard'} · tap an indicator to see how it’s measured</p>
             <div className="flex items-center gap-4 mb-5">
               <div className="relative flex-shrink-0 w-16 h-16">
                 <svg className="w-16 h-16 -rotate-90" viewBox="0 0 56 56">
                   <circle cx="28" cy="28" r="22" fill="none" stroke="#f3f4f6" strokeWidth="6" />
-                  <circle cx="28" cy="28" r="22" fill="none" stroke={tier.color} strokeWidth="6" strokeDasharray={`${(weighted / 100) * 138.2} 138.2`} strokeLinecap="round" />
+                  <circle cx="28" cy="28" r="22" fill="none" stroke={tier.color} strokeWidth="6" strokeDasharray={`${(overall / 100) * 138.2} 138.2`} strokeLinecap="round" />
                 </svg>
-                <div className="absolute inset-0 flex items-center justify-center"><span className="text-lg font-bold text-gray-900">{weighted}</span></div>
+                <div className="absolute inset-0 flex items-center justify-center"><span className="text-lg font-bold text-gray-900">{overall}</span></div>
               </div>
               <div className="flex-1">
                 <p className="text-xs text-gray-400 mb-1">{lang === 'th' ? 'คะแนนเต็ม 100' : 'Score out of 100'}</p>
                 <div className="h-2.5 bg-gray-100 rounded-full overflow-hidden">
-                  <div className="h-full rounded-full transition-all" style={{ width: `${weighted}%`, backgroundColor: tier.color }} />
+                  <div className="h-full rounded-full transition-all" style={{ width: `${overall}%`, backgroundColor: tier.color }} />
                 </div>
               </div>
             </div>
             <div className="space-y-3 border-t border-gray-100 pt-4">
-              {criteria.map(({ label, value, color, note }) => (
-                <div key={label}>
-                  <div className="flex items-baseline justify-between mb-1">
-                    <span className="text-xs font-medium text-gray-700">{label}</span>
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] text-gray-400">{note}</span>
-                      <span className="text-xs font-bold" style={{ color }}>{value}%</span>
+              {criteria.map((c) => (
+                <div key={c.key}>
+                  <button type="button" onClick={() => setOpenInfo(openInfo === c.key ? null : c.key)} className="w-full text-left group">
+                    <div className="flex items-baseline justify-between mb-1">
+                      <span className="text-xs font-medium text-gray-700 flex items-center gap-1.5">
+                        {c.label}
+                        <span className="text-[9px] text-gray-400 font-normal">{c.weight}%</span>
+                        <span className="text-gray-300 group-hover:text-[var(--brand-primary)] text-[11px]">ⓘ</span>
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] text-gray-400">{c.note}</span>
+                        <span className="text-xs font-bold" style={{ color: c.value == null ? '#9ca3af' : c.color }}>{c.value == null ? '—' : `${c.value}%`}</span>
+                      </div>
                     </div>
-                  </div>
-                  <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                    <div className="h-full rounded-full transition-all" style={{ width: `${value}%`, backgroundColor: color }} />
-                  </div>
+                    <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                      <div className="h-full rounded-full transition-all" style={{ width: `${c.value ?? 0}%`, backgroundColor: c.color }} />
+                    </div>
+                  </button>
+                  {openInfo === c.key && (
+                    <div className="mt-2 text-[11px] leading-relaxed text-gray-600 bg-gray-50 border border-gray-100 rounded-lg p-2.5">
+                      <span className="font-semibold text-gray-700">Weight {c.weight}%. </span>{c.info}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

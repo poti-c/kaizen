@@ -17,10 +17,11 @@ export function isOnline(lastActiveAt?: string | null): boolean {
   return Date.now() - new Date(lastActiveAt).getTime() < 5 * 60 * 1000
 }
 
-// Compact activity label for user lists: "Online", "Active 12m ago", "Never".
-export function activityLabel(lastActiveAt?: string | null): string {
+// Compact activity label for user lists. Pass `online` from real-time presence;
+// falls back to the last-seen heuristic when presence is unknown.
+export function activityLabel(lastActiveAt?: string | null, online?: boolean): string {
+  if (online ?? isOnline(lastActiveAt)) return 'Online now'
   if (!lastActiveAt) return 'Never logged in'
-  if (isOnline(lastActiveAt)) return 'Online now'
   return `Active ${formatDistanceToNow(new Date(lastActiveAt), { addSuffix: true })}`
 }
 
