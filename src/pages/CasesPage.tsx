@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { PlusCircle, Search, Filter, Clock, ChevronRight, Download, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, RefreshCw, X, AlertCircle } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
@@ -208,14 +208,19 @@ export function CasesPage() {
     })
   }
 
-  // Split into active and closed
-  const activeCases = sortCases(filtered.filter(c => c.status !== 'closed'))
-  const closedCases = sortCases(filtered.filter(c => c.status === 'closed'))
+  // Split into active, pending approval, and closed
+  const PENDING_STATUSES = ['pending_manager_approval', 'pending_admin_approval']
+  const activeCases  = sortCases(filtered.filter(c => c.status !== 'closed' && !PENDING_STATUSES.includes(c.status)))
+  const pendingCases = sortCases(filtered.filter(c => PENDING_STATUSES.includes(c.status)))
+  const closedCases  = sortCases(filtered.filter(c => c.status === 'closed'))
 
-  const totalActivePages = Math.ceil(activeCases.length / PAGE_SIZE)
-  const totalClosedPages = Math.ceil(closedCases.length / PAGE_SIZE)
-  const paginatedActive = activeCases.slice((pageActive - 1) * PAGE_SIZE, pageActive * PAGE_SIZE)
-  const paginatedClosed = closedCases.slice((pageClosed - 1) * PAGE_SIZE, pageClosed * PAGE_SIZE)
+  const totalActivePages  = Math.ceil(activeCases.length / PAGE_SIZE)
+  const totalPendingPages = Math.ceil(pendingCases.length / PAGE_SIZE)
+  const totalClosedPages  = Math.ceil(closedCases.length / PAGE_SIZE)
+  const [pagePending, setPagePending] = React.useState(1)
+  const paginatedActive  = activeCases.slice((pageActive - 1) * PAGE_SIZE, pageActive * PAGE_SIZE)
+  const paginatedPending = pendingCases.slice((pagePending - 1) * PAGE_SIZE, pagePending * PAGE_SIZE)
+  const paginatedClosed  = closedCases.slice((pageClosed - 1) * PAGE_SIZE, pageClosed * PAGE_SIZE)
 
   function exportCSV() {
     const headers = ['Case #', 'Date', 'Title', 'Description', 'Department', 'Category', 'Priority', 'Status', 'Due Date', 'Duration']
@@ -628,12 +633,9 @@ export function CasesPage() {
                 </div>
               ) : (
                 <>
-                  {/* Mobile */}
                   <div className="md:hidden space-y-2">
                     {paginatedActive.map((c) => <MobileCard key={c.id} c={c} />)}
                   </div>
-
-                  {/* Desktop */}
                   <div className="hidden md:block bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
                     <div className="overflow-x-auto">
                       <table className="w-full text-sm">
@@ -644,16 +646,39 @@ export function CasesPage() {
                       </table>
                     </div>
                   </div>
-
-                  <Pagination
-                    page={pageActive}
-                    totalPages={totalActivePages}
-                    total={activeCases.length}
+                  <Pagination page={pageActive} totalPages={totalActivePages} total={activeCases.length}
                     onPrev={() => setPageActive(p => Math.max(1, p - 1))}
-                    onNext={() => setPageActive(p => Math.min(totalActivePages, p + 1))}
-                  />
+                    onNext={() => setPageActive(p => Math.min(totalActivePages, p + 1))} />
                 </>
               )}
+            </div>
+          )}
+
+          {/* ── Pending Approval ── */}
+          {showActive && pendingCases.length > 0 && (
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-base font-semibold text-amber-700">
+                  Pending Approval
+                  <span className="ml-2 text-sm font-normal text-amber-400">{pendingCases.length}</span>
+                </h2>
+              </div>
+              <div className="md:hidden space-y-2">
+                {paginatedPending.map((c) => <MobileCard key={c.id} c={c} />)}
+              </div>
+              <div className="hidden md:block bg-white rounded-xl border border-amber-200 shadow-sm overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead><CaseTableHeader /></thead>
+                    <tbody className="divide-y divide-gray-50">
+                      {paginatedPending.map((c) => <CaseRow key={c.id} c={c} />)}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+              <Pagination page={pagePending} totalPages={totalPendingPages} total={pendingCases.length}
+                onPrev={() => setPagePending(p => Math.max(1, p - 1))}
+                onNext={() => setPagePending(p => Math.min(totalPendingPages, p + 1))} />
             </div>
           )}
 
