@@ -215,6 +215,19 @@ export function CaseDetailPage() {
 
       if (notifRows.length) await supabase.from('kaizen_notifications').insert(notifRows)
 
+      // Auto-add departments of selected PICs + notified depts to assigned_departments
+      const picDepts = selectedPics
+        .map(uid => picCandidates.find(p => p.id === uid)?.department)
+        .filter((d): d is Department => !!d && d !== kcase.department)
+      const allNewDepts = [...new Set([...picDepts, ...notifyDepts as Department[]])]
+      const existingDepts = kcase.assigned_departments || []
+      const toAdd = allNewDepts.filter(d => !existingDepts.includes(d))
+      if (toAdd.length > 0) {
+        const merged = [...existingDepts, ...toAdd]
+        await supabase.from('kaizen_cases').update({ assigned_departments: merged }).eq('id', id!)
+        await addTimeline('department_added', `Departments added: ${toAdd.map(d => DEPARTMENT_LABELS[d] ?? d).join(', ')}`)
+      }
+
       setShowPicEditor(false)
       setNotifyDepts([])
       fetchCase()
@@ -1165,32 +1178,6 @@ export function CaseDetailPage() {
                 <h3 className="font-semibold text-blue-900">{t.caseDetail.proposedSolution}</h3>
               </div>
               <p className="text-sm text-blue-800 leading-relaxed">{kcase.proposed_solution}</p>
-              {/* Super Admin: add additional department */}
-              {profile?.role === 'super_admin' && kcase.status !== 'closed' && (
-                <div className="flex items-center gap-2 mt-3 pt-3 border-t border-blue-200">
-                  <Select value={addDeptValue} onValueChange={(v) => setAddDeptValue(v as Department)}>
-                    <SelectTrigger className="h-8 text-xs flex-1 bg-white border-blue-300 text-blue-900">
-                      <SelectValue placeholder={t.caseDetail.addDept} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {DEPARTMENTS
-                        .filter(d => d.value !== 'top_management' && !assignments.some(a => a.department === d.value))
-                        .map((d) => (
-                          <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>
-                        ))
-                      }
-                    </SelectContent>
-                  </Select>
-                  <Button
-                    size="sm"
-                    onClick={handleAddDepartment}
-                    disabled={!addDeptValue || addingDept}
-                    className="h-8 text-xs bg-blue-600 hover:bg-blue-700 shrink-0"
-                  >
-                    {addingDept ? <Loader2 className="h-3 w-3 animate-spin" /> : t.caseDetail.addDeptBtn}
-                  </Button>
-                </div>
-              )}
             </div>
           )}
 
