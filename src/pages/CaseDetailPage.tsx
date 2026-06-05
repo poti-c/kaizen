@@ -159,14 +159,15 @@ export function CaseDetailPage() {
   // ── Person in Charge ───────────────────────────────────────────────────────
   async function loadPicCandidates() {
     if (!kcase) return
-    // Both manager and super_admin can pick from all departments
+    // Staff, managers, and Top Management (super_admin) across all departments.
     const { data } = await supabase
       .from('kaizen_profiles').select('*')
       .eq('is_active', true)
       .eq('company_id', kcase.company_id)
-      .in('role', ['staff', 'manager'])
+      .in('role', ['staff', 'manager', 'super_admin'])
       .order('department').order('role', { ascending: false }).order('full_name')
-    setPicCandidates((data || []) as KaizenProfile[])
+    // The Owner is protected and cannot be assigned as In Charge.
+    setPicCandidates(((data || []) as KaizenProfile[]).filter(p => p.job_title !== 'Owner'))
   }
 
   async function savePic() {
@@ -233,9 +234,10 @@ export function CaseDetailPage() {
       }
 
       // Auto-add departments of selected PICs + notified depts to assigned_departments
+      // (Top Management has no operational department, so it never adds a dept badge.)
       const picDepts = selectedPics
         .map(uid => picCandidates.find(p => p.id === uid)?.department)
-        .filter((d): d is Department => !!d && d !== kcase.department)
+        .filter((d): d is Department => !!d && d !== 'top_management' && d !== kcase.department)
       const allNewDepts = [...new Set([...picDepts, ...notifyDepts as Department[]])]
       const existingDepts = kcase.assigned_departments || []
       const toAdd = allNewDepts.filter(d => !existingDepts.includes(d))
@@ -1032,6 +1034,7 @@ export function CaseDetailPage() {
                     {/* Grouped checkboxes */}
                     <div className="max-h-56 overflow-y-auto p-2 space-y-1">
                       {(() => {
+                        const topMgmt = picCandidates.filter(p => p.role === 'super_admin')
                         const managers = picCandidates.filter(p => p.role === 'manager')
                         const staff = picCandidates.filter(p => p.role === 'staff')
                         const staffByDept: Record<string, KaizenProfile[]> = {}
@@ -1056,15 +1059,22 @@ export function CaseDetailPage() {
                         )
                         return (
                           <>
+                            {topMgmt.length > 0 && (
+                              <div>
+                                <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide px-2 mb-0.5">Top Management</p>
+                                {topMgmt.map(p => <Row key={p.id} p={p} />)}
+                              </div>
+                            )}
                             {managers.length > 0 && (
                               <div>
+                                {topMgmt.length > 0 && <div className="my-1 border-t border-gray-100" />}
                                 <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide px-2 mb-0.5">Managers</p>
                                 {managers.map(p => <Row key={p.id} p={p} />)}
                               </div>
                             )}
                             {Object.entries(staffByDept).map(([dept, members], idx) => (
                               <div key={dept}>
-                                {(managers.length > 0 || idx > 0) && <div className="my-1 border-t border-gray-100" />}
+                                {(topMgmt.length > 0 || managers.length > 0 || idx > 0) && <div className="my-1 border-t border-gray-100" />}
                                 {/* Dept header with notify tickbox */}
                                 <div className="flex items-center justify-between px-2 mb-0.5">
                                   <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">
