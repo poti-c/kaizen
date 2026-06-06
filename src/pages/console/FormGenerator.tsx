@@ -472,27 +472,27 @@ function PrintPreview({ form, issuer, onClose }: { form: GeneratedForm; issuer: 
               <div className="flex items-center gap-2 mb-2">
                 {issuer?.logo_url
                   ? <img src={issuer.logo_url} alt={issuerName} className="h-10 w-auto max-w-[140px] object-contain" />
-                  : <Building2 className="h-6 w-6 text-indigo-700" />}
-                <span className="text-lg font-bold text-indigo-800 tracking-tight">{issuerName}</span>
+                  : <Building2 className="h-6 w-6 text-[#7a5c3e]" />}
+                <span className="text-lg font-bold text-[#4a3424] tracking-tight">{issuerName}</span>
               </div>
               <p className="text-[11px] text-slate-700">{issuerLine2}</p>
               {issuer?.address && <p className="text-[11px] text-slate-700 whitespace-pre-line">{issuer.address}</p>}
               {issuer?.tax_id && <p className="text-[11px] text-slate-700">Tax ID {issuer.tax_id}</p>}
             </div>
             <div className="text-right">
-              <h1 className="text-3xl font-bold text-indigo-800">{typeLabel(form.form_type)}</h1>
+              <h1 className="text-3xl font-bold text-[#4a3424]">{typeLabel(form.form_type)}</h1>
               <p className="text-[11px] text-slate-500">{typeThai(form.form_type)} · Original</p>
               <div className="mt-3 text-[11px] grid grid-cols-[auto_auto] gap-x-3 gap-y-0.5 justify-end">
-                <span className="text-indigo-700 text-right">Document No.</span><span className="text-right font-medium">{form.doc_number}</span>
-                <span className="text-indigo-700 text-right">Date</span><span className="text-right">{fmtDate(form.issue_date)}</span>
-                {form.due_date && (<><span className="text-indigo-700 text-right">{showVat ? 'Due Date' : 'Payment Date'}</span><span className="text-right">{fmtDate(form.due_date)}</span></>)}
+                <span className="text-[#7a5c3e] text-right">Document No.</span><span className="text-right font-medium">{form.doc_number}</span>
+                <span className="text-[#7a5c3e] text-right">Date</span><span className="text-right">{fmtDate(form.issue_date)}</span>
+                {form.due_date && (<><span className="text-[#7a5c3e] text-right">{showVat ? 'Due Date' : 'Payment Date'}</span><span className="text-right">{fmtDate(form.due_date)}</span></>)}
               </div>
             </div>
           </div>
 
           {/* client */}
           <div className="mt-6 border-t border-slate-200 pt-3">
-            <p className="text-indigo-700 text-[11px] font-semibold mb-0.5">Client</p>
+            <p className="text-[#7a5c3e] text-[11px] font-semibold mb-0.5">Client</p>
             <p className="font-semibold">{form.client_name}</p>
             {form.client_address && <p className="text-[11px] text-slate-700 whitespace-pre-line">{form.client_address}</p>}
             <div className="flex gap-4 text-[11px] text-slate-700 mt-0.5">
@@ -533,7 +533,7 @@ function PrintPreview({ form, issuer, onClose }: { form: GeneratedForm; issuer: 
               {form.discount_amount > 0 && <Row label={`Discount${form.discount_code ? ` (${form.discount_code}, ${form.discount_percent}%)` : ''}`} val={`− ${form.currency} ${money(form.discount_amount)}`} />}
               {form.non_vat_amount > 0 && <Row label="Non-VAT / exempt" val={`${form.currency} ${money(form.non_vat_amount)}`} />}
               {showVat && <Row label={`VAT ${form.vat_rate}%`} val={`${form.currency} ${money(form.vat_amount)}`} />}
-              <div className="flex justify-between border-t border-slate-300 pt-1.5 font-bold text-indigo-800 text-sm">
+              <div className="flex justify-between border-t border-slate-300 pt-1.5 font-bold text-[#4a3424] text-sm">
                 <span>Grand Total</span><span>{form.currency} {money(form.total)}</span>
               </div>
             </div>
