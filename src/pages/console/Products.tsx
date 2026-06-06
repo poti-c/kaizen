@@ -51,8 +51,8 @@ const DURATIONS: { label: string; days: number | null }[] = [
   { label: 'Lifetime', days: null },
 ]
 
-const inputCls = 'w-full h-9 rounded-lg bg-slate-800 border border-slate-700 px-3 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-amber-500/50'
-const selectCls = 'h-9 rounded-lg bg-slate-800 border border-slate-700 px-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-amber-500/50'
+const inputCls = 'w-full h-9 rounded-lg bg-slate-100 border border-slate-300 px-3 text-sm text-slate-900 placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-amber-500/50'
+const selectCls = 'h-9 rounded-lg bg-slate-100 border border-slate-300 px-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500/50'
 
 function blankProduct(kind: Product['kind'], sort: number): Product {
   return {
@@ -93,12 +93,12 @@ export function ProductsView({ call, onBack }: { call: Call; onBack: () => void 
 
   return (
     <div>
-      <button onClick={onBack} className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-white mb-4">
+      <button onClick={onBack} className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-900 mb-4">
         <ArrowLeft className="h-3.5 w-3.5" />Back
       </button>
       <div className="flex items-center gap-2 mb-1">
         <Package className="h-5 w-5 text-amber-400" />
-        <h2 className="text-lg font-bold text-white">Products</h2>
+        <h2 className="text-lg font-bold text-slate-900">Products</h2>
       </div>
       <p className="text-xs text-slate-500 mb-5">Packages, add-ons and promo codes used across billing and the Form Generator.</p>
 
@@ -141,11 +141,11 @@ export function ProductsView({ call, onBack }: { call: Call; onBack: () => void 
 
 function Section({ icon: Icon, title, desc, onAdd, addLabel, children }: { icon: typeof Package; title: string; desc: string; onAdd: () => void; addLabel: string; children: React.ReactNode }) {
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
+    <div className="bg-white border border-slate-200 rounded-xl p-4">
       <div className="flex items-start gap-2 mb-3">
         <Icon className="h-4 w-4 text-amber-400 mt-0.5" />
         <div className="flex-1 min-w-0">
-          <h3 className="text-sm font-semibold text-white">{title}</h3>
+          <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
           <p className="text-[11px] text-slate-500">{desc}</p>
         </div>
         <button onClick={onAdd} className="flex items-center gap-1 text-xs text-amber-400 hover:text-amber-300 flex-shrink-0"><Plus className="h-3.5 w-3.5" />{addLabel}</button>
@@ -182,10 +182,10 @@ function ProductCard({ product, call, onSaved, onDeleted, isNew }: { product: Pr
   }
 
   return (
-    <div className={`rounded-lg border p-3 ${d.is_active ? 'bg-slate-800/40 border-slate-700' : 'bg-slate-800/20 border-slate-800'}`}>
+    <div className={`rounded-lg border p-3 ${d.is_active ? 'bg-slate-50 border-slate-300' : 'bg-slate-50 border-slate-200'}`}>
       <div className="flex items-center gap-2 mb-2.5">
         <input value={d.name} onChange={e => set({ name: e.target.value })} className={inputCls + ' flex-1 font-semibold'} placeholder={isPackage ? 'Package name' : 'Product name'} />
-        <button onClick={() => set({ is_active: !d.is_active })} title={d.is_active ? 'Active' : 'Inactive'} className={`p-2 rounded-lg ${d.is_active ? 'text-green-400 hover:bg-green-500/10' : 'text-slate-500 hover:bg-slate-800'}`}><Power className="h-4 w-4" /></button>
+        <button onClick={() => set({ is_active: !d.is_active })} title={d.is_active ? 'Active' : 'Inactive'} className={`p-2 rounded-lg ${d.is_active ? 'text-green-400 hover:bg-green-500/10' : 'text-slate-500 hover:bg-slate-100'}`}><Power className="h-4 w-4" /></button>
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mb-2.5">
@@ -200,7 +200,7 @@ function ProductCard({ product, call, onSaved, onDeleted, isNew }: { product: Pr
         )}
         {isPackage && (
           <L label="Multi-company">
-            <button onClick={() => set({ multi_company: !d.multi_company })} className={`h-9 w-full rounded-lg border text-xs font-medium ${d.multi_company ? 'bg-amber-500/15 border-amber-500/40 text-amber-300' : 'bg-slate-800 border-slate-700 text-slate-400'}`}>
+            <button onClick={() => set({ multi_company: !d.multi_company })} className={`h-9 w-full rounded-lg border text-xs font-medium ${d.multi_company ? 'bg-amber-500/15 border-amber-500/40 text-amber-300' : 'bg-slate-100 border-slate-300 text-slate-500'}`}>
               {d.multi_company ? 'Enabled' : 'Disabled'}
             </button>
           </L>
@@ -218,10 +218,10 @@ function ProductCard({ product, call, onSaved, onDeleted, isNew }: { product: Pr
 
       {isPackage && (
         <div className="mt-2.5">
-          <p className="text-[11px] font-medium text-slate-400 mb-1.5">Feature Authorities</p>
+          <p className="text-[11px] font-medium text-slate-500 mb-1.5">Feature Authorities</p>
           <div className="grid grid-cols-2 gap-1.5">
             {CAPABILITIES.map(c => (
-              <label key={c.key} className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+              <label key={c.key} className="flex items-center gap-2 text-xs text-slate-600 cursor-pointer">
                 <input type="checkbox" checked={!!d.features[c.key]} onChange={() => toggleFeature(c.key)} className="accent-amber-500" />
                 {c.label}
               </label>
@@ -230,12 +230,12 @@ function ProductCard({ product, call, onSaved, onDeleted, isNew }: { product: Pr
         </div>
       )}
 
-      <div className="flex items-center gap-2 mt-3 pt-2.5 border-t border-slate-800">
+      <div className="flex items-center gap-2 mt-3 pt-2.5 border-t border-slate-200">
         {confirmDel ? (
           <div className="flex items-center gap-2">
-            <span className="text-xs text-slate-400">Delete this {d.kind}?</span>
+            <span className="text-xs text-slate-500">Delete this {d.kind}?</span>
             <button onClick={del} disabled={busy} className="text-xs px-2 py-1 rounded bg-red-500/15 text-red-400 hover:bg-red-500/25">{busy ? '…' : 'Delete'}</button>
-            <button onClick={() => setConfirmDel(false)} className="text-xs px-2 py-1 rounded text-slate-400 hover:bg-slate-800">Cancel</button>
+            <button onClick={() => setConfirmDel(false)} className="text-xs px-2 py-1 rounded text-slate-500 hover:bg-slate-100">Cancel</button>
           </div>
         ) : (
           <button onClick={() => (isNew ? onDeleted() : setConfirmDel(true))} className="flex items-center gap-1 text-xs text-slate-500 hover:text-red-400">
@@ -272,14 +272,14 @@ function PromoRow({ promo, call, onSaved, onDeleted, isNew }: { promo: Promo; ca
     catch (e) { alert(e instanceof Error ? e.message : 'Failed') } finally { setBusy(false) }
   }
   return (
-    <div className={`rounded-lg border p-3 ${d.is_active ? 'bg-slate-800/40 border-slate-700' : 'bg-slate-800/20 border-slate-800'}`}>
+    <div className={`rounded-lg border p-3 ${d.is_active ? 'bg-slate-50 border-slate-300' : 'bg-slate-50 border-slate-200'}`}>
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 items-end">
         <L label="Code"><input value={d.code} onChange={e => set({ code: e.target.value.toUpperCase() })} className={inputCls + ' font-mono'} placeholder="SAVE10" /></L>
         <L label="Discount %"><input value={d.discount_percent || ''} onChange={e => set({ discount_percent: Math.min(100, Number(e.target.value.replace(/[^0-9.]/g, '')) || 0) })} className={inputCls} placeholder="10" inputMode="decimal" /></L>
         <L label="Valid From"><input type="date" value={d.valid_from ?? ''} onChange={e => set({ valid_from: e.target.value || null })} className={inputCls} /></L>
         <L label="Valid To"><input type="date" value={d.valid_to ?? ''} onChange={e => set({ valid_to: e.target.value || null })} className={inputCls} /></L>
         <div className="flex items-center gap-1.5">
-          <button onClick={() => set({ is_active: !d.is_active })} title={d.is_active ? 'Active' : 'Inactive'} className={`h-9 px-2.5 rounded-lg border text-xs font-medium flex-1 ${d.is_active ? 'bg-green-500/15 border-green-500/40 text-green-300' : 'bg-slate-800 border-slate-700 text-slate-400'}`}>{d.is_active ? 'Active' : 'Off'}</button>
+          <button onClick={() => set({ is_active: !d.is_active })} title={d.is_active ? 'Active' : 'Inactive'} className={`h-9 px-2.5 rounded-lg border text-xs font-medium flex-1 ${d.is_active ? 'bg-green-500/15 border-green-500/40 text-green-300' : 'bg-slate-100 border-slate-300 text-slate-500'}`}>{d.is_active ? 'Active' : 'Off'}</button>
         </div>
       </div>
       <div className="flex items-center gap-2 mt-2.5">
