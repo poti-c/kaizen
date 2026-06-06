@@ -1223,7 +1223,7 @@ function CreateOwnerDialog({ preselectCompanyId, call, onClose, onCreated }: {
 // ── Shared bits ──────────────────────────────────────────────────────────────
 // ── Admin Settings ─────────────────────────────────────────────────────────
 interface ConsoleAdmin { id: string; username: string; email: string | null; is_active: boolean; created_at: string }
-interface ConsoleSettings { company_name: string | null; office_type: string; branch_name: string | null; address: string | null; tax_id: string | null; logo_url?: string | null; signatory_name?: string | null; signatory_title?: string | null }
+interface ConsoleSettings { company_name: string | null; office_type: string; branch_name: string | null; address: string | null; tax_id: string | null; logo_url?: string | null; signatory_name?: string | null; signatory_title?: string | null; phone?: string | null; email?: string | null; website?: string | null }
 
 // Read an image file and downscale it to a compact data URL (keeps stored logo small).
 function fileToResizedDataUrl(file: File, max = 400): Promise<string> {
@@ -1264,7 +1264,7 @@ function AdminSettingsView({ call, onBack }: { call: <T,>(a: string, p?: Record<
 
   // company editing
   const [editCo, setEditCo] = useState(false)
-  const [co, setCo] = useState<ConsoleSettings>({ company_name: '', office_type: 'head_office', branch_name: '', address: '', tax_id: '', signatory_name: '', signatory_title: '' })
+  const [co, setCo] = useState<ConsoleSettings>({ company_name: '', office_type: 'head_office', branch_name: '', address: '', tax_id: '', signatory_name: '', signatory_title: '', phone: '', email: '', website: '' })
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -1299,6 +1299,7 @@ function AdminSettingsView({ call, onBack }: { call: <T,>(a: string, p?: Record<
       company_name: company?.company_name ?? '', office_type: company?.office_type ?? 'head_office',
       branch_name: company?.branch_name ?? '', address: company?.address ?? '', tax_id: company?.tax_id ?? '',
       signatory_name: company?.signatory_name ?? '', signatory_title: company?.signatory_title ?? '',
+      phone: company?.phone ?? '', email: company?.email ?? '', website: company?.website ?? '',
     })
     setEditCo(true)
   }
@@ -1310,6 +1311,7 @@ function AdminSettingsView({ call, onBack }: { call: <T,>(a: string, p?: Record<
         branch_name: co.office_type === 'branch' ? co.branch_name : null,
         address: co.address, tax_id: co.tax_id,
         signatory_name: co.signatory_name, signatory_title: co.signatory_title,
+        phone: co.phone, email: co.email, website: co.website,
       })
       setEditCo(false); load()
     } catch (e) { alert(e instanceof Error ? e.message : 'Failed') } finally { setBusy(null) }
@@ -1476,6 +1478,11 @@ function AdminSettingsView({ call, onBack }: { call: <T,>(a: string, p?: Record<
                 )}
                 <Field label="Company Tax ID"><input value={co.tax_id ?? ''} onChange={(e) => setCo({ ...co, tax_id: e.target.value })} className={inputCls} placeholder="0505557003971" /></Field>
                 <Field label="Company Address"><textarea value={co.address ?? ''} onChange={(e) => setCo({ ...co, address: e.target.value })} rows={3} className={inputCls + ' h-auto py-2 resize-none'} placeholder="Company address" /></Field>
+                <div className="grid grid-cols-2 gap-2.5">
+                  <Field label="Telephone"><input value={co.phone ?? ''} onChange={(e) => setCo({ ...co, phone: e.target.value })} className={inputCls} placeholder="+66 89 813 0699" /></Field>
+                  <Field label="Email"><input type="email" value={co.email ?? ''} onChange={(e) => setCo({ ...co, email: e.target.value })} className={inputCls} placeholder="info@nnr-solutions.com" /></Field>
+                </div>
+                <Field label="Website"><input value={co.website ?? ''} onChange={(e) => setCo({ ...co, website: e.target.value })} className={inputCls} placeholder="www.nnr-solutions.com" /></Field>
                 <div className="grid grid-cols-2 gap-2.5 pt-1 border-t border-slate-200">
                   <Field label="Authorised Signatory"><input value={co.signatory_name ?? ''} onChange={(e) => setCo({ ...co, signatory_name: e.target.value })} className={inputCls} placeholder="Dr. Poti Chaopaisarn" /></Field>
                   <Field label="Signatory Title"><input value={co.signatory_title ?? ''} onChange={(e) => setCo({ ...co, signatory_title: e.target.value })} className={inputCls} placeholder="Managing Director" /></Field>
@@ -1488,6 +1495,9 @@ function AdminSettingsView({ call, onBack }: { call: <T,>(a: string, p?: Record<
                 <Detail label="Office Type">{company?.office_type === 'branch' ? `Branch${company?.branch_name ? ` · ${company.branch_name}` : ''}` : 'Head Office'}</Detail>
                 <Detail label="Tax ID">{company?.tax_id || '—'}</Detail>
                 <div className="col-span-2"><Detail label="Address">{company?.address || '—'}</Detail></div>
+                <Detail label="Telephone">{company?.phone || '—'}</Detail>
+                <Detail label="Email">{company?.email || '—'}</Detail>
+                <div className="col-span-2"><Detail label="Website">{company?.website || '—'}</Detail></div>
                 <div className="col-span-2"><Detail label="Authorised Signatory">{company?.signatory_name || '—'}{company?.signatory_title ? ` · ${company.signatory_title}` : ''}</Detail></div>
               </div>
             )}

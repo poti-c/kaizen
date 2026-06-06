@@ -26,6 +26,7 @@ interface Issuer {
   company_name: string | null; office_type: string; branch_name: string | null
   address: string | null; tax_id: string | null; logo_url?: string | null
   signatory_name?: string | null; signatory_title?: string | null
+  phone?: string | null; email?: string | null; website?: string | null
 }
 type Call = <T,>(a: string, p?: Record<string, unknown>) => Promise<T>
 
@@ -580,12 +581,22 @@ function PrintPreview({ form, issuer, onClose }: { form: GeneratedForm; issuer: 
           </div>
 
           {/* footer */}
-          <div className="mt-8 pt-3 border-t border-slate-200 text-center text-[9px] text-slate-500 leading-relaxed">
-            <p className="font-medium text-[#7a5c3e]">Thank you for your business. We look forward to serving you.</p>
+          <div className="mt-8 text-center text-[9px] text-slate-500 leading-relaxed">
+            <div className="h-0.5 rounded-full bg-[#7a5c3e] mb-2" />
+            <p className="font-medium text-[#7a5c3e] text-[10px]">Thank you for your business. We look forward to serving you.</p>
             <p className="mt-0.5">
               {issuerName}{issuer?.tax_id ? ` · Tax ID ${issuer.tax_id}` : ''}
               {issuer?.address ? ` · ${issuer.address.replace(/\s*\n\s*/g, ', ')}` : ''}
             </p>
+            {(issuer?.phone || issuer?.email || issuer?.website) && (
+              <p className="mt-0.5">
+                {[
+                  issuer?.phone ? `Tel ${issuer.phone}` : null,
+                  issuer?.email || null,
+                  issuer?.website || null,
+                ].filter(Boolean).join('  ·  ')}
+              </p>
+            )}
           </div>
         </div>
       </div>

@@ -233,6 +233,9 @@ Deno.serve(async (req) => {
     if (body.logo_url !== undefined) patch.logo_url = body.logo_url ? String(body.logo_url) : null;
     if (body.signatory_name !== undefined) patch.signatory_name = cleanStr(body.signatory_name);
     if (body.signatory_title !== undefined) patch.signatory_title = cleanStr(body.signatory_title);
+    if (body.phone !== undefined) patch.phone = cleanStr(body.phone);
+    if (body.email !== undefined) patch.email = cleanStr(body.email);
+    if (body.website !== undefined) patch.website = cleanStr(body.website);
     const { error } = await admin.from("kaizen_console_settings").update(patch).eq("id", true);
     if (error) return json({ error: error.message }, 400);
     await audit("update_settings", { patch }, ip, true);
