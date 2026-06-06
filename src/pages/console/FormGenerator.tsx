@@ -472,7 +472,7 @@ function PrintPreview({ form, issuer, onClose }: { form: GeneratedForm; issuer: 
 
       {/* A4 document */}
       <div className="flex justify-center py-6 print:py-0">
-        <div className="print-doc bg-white text-slate-900 w-[210mm] min-h-[297mm] p-[14mm] shadow-2xl" style={{ fontSize: '12px' }}>
+        <div className="print-doc bg-white text-slate-900 w-[210mm] min-h-[297mm] p-[14mm] shadow-2xl flex flex-col" style={{ fontSize: '12px' }}>
           {/* header */}
           <div className="flex justify-between items-start">
             <div className="max-w-[55%]">
@@ -559,8 +559,8 @@ function PrintPreview({ form, issuer, onClose }: { form: GeneratedForm; issuer: 
             {form.notes && <p className="text-[11px] text-slate-700"><span className="font-semibold">Notes: </span>{form.notes}</p>}
           </div>
 
-          {/* signatures */}
-          <div className="grid grid-cols-2 gap-12 mt-20 text-[11px]">
+          {/* signatures — pinned toward the bottom of the page */}
+          <div className="grid grid-cols-2 gap-12 mt-auto pt-24 text-[11px]">
             <div className="text-center">
               <div className="border-t border-slate-400 pt-1.5">
                 <p className="font-semibold text-slate-900">{issuerName}</p>
@@ -577,6 +577,16 @@ function PrintPreview({ form, issuer, onClose }: { form: GeneratedForm; issuer: 
                 <p className="text-slate-500 mt-1">Authorised Signature / Date</p>
               </div>
             </div>
+          </div>
+
+          {/* footer */}
+          <div className="mt-8 pt-3 border-t border-slate-200 text-center text-[9px] text-slate-500 leading-relaxed">
+            <p className="font-medium text-[#7a5c3e]">Thank you for your business. We look forward to serving you.</p>
+            <p className="mt-0.5">
+              {issuerName}{issuer?.tax_id ? ` · Tax ID ${issuer.tax_id}` : ''}
+              {issuer?.address ? ` · ${issuer.address.replace(/\s*\n\s*/g, ', ')}` : ''}
+            </p>
+            <p className="mt-0.5">This is a computer-generated document produced by the Kaizen System and is valid without signature unless otherwise required.</p>
           </div>
         </div>
       </div>
