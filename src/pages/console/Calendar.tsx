@@ -137,6 +137,12 @@ export function CalendarView({ call, onOpenForm }: { call: Call; onOpenForm: (fo
   const todayKey = dayKey(new Date())
   const monthTitle = cursor.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
 
+  // Form events open the document (PDF) directly; appointments open the detail card.
+  const openEvent = (e: CalEvent) => {
+    if (e.source === 'form' && e.form) onOpenForm(e.form.id)
+    else setOpenDetail(e)
+  }
+
   return (
     <div>
       <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
@@ -188,14 +194,14 @@ export function CalendarView({ call, onOpenForm }: { call: Call; onOpenForm: (fo
                   </div>
                   <div className="space-y-1 mt-0.5">
                     {dayEvents.slice(0, 3).map((e) => (
-                      <button key={e.key} onClick={() => setOpenDetail(e)} title={e.label}
+                      <button key={e.key} onClick={() => openEvent(e)} title={e.label}
                         className={`w-full flex items-center gap-1 text-[10px] leading-tight px-1.5 py-0.5 rounded border text-left truncate ${e.color}`}>
                         <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${e.dot}`} />
                         <span className="truncate">{e.label}</span>
                       </button>
                     ))}
                     {dayEvents.length > 3 && (
-                      <button onClick={() => setOpenDetail(dayEvents[3])} className="text-[10px] text-slate-400 hover:text-white px-1.5">+{dayEvents.length - 3} more</button>
+                      <button onClick={() => openEvent(dayEvents[3])} className="text-[10px] text-slate-400 hover:text-white px-1.5">+{dayEvents.length - 3} more</button>
                     )}
                   </div>
                 </div>
