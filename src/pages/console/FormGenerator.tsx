@@ -52,17 +52,17 @@ function typeThai(t: FormType) { return FORM_TYPES.find(f => f.key === t)?.thai 
 
 function statusCls(s: string) {
   switch (s) {
-    case 'paid': case 'accepted': return 'bg-green-500/15 text-green-600 border-green-500/30'
-    case 'overdue': case 'expired': case 'cancelled': return 'bg-red-500/15 text-red-600 border-red-500/30'
-    case 'followup': return 'bg-amber-500/15 text-amber-600 border-amber-500/30'
-    case 'sent': case 'issued': return 'bg-sky-500/15 text-sky-600 border-sky-500/30'
-    default: return 'bg-slate-100 text-slate-600 border-slate-300'
+    case 'paid': case 'accepted': return 'bg-green-500/15 text-green-400 border-green-500/30'
+    case 'overdue': case 'expired': case 'cancelled': return 'bg-red-500/15 text-red-400 border-red-500/30'
+    case 'followup': return 'bg-amber-500/15 text-amber-400 border-amber-500/30'
+    case 'sent': case 'issued': return 'bg-sky-500/15 text-sky-400 border-sky-500/30'
+    default: return 'bg-slate-800 text-slate-300 border-slate-700'
   }
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
-const inputCls = 'w-full h-9 rounded-lg bg-slate-100 border border-slate-300 px-3 text-sm text-slate-900 placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-amber-500/50'
-const selectCls = 'h-9 rounded-lg bg-slate-100 border border-slate-300 px-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500/50'
+const inputCls = 'w-full h-9 rounded-lg bg-slate-800 border border-slate-700 px-3 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-amber-500/50'
+const selectCls = 'h-9 rounded-lg bg-slate-800 border border-slate-700 px-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-amber-500/50'
 
 function fmtDate(d: string | null) {
   if (!d) return '—'
@@ -128,26 +128,26 @@ export function FormGeneratorView({ call, onBack }: { call: Call; onBack: () => 
 
   return (
     <div>
-      <button onClick={onBack} className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-900 mb-4">
+      <button onClick={onBack} className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-white mb-4">
         <ArrowLeft className="h-3.5 w-3.5" />Back
       </button>
       <div className="flex items-center gap-2 mb-1">
-        <FileText className="h-5 w-5 text-amber-600" />
-        <h2 className="text-lg font-bold text-slate-900">Form Generator</h2>
+        <FileText className="h-5 w-5 text-amber-400" />
+        <h2 className="text-lg font-bold text-white">Form Generator</h2>
       </div>
-      <p className="text-xs text-slate-500 mb-5">Create quotations, invoices and receipts for your customers · issued by {issuer?.company_name || 'NNR-Solutions'}</p>
+      <p className="text-xs text-slate-400 mb-5">Create quotations, invoices and receipts for your customers · issued by {issuer?.company_name || 'NNR-Solutions'}</p>
 
       {!issuer?.company_name && (
-        <div className="bg-amber-500/10 border border-amber-500/30 text-amber-700 text-xs rounded-lg px-3 py-2 mb-4">
+        <div className="bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs rounded-lg px-3 py-2 mb-4">
           Tip: set your company name, address and Tax ID in <span className="font-semibold">Settings → Company Details</span> — they appear as the issuer on every document.
         </div>
       )}
 
       {/* Tabs */}
-      <div className="flex gap-1 border-b border-slate-200 mb-5 overflow-x-auto">
+      <div className="flex gap-1 border-b border-slate-800 mb-5 overflow-x-auto">
         {FORM_TYPES.map(ft => (
           <button key={ft.key} onClick={() => setTab(ft.key)}
-            className={`px-3 py-2.5 text-xs font-medium border-b-2 whitespace-nowrap transition-colors ${tab === ft.key ? 'border-amber-500 text-amber-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
+            className={`px-3 py-2.5 text-xs font-medium border-b-2 whitespace-nowrap transition-colors ${tab === ft.key ? 'border-amber-500 text-amber-400' : 'border-transparent text-slate-400 hover:text-slate-300'}`}>
             {ft.label}
           </button>
         ))}
@@ -164,25 +164,25 @@ export function FormGeneratorView({ call, onBack }: { call: Call; onBack: () => 
       />
 
       {/* History */}
-      <div className="bg-white border border-slate-200 rounded-xl overflow-hidden mt-6">
-        <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-200">
-          <FileText className="h-4 w-4 text-slate-500" />
-          <h3 className="text-sm font-semibold text-slate-900">History</h3>
-          <span className="text-[11px] text-slate-500">{filtered.length}</span>
+      <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden mt-6">
+        <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-800">
+          <FileText className="h-4 w-4 text-slate-400" />
+          <h3 className="text-sm font-semibold text-white">History</h3>
+          <span className="text-[11px] text-slate-400">{filtered.length}</span>
           <select value={filterType} onChange={e => setFilterType(e.target.value as 'all' | FormType)} className={selectCls + ' ml-auto h-7 text-xs'}>
             <option value="all">All types</option>
             {FORM_TYPES.map(ft => <option key={ft.key} value={ft.key}>{ft.label}</option>)}
           </select>
         </div>
         {loading ? (
-          <div className="flex justify-center py-10"><Loader2 className="h-5 w-5 animate-spin text-slate-600" /></div>
+          <div className="flex justify-center py-10"><Loader2 className="h-5 w-5 animate-spin text-slate-300" /></div>
         ) : filtered.length === 0 ? (
-          <p className="px-4 py-8 text-center text-sm text-slate-600">No forms generated yet.</p>
+          <p className="px-4 py-8 text-center text-sm text-slate-300">No forms generated yet.</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-[10px] uppercase tracking-wide text-slate-500 border-b border-slate-200">
+                <tr className="text-[10px] uppercase tracking-wide text-slate-400 border-b border-slate-800">
                   <th className="text-left font-semibold px-4 py-2">Date</th>
                   <th className="text-left font-semibold px-3 py-2">Doc No.</th>
                   <th className="text-left font-semibold px-3 py-2">Type</th>
@@ -192,20 +192,20 @@ export function FormGeneratorView({ call, onBack }: { call: Call; onBack: () => 
                   <th className="px-3 py-2"></th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-200">
+              <tbody className="divide-y divide-slate-800">
                 {filtered.map(f => (
-                  <tr key={f.id} className="hover:bg-slate-100">
-                    <td className="px-4 py-2.5 text-slate-600 whitespace-nowrap">{fmtDate(f.issue_date)}</td>
-                    <td className="px-3 py-2.5 font-mono text-amber-600 whitespace-nowrap">{f.doc_number}</td>
-                    <td className="px-3 py-2.5 text-slate-500 whitespace-nowrap">{typeLabel(f.form_type)}</td>
-                    <td className="px-3 py-2.5 text-slate-900 max-w-[180px] truncate">{f.client_name || '—'}</td>
-                    <td className="px-3 py-2.5 text-right text-slate-700 whitespace-nowrap">{f.currency} {money(f.total)}</td>
+                  <tr key={f.id} className="hover:bg-slate-800">
+                    <td className="px-4 py-2.5 text-slate-300 whitespace-nowrap">{fmtDate(f.issue_date)}</td>
+                    <td className="px-3 py-2.5 font-mono text-amber-400 whitespace-nowrap">{f.doc_number}</td>
+                    <td className="px-3 py-2.5 text-slate-400 whitespace-nowrap">{typeLabel(f.form_type)}</td>
+                    <td className="px-3 py-2.5 text-white max-w-[180px] truncate">{f.client_name || '—'}</td>
+                    <td className="px-3 py-2.5 text-right text-slate-200 whitespace-nowrap">{f.currency} {money(f.total)}</td>
                     <td className="px-3 py-2.5">
                       <StatusPicker form={f} call={call} onChanged={load} />
                     </td>
                     <td className="px-3 py-2.5">
                       <div className="flex items-center gap-1 justify-end">
-                        <button onClick={() => setPreview(f)} title="View / Print" className="p-1.5 rounded-lg text-slate-500 hover:text-amber-600 hover:bg-slate-100"><Printer className="h-4 w-4" /></button>
+                        <button onClick={() => setPreview(f)} title="View / Print" className="p-1.5 rounded-lg text-slate-400 hover:text-amber-400 hover:bg-slate-800"><Printer className="h-4 w-4" /></button>
                         <DeleteFormBtn form={f} call={call} onDeleted={load} />
                       </div>
                     </td>
@@ -236,9 +236,9 @@ function StatusPicker({ form, call, onChanged }: { form: GeneratedForm; call: Ca
     <span className="inline-flex items-center gap-1.5">
       <select value={form.status} disabled={busy} onChange={e => change(e.target.value)}
         className={`text-[11px] rounded-md border px-1.5 py-1 focus:outline-none ${statusCls(form.status)} bg-transparent`}>
-        {opts.map(s => <option key={s} value={s} className="bg-slate-100 text-slate-700">{STATUS_LABEL[s] ?? s}</option>)}
+        {opts.map(s => <option key={s} value={s} className="bg-slate-800 text-slate-200">{STATUS_LABEL[s] ?? s}</option>)}
       </select>
-      {busy && <Loader2 className="h-3 w-3 animate-spin text-slate-500" />}
+      {busy && <Loader2 className="h-3 w-3 animate-spin text-slate-400" />}
     </span>
   )
 }
@@ -254,12 +254,12 @@ function DeleteFormBtn({ form, call, onDeleted }: { form: GeneratedForm; call: C
   if (confirming) {
     return (
       <span className="inline-flex items-center gap-1">
-        <button onClick={del} disabled={busy} className="text-[11px] px-1.5 py-1 rounded bg-red-500/15 text-red-600 hover:bg-red-500/25">{busy ? '…' : 'Delete'}</button>
-        <button onClick={() => setConfirming(false)} className="text-[11px] px-1.5 py-1 rounded text-slate-500 hover:bg-slate-100">Cancel</button>
+        <button onClick={del} disabled={busy} className="text-[11px] px-1.5 py-1 rounded bg-red-500/15 text-red-400 hover:bg-red-500/25">{busy ? '…' : 'Delete'}</button>
+        <button onClick={() => setConfirming(false)} className="text-[11px] px-1.5 py-1 rounded text-slate-400 hover:bg-slate-800">Cancel</button>
       </span>
     )
   }
-  return <button onClick={() => setConfirming(true)} title="Delete" className="p-1.5 rounded-lg text-slate-500 hover:text-red-600 hover:bg-red-500/10"><Trash2 className="h-4 w-4" /></button>
+  return <button onClick={() => setConfirming(true)} title="Delete" className="p-1.5 rounded-lg text-slate-400 hover:text-red-400 hover:bg-red-500/10"><Trash2 className="h-4 w-4" /></button>
 }
 
 // ── Editor ───────────────────────────────────────────────────────────────────
@@ -339,17 +339,17 @@ function FormEditor({ formType, companies, products, promos, onCreated, call }: 
   }
 
   return (
-    <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-4">
+    <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-4">
       <div className="flex items-center gap-2">
-        <span className="text-sm font-semibold text-slate-900">New {typeLabel(formType)}</span>
-        <span className="text-[11px] text-slate-500">{typeThai(formType)}</span>
+        <span className="text-sm font-semibold text-white">New {typeLabel(formType)}</span>
+        <span className="text-[11px] text-slate-400">{typeThai(formType)}</span>
       </div>
 
       {/* Client */}
       <div className="grid sm:grid-cols-2 gap-3">
         <Field label="Customer Company">
           <div className="relative">
-            <Search className="h-3.5 w-3.5 text-slate-500 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <Search className="h-3.5 w-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
             <select value={companyId} onChange={e => pickCompany(e.target.value)} className={inputCls + ' pl-8 appearance-none'}>
               <option value="">— Select a company —</option>
               {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -377,15 +377,15 @@ function FormEditor({ formType, companies, products, promos, onCreated, call }: 
       {/* Line items */}
       <div>
         <div className="flex items-center justify-between mb-1.5 gap-2">
-          <label className="text-xs font-medium text-slate-500">Items</label>
+          <label className="text-xs font-medium text-slate-400">Items</label>
           <div className="flex items-center gap-2">
             {products.length > 0 && (
-              <select value="" onChange={e => { if (e.target.value) { addProduct(e.target.value); e.target.value = '' } }} className={selectCls + ' h-7 text-[11px] text-amber-600 border-dashed'}>
+              <select value="" onChange={e => { if (e.target.value) { addProduct(e.target.value); e.target.value = '' } }} className={selectCls + ' h-7 text-[11px] text-amber-400 border-dashed'}>
                 <option value="">+ Add from products…</option>
-                {products.map(p => <option key={p.id} value={p.id} className="text-slate-700">{p.name} — {p.currency} {money(p.price)}</option>)}
+                {products.map(p => <option key={p.id} value={p.id} className="text-slate-200">{p.name} — {p.currency} {money(p.price)}</option>)}
               </select>
             )}
-            <button onClick={() => setItems([...items, { description: '', qty: 1, unit_price: 0 }])} className="flex items-center gap-1 text-[11px] text-amber-600 hover:text-amber-700"><Plus className="h-3.5 w-3.5" />Add item</button>
+            <button onClick={() => setItems([...items, { description: '', qty: 1, unit_price: 0 }])} className="flex items-center gap-1 text-[11px] text-amber-400 hover:text-amber-300"><Plus className="h-3.5 w-3.5" />Add item</button>
           </div>
         </div>
         <div className="space-y-2">
@@ -394,29 +394,29 @@ function FormEditor({ formType, companies, products, promos, onCreated, call }: 
               <input value={it.description} onChange={e => setItem(i, { description: e.target.value })} className={inputCls + ' flex-1'} placeholder="Description" />
               <input value={it.qty || ''} onChange={e => setItem(i, { qty: Number(e.target.value.replace(/[^0-9.]/g, '')) || 0 })} className={inputCls + ' w-16 text-right'} placeholder="Qty" inputMode="decimal" />
               <input value={it.unit_price || ''} onChange={e => setItem(i, { unit_price: Number(e.target.value.replace(/[^0-9.]/g, '')) || 0 })} className={inputCls + ' w-28 text-right'} placeholder="Unit price" inputMode="decimal" />
-              <div className="w-28 h-9 flex items-center justify-end text-sm text-slate-600 px-2">{money((Number(it.qty) || 0) * (Number(it.unit_price) || 0))}</div>
-              <button onClick={() => setItems(items.length > 1 ? items.filter((_, idx) => idx !== i) : items)} className="h-9 w-9 flex items-center justify-center rounded-lg text-slate-500 hover:text-red-600 hover:bg-red-500/10"><X className="h-4 w-4" /></button>
+              <div className="w-28 h-9 flex items-center justify-end text-sm text-slate-300 px-2">{money((Number(it.qty) || 0) * (Number(it.unit_price) || 0))}</div>
+              <button onClick={() => setItems(items.length > 1 ? items.filter((_, idx) => idx !== i) : items)} className="h-9 w-9 flex items-center justify-center rounded-lg text-slate-400 hover:text-red-400 hover:bg-red-500/10"><X className="h-4 w-4" /></button>
             </div>
           ))}
         </div>
       </div>
 
       {/* Promo + Totals */}
-      <div className="border-t border-slate-200 pt-3 flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+      <div className="border-t border-slate-800 pt-3 flex flex-col sm:flex-row sm:items-start justify-between gap-3">
         {validPromos.length > 0 ? (
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-slate-500">Promo Code</label>
+            <label className="text-xs font-medium text-slate-400">Promo Code</label>
             <select value={promoId} onChange={e => setPromoId(e.target.value)} className={selectCls + ' w-full sm:w-56'}>
               <option value="">— None —</option>
               {validPromos.map(p => <option key={p.id} value={p.id}>{p.code} ({p.discount_percent}% off)</option>)}
             </select>
           </div>
-        ) : <div className="text-[11px] text-slate-600">No active promo codes for this date.</div>}
+        ) : <div className="text-[11px] text-slate-300">No active promo codes for this date.</div>}
         <div className="flex flex-col items-end gap-1 text-sm">
-          <div className="flex gap-8 text-slate-500"><span>Subtotal (excl. VAT)</span><span className="w-32 text-right text-slate-700">{currency} {money(subtotal)}</span></div>
+          <div className="flex gap-8 text-slate-400"><span>Subtotal (excl. VAT)</span><span className="w-32 text-right text-slate-200">{currency} {money(subtotal)}</span></div>
           {promo && <div className="flex gap-8 text-emerald-400"><span>Discount {promo.code} ({promo.discount_percent}%)</span><span className="w-32 text-right">− {currency} {money(discount)}</span></div>}
-          <div className="flex gap-8 text-slate-500"><span>VAT {vatRate || 0}%</span><span className="w-32 text-right text-slate-700">{currency} {money(vat)}</span></div>
-          <div className="flex gap-8 font-semibold text-slate-900"><span>Grand Total</span><span className="w-32 text-right text-amber-600">{currency} {money(total)}</span></div>
+          <div className="flex gap-8 text-slate-400"><span>VAT {vatRate || 0}%</span><span className="w-32 text-right text-slate-200">{currency} {money(vat)}</span></div>
+          <div className="flex gap-8 font-semibold text-white"><span>Grand Total</span><span className="w-32 text-right text-amber-400">{currency} {money(total)}</span></div>
         </div>
       </div>
 
@@ -424,12 +424,12 @@ function FormEditor({ formType, companies, products, promos, onCreated, call }: 
 
       <div className="flex items-center gap-3 flex-wrap">
         <div className="flex items-center gap-2">
-          <span className="text-xs text-slate-500">Initial status</span>
+          <span className="text-xs text-slate-400">Initial status</span>
           <select value={status} onChange={e => setStatus(e.target.value)} className={selectCls}>
             {STATUSES[formType].map(s => <option key={s} value={s}>{STATUS_LABEL[s] ?? s}</option>)}
           </select>
         </div>
-        {error && <span className="text-xs text-red-600">{error}</span>}
+        {error && <span className="text-xs text-red-400">{error}</span>}
         <button onClick={generate} disabled={saving} className="ml-auto flex items-center gap-1.5 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-slate-950 text-sm font-semibold px-4 py-2 rounded-lg">
           {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}Generate {typeLabel(formType)}
         </button>
@@ -439,7 +439,7 @@ function FormEditor({ formType, companies, products, promos, onCreated, call }: 
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return <div className="space-y-1.5"><label className="text-xs font-medium text-slate-500">{label}</label>{children}</div>
+  return <div className="space-y-1.5"><label className="text-xs font-medium text-slate-400">{label}</label>{children}</div>
 }
 
 // ── Printable document ───────────────────────────────────────────────────────
