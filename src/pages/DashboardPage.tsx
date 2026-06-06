@@ -8,7 +8,8 @@ import { useLanguage } from '@/contexts/LanguageContext'
 import { StatusBadge, PriorityBadge } from '@/components/StatusBadge'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { formatRelativeTime, formatDuration, isSLABreached, CATEGORIES } from '@/lib/utils'
+import { formatRelativeTime, formatDuration, isSLABreached, CATEGORIES, companyHasAddon } from '@/lib/utils'
+import { PMSummaryCard } from '@/components/PMSummaryCard'
 import { DEPARTMENT_LABELS } from '@/types'
 import type { KaizenCase, Department } from '@/types'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, PieChart, Pie } from 'recharts'
@@ -424,6 +425,9 @@ export function DashboardPage() {
         </div>
 
       </div>
+
+      {/* Preventive Maintenance summary (PMS add-on only) */}
+      {companyHasAddon(activeCompany, 'pms') && <PMSummaryCard />}
 
       {/* KPI stat cards */}
       <div className="grid grid-cols-2 gap-4 mb-6">
