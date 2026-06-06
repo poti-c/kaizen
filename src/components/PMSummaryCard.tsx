@@ -53,7 +53,7 @@ export function PMSummaryCard() {
   }, [companyId, isStaff, profile?.department])
 
   if (loading) {
-    return <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 mb-6 h-28 animate-pulse" />
+    return <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-3 mb-4 h-20 animate-pulse" />
   }
 
   const active = assets.filter(a => a.is_active)
@@ -81,30 +81,26 @@ export function PMSummaryCard() {
   const complianceColor = compliance == null ? 'text-gray-400' : compliance >= 90 ? 'text-green-600' : compliance >= 70 ? 'text-amber-600' : 'text-red-600'
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 mb-6">
-      <div className="flex items-center justify-between mb-3">
-        <h2 className="font-semibold text-gray-900 flex items-center gap-2"><Wrench className="h-4 w-4 text-[var(--brand-primary)]" />Preventive Maintenance</h2>
+    <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-3 mb-4">
+      <div className="flex items-center justify-between mb-2">
+        <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-1.5"><Wrench className="h-3.5 w-3.5 text-[var(--brand-primary)]" />Preventive Maintenance</h2>
         <Link to="/maintenance" className="flex items-center gap-0.5 text-xs font-medium text-[var(--brand-primary)] hover:opacity-75">Open<ChevronRight className="h-3.5 w-3.5" /></Link>
       </div>
 
       {active.length === 0 ? (
-        <div className="text-center py-6">
-          <p className="text-sm text-gray-500">No assets registered yet.</p>
-          <Link to="/maintenance" className="text-sm font-medium text-[var(--brand-primary)]">Set up your maintenance schedule →</Link>
+        <div className="text-center py-3">
+          <p className="text-xs text-gray-500">No assets registered yet. <Link to="/maintenance" className="font-medium text-[var(--brand-primary)]">Set up the scheduler →</Link></p>
         </div>
       ) : (
-        <div className="flex flex-col sm:flex-row items-stretch gap-4">
+        <div className="flex items-stretch gap-2">
           {/* Compliance hero */}
-          <Link to="/maintenance" className="flex sm:flex-col items-center justify-center gap-2 sm:gap-1 rounded-xl bg-gray-50 hover:bg-gray-100 transition-colors px-4 py-3 sm:w-40 flex-shrink-0">
-            <ShieldCheck className={`h-6 w-6 ${complianceColor}`} />
-            <div className="text-center">
-              <p className={`text-3xl font-bold leading-none ${complianceColor}`}>{compliance == null ? '—' : `${compliance}%`}</p>
-              <p className="text-[11px] text-gray-500 mt-1">On-schedule compliance</p>
-            </div>
+          <Link to="/maintenance" className="flex flex-col items-center justify-center rounded-lg bg-gray-50 hover:bg-gray-100 transition-colors px-3 py-1.5 w-24 flex-shrink-0">
+            <p className={`text-2xl font-bold leading-none ${complianceColor}`}>{compliance == null ? '—' : `${compliance}%`}</p>
+            <p className="text-[10px] text-gray-500 mt-0.5 text-center leading-tight flex items-center gap-0.5"><ShieldCheck className={`h-3 w-3 ${complianceColor}`} />Compliance</p>
           </Link>
 
           {/* Stats grid */}
-          <div className="flex-1 grid grid-cols-3 gap-2">
+          <div className="flex-1 grid grid-cols-3 gap-1.5">
             <Tile label="Up to date" value={good} tone="green" />
             <Tile label="Due soon" value={dueSoon} tone="amber" />
             <Tile label="Overdue" value={overdueAssets} tone="red" />
@@ -130,9 +126,9 @@ const TONES: Record<string, string> = {
 
 function Tile({ label, value, tone }: { label: string; value: number | string; tone: string }) {
   return (
-    <div className={`rounded-lg px-3 py-2 ${TONES[tone]}`}>
-      <p className="text-xl font-bold leading-none">{value}</p>
-      <p className="text-[11px] mt-1 opacity-80">{label}</p>
+    <div className={`rounded-md px-2 py-1 ${TONES[tone]}`}>
+      <p className="text-base font-bold leading-none">{value}</p>
+      <p className="text-[10px] mt-0.5 opacity-80 leading-tight">{label}</p>
     </div>
   )
 }
