@@ -161,31 +161,31 @@ function LoginScreen({ onLogin }: { onLogin: (t: string) => void }) {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-white flex items-center justify-center p-4">
       <div className="w-full max-w-sm">
         <div className="flex flex-col items-center mb-8">
           <img src="/kaizen-icon.svg" alt="Kaizen" className="w-14 h-14 rounded-2xl object-contain shadow-lg shadow-amber-500/20 mb-4" />
-          <h1 className="text-xl font-bold text-white">Kaizen System Console</h1>
+          <h1 className="text-xl font-bold text-slate-900">Kaizen System Console</h1>
           <p className="text-slate-500 text-sm mt-1">Restricted · Authorised personnel only</p>
         </div>
-        <form onSubmit={submit} className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 shadow-2xl">
+        <form onSubmit={submit} className="bg-white border border-slate-200 rounded-2xl p-6 space-y-4 shadow-xl">
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-slate-400">Username</label>
+            <label className="text-xs font-medium text-slate-600">Username</label>
             <input value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="off" autoFocus
-              className="w-full h-10 rounded-lg bg-slate-800 border border-slate-700 px-3 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-amber-500/60" placeholder="admin" />
+              className="w-full h-10 rounded-lg bg-slate-50 border border-slate-300 px-3 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500/60" placeholder="admin" />
           </div>
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-slate-400">Password</label>
+            <label className="text-xs font-medium text-slate-600">Password</label>
             <div className="relative">
               <input type={showPw ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="off"
-                className="w-full h-10 rounded-lg bg-slate-800 border border-slate-700 px-3 pr-10 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-amber-500/60" placeholder="••••••••" />
-              <button type="button" onClick={() => setShowPw(!showPw)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300">
+                className="w-full h-10 rounded-lg bg-slate-50 border border-slate-300 px-3 pr-10 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500/60" placeholder="••••••••" />
+              <button type="button" onClick={() => setShowPw(!showPw)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
                 {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
               </button>
             </div>
           </div>
           {error && (
-            <div className="flex items-start gap-2 bg-red-500/10 border border-red-500/20 text-red-400 text-sm rounded-lg px-3 py-2">
+            <div className="flex items-start gap-2 bg-red-50 border border-red-200 text-red-600 text-sm rounded-lg px-3 py-2">
               <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" /><span>{error}</span>
             </div>
           )}
@@ -194,7 +194,7 @@ function LoginScreen({ onLogin }: { onLogin: (t: string) => void }) {
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Lock className="h-4 w-4" />Sign In</>}
           </button>
         </form>
-        <p className="text-center text-[11px] text-slate-600 mt-6">© {new Date().getFullYear()} NNR Solutions · All activity is logged</p>
+        <p className="text-center text-[11px] text-slate-400 mt-6">© {new Date().getFullYear()} NNR Solutions · All activity is logged</p>
       </div>
     </div>
   )
