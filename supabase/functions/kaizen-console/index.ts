@@ -107,7 +107,7 @@ async function audit(action, detail, ip, success) {
 async function packageDefaults(planKey) {
   if (!planKey) return null;
   const { data } = await admin.from("kaizen_products")
-    .select("max_managers, max_staff, multi_company, features")
+    .select("max_super_admins, max_managers, max_staff, multi_company, features")
     .eq("kind", "package").eq("key", planKey).maybeSingle();
   return data ?? null;
 }
@@ -284,6 +284,7 @@ Deno.serve(async (req) => {
     const durations = await planDurations();
     const companyStats = companies.map((c) => ({
       ...c,
+      live_super_admins: profiles.filter(p => p.company_id === c.id && p.role === "super_admin").length,
       live_managers: profiles.filter(p => p.company_id === c.id && p.role === "manager").length,
       live_staff: profiles.filter(p => p.company_id === c.id && p.role === "staff").length,
       subscription: computeSubscription(c.plan, c.created_at, latestEnd[c.id] ?? null, durations["trial"]),
@@ -331,6 +332,7 @@ Deno.serve(async (req) => {
     const pkg = await packageDefaults(plan);
     const { data, error } = await admin.from("kaizen_companies").insert({
       name, slug, plan, login_code,
+      max_super_admins: pkg?.max_super_admins ?? null,
       max_managers: max_managers ?? (pkg?.max_managers ?? null),
       max_staff: max_staff ?? (pkg?.max_staff ?? null),
       multi_company: !!(pkg?.multi_company),
@@ -363,6 +365,7 @@ Deno.serve(async (req) => {
       const ncPkg = await packageDefaults(ncPlan);
       const { data: co, error: coErr } = await admin.from("kaizen_companies").insert({
         name: String(nc.name).trim(), slug, login_code,
+        max_super_admins: ncPkg?.max_super_admins ?? null,
         max_managers: nc.max_managers ?? (ncPkg?.max_managers ?? null),
         max_staff: nc.max_staff ?? (ncPkg?.max_staff ?? null),
         multi_company: !!(ncPkg?.multi_company),
@@ -394,6 +397,19 @@ Deno.serve(async (req) => {
       }
       await audit("link_existing_owner", { email, company_ids, confirmed: !nc?.name }, ip, true);
       return json({ success: true, id: existing.id, company_id: company_ids[0], linked_existing: true, owner_name: existing.full_name });
+    }
+
+    // Enforce the package's Top Management (super_admin) limit before creating a
+    // brand-new owner homed at the primary company.
+    const homeCompany = company_ids[0];
+    const { data: limCo } = await admin.from("kaizen_companies").select("max_super_admins").eq("id", homeCompany).maybeSingle();
+    if (limCo?.max_super_admins !== null && limCo?.max_super_admins !== undefined) {
+      const { count } = await admin.from("kaizen_profiles").select("id", { count: "exact", head: true })
+        .eq("company_id", homeCompany).eq("role", "super_admin").eq("is_active", true).is("deleted_at", null);
+      if ((count ?? 0) >= limCo.max_super_admins) {
+        if (newCompanyId) await admin.from("kaizen_companies").delete().eq("id", newCompanyId);
+        return json({ error: `This plan allows up to ${limCo.max_super_admins} Top Management account(s). Upgrade the package to add more.` }, 400);
+      }
     }
 
     const { data: newUser, error: createErr } = await admin.auth.admin.createUser({ email, password, email_confirm: true });
@@ -475,6 +491,7 @@ Deno.serve(async (req) => {
     const company_id = String(body.company_id ?? "");
     if (!company_id) return json({ error: "company_id required" }, 400);
     const patch = {};
+    if (body.max_super_admins !== undefined) patch.max_super_admins = body.max_super_admins;
     if (body.max_managers !== undefined) patch.max_managers = body.max_managers;
     if (body.max_staff !== undefined) patch.max_staff = body.max_staff;
     if (body.plan !== undefined) {
@@ -482,6 +499,7 @@ Deno.serve(async (req) => {
       // Assigning a package applies its limits, multi-company flag and features.
       const pkg = await packageDefaults(patch.plan);
       if (pkg) {
+        if (body.max_super_admins === undefined) patch.max_super_admins = pkg.max_super_admins;
         if (body.max_managers === undefined) patch.max_managers = pkg.max_managers;
         if (body.max_staff === undefined) patch.max_staff = pkg.max_staff;
         patch.multi_company = !!pkg.multi_company;
@@ -708,6 +726,7 @@ Deno.serve(async (req) => {
       currency: cleanStr(p.currency) ?? "THB",
       duration_label: cleanStr(p.duration_label),
       duration_days: (p.duration_days === null || p.duration_days === undefined || p.duration_days === "") ? null : Number(p.duration_days),
+      max_super_admins: (p.max_super_admins === null || p.max_super_admins === undefined || p.max_super_admins === "") ? null : Number(p.max_super_admins),
       max_managers: (p.max_managers === null || p.max_managers === undefined || p.max_managers === "") ? null : Number(p.max_managers),
       max_staff: (p.max_staff === null || p.max_staff === undefined || p.max_staff === "") ? null : Number(p.max_staff),
       multi_company: !!p.multi_company,
@@ -723,6 +742,7 @@ Deno.serve(async (req) => {
     // Keep companies on this package in sync with edited limits/authorities.
     if (res.data.kind === "package" && res.data.key) {
       await admin.from("kaizen_companies").update({
+        max_super_admins: res.data.max_super_admins,
         max_managers: res.data.max_managers,
         max_staff: res.data.max_staff,
         multi_company: !!res.data.multi_company,

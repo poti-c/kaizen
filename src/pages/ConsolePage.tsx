@@ -45,8 +45,8 @@ interface ClientDocument {
 }
 interface ConsoleCompany {
   id: string; name: string; slug: string; is_active: boolean
-  plan: string; max_managers: number | null; max_staff: number | null
-  live_managers: number; live_staff: number; created_at: string
+  plan: string; max_super_admins: number | null; max_managers: number | null; max_staff: number | null
+  live_super_admins: number; live_managers: number; live_staff: number; created_at: string
   login_code: string | null
   contact_person: string | null; contact_phone: string | null; contact_email: string | null
   address: string | null; tax_id: string | null
@@ -683,8 +683,9 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
             })}
           </div>
         </div>
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <Detail label="Date Created" icon={CalendarDays}>{fmtDate(c.created_at)}</Detail>
+          <Stat icon={Crown} label="Top Mgmt" live={c.live_super_admins ?? 0} max={c.max_super_admins} />
           <Stat icon={UserCog} label="Managers" live={c.live_managers} max={c.max_managers} />
           <Stat icon={Users} label="Staff" live={c.live_staff} max={c.max_staff} />
         </div>

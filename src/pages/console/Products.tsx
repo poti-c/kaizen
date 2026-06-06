@@ -14,6 +14,7 @@ export interface Product {
   currency: string
   duration_label: string | null
   duration_days: number | null
+  max_super_admins: number | null
   max_managers: number | null
   max_staff: number | null
   multi_company: boolean
@@ -58,7 +59,7 @@ function blankProduct(kind: Product['kind'], sort: number): Product {
   return {
     kind, key: null, name: '', description: '', price: 0, currency: 'THB',
     duration_label: kind === 'package' ? '1 year' : null, duration_days: kind === 'package' ? 365 : null,
-    max_managers: null, max_staff: null, multi_company: false, features: {}, sort_order: sort, is_active: true,
+    max_super_admins: null, max_managers: null, max_staff: null, multi_company: false, features: {}, sort_order: sort, is_active: true,
   }
 }
 
@@ -208,7 +209,8 @@ function ProductCard({ product, call, onSaved, onDeleted, isNew }: { product: Pr
       </div>
 
       {isPackage && (
-        <div className="grid grid-cols-2 gap-2.5 mb-2.5">
+        <div className="grid grid-cols-3 gap-2.5 mb-2.5">
+          <L label="Max Top Management (blank = unlimited)"><input value={d.max_super_admins ?? ''} onChange={e => set({ max_super_admins: e.target.value === '' ? null : Number(e.target.value.replace(/[^0-9]/g, '')) })} className={inputCls} placeholder="Unlimited" inputMode="numeric" /></L>
           <L label="Max Managers (blank = unlimited)"><input value={d.max_managers ?? ''} onChange={e => set({ max_managers: e.target.value === '' ? null : Number(e.target.value.replace(/[^0-9]/g, '')) })} className={inputCls} placeholder="Unlimited" inputMode="numeric" /></L>
           <L label="Max Staff (blank = unlimited)"><input value={d.max_staff ?? ''} onChange={e => set({ max_staff: e.target.value === '' ? null : Number(e.target.value.replace(/[^0-9]/g, '')) })} className={inputCls} placeholder="Unlimited" inputMode="numeric" /></L>
         </div>
