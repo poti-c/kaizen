@@ -7,6 +7,7 @@ import {
 } from 'lucide-react'
 import { FormGeneratorView } from './console/FormGenerator'
 import { ProductsView } from './console/Products'
+import { CalendarView } from './console/Calendar'
 
 // ── Console API client ───────────────────────────────────────────────────────
 const FN_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/kaizen-console`
@@ -201,7 +202,7 @@ function LoginScreen({ onLogin }: { onLogin: (t: string) => void }) {
 }
 
 // ── Dashboard ────────────────────────────────────────────────────────────────
-type Tab = 'companies' | 'audit'
+type Tab = 'companies' | 'calendar' | 'audit'
 
 function Dashboard({ token, onLogout }: { token: string; onLogout: () => void }) {
   const [tab, setTab] = useState<Tab>('companies')
@@ -215,6 +216,12 @@ function Dashboard({ token, onLogout }: { token: string; onLogout: () => void })
   const [showSettings, setShowSettings] = useState(false)
   const [showForms, setShowForms] = useState(false)
   const [showProducts, setShowProducts] = useState(false)
+  const [formPreviewId, setFormPreviewId] = useState<string | null>(null)
+
+  // Open a specific form in the Form Generator history (used by Calendar deep-link).
+  const openForm = useCallback((formId: string) => {
+    setFormPreviewId(formId); setShowForms(true); setShowProducts(false); setShowSettings(false); setSelectedCompanyId(null)
+  }, [])
 
   const call = useCallback(async <T,>(action: string, payload: Record<string, unknown> = {}): Promise<T> => {
     try { return await callConsole<T>(action, payload, token) }
@@ -267,7 +274,7 @@ function Dashboard({ token, onLogout }: { token: string; onLogout: () => void })
         </div>
         {!selectedCompany && !showSettings && !showForms && !showProducts && (
           <div className="max-w-5xl mx-auto px-4 flex gap-1">
-            {([['companies', 'Clients', Building2], ['audit', 'Audit Log', ScrollText]] as const).map(([key, label, Icon]) => (
+            {([['companies', 'Clients', Building2], ['calendar', 'Calendar', CalendarDays], ['audit', 'Audit Log', ScrollText]] as const).map(([key, label, Icon]) => (
               <button key={key} onClick={() => setTab(key)}
                 className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-medium border-b-2 transition-colors ${tab === key ? 'border-amber-500 text-amber-400' : 'border-transparent text-slate-400 hover:text-slate-300'}`}>
                 <Icon className="h-3.5 w-3.5" />{label}
@@ -281,7 +288,7 @@ function Dashboard({ token, onLogout }: { token: string; onLogout: () => void })
         {showProducts ? (
           <ProductsView call={call} onBack={() => setShowProducts(false)} />
         ) : showForms ? (
-          <FormGeneratorView call={call} onBack={() => setShowForms(false)} />
+          <FormGeneratorView call={call} onBack={() => setShowForms(false)} initialPreviewId={formPreviewId} onPreviewConsumed={() => setFormPreviewId(null)} />
         ) : showSettings ? (
           <AdminSettingsView call={call} onBack={() => setShowSettings(false)} />
         ) : loading ? (
@@ -298,6 +305,8 @@ function Dashboard({ token, onLogout }: { token: string; onLogout: () => void })
           />
         ) : tab === 'companies' ? (
           <CompaniesListTab companies={companies} owners={owners} onOpen={setSelectedCompanyId} onCreate={() => setShowCreateCompany(true)} />
+        ) : tab === 'calendar' ? (
+          <CalendarView call={call} onOpenForm={openForm} />
         ) : (
           <AuditTab call={call} />
         )}

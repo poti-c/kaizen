@@ -604,6 +604,54 @@ Deno.serve(async (req) => {
     });
   }
 
+  // ── Calendar appointments ─────────────────────────────────────────────────
+  if (action === "list_appointments") {
+    const [apptRes, companiesRes] = await Promise.all([
+      admin.from("kaizen_appointments").select("*").order("start_at", { ascending: true }),
+      admin.from("kaizen_companies").select("id, name, contact_person, contact_phone").order("name"),
+    ]);
+    return json({ appointments: apptRes.data ?? [], companies: companiesRes.data ?? [] });
+  }
+
+  if (action === "upsert_appointment") {
+    const a = body.appointment ?? {};
+    const kind = ["setup", "troubleshooting", "meeting", "other"].includes(a.kind) ? a.kind : "setup";
+    const mode = ["onsite", "remote", "phone"].includes(a.mode) ? a.mode : "onsite";
+    const status = ["scheduled", "completed", "cancelled"].includes(a.status) ? a.status : "scheduled";
+    const title = cleanStr(a.title);
+    const start_at = cleanStr(a.start_at);
+    if (!title) return json({ error: "Title is required." }, 400);
+    if (!start_at) return json({ error: "Start date/time is required." }, 400);
+    const row = {
+      kind, mode, status, title, start_at,
+      company_id: a.company_id ? String(a.company_id) : null,
+      client_name: cleanStr(a.client_name),
+      end_at: cleanStr(a.end_at),
+      all_day: !!a.all_day,
+      location: cleanStr(a.location),
+      assignee: cleanStr(a.assignee),
+      contact_name: cleanStr(a.contact_name),
+      contact_phone: cleanStr(a.contact_phone),
+      notes: cleanStr(a.notes),
+      updated_at: new Date().toISOString(),
+    };
+    let res;
+    if (a.id) res = await admin.from("kaizen_appointments").update(row).eq("id", String(a.id)).select("*").single();
+    else res = await admin.from("kaizen_appointments").insert(row).select("*").single();
+    if (res.error) return json({ error: res.error.message }, 400);
+    await audit("upsert_appointment", { id: res.data.id, kind, title }, ip, true);
+    return json({ success: true, appointment: res.data });
+  }
+
+  if (action === "delete_appointment") {
+    const appointment_id = String(body.appointment_id ?? "");
+    if (!appointment_id) return json({ error: "appointment_id required" }, 400);
+    const { error } = await admin.from("kaizen_appointments").delete().eq("id", appointment_id);
+    if (error) return json({ error: error.message }, 400);
+    await audit("delete_appointment", { appointment_id }, ip, true);
+    return json({ success: true });
+  }
+
   // ── Products catalog ──────────────────────────────────────────────────────
   if (action === "list_products") {
     const { data } = await admin.from("kaizen_products").select("*").order("kind").order("sort_order");

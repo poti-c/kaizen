@@ -103,7 +103,7 @@ function bahtText(amount: number): string {
 }
 
 // ── Main view ────────────────────────────────────────────────────────────────
-export function FormGeneratorView({ call, onBack }: { call: Call; onBack: () => void }) {
+export function FormGeneratorView({ call, onBack, initialPreviewId, onPreviewConsumed }: { call: Call; onBack: () => void; initialPreviewId?: string | null; onPreviewConsumed?: () => void }) {
   const [loading, setLoading] = useState(true)
   const [forms, setForms] = useState<GeneratedForm[]>([])
   const [companies, setCompanies] = useState<FormCompany[]>([])
@@ -123,6 +123,14 @@ export function FormGeneratorView({ call, onBack }: { call: Call; onBack: () => 
     } catch (e) { console.error('Forms load failed:', e) } finally { setLoading(false) }
   }, [call])
   useEffect(() => { load() }, [load])
+
+  // Deep-link: open a specific form's preview when navigated from the Calendar.
+  useEffect(() => {
+    if (!initialPreviewId || !forms.length) return
+    const target = forms.find(f => f.id === initialPreviewId)
+    if (target) { setFilterType(target.form_type); setPreview(target) }
+    onPreviewConsumed?.()
+  }, [initialPreviewId, forms, onPreviewConsumed])
 
   const filtered = filterType === 'all' ? forms : forms.filter(f => f.form_type === filterType)
 
