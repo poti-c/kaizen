@@ -56,12 +56,12 @@ export function PMSettings() {
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs font-medium text-gray-500">"Due soon" window (days)</label>
+              <label className="block text-xs font-medium text-gray-500 leading-tight min-h-[2rem]">"Due soon" window (days)</label>
               <input value={s.due_soon_days} onChange={(e) => setS({ ...s, due_soon_days: Number(e.target.value.replace(/[^0-9]/g, '')) || 0 })} className="w-full h-9 rounded-lg border border-gray-300 px-3 text-sm" inputMode="numeric" />
               <p className="text-[11px] text-gray-400 mt-1">Assets turn amber within this many days of their next service.</p>
             </div>
             <div>
-              <label className="text-xs font-medium text-gray-500">Escalate to a Case after (days overdue)</label>
+              <label className="block text-xs font-medium text-gray-500 leading-tight min-h-[2rem]">Escalate to a Case after (days overdue)</label>
               <input value={s.escalate_days} onChange={(e) => setS({ ...s, escalate_days: Number(e.target.value.replace(/[^0-9]/g, '')) || 0 })} className="w-full h-9 rounded-lg border border-gray-300 px-3 text-sm" inputMode="numeric" disabled={!s.escalate_enabled} />
               <p className="text-[11px] text-gray-400 mt-1">A missed task this many days overdue auto-creates a Case.</p>
             </div>
