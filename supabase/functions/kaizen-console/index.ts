@@ -491,6 +491,7 @@ Deno.serve(async (req) => {
     const company_id = String(body.company_id ?? "");
     if (!company_id) return json({ error: "company_id required" }, 400);
     const patch = {};
+    if (body.addons !== undefined && body.addons && typeof body.addons === "object") patch.addons = body.addons;
     if (body.max_super_admins !== undefined) patch.max_super_admins = body.max_super_admins;
     if (body.max_managers !== undefined) patch.max_managers = body.max_managers;
     if (body.max_staff !== undefined) patch.max_staff = body.max_staff;

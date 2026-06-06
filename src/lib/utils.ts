@@ -33,6 +33,19 @@ export function companyHasFeature(
   return f[key] === true
 }
 
+// ── Purchased add-ons (entitlements) ─────────────────────────────────────────
+// Unlike package features, add-ons are opt-in purchases stored in
+// kaizen_companies.addons. Fail-CLOSED: an add-on is only available when
+// explicitly enabled (true), so unpurchased modules stay hidden.
+export type AddonKey = 'pms'
+
+export function companyHasAddon(
+  company: { addons?: Record<string, boolean> | null } | null | undefined,
+  key: AddonKey,
+): boolean {
+  return company?.addons?.[key] === true
+}
+
 // "Online" = active within the last 5 minutes.
 export function isOnline(lastActiveAt?: string | null): boolean {
   if (!lastActiveAt) return false

@@ -50,6 +50,7 @@ interface ConsoleCompany {
   login_code: string | null
   contact_person: string | null; contact_phone: string | null; contact_email: string | null
   address: string | null; tax_id: string | null
+  addons?: Record<string, boolean> | null
   subscription?: Subscription
 }
 interface ConsoleOwner {
@@ -76,6 +77,11 @@ const PACKAGES = [
 const FORM_TYPE_LABEL: Record<string, string> = {
   quotation: 'Quotation', invoice: 'Invoice', tax_invoice_receipt: 'Tax Invoice / Receipt', receipt: 'Receipt',
 }
+
+// Purchasable add-ons (entitlements stored in kaizen_companies.addons).
+const ADDONS: { key: string; label: string; price: string }[] = [
+  { key: 'pms', label: 'Preventive Maintenance Scheduler', price: '฿10,000 / year' },
+]
 
 function packageBadgeCls(plan: string) {
   if (plan === 'premium') return 'bg-amber-500/15 text-amber-400 border-amber-500/30'
@@ -729,6 +735,31 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
             </Detail>
           </div>
         )}
+
+        {/* Add-ons */}
+        <div className="mt-4 pt-3 border-t border-slate-800">
+          <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-2">Add-ons</p>
+          <div className="space-y-2">
+            {ADDONS.map((a) => {
+              const on = !!c.addons?.[a.key]
+              return (
+                <label key={a.key} className="flex items-center gap-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={on}
+                    disabled={busy === `addon:${a.key}`}
+                    onChange={() => patch({ addons: { ...(c.addons ?? {}), [a.key]: !on } }, `addon:${a.key}`)}
+                    className="accent-amber-500 h-4 w-4"
+                  />
+                  <span className="text-sm text-slate-200">{a.label}</span>
+                  <span className="text-[11px] text-slate-500">{a.price}</span>
+                  {on && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-500/15 text-green-300 border border-green-500/30">Active</span>}
+                  {busy === `addon:${a.key}` && <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400" />}
+                </label>
+              )
+            })}
+          </div>
+        </div>
       </div>
 
       {/* Transaction History — generated documents + recorded payments */}

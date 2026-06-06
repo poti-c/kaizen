@@ -39,6 +39,8 @@ export interface KaizenCompany {
   max_staff?: number | null
   multi_company?: boolean
   features?: Record<string, boolean> | null
+  max_super_admins?: number | null
+  addons?: Record<string, boolean> | null
 }
 
 export interface KaizenProfile {
