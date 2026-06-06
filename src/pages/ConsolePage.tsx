@@ -921,7 +921,7 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
       )}
 
       {/* Dialogs */}
-      {showPay && <RecordPaymentDialog companyId={c.id} call={call} onClose={() => setShowPay(false)} onSaved={() => { setShowPay(false); loadInvoices(); reload() }} />}
+      {showPay && <RecordPaymentDialog companyId={c.id} plan={c.plan} call={call} onClose={() => setShowPay(false)} onSaved={() => { setShowPay(false); loadInvoices(); reload() }} />}
       {lightbox && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80" onClick={() => setLightbox(null)}>
           <button className="absolute top-4 right-4 text-white/70 hover:text-white" onClick={() => setLightbox(null)}><X className="h-6 w-6" /></button>
@@ -957,12 +957,19 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
 }
 
 // ── Record payment dialog ────────────────────────────────────────────────────
-function RecordPaymentDialog({ companyId, call, onClose, onSaved }: {
+// Subscription term per plan (mirrors kaizen_products.duration_days seed; the
+// server is authoritative and recomputes period_end on save).
+const PLAN_TERM_DAYS: Record<string, number> = { trial: 30, gold: 365, premium: 365 }
+
+function RecordPaymentDialog({ companyId, plan, call, onClose, onSaved }: {
   companyId: string
+  plan: string
   call: <T,>(a: string, p?: Record<string, unknown>) => Promise<T>
   onClose: () => void
   onSaved: () => void
 }) {
+  const isTrialPlan = plan === 'trial'
+  const termDays = PLAN_TERM_DAYS[plan] ?? 365
   const [payee, setPayee] = useState('')
   const [amount, setAmount] = useState('')
   const [currency, setCurrency] = useState('THB')
@@ -1000,7 +1007,8 @@ function RecordPaymentDialog({ companyId, call, onClose, onSaved }: {
     finally { setSaving(false) }
   }
 
-  const periodEndPreview = paymentDate ? (() => { const d = new Date(paymentDate + 'T00:00:00Z'); d.setUTCFullYear(d.getUTCFullYear() + 1); return fmtDate(d.toISOString().slice(0, 10)) })() : null
+  const termLabel = termDays % 365 === 0 ? `${termDays / 365}-year` : `${termDays}-day`
+  const periodEndPreview = paymentDate ? (() => { const d = new Date(paymentDate + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + termDays); return fmtDate(d.toISOString().slice(0, 10)) })() : null
 
   return (
     <Overlay onClose={onClose} wide>
@@ -1009,7 +1017,13 @@ function RecordPaymentDialog({ companyId, call, onClose, onSaved }: {
         <button onClick={onClose} className="text-slate-400 hover:text-white"><X className="h-4 w-4" /></button>
       </div>
       <div className="space-y-3 max-h-[62vh] overflow-y-auto pr-1">
-        <Field label="Payment Date * (starts a 1-year subscription)">
+        {isTrialPlan && (
+          <div className="flex items-start gap-2 bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs rounded-lg px-3 py-2">
+            <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+            <span>This client is still on the <strong>Starter</strong> trial. Recording a payment now starts a <strong>30-day</strong> term. Switch the package to <strong>Gold</strong> or <strong>Premium</strong> first for a 1-year subscription.</span>
+          </div>
+        )}
+        <Field label={`Payment Date * (starts a ${termLabel} subscription)`}>
           <input type="date" value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)} className={inputCls} autoFocus />
           {periodEndPreview && <p className="text-[11px] text-slate-400 mt-1">Valid until <span className="text-amber-400 font-medium">{periodEndPreview}</span></p>}
         </Field>
