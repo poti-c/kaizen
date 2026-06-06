@@ -349,9 +349,9 @@ function CompaniesListTab({ companies, owners, onOpen, onCreate }: {
       <div className="space-y-3">
         {companies.map((c) => (
           <button key={c.id} onClick={() => onOpen(c.id)}
-            className="w-full flex items-center gap-3 bg-white border border-slate-200 rounded-xl p-4 text-left hover:border-slate-300 transition-colors">
-            <div className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center flex-shrink-0">
-              <Building2 className="h-5 w-5 text-slate-500" />
+            className="w-full flex items-center gap-3 bg-[#f6f1ea] border border-[#e4d8c8] rounded-xl p-4 text-left hover:border-[#cbb89e] hover:bg-[#f1e9dd] transition-colors">
+            <div className="w-10 h-10 rounded-lg bg-[#e9ddca] flex items-center justify-center flex-shrink-0">
+              <Building2 className="h-5 w-5 text-[#8a6d4b]" />
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
