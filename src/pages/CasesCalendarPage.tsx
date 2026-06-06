@@ -134,7 +134,7 @@ export function CasesCalendarPage() {
         <h1 className="text-xl md:text-2xl font-bold text-gray-900">{t.nav.calendar}</h1>
         {pmEnabled && (
           <div className="flex gap-1 border-b border-gray-200 overflow-x-auto">
-            {([['cases', 'Cases'], ['pm', 'Preventive Maintenance Schedules'], ['combined', 'Combined']] as const).map(([m, label]) => (
+            {([['cases', 'Cases'], ['pm', 'Preventive Maintenance'], ['combined', 'Combined']] as const).map(([m, label]) => (
               <button key={m} onClick={() => setMode(m)}
                 className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px whitespace-nowrap transition-colors ${mode === m ? 'border-[var(--brand-primary)] text-[var(--brand-primary)]' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
                 {label}
