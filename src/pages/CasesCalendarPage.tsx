@@ -52,6 +52,10 @@ export function CasesCalendarPage() {
   const pmEnabled = companyHasAddon(activeCompany, 'pms')
   const [mode, setMode] = useState<'cases' | 'pm'>('cases')
 
+  useEffect(() => {
+    if (profile && activeCompany) fetchCases()
+  }, [profile, activeCompany, viewMonth, viewYear])
+
   const ModeTabs = pmEnabled ? (
     <div className="flex gap-1 border-b border-gray-200">
       {([['cases', t.calendar.casesCalendar], ['pm', t.nav.maintenance]] as const).map(([m, label]) => (
@@ -63,6 +67,7 @@ export function CasesCalendarPage() {
     </div>
   ) : null
 
+  // Render the PM schedule view (after all hooks above — never early-return before a hook).
   if (pmEnabled && mode === 'pm') {
     return (
       <div className="p-4 md:p-6 max-w-7xl mx-auto animate-fade-in">
@@ -74,10 +79,6 @@ export function CasesCalendarPage() {
       </div>
     )
   }
-
-  useEffect(() => {
-    if (profile && activeCompany) fetchCases()
-  }, [profile, activeCompany, viewMonth, viewYear])
 
   async function fetchCases() {
     setLoading(true)
