@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { Wrench, Plus, Trash2, Check, X, Pencil, Loader2, Sparkles } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useCompany } from '@/contexts/CompanyContext'
+import { useLanguage } from '@/contexts/LanguageContext'
 import { toast } from 'sonner'
 
 export const PM_CATEGORIES = [
@@ -52,6 +53,7 @@ interface EqType { id: string; company_id: string; name: string; category: strin
 
 export function PMEquipmentTypes() {
   const { activeCompany } = useCompany()
+  const { t: tr } = useLanguage()
   const companyId = activeCompany?.id ?? null
   const [types, setTypes] = useState<EqType[]>([])
   const [loading, setLoading] = useState(true)
@@ -92,7 +94,7 @@ export function PMEquipmentTypes() {
     const rows = PM_DEFAULTS.map((d, i) => ({ company_id: companyId, name: d.name, category: d.category, sort_order: i }))
     const { error } = await supabase.from('kaizen_pm_equipment_types').insert(rows)
     if (error) toast.error(error.message)
-    else { toast.success('Default equipment types added'); await load() }
+    else { toast.success(tr.pm.defaultsAdded); await load() }
     setBusy(false)
   }
   async function saveName(id: string) {
@@ -106,7 +108,7 @@ export function PMEquipmentTypes() {
     if (error) toast.error(error.message); else load()
   }
   async function remove(t: EqType) {
-    if (!confirm(`Remove equipment type "${t.name}"?`)) return
+    if (!confirm(`${tr.pm.confirmDeleteType} "${t.name}"?`)) return
     const { error } = await supabase.from('kaizen_pm_equipment_types').delete().eq('id', t.id)
     if (error) toast.error(error.message); else load()
   }
@@ -119,26 +121,26 @@ export function PMEquipmentTypes() {
     <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
       <div className="flex items-center gap-2 mb-1">
         <Wrench className="h-4 w-4 text-gray-400" />
-        <h2 className="font-semibold text-gray-900">Preventive Maintenance — Equipment Types</h2>
+        <h2 className="font-semibold text-gray-900">{tr.pm.typesTitle}</h2>
       </div>
-      <p className="text-xs text-gray-500 mb-4">Define the equipment types used when registering maintenance assets. Only Top Management can edit these.</p>
+      <p className="text-xs text-gray-500 mb-4">{tr.pm.typesDesc}</p>
 
       {/* Add new */}
       <div className="flex flex-wrap items-end gap-2 mb-4">
         <div className="flex-1 min-w-[160px]">
-          <label className="text-xs font-medium text-gray-500">New type</label>
+          <label className="text-xs font-medium text-gray-500">{tr.pm.newType}</label>
           <input value={newName} onChange={(e) => setNewName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addType()}
-            placeholder="e.g. Heat Pump" className="w-full h-9 rounded-lg border border-gray-300 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/40" />
+            placeholder={tr.pm.newTypePh} className="w-full h-9 rounded-lg border border-gray-300 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/40" />
         </div>
         <div>
-          <label className="text-xs font-medium text-gray-500">Category</label>
+          <label className="text-xs font-medium text-gray-500">{tr.pm.category}</label>
           <select value={newCat} onChange={(e) => setNewCat(e.target.value)} className="h-9 rounded-lg border border-gray-300 px-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/40">
             {PM_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
           </select>
         </div>
         <button onClick={addType} disabled={busy || !newName.trim()}
           className="flex items-center gap-1.5 h-9 px-3 rounded-lg bg-[var(--brand-primary)] text-white text-sm font-medium disabled:opacity-50">
-          <Plus className="h-4 w-4" />Add
+          <Plus className="h-4 w-4" />{tr.pm.add}
         </button>
       </div>
 
@@ -146,10 +148,10 @@ export function PMEquipmentTypes() {
         <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-gray-400" /></div>
       ) : types.length === 0 ? (
         <div className="text-center py-8 border border-dashed border-gray-300 rounded-lg">
-          <p className="text-sm text-gray-500 mb-3">No equipment types yet.</p>
+          <p className="text-sm text-gray-500 mb-3">{tr.pm.noTypes}</p>
           <button onClick={seedDefaults} disabled={busy}
             className="inline-flex items-center gap-1.5 px-3 h-9 rounded-lg bg-[var(--brand-primary)] text-white text-sm font-medium disabled:opacity-50">
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}Load default types
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}{tr.pm.loadDefaults}
           </button>
         </div>
       ) : (
@@ -170,9 +172,9 @@ export function PMEquipmentTypes() {
                     ) : (
                       <>
                         <span className="flex-1 text-sm text-gray-800">{t.name}</span>
-                        {!t.is_active && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-200 text-gray-500">Inactive</span>}
-                        <button onClick={() => { setEditId(t.id); setEditName(t.name) }} title="Rename" className="p-1.5 rounded text-gray-400 hover:text-[var(--brand-primary)] hover:bg-gray-100"><Pencil className="h-3.5 w-3.5" /></button>
-                        <button onClick={() => toggleActive(t)} title={t.is_active ? 'Deactivate' : 'Activate'} className="px-2 h-7 rounded text-[11px] font-medium text-gray-500 hover:bg-gray-100">{t.is_active ? 'On' : 'Off'}</button>
+                        {!t.is_active && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-200 text-gray-500">{tr.pm.inactiveStatus}</span>}
+                        <button onClick={() => { setEditId(t.id); setEditName(t.name) }} title={tr.pm.rename} className="p-1.5 rounded text-gray-400 hover:text-[var(--brand-primary)] hover:bg-gray-100"><Pencil className="h-3.5 w-3.5" /></button>
+                        <button onClick={() => toggleActive(t)} title={t.is_active ? tr.pm.deactivate : tr.pm.activate} className="px-2 h-7 rounded text-[11px] font-medium text-gray-500 hover:bg-gray-100">{t.is_active ? tr.pm.on : tr.pm.off}</button>
                         <button onClick={() => remove(t)} title="Delete" className="p-1.5 rounded text-gray-400 hover:text-red-500 hover:bg-red-50"><Trash2 className="h-3.5 w-3.5" /></button>
                       </>
                     )}

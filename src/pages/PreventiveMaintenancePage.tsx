@@ -4,8 +4,13 @@ import { Wrench, Plus, Loader2, X, Check, Trash2, Pencil, MapPin, Search } from 
 import { supabase } from '@/lib/supabase'
 import { useCompany } from '@/contexts/CompanyContext'
 import { useAuth } from '@/contexts/AuthContext'
+import { useLanguage } from '@/contexts/LanguageContext'
 import { DEPARTMENT_LABELS, type Department } from '@/types'
 import { FREQUENCIES, freqLabel, addInterval, assetStatus, STATUS_META, type FreqUnit, type AssetStatus } from '@/lib/pm'
+
+const STATUS_KEY: Record<AssetStatus, 'good' | 'dueSoon' | 'overdue' | 'notScheduled' | 'inactiveStatus'> = {
+  good: 'good', due_soon: 'dueSoon', overdue: 'overdue', unscheduled: 'notScheduled', inactive: 'inactiveStatus',
+}
 import { toast } from 'sonner'
 
 interface EqType { id: string; name: string; category: string | null; is_active: boolean }
@@ -24,6 +29,8 @@ const STATUS_ORDER: AssetStatus[] = ['overdue', 'due_soon', 'good', 'unscheduled
 export function PreventiveMaintenancePage() {
   const { activeCompany } = useCompany()
   const { profile } = useAuth()
+  const { t: tr } = useLanguage()
+  const statusLabel = (s: AssetStatus) => tr.pm[STATUS_KEY[s]]
   const companyId = activeCompany?.id ?? null
   const canManage = profile?.role === 'super_admin' || profile?.role === 'manager'
 
@@ -73,11 +80,11 @@ export function PreventiveMaintenancePage() {
       <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
         <div className="flex items-center gap-2">
           <Wrench className="h-5 w-5 text-[var(--brand-primary)]" />
-          <h1 className="text-lg font-bold text-gray-900">Preventive Maintenance Scheduler</h1>
+          <h1 className="text-lg font-bold text-gray-900">{tr.pm.scheduler}</h1>
         </div>
         {canManage && (
           <button onClick={() => setEditor('new')} className="flex items-center gap-1.5 bg-[var(--brand-primary)] text-white text-sm font-medium px-3 py-2 rounded-lg">
-            <Plus className="h-4 w-4" />Add Asset
+            <Plus className="h-4 w-4" />{tr.pm.addAsset}
           </button>
         )}
       </div>
@@ -88,7 +95,7 @@ export function PreventiveMaintenancePage() {
           <button key={s} onClick={() => setFilter(filter === s ? 'all' : s)}
             className={`rounded-xl border p-3 text-left transition-colors ${filter === s ? 'ring-2 ring-[var(--brand-primary)]/40' : ''} ${STATUS_META[s].pill}`}>
             <p className="text-lg font-bold leading-none">{counts[s] ?? 0}</p>
-            <p className="text-[11px] mt-1">{STATUS_META[s].label}</p>
+            <p className="text-[11px] mt-1">{statusLabel(s)}</p>
           </button>
         ))}
       </div>
@@ -96,7 +103,7 @@ export function PreventiveMaintenancePage() {
       {/* Search */}
       <div className="relative mb-3">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search assets…"
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={tr.pm.searchAssets}
           className="w-full h-9 rounded-lg border border-gray-300 pl-9 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/40" />
       </div>
 
@@ -105,8 +112,8 @@ export function PreventiveMaintenancePage() {
       ) : filtered.length === 0 ? (
         <div className="text-center py-16 bg-white rounded-xl border border-gray-200">
           <Wrench className="h-8 w-8 text-gray-300 mx-auto mb-2" />
-          <p className="text-sm text-gray-500">{assets.length === 0 ? 'No assets registered yet.' : 'No assets match your filter.'}</p>
-          {canManage && assets.length === 0 && <button onClick={() => setEditor('new')} className="mt-3 text-sm text-[var(--brand-primary)] font-medium">+ Register your first asset</button>}
+          <p className="text-sm text-gray-500">{assets.length === 0 ? tr.pm.noAssets : tr.pm.noAssetsFiltered}</p>
+          {canManage && assets.length === 0 && <button onClick={() => setEditor('new')} className="mt-3 text-sm text-[var(--brand-primary)] font-medium">{tr.pm.registerFirst}</button>}
         </div>
       ) : (
         <div className="space-y-2">
@@ -120,12 +127,12 @@ export function PreventiveMaintenancePage() {
                   <div className="flex items-center gap-2 flex-wrap">
                     <p className="text-sm font-semibold text-gray-900 truncate">{a.name}</p>
                     {a.type?.name && <span className="text-[11px] text-gray-500">{a.type.name}</span>}
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${m.pill}`}>{m.label}</span>
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${m.pill}`}>{statusLabel(s)}</span>
                   </div>
                   <p className="text-[11px] text-gray-500 truncate flex items-center gap-2 mt-0.5">
                     {a.location && <span className="flex items-center gap-0.5"><MapPin className="h-3 w-3" />{a.location}</span>}
                     <span>{freqLabel(a.freq_unit, a.freq_interval)}</span>
-                    {a.next_maintenance_date && <span>· Next {fmt(a.next_maintenance_date)}</span>}
+                    {a.next_maintenance_date && <span>· {tr.pm.next} {fmt(a.next_maintenance_date)}</span>}
                   </p>
                 </div>
                 {canManage && <Pencil className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />}
@@ -153,6 +160,7 @@ const inputCls = 'w-full h-9 rounded-lg border border-gray-300 px-3 text-sm focu
 function AssetEditor({ companyId, types, asset, onClose, onSaved }: {
   companyId: string; types: EqType[]; asset: Asset | null; onClose: () => void; onSaved: () => void
 }) {
+  const { t: tr } = useLanguage()
   const freqIdx0 = asset ? FREQUENCIES.findIndex((f) => f.unit === asset.freq_unit && f.interval === asset.freq_interval) : 3
   const [f, setF] = useState({
     name: asset?.name ?? '', type_id: asset?.type_id ?? '', location: asset?.location ?? '',
@@ -180,7 +188,7 @@ function AssetEditor({ companyId, types, asset, onClose, onSaved }: {
   }
 
   async function save() {
-    if (!f.name.trim()) { toast.error('Asset name is required.'); return }
+    if (!f.name.trim()) { toast.error(tr.pm.assetNameRequired); return }
     setBusy(true)
     const { unit, interval } = freqParts()
     const row = {
@@ -198,10 +206,10 @@ function AssetEditor({ companyId, types, asset, onClose, onSaved }: {
       : await supabase.from('kaizen_pm_assets').insert(row)
     setBusy(false)
     if (res.error) toast.error(res.error.message)
-    else { toast.success(asset ? 'Asset updated' : 'Asset added'); onSaved() }
+    else { toast.success(asset ? tr.pm.assetSaved : tr.pm.assetAdded); onSaved() }
   }
   async function remove() {
-    if (!asset || !confirm(`Delete asset "${asset.name}"? Its maintenance history will be removed.`)) return
+    if (!asset || !confirm(`${tr.pm.confirmDeleteAsset}`)) return
     setBusy(true)
     const { error } = await supabase.from('kaizen_pm_assets').delete().eq('id', asset.id)
     setBusy(false)
@@ -215,15 +223,15 @@ function AssetEditor({ companyId, types, asset, onClose, onSaved }: {
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
       <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col">
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
-          <h3 className="font-semibold text-gray-900">{asset ? 'Edit Asset' : 'Register Asset'}</h3>
+          <h3 className="font-semibold text-gray-900">{asset ? tr.pm.editAsset : tr.pm.registerAsset}</h3>
           <button onClick={onClose} className="p-1 rounded text-gray-400 hover:bg-gray-100"><X className="h-4 w-4" /></button>
         </div>
         <div className="px-5 py-4 space-y-3 overflow-y-auto">
-          <Field label="Asset name / tag *"><input value={f.name} onChange={(e) => set({ name: e.target.value })} className={inputCls} placeholder="e.g. Lobby Split A/C #1" autoFocus /></Field>
+          <Field label={`${tr.pm.assetName} *`}><input value={f.name} onChange={(e) => set({ name: e.target.value })} className={inputCls} placeholder={tr.pm.assetNamePh} autoFocus /></Field>
           <div className="grid grid-cols-2 gap-2.5">
-            <Field label="Equipment type">
+            <Field label={tr.pm.equipmentType}>
               <select value={f.type_id} onChange={(e) => set({ type_id: e.target.value })} className={inputCls}>
-                <option value="">— select —</option>
+                <option value="">{tr.pm.selectType}</option>
                 {cats.map((c) => (
                   <optgroup key={c} label={c}>
                     {types.filter((t) => (t.category ?? 'Other') === c).map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
@@ -231,45 +239,45 @@ function AssetEditor({ companyId, types, asset, onClose, onSaved }: {
                 ))}
               </select>
             </Field>
-            <Field label="Location / zone"><input value={f.location} onChange={(e) => set({ location: e.target.value })} className={inputCls} placeholder="Building / floor / room" /></Field>
+            <Field label={tr.pm.location}><input value={f.location} onChange={(e) => set({ location: e.target.value })} className={inputCls} placeholder={tr.pm.locationPh} /></Field>
           </div>
           <div className="grid grid-cols-2 gap-2.5">
-            <Field label="Serial no."><input value={f.serial_no} onChange={(e) => set({ serial_no: e.target.value })} className={inputCls} /></Field>
-            <Field label="Model"><input value={f.model} onChange={(e) => set({ model: e.target.value })} className={inputCls} /></Field>
+            <Field label={tr.pm.serialNo}><input value={f.serial_no} onChange={(e) => set({ serial_no: e.target.value })} className={inputCls} /></Field>
+            <Field label={tr.pm.model}><input value={f.model} onChange={(e) => set({ model: e.target.value })} className={inputCls} /></Field>
           </div>
-          <Field label="Responsible department">
+          <Field label={tr.pm.responsibleDept}>
             <select value={f.department} onChange={(e) => set({ department: e.target.value })} className={inputCls}>
-              <option value="">— none —</option>
+              <option value="">{tr.pm.none}</option>
               {(Object.keys(DEPARTMENT_LABELS) as Department[]).map((d) => <option key={d} value={d}>{DEPARTMENT_LABELS[d]}</option>)}
             </select>
           </Field>
           <div className="grid grid-cols-2 gap-2.5">
-            <Field label="Frequency">
+            <Field label={tr.pm.frequency}>
               <select value={f.freqMode} onChange={(e) => { set({ freqMode: e.target.value }); recalcNext(f.last_maintenance_date, e.target.value, f.customDays) }} className={inputCls}>
                 {FREQUENCIES.map((fr, i) => <option key={fr.label} value={String(i)}>{fr.label}</option>)}
-                <option value="custom">Custom (every N days)</option>
+                <option value="custom">{tr.pm.customEvery}</option>
               </select>
             </Field>
             {f.freqMode === 'custom' ? (
-              <Field label="Every N days"><input value={f.customDays} onChange={(e) => { const v = Number(e.target.value.replace(/[^0-9]/g, '')) || 1; set({ customDays: v }); recalcNext(f.last_maintenance_date, 'custom', v) }} className={inputCls} inputMode="numeric" /></Field>
-            ) : <Field label="Est. minutes"><input value={f.est_minutes} onChange={(e) => set({ est_minutes: e.target.value.replace(/[^0-9]/g, '') })} className={inputCls} inputMode="numeric" placeholder="optional" /></Field>}
+              <Field label={tr.pm.everyNDays}><input value={f.customDays} onChange={(e) => { const v = Number(e.target.value.replace(/[^0-9]/g, '')) || 1; set({ customDays: v }); recalcNext(f.last_maintenance_date, 'custom', v) }} className={inputCls} inputMode="numeric" /></Field>
+            ) : <Field label={tr.pm.estMinutes}><input value={f.est_minutes} onChange={(e) => set({ est_minutes: e.target.value.replace(/[^0-9]/g, '') })} className={inputCls} inputMode="numeric" placeholder={tr.pm.optional} /></Field>}
           </div>
           <div className="grid grid-cols-2 gap-2.5">
-            <Field label="Last maintenance"><input type="date" value={f.last_maintenance_date} onChange={(e) => { set({ last_maintenance_date: e.target.value }); recalcNext(e.target.value, f.freqMode, f.customDays) }} className={inputCls} /></Field>
-            <Field label="Next maintenance"><input type="date" value={f.next_maintenance_date} onChange={(e) => set({ next_maintenance_date: e.target.value })} className={inputCls} /></Field>
+            <Field label={tr.pm.lastMaint}><input type="date" value={f.last_maintenance_date} onChange={(e) => { set({ last_maintenance_date: e.target.value }); recalcNext(e.target.value, f.freqMode, f.customDays) }} className={inputCls} /></Field>
+            <Field label={tr.pm.nextMaint}><input type="date" value={f.next_maintenance_date} onChange={(e) => set({ next_maintenance_date: e.target.value })} className={inputCls} /></Field>
           </div>
-          <Field label="Maintenance checklist (one item per line)"><textarea value={f.checklist} onChange={(e) => set({ checklist: e.target.value })} rows={4} className={inputCls + ' h-auto py-2 resize-none'} placeholder={'Clean / replace filters\nCheck refrigerant\nTest thermostat'} /></Field>
-          <Field label="Notes / instructions"><textarea value={f.notes} onChange={(e) => set({ notes: e.target.value })} rows={2} className={inputCls + ' h-auto py-2 resize-none'} /></Field>
+          <Field label={tr.pm.checklist}><textarea value={f.checklist} onChange={(e) => set({ checklist: e.target.value })} rows={4} className={inputCls + ' h-auto py-2 resize-none'} placeholder={tr.pm.checklistPh} /></Field>
+          <Field label={tr.pm.notesInstr}><textarea value={f.notes} onChange={(e) => set({ notes: e.target.value })} rows={2} className={inputCls + ' h-auto py-2 resize-none'} /></Field>
           <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
-            <input type="checkbox" checked={f.is_active} onChange={(e) => set({ is_active: e.target.checked })} className="accent-[var(--brand-primary)]" />Active (include in scheduling)
+            <input type="checkbox" checked={f.is_active} onChange={(e) => set({ is_active: e.target.checked })} className="accent-[var(--brand-primary)]" />{tr.pm.activeInclude}
           </label>
         </div>
         <div className="flex items-center gap-2 px-5 py-4 border-t border-gray-200">
           <button onClick={save} disabled={busy} className="flex items-center gap-1.5 bg-[var(--brand-primary)] text-white text-sm font-semibold px-4 h-9 rounded-lg disabled:opacity-50">
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}{asset ? 'Save' : 'Register'}
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}{asset ? tr.pm.save : tr.pm.register}
           </button>
-          <button onClick={onClose} className="px-3 h-9 rounded-lg text-gray-500 hover:bg-gray-100 text-sm">Cancel</button>
-          {asset && <button onClick={remove} disabled={busy} className="ml-auto flex items-center gap-1.5 px-3 h-9 rounded-lg text-red-500 hover:bg-red-50 text-sm"><Trash2 className="h-4 w-4" />Delete</button>}
+          <button onClick={onClose} className="px-3 h-9 rounded-lg text-gray-500 hover:bg-gray-100 text-sm">{tr.pm.cancel}</button>
+          {asset && <button onClick={remove} disabled={busy} className="ml-auto flex items-center gap-1.5 px-3 h-9 rounded-lg text-red-500 hover:bg-red-50 text-sm"><Trash2 className="h-4 w-4" />{tr.pm.delete}</button>}
         </div>
       </div>
     </div>

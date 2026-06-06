@@ -69,6 +69,7 @@ function fmtDate(d: string | null) {
   return new Date(d.length <= 10 ? d + 'T00:00:00Z' : d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
 }
 function money(n: number) {
+  if (!Number.isFinite(n)) n = 0
   return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 

@@ -9,7 +9,7 @@ import { cn, companyHasAddon } from '@/lib/utils'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import type { KaizenCase, Department } from '@/types'
 import { DEPARTMENTS } from '@/types'
-import { PMTaskModal, taskTone, type PMTask } from '@/components/pm/PMSchedule'
+import { PMTaskModal, taskTone, taskStatusKey, type PMTask } from '@/components/pm/PMSchedule'
 
 const PRIORITY_COLORS: Record<string, string> = {
   low: 'bg-green-500 text-white', medium: 'bg-blue-400 text-white',
@@ -70,7 +70,7 @@ export function CasesCalendarPage() {
     if (showCaseData) {
       let q = supabase.from('kaizen_cases').select('*').eq('company_id', activeCompany.id)
         .gte('created_at', start.toISOString()).lte('created_at', end.toISOString())
-      if (profile?.role === 'staff') q = q.eq('department', profile.department)
+      if (profile?.role === 'staff' && profile.department) q = q.eq('department', profile.department)
       jobs.push(q.then(({ data }) => setCases((data || []) as KaizenCase[])))
     } else { setCases([]) }
 
@@ -138,7 +138,7 @@ export function CasesCalendarPage() {
         <h1 className="text-xl md:text-2xl font-bold text-gray-900">{t.nav.calendar}</h1>
         {pmEnabled && (
           <div className="flex gap-1 border-b border-gray-200 flex-wrap">
-            {([['cases', 'Cases'], ['pm', 'Preventive Maintenance'], ['combined', 'Combined']] as const).map(([m, label]) => (
+            {([['cases', t.nav.cases], ['pm', t.nav.maintenance], ['combined', t.calendar.combined]] as const).map(([m, label]) => (
               <button key={m} onClick={() => setMode(m)}
                 className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px whitespace-nowrap transition-colors ${mode === m ? 'border-[var(--brand-primary)] text-[var(--brand-primary)]' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
                 {label}
@@ -224,7 +224,7 @@ export function CasesCalendarPage() {
             <h3 className="text-sm font-semibold text-gray-900">{selectedDate.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</h3>
           </div>
           {selectedEntries.length === 0 ? (
-            <p className="px-4 py-8 text-center text-sm text-gray-400">{mode === 'pm' ? 'No maintenance scheduled.' : 'Nothing on this day.'}</p>
+            <p className="px-4 py-8 text-center text-sm text-gray-400">{mode === 'pm' ? t.calendar.noMaintenance : t.calendar.nothingDay}</p>
           ) : (
             <div className="divide-y divide-gray-50">
               {selectedEntries.map((e) => e.kind === 'case' ? (
@@ -240,7 +240,7 @@ export function CasesCalendarPage() {
                   <span className={cn('w-2.5 h-2.5 rounded-full flex-shrink-0', taskTone(e.task).dot)} />
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-gray-900 truncate flex items-center gap-1.5"><Wrench className="h-3 w-3 text-gray-400" />{e.task.asset?.name ?? 'Maintenance'}</p>
-                    <p className="text-xs text-gray-400">{taskTone(e.task).label}{e.task.asset?.location ? ` · ${e.task.asset.location}` : ''}</p>
+                    <p className="text-xs text-gray-400">{t.pm[taskStatusKey(e.task)]}{e.task.asset?.location ? ` · ${e.task.asset.location}` : ''}</p>
                   </div>
                 </button>
               ))}
@@ -253,7 +253,7 @@ export function CasesCalendarPage() {
       <div className="mt-3 space-y-2">
         {showCaseData && (
           <div className="flex items-center gap-4 flex-wrap">
-            <span className="text-xs text-gray-400 font-medium">Case Priority:</span>
+            <span className="text-xs text-gray-400 font-medium">{t.calendar.casePriority}</span>
             <Legend color="bg-green-500" label={t.priority.low} />
             <Legend color="bg-blue-400" label={t.priority.medium} />
             <Legend color="bg-orange-500" label={t.priority.high} />
@@ -263,12 +263,12 @@ export function CasesCalendarPage() {
         )}
         {showPmData && (
           <div className={`flex items-center gap-4 flex-wrap ${showCaseData ? 'border-t border-gray-200 pt-2' : ''}`}>
-            <span className="text-xs text-gray-400 font-medium">PM Status:</span>
-            <Legend color="bg-sky-500" label="Scheduled" />
-            <Legend color="bg-amber-500" label="In progress" />
-            <Legend color="bg-violet-500" label="Awaiting approval" />
-            <Legend color="bg-red-500" label="Overdue" />
-            <Legend color="bg-green-500" label="Done" />
+            <span className="text-xs text-gray-400 font-medium">{t.calendar.pmStatus}</span>
+            <Legend color="bg-sky-500" label={t.pm.scheduled} />
+            <Legend color="bg-amber-500" label={t.pm.inProgress} />
+            <Legend color="bg-violet-500" label={t.pm.awaitingApproval} />
+            <Legend color="bg-red-500" label={t.pm.overdue} />
+            <Legend color="bg-green-500" label={t.pm.done} />
           </div>
         )}
       </div>

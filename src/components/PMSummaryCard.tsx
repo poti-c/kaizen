@@ -4,6 +4,7 @@ import { Wrench, ChevronRight, ShieldCheck } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useCompany } from '@/contexts/CompanyContext'
+import { useLanguage } from '@/contexts/LanguageContext'
 import { assetStatus } from '@/lib/pm'
 
 function isoDate(d: Date) {
@@ -16,6 +17,7 @@ interface TaskRow { due_date: string; status: string; performed_at: string | nul
 export function PMSummaryCard() {
   const { profile } = useAuth()
   const { activeCompany } = useCompany()
+  const { t } = useLanguage()
   const companyId = activeCompany?.id ?? null
   const isStaff = profile?.role === 'staff'
   const isApprover = profile?.role === 'super_admin' || profile?.role === 'manager'
@@ -83,32 +85,32 @@ export function PMSummaryCard() {
   return (
     <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-3 mb-4">
       <div className="flex items-center justify-between mb-2">
-        <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-1.5"><Wrench className="h-3.5 w-3.5 text-[var(--brand-primary)]" />Preventive Maintenance</h2>
-        <Link to="/maintenance" className="flex items-center gap-0.5 text-xs font-medium text-[var(--brand-primary)] hover:opacity-75">Open<ChevronRight className="h-3.5 w-3.5" /></Link>
+        <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-1.5"><Wrench className="h-3.5 w-3.5 text-[var(--brand-primary)]" />{t.nav.maintenance}</h2>
+        <Link to="/maintenance" className="flex items-center gap-0.5 text-xs font-medium text-[var(--brand-primary)] hover:opacity-75">{t.pm.open}<ChevronRight className="h-3.5 w-3.5" /></Link>
       </div>
 
       {active.length === 0 ? (
         <div className="text-center py-3">
-          <p className="text-xs text-gray-500">No assets registered yet. <Link to="/maintenance" className="font-medium text-[var(--brand-primary)]">Set up the scheduler →</Link></p>
+          <p className="text-xs text-gray-500">{t.pm.noAssets} <Link to="/maintenance" className="font-medium text-[var(--brand-primary)]">{t.pm.setupScheduler}</Link></p>
         </div>
       ) : (
         <div className="flex items-stretch gap-2">
           {/* Compliance hero */}
           <Link to="/maintenance" className="flex flex-col items-center justify-center rounded-lg bg-gray-50 hover:bg-gray-100 transition-colors px-3 py-1.5 w-24 flex-shrink-0">
             <p className={`text-2xl font-bold leading-none ${complianceColor}`}>{compliance == null ? '—' : `${compliance}%`}</p>
-            <p className="text-[10px] text-gray-500 mt-0.5 text-center leading-tight flex items-center gap-0.5"><ShieldCheck className={`h-3 w-3 ${complianceColor}`} />Compliance</p>
+            <p className="text-[10px] text-gray-500 mt-0.5 text-center leading-tight flex items-center gap-0.5"><ShieldCheck className={`h-3 w-3 ${complianceColor}`} />{t.pm.compliance}</p>
           </Link>
 
           {/* Stats grid */}
           <div className="flex-1 grid grid-cols-3 auto-rows-fr gap-1.5">
-            <Tile label="Up to date" value={good} tone="green" to="/maintenance?status=good" />
-            <Tile label="Due soon" value={dueSoon} tone="amber" to="/maintenance?status=due_soon" />
-            <Tile label="Overdue" value={overdueAssets} tone="red" to="/maintenance?status=overdue" />
-            <Tile label="Due this week" value={dueThisWeek} tone="slate" to="/cases/calendar?tab=pm" />
-            <Tile label="Done this month" value={completedThisMonth} tone="slate" to="/cases/calendar?tab=pm" />
+            <Tile label={t.pm.good} value={good} tone="green" to="/maintenance?status=good" />
+            <Tile label={t.pm.dueSoon} value={dueSoon} tone="amber" to="/maintenance?status=due_soon" />
+            <Tile label={t.pm.overdue} value={overdueAssets} tone="red" to="/maintenance?status=overdue" />
+            <Tile label={t.pm.dueThisWeek} value={dueThisWeek} tone="slate" to="/cases/calendar?tab=pm" />
+            <Tile label={t.pm.doneThisMonth} value={completedThisMonth} tone="slate" to="/cases/calendar?tab=pm" />
             {isApprover
-              ? <Tile label="Awaiting approval" value={pendingApproval} tone={pendingApproval > 0 ? 'violet' : 'slate'} to="/cases/calendar?tab=pm" />
-              : <Tile label="On-time rate" value={onTimeRate == null ? '—' : `${onTimeRate}%`} tone="slate" />}
+              ? <Tile label={t.pm.awaitingApproval} value={pendingApproval} tone={pendingApproval > 0 ? 'violet' : 'slate'} to="/cases/calendar?tab=pm" />
+              : <Tile label={t.pm.onTimeRate} value={onTimeRate == null ? '—' : `${onTimeRate}%`} tone="slate" />}
           </div>
         </div>
       )}

@@ -410,12 +410,12 @@ function SubscriptionBadge({ sub }: { sub?: Subscription }) {
   if (sub?.is_trial) {
     if (sub.overdue) return <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-red-500/15 text-red-400 border border-red-500/30 font-semibold">Trial expired</span>
     const warn = (sub.days_remaining ?? 0) <= 7
-    return <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium border ${warn ? 'bg-amber-500/15 text-amber-400 border-amber-500/30' : 'bg-sky-500/15 text-sky-300 border-sky-500/30'}`}>Trial · {sub.days_remaining}d left</span>
+    return <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium border ${warn ? 'bg-amber-500/15 text-amber-400 border-amber-500/30' : 'bg-sky-500/15 text-sky-300 border-sky-500/30'}`}>Trial · {sub.days_remaining ?? 0}d left</span>
   }
   if (!sub || !sub.has_payment) return <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700 font-medium">No payment</span>
-  if (sub.overdue) return <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-red-500/15 text-red-400 border border-red-500/30 font-semibold">Overdue {Math.abs(sub.days_remaining!)}d</span>
+  if (sub.overdue) return <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-red-500/15 text-red-400 border border-red-500/30 font-semibold">Overdue {Math.abs(sub.days_remaining ?? 0)}d</span>
   const soon = (sub.days_remaining ?? 0) <= 30
-  return <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium border ${soon ? 'bg-amber-500/15 text-amber-400 border-amber-500/30' : 'bg-green-500/15 text-green-400 border-green-500/30'}`}>{sub.days_remaining}d left</span>
+  return <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium border ${soon ? 'bg-amber-500/15 text-amber-400 border-amber-500/30' : 'bg-green-500/15 text-green-400 border-green-500/30'}`}>{sub.days_remaining ?? 0}d left</span>
 }
 
 // ── Company detail page ──────────────────────────────────────────────────────
@@ -716,8 +716,8 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
               <Detail label="Trial Ends" icon={CalendarDays}>{fmtDate(sub.end ?? null)}</Detail>
               <Detail label="Status">
                 {sub.overdue
-                  ? <span className="text-red-400 font-semibold">Trial expired {Math.abs(sub.days_remaining!)}d ago</span>
-                  : <span className={(sub.days_remaining ?? 0) <= 7 ? 'text-amber-400 font-semibold' : 'text-green-400 font-semibold'}>{sub.days_remaining} days left</span>}
+                  ? <span className="text-red-400 font-semibold">Trial expired {Math.abs(sub.days_remaining ?? 0)}d ago</span>
+                  : <span className={(sub.days_remaining ?? 0) <= 7 ? 'text-amber-400 font-semibold' : 'text-green-400 font-semibold'}>{sub.days_remaining ?? 0} days left</span>}
               </Detail>
             </div>
             <p className="text-[11px] text-slate-400 mt-3">Starter is a 30-day free trial. The client app shows a countdown and a reminder in the final 7 days to upgrade to Gold or Premium. Record a payment to convert to a paid subscription.</p>
@@ -730,8 +730,8 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
             <Detail label="Valid Until" icon={CalendarDays}>{fmtDate(sub.period_end)}</Detail>
             <Detail label="Status">
               {sub.overdue
-                ? <span className="text-red-400 font-semibold">Expired {Math.abs(sub.days_remaining!)} days ago</span>
-                : <span className={(sub.days_remaining ?? 0) <= 30 ? 'text-amber-400 font-semibold' : 'text-green-400 font-semibold'}>{sub.days_remaining} days remaining</span>}
+                ? <span className="text-red-400 font-semibold">Expired {Math.abs(sub.days_remaining ?? 0)} days ago</span>
+                : <span className={(sub.days_remaining ?? 0) <= 30 ? 'text-amber-400 font-semibold' : 'text-green-400 font-semibold'}>{sub.days_remaining ?? 0} days remaining</span>}
             </Detail>
           </div>
         )}

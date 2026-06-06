@@ -3,6 +3,7 @@ import { ChevronLeft, ChevronRight, Loader2, X, Check, Play, MapPin, Wrench, Thu
 import { supabase } from '@/lib/supabase'
 import { useCompany } from '@/contexts/CompanyContext'
 import { useAuth } from '@/contexts/AuthContext'
+import { useLanguage } from '@/contexts/LanguageContext'
 import { toast } from 'sonner'
 
 export interface PMTask {
@@ -23,6 +24,15 @@ export function taskTone(t: PMTask): { chip: string; dot: string; label: string 
   if (overdue) return { chip: 'bg-red-100 text-red-700 border-red-200', dot: 'bg-red-500', label: 'Overdue' }
   if (t.status === 'in_progress') return { chip: 'bg-amber-100 text-amber-700 border-amber-200', dot: 'bg-amber-500', label: 'In progress' }
   return { chip: 'bg-sky-100 text-sky-700 border-sky-200', dot: 'bg-sky-500', label: 'Scheduled' }
+}
+
+// i18n key for a task's display status (use with t.pm[...]).
+export function taskStatusKey(t: PMTask): 'done' | 'awaitingApproval' | 'overdue' | 'inProgress' | 'scheduled' {
+  if (t.status === 'done' || t.status === 'approved') return 'done'
+  if (t.status === 'pending_approval') return 'awaitingApproval'
+  if (t.due_date < dayKey(new Date())) return 'overdue'
+  if (t.status === 'in_progress') return 'inProgress'
+  return 'scheduled'
 }
 
 export function PMSchedule() {
@@ -120,12 +130,13 @@ export function PMSchedule() {
 
 export function PMTaskModal({ task, onClose, onDone }: { task: PMTask; onClose: () => void; onDone: () => void }) {
   const { profile } = useAuth()
+  const { t: tr } = useLanguage()
   const items = task.asset?.checklist ?? []
   const pending = task.status === 'pending_approval'
   const finished = task.status === 'done' || task.status === 'approved'
   const recorded = finished || pending // execution already captured
   // Approver = Top Management, or the responsible department's manager.
-  const isApprover = profile?.role === 'super_admin' || (profile?.role === 'manager' && profile?.department === task.asset?.department)
+  const isApprover = profile?.role === 'super_admin' || (profile?.role === 'manager' && !!profile?.department && profile.department === task.asset?.department)
   const [results, setResults] = useState<Record<string, string>>(() => {
     const init: Record<string, string> = {}
     if (recorded) for (const r of task.checklist_results ?? []) init[r.item] = r.result
@@ -140,14 +151,14 @@ export function PMTaskModal({ task, onClose, onDone }: { task: PMTask; onClose: 
     setBusy(true)
     const { error } = await supabase.rpc('kaizen_pm_approve_task', { p_task: task.id })
     setBusy(false)
-    if (error) toast.error(error.message); else { toast.success('Maintenance approved'); onDone() }
+    if (error) toast.error(error.message); else { toast.success(tr.pm.approvedToast); onDone() }
   }
   async function reject() {
-    const note = prompt('Reason for returning this task to the technician?') ?? ''
+    const note = prompt(tr.pm.rejectPrompt) ?? ''
     setBusy(true)
     const { error } = await supabase.rpc('kaizen_pm_reject_task', { p_task: task.id, p_note: note || null })
     setBusy(false)
-    if (error) toast.error(error.message); else { toast.success('Returned to technician'); onDone() }
+    if (error) toast.error(error.message); else { toast.success(tr.pm.returnedToast); onDone() }
   }
 
   async function start() {
@@ -164,7 +175,7 @@ export function PMTaskModal({ task, onClose, onDone }: { task: PMTask; onClose: 
     })
     setBusy(false)
     if (error) toast.error(error.message)
-    else { toast.success('Maintenance recorded'); onDone() }
+    else { toast.success(tr.pm.recorded); onDone() }
   }
 
   const tone = taskTone(task)
@@ -178,27 +189,27 @@ export function PMTaskModal({ task, onClose, onDone }: { task: PMTask; onClose: 
         </div>
         <div className="px-5 py-4 space-y-3 overflow-y-auto text-sm">
           <div className="flex items-center gap-2 flex-wrap text-xs text-gray-500">
-            <span className={`px-1.5 py-0.5 rounded-full border ${tone.chip}`}>{tone.label}</span>
+            <span className={`px-1.5 py-0.5 rounded-full border ${tone.chip}`}>{tr.pm[taskStatusKey(task)]}</span>
             {task.asset?.type?.name && <span>{task.asset.type.name}</span>}
-            <span>· Due {fmt(task.due_date)}</span>
+            <span>· {tr.pm.next} {fmt(task.due_date)}</span>
           </div>
           {task.asset?.location && <p className="text-xs text-gray-600 flex items-center gap-1"><MapPin className="h-3 w-3" />{task.asset.location}</p>}
           {task.asset?.notes && <p className="text-xs text-gray-600 bg-gray-50 rounded-lg p-2">{task.asset.notes}</p>}
 
           {items.length > 0 && (
             <div>
-              <p className="text-xs font-semibold text-gray-500 mb-1.5">Checklist</p>
+              <p className="text-xs font-semibold text-gray-500 mb-1.5">{tr.pm.checklistTitle}</p>
               <div className="space-y-1.5">
                 {items.map((it) => (
                   <div key={it} className="flex items-center gap-2">
                     <span className="flex-1 text-sm text-gray-800">{it}</span>
                     {recorded ? (
-                      <span className={`text-[11px] px-1.5 py-0.5 rounded-full ${results[it] === 'pass' ? 'bg-green-100 text-green-700' : results[it] === 'fail' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-500'}`}>{(results[it] ?? 'na').toUpperCase()}</span>
+                      <span className={`text-[11px] px-1.5 py-0.5 rounded-full ${results[it] === 'pass' ? 'bg-green-100 text-green-700' : results[it] === 'fail' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-500'}`}>{tr.pm[(results[it] ?? 'na') as 'pass' | 'fail' | 'na']}</span>
                     ) : (
                       <div className="flex gap-1">
                         {(['pass', 'fail', 'na'] as const).map((r) => (
                           <button key={r} onClick={() => setResults((p) => ({ ...p, [it]: r }))}
-                            className={`text-[10px] px-1.5 py-0.5 rounded border ${results[it] === r ? (r === 'pass' ? 'bg-green-500 text-white border-green-500' : r === 'fail' ? 'bg-red-500 text-white border-red-500' : 'bg-gray-400 text-white border-gray-400') : 'border-gray-300 text-gray-500'}`}>{r.toUpperCase()}</button>
+                            className={`text-[10px] px-1.5 py-0.5 rounded border ${results[it] === r ? (r === 'pass' ? 'bg-green-500 text-white border-green-500' : r === 'fail' ? 'bg-red-500 text-white border-red-500' : 'bg-gray-400 text-white border-gray-400') : 'border-gray-300 text-gray-500'}`}>{tr.pm[r]}</button>
                         ))}
                       </div>
                     )}
@@ -210,32 +221,32 @@ export function PMTaskModal({ task, onClose, onDone }: { task: PMTask; onClose: 
 
           {recorded ? (
             <div className="space-y-1.5 text-xs text-gray-600">
-              {task.readings && <p><span className="font-medium">Readings:</span> {task.readings}</p>}
-              {task.parts_used && <p><span className="font-medium">Parts:</span> {task.parts_used}</p>}
-              {task.findings && <p><span className="font-medium">Findings:</span> {task.findings}</p>}
-              {task.performed_at && <p className="text-gray-400">Performed {new Date(task.performed_at).toLocaleString()}</p>}
-              {pending && <p className="text-violet-600 font-medium">Awaiting approval{!isApprover ? ' by the responsible manager / Top Management' : ''}.</p>}
+              {task.readings && <p><span className="font-medium">{tr.pm.readings}:</span> {task.readings}</p>}
+              {task.parts_used && <p><span className="font-medium">{tr.pm.parts}:</span> {task.parts_used}</p>}
+              {task.findings && <p><span className="font-medium">{tr.pm.findings}:</span> {task.findings}</p>}
+              {task.performed_at && <p className="text-gray-400">{tr.pm.performed} {new Date(task.performed_at).toLocaleString()}</p>}
+              {pending && <p className="text-violet-600 font-medium">{tr.pm.awaitingNote}{!isApprover ? ` ${tr.pm.awaitingBy}` : ''}.</p>}
             </div>
           ) : (
             <>
-              <Field label="Readings / measurements"><input value={readings} onChange={(e) => setReadings(e.target.value)} className={inp} placeholder="e.g. 12°C, 220V" /></Field>
-              <Field label="Parts / consumables used"><input value={parts} onChange={(e) => setParts(e.target.value)} className={inp} /></Field>
-              <Field label="Findings / notes"><textarea value={findings} onChange={(e) => setFindings(e.target.value)} rows={2} className={inp + ' h-auto py-2 resize-none'} /></Field>
+              <Field label={tr.pm.readingsLabel}><input value={readings} onChange={(e) => setReadings(e.target.value)} className={inp} placeholder={tr.pm.readingsPh} /></Field>
+              <Field label={tr.pm.partsLabel}><input value={parts} onChange={(e) => setParts(e.target.value)} className={inp} /></Field>
+              <Field label={tr.pm.findingsLabel}><textarea value={findings} onChange={(e) => setFindings(e.target.value)} rows={2} className={inp + ' h-auto py-2 resize-none'} /></Field>
             </>
           )}
         </div>
         {pending && isApprover ? (
           <div className="flex items-center gap-2 px-5 py-4 border-t border-gray-200">
-            <button onClick={reject} disabled={busy} className="flex items-center gap-1.5 px-3 h-9 rounded-lg text-red-600 hover:bg-red-50 text-sm font-medium"><Undo2 className="h-4 w-4" />Return</button>
+            <button onClick={reject} disabled={busy} className="flex items-center gap-1.5 px-3 h-9 rounded-lg text-red-600 hover:bg-red-50 text-sm font-medium"><Undo2 className="h-4 w-4" />{tr.pm.return}</button>
             <button onClick={approve} disabled={busy} className="ml-auto flex items-center gap-1.5 px-4 h-9 rounded-lg bg-green-600 hover:bg-green-500 text-white text-sm font-semibold disabled:opacity-50">
-              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ThumbsUp className="h-4 w-4" />}Approve
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ThumbsUp className="h-4 w-4" />}{tr.pm.approve}
             </button>
           </div>
         ) : !recorded ? (
           <div className="flex items-center gap-2 px-5 py-4 border-t border-gray-200">
-            {task.status === 'scheduled' && <button onClick={start} disabled={busy} className="flex items-center gap-1.5 px-3 h-9 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium"><Play className="h-4 w-4" />Start</button>}
+            {task.status === 'scheduled' && <button onClick={start} disabled={busy} className="flex items-center gap-1.5 px-3 h-9 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium"><Play className="h-4 w-4" />{tr.pm.start}</button>}
             <button onClick={complete} disabled={busy} className="ml-auto flex items-center gap-1.5 px-4 h-9 rounded-lg bg-[var(--brand-primary)] text-white text-sm font-semibold disabled:opacity-50">
-              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}Complete
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}{tr.pm.complete}
             </button>
           </div>
         ) : null}

@@ -325,6 +325,7 @@ function AppointmentEditor({ call, companies, appt, onClose, onSaved }: {
 
   async function save() {
     if (!f.title.trim()) { setError('Please enter a title.'); return }
+    if (!f.date) { setError('Please choose a date.'); return }
     setBusy(true); setError('')
     try {
       const start_at = new Date(`${f.date}T${f.all_day ? '00:00' : f.start || '00:00'}`).toISOString()
