@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { ChevronLeft, ChevronRight, Wrench } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
@@ -43,7 +43,11 @@ export function CasesCalendarPage() {
     () => (localStorage.getItem('kaizen-default-dept') as Department | 'all') || 'all'
   )
   const pmEnabled = companyHasAddon(activeCompany, 'pms')
-  const [mode, setMode] = useState<'cases' | 'pm' | 'combined'>('cases')
+  const [searchParams] = useSearchParams()
+  const initialTab = searchParams.get('tab')
+  const [mode, setMode] = useState<'cases' | 'pm' | 'combined'>(
+    pmEnabled && (initialTab === 'pm' || initialTab === 'combined') ? initialTab : 'cases'
+  )
   const [openTask, setOpenTask] = useState<PMTask | null>(null)
 
   const MONTH_NAMES = lang === 'th' ? MONTH_NAMES_TH : MONTH_NAMES_EN

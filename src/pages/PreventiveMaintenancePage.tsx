@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Wrench, Plus, Loader2, X, Check, Trash2, Pencil, MapPin, Search } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useCompany } from '@/contexts/CompanyContext'
@@ -31,7 +32,12 @@ export function PreventiveMaintenancePage() {
   const [loading, setLoading] = useState(true)
   const [editor, setEditor] = useState<Asset | 'new' | null>(null)
   const [q, setQ] = useState('')
-  const [filter, setFilter] = useState<AssetStatus | 'all'>('all')
+  const [searchParams] = useSearchParams()
+  const initialStatus = searchParams.get('status')
+  const validStatuses: AssetStatus[] = ['good', 'due_soon', 'overdue', 'unscheduled', 'inactive']
+  const [filter, setFilter] = useState<AssetStatus | 'all'>(
+    initialStatus && validStatuses.includes(initialStatus as AssetStatus) ? (initialStatus as AssetStatus) : 'all'
+  )
   const [dueSoonDays, setDueSoonDays] = useState(7)
 
   const load = useCallback(async () => {

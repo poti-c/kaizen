@@ -101,13 +101,13 @@ export function PMSummaryCard() {
 
           {/* Stats grid */}
           <div className="flex-1 grid grid-cols-3 gap-1.5">
-            <Tile label="Up to date" value={good} tone="green" />
-            <Tile label="Due soon" value={dueSoon} tone="amber" />
-            <Tile label="Overdue" value={overdueAssets} tone="red" />
-            <Tile label="Due this week" value={dueThisWeek} tone="slate" />
-            <Tile label="Done this month" value={completedThisMonth} tone="slate" />
+            <Tile label="Up to date" value={good} tone="green" to="/maintenance?status=good" />
+            <Tile label="Due soon" value={dueSoon} tone="amber" to="/maintenance?status=due_soon" />
+            <Tile label="Overdue" value={overdueAssets} tone="red" to="/maintenance?status=overdue" />
+            <Tile label="Due this week" value={dueThisWeek} tone="slate" to="/cases/calendar?tab=pm" />
+            <Tile label="Done this month" value={completedThisMonth} tone="slate" to="/cases/calendar?tab=pm" />
             {isApprover
-              ? <Tile label="Awaiting approval" value={pendingApproval} tone={pendingApproval > 0 ? 'violet' : 'slate'} />
+              ? <Tile label="Awaiting approval" value={pendingApproval} tone={pendingApproval > 0 ? 'violet' : 'slate'} to="/cases/calendar?tab=pm" />
               : <Tile label="On-time rate" value={onTimeRate == null ? '—' : `${onTimeRate}%`} tone="slate" />}
           </div>
         </div>
@@ -124,11 +124,15 @@ const TONES: Record<string, string> = {
   slate: 'bg-gray-50 text-gray-700',
 }
 
-function Tile({ label, value, tone }: { label: string; value: number | string; tone: string }) {
-  return (
-    <div className={`rounded-md px-2 py-1 ${TONES[tone]}`}>
+function Tile({ label, value, tone, to }: { label: string; value: number | string; tone: string; to?: string }) {
+  const inner = (
+    <>
       <p className="text-base font-bold leading-none">{value}</p>
       <p className="text-[10px] mt-0.5 opacity-80 leading-tight">{label}</p>
-    </div>
+    </>
   )
+  const cls = `block rounded-md px-2 py-1 ${TONES[tone]}`
+  return to
+    ? <Link to={to} className={`${cls} hover:brightness-95 transition-all`}>{inner}</Link>
+    : <div className={cls}>{inner}</div>
 }
