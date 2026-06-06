@@ -5,6 +5,7 @@ import { useCompany } from '@/contexts/CompanyContext'
 import { useAuth } from '@/contexts/AuthContext'
 import { DEPARTMENT_LABELS, type Department } from '@/types'
 import { FREQUENCIES, freqLabel, addInterval, assetStatus, STATUS_META, type FreqUnit, type AssetStatus } from '@/lib/pm'
+import { PMSchedule } from '@/components/pm/PMSchedule'
 import { toast } from 'sonner'
 
 interface EqType { id: string; name: string; category: string | null; is_active: boolean }
@@ -32,6 +33,7 @@ export function PreventiveMaintenancePage() {
   const [editor, setEditor] = useState<Asset | 'new' | null>(null)
   const [q, setQ] = useState('')
   const [filter, setFilter] = useState<AssetStatus | 'all'>('all')
+  const [view, setView] = useState<'assets' | 'schedule'>('assets')
 
   const load = useCallback(async () => {
     if (!companyId) return
@@ -66,12 +68,24 @@ export function PreventiveMaintenancePage() {
           <Wrench className="h-5 w-5 text-[var(--brand-primary)]" />
           <h1 className="text-lg font-bold text-gray-900">Preventive Maintenance</h1>
         </div>
-        {canManage && (
+        {canManage && view === 'assets' && (
           <button onClick={() => setEditor('new')} className="flex items-center gap-1.5 bg-[var(--brand-primary)] text-white text-sm font-medium px-3 py-2 rounded-lg">
             <Plus className="h-4 w-4" />Add Asset
           </button>
         )}
       </div>
+
+      <div className="flex gap-1 border-b border-gray-200 mb-4">
+        {([['assets', 'Assets'], ['schedule', 'Schedule']] as const).map(([v, label]) => (
+          <button key={v} onClick={() => setView(v)}
+            className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${view === v ? 'border-[var(--brand-primary)] text-[var(--brand-primary)]' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {view === 'schedule' ? <PMSchedule /> : (<>
+      {/* assets view */}
 
       {/* Summary */}
       <div className="grid grid-cols-3 sm:grid-cols-5 gap-2 mb-4">
@@ -125,6 +139,7 @@ export function PreventiveMaintenancePage() {
           })}
         </div>
       )}
+      </>)}
 
       {editor && companyId && (
         <AssetEditor companyId={companyId} types={types} asset={editor === 'new' ? null : editor}

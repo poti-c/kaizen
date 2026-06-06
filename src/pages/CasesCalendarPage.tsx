@@ -5,10 +5,11 @@ import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useCompany } from '@/contexts/CompanyContext'
 import { useLanguage } from '@/contexts/LanguageContext'
-import { cn } from '@/lib/utils'
+import { cn, companyHasAddon } from '@/lib/utils'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import type { KaizenCase, Department } from '@/types'
 import { DEPARTMENTS } from '@/types'
+import { PMSchedule } from '@/components/pm/PMSchedule'
 
 const PRIORITY_COLORS: Record<string, string> = {
   low:      'bg-green-500 text-white',
@@ -47,6 +48,32 @@ export function CasesCalendarPage() {
 
   const MONTH_NAMES = lang === 'th' ? MONTH_NAMES_TH : MONTH_NAMES_EN
   const DAY_LABELS = lang === 'th' ? DAY_LABELS_TH : DAY_LABELS_EN
+
+  const pmEnabled = companyHasAddon(activeCompany, 'pms')
+  const [mode, setMode] = useState<'cases' | 'pm'>('cases')
+
+  const ModeTabs = pmEnabled ? (
+    <div className="flex gap-1 border-b border-gray-200">
+      {([['cases', t.calendar.casesCalendar], ['pm', t.nav.maintenance]] as const).map(([m, label]) => (
+        <button key={m} onClick={() => setMode(m)}
+          className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${mode === m ? 'border-[var(--brand-primary)] text-[var(--brand-primary)]' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+          {label}
+        </button>
+      ))}
+    </div>
+  ) : null
+
+  if (pmEnabled && mode === 'pm') {
+    return (
+      <div className="p-4 md:p-6 max-w-7xl mx-auto animate-fade-in">
+        <div className="mb-5 space-y-3">
+          <h1 className="text-xl md:text-2xl font-bold text-gray-900">{t.nav.maintenance}</h1>
+          {ModeTabs}
+        </div>
+        <PMSchedule />
+      </div>
+    )
+  }
 
   useEffect(() => {
     if (profile && activeCompany) fetchCases()
@@ -156,6 +183,7 @@ export function CasesCalendarPage() {
         <h1 className="text-xl md:text-2xl font-bold text-gray-900">
           {t.calendar.casesCalendar}
         </h1>
+        {ModeTabs}
         {/* Controls row — single line on mobile */}
         <div className="flex items-center gap-2">
           {/* Department filter */}
