@@ -133,7 +133,7 @@ export function CasesCalendarPage() {
       <div className="mb-4 space-y-3">
         <h1 className="text-xl md:text-2xl font-bold text-gray-900">{t.nav.calendar}</h1>
         {pmEnabled && (
-          <div className="flex gap-1 border-b border-gray-200 overflow-x-auto">
+          <div className="flex gap-1 border-b border-gray-200 flex-wrap">
             {([['cases', 'Cases'], ['pm', 'Preventive Maintenance'], ['combined', 'Combined']] as const).map(([m, label]) => (
               <button key={m} onClick={() => setMode(m)}
                 className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px whitespace-nowrap transition-colors ${mode === m ? 'border-[var(--brand-primary)] text-[var(--brand-primary)]' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
@@ -143,14 +143,11 @@ export function CasesCalendarPage() {
           </div>
         )}
 
-        {/* Month label */}
-        <p className="text-right text-base font-semibold text-gray-900">{MONTH_NAMES[viewMonth]} {viewYear}</p>
-
-        {/* Controls: department (left) · prev/Today/next (right) */}
+        {/* Controls: department (left) · month (centre) · prev/Today/next (right) */}
         <div className="flex items-center gap-2">
-          {showDeptFilter && (
+          {showDeptFilter ? (
             <Select value={deptFilter} onValueChange={(v) => setDeptFilter(v as Department | 'all')}>
-              <SelectTrigger className="h-8 w-36 text-[11px] whitespace-nowrap flex-shrink-0"><SelectValue placeholder={t.calendar.allDepts} /></SelectTrigger>
+              <SelectTrigger className="h-8 w-32 text-[11px] whitespace-nowrap flex-shrink-0"><SelectValue placeholder={t.calendar.allDepts} /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">{t.calendar.allDepts}</SelectItem>
                 {DEPARTMENTS.filter(d => d.value !== 'top_management').map((d) => (
@@ -158,11 +155,12 @@ export function CasesCalendarPage() {
                 ))}
               </SelectContent>
             </Select>
-          )}
-          <div className="flex items-center gap-1 ml-auto bg-white border border-gray-200 rounded-lg p-0.5">
-            <button onClick={prevMonth} title="Previous month" className="p-1.5 rounded-md hover:bg-gray-100"><ChevronLeft className="h-4 w-4 text-gray-600" /></button>
-            <button onClick={goToday} className="px-3 h-7 text-xs font-medium text-gray-700 hover:bg-gray-100 rounded-md">{t.calendar.today}</button>
-            <button onClick={nextMonth} title="Next month" className="p-1.5 rounded-md hover:bg-gray-100"><ChevronRight className="h-4 w-4 text-gray-600" /></button>
+          ) : <div className="w-32 flex-shrink-0" />}
+          <span className="flex-1 text-center text-base font-semibold text-gray-900 whitespace-nowrap">{MONTH_NAMES[viewMonth]} {viewYear}</span>
+          <div className="flex items-center gap-0.5 h-8 bg-white border border-gray-200 rounded-lg px-0.5 flex-shrink-0">
+            <button onClick={prevMonth} title="Previous month" className="p-1 rounded-md hover:bg-gray-100"><ChevronLeft className="h-4 w-4 text-gray-600" /></button>
+            <button onClick={goToday} className="px-2.5 h-6 text-xs font-medium text-gray-700 hover:bg-gray-100 rounded-md">{t.calendar.today}</button>
+            <button onClick={nextMonth} title="Next month" className="p-1 rounded-md hover:bg-gray-100"><ChevronRight className="h-4 w-4 text-gray-600" /></button>
           </div>
         </div>
       </div>
