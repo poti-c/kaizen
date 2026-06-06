@@ -31,17 +31,17 @@ export function TrialBanner() {
   const tone = expired || urgent
     ? 'bg-amber-50 border-amber-300 text-amber-900'
     : 'bg-sky-50 border-sky-200 text-sky-900'
-  const Icon = expired || urgent ? AlertTriangle : Clock
+  const Icon = expired ? AlertTriangle : Clock
 
   const msg = (() => {
     if (lang === 'th') {
-      if (expired) return 'ช่วงทดลองใช้งานฟรีสิ้นสุดแล้ว — สมัครแพ็กเกจ Gold หรือ Premium เพื่อใช้งานต่อ'
-      if (urgent) return `เหลือเวลาทดลองใช้งานฟรีอีก ${daysLeft} วัน — ติดต่อ NNR-Solutions เพื่อสมัคร Gold หรือ Premium`
-      return `ทดลองใช้งานฟรี — เหลืออีก ${daysLeft} วัน อัปเกรดเป็น Gold หรือ Premium ได้ตลอดเวลา`
+      if (expired) return 'แพ็กเกจ Starter ของคุณสิ้นสุดแล้ว — อัปเกรดเป็น Gold หรือ Premium เพื่อใช้งานต่อ เรายินดีดูแลคุณเสมอ'
+      if (urgent) return `แพ็กเกจ Starter ของคุณเหลืออีก ${daysLeft} วัน — อัปเกรดเป็น Gold หรือ Premium เพื่อให้ทุกอย่างราบรื่น เรายินดีช่วยเหลือ`
+      return `คุณกำลังใช้แพ็กเกจ Starter — มีเวลา ${daysLeft} วันในการสำรวจฟีเจอร์ทั้งหมดของ Kaizen อัปเกรดเป็น Gold หรือ Premium ได้ทุกเมื่อที่พร้อม`
     }
-    if (expired) return 'Your free trial has ended — subscribe to Gold or Premium to keep using Kaizen.'
-    if (urgent) return `Only ${daysLeft} day${daysLeft === 1 ? '' : 's'} left in your free trial — contact NNR-Solutions to subscribe to Gold or Premium.`
-    return `Free trial — ${daysLeft} days left. Upgrade to Gold or Premium any time to keep full access.`
+    if (expired) return "Your Starter plan has ended — upgrade to Gold or Premium to continue. We'd love to keep serving you."
+    if (urgent) return `Your Starter plan has ${daysLeft} day${daysLeft === 1 ? '' : 's'} remaining — upgrade to Gold or Premium to keep everything running smoothly. We're happy to help.`
+    return `You're on the Starter plan — ${daysLeft} days to explore everything Kaizen offers. Upgrade to Gold or Premium whenever you're ready.`
   })()
 
   return (
