@@ -1011,6 +1011,13 @@ export function SettingsPage() {
                 </DialogTitle>
               </DialogHeader>
               <div className="text-xs text-gray-500 space-y-3 leading-relaxed text-left max-h-[55vh] overflow-y-auto">
+                <div className="flex justify-center pt-1 pb-2">
+                  <img
+                    src="/nnr-solutions-logo.png"
+                    alt="NNR-Solutions Co., Ltd."
+                    className="h-20 w-auto object-contain"
+                  />
+                </div>
                 <p>
                   All intellectual property rights relating to this application, including but not limited to its software,
                   source code, system design, user interface, workflow logic, database structure, documentation, name, logo,
