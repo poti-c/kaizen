@@ -822,14 +822,14 @@ export function SettingsPage() {
                 key={preset.label}
                 onClick={() => profile?.role === 'super_admin' && applyPreset(preset)}
                 disabled={profile?.role !== 'super_admin'}
-                className="flex items-center gap-2 p-2 rounded-lg border border-gray-200 hover:border-gray-300 transition-colors text-left disabled:opacity-60 disabled:cursor-not-allowed min-w-0"
+                className="flex flex-col items-center gap-1.5 p-2 rounded-lg border border-gray-200 hover:border-gray-300 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
               >
-                <div className="flex gap-1 flex-shrink-0">
-                  <div className="w-3.5 h-3.5 rounded-sm" style={{ background: preset.primary }} />
-                  <div className="w-3.5 h-3.5 rounded-sm" style={{ background: preset.accent }} />
-                  <div className="w-3.5 h-3.5 rounded-sm" style={{ background: preset.sidebar }} />
+                <div className="flex gap-1">
+                  <div className="w-4 h-4 rounded-sm" style={{ background: preset.primary }} />
+                  <div className="w-4 h-4 rounded-sm" style={{ background: preset.accent }} />
+                  <div className="w-4 h-4 rounded-sm" style={{ background: preset.sidebar }} />
                 </div>
-                <span className="text-xs text-gray-700 truncate min-w-0">{preset.label}</span>
+                <span className="text-xs text-gray-700 text-center truncate max-w-full">{preset.label}</span>
               </button>
             ))}
           </div>
