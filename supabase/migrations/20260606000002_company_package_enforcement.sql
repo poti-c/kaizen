@@ -4,6 +4,11 @@
 -- kaizen_products table. Kept in sync by the kaizen-console edge function
 -- whenever a plan is assigned or a package is edited.
 
+-- Package-enforcement columns. plan/max_managers/max_staff may already exist
+-- from earlier setup; IF NOT EXISTS makes this safe to run on any database.
+ALTER TABLE kaizen_companies ADD COLUMN IF NOT EXISTS plan          text;
+ALTER TABLE kaizen_companies ADD COLUMN IF NOT EXISTS max_managers  integer;
+ALTER TABLE kaizen_companies ADD COLUMN IF NOT EXISTS max_staff     integer;
 ALTER TABLE kaizen_companies ADD COLUMN IF NOT EXISTS features      jsonb   NOT NULL DEFAULT '{}'::jsonb;
 ALTER TABLE kaizen_companies ADD COLUMN IF NOT EXISTS multi_company boolean NOT NULL DEFAULT false;
 
@@ -16,3 +21,7 @@ SET max_managers  = COALESCE(c.max_managers, p.max_managers),
     features      = COALESCE(p.features, '{}'::jsonb)
 FROM kaizen_products p
 WHERE p.kind = 'package' AND p.key = c.plan;
+
+-- Tell PostgREST to refresh its schema cache so the new columns are visible
+-- to the edge function immediately (otherwise the API keeps the old cache).
+NOTIFY pgrst, 'reload schema';
