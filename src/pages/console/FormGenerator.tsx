@@ -52,10 +52,10 @@ function typeThai(t: FormType) { return FORM_TYPES.find(f => f.key === t)?.thai 
 
 function statusCls(s: string) {
   switch (s) {
-    case 'paid': case 'accepted': return 'bg-green-500/15 text-green-400 border-green-500/30'
-    case 'overdue': case 'expired': case 'cancelled': return 'bg-red-500/15 text-red-400 border-red-500/30'
-    case 'followup': return 'bg-amber-500/15 text-amber-400 border-amber-500/30'
-    case 'sent': case 'issued': return 'bg-sky-500/15 text-sky-400 border-sky-500/30'
+    case 'paid': case 'accepted': return 'bg-green-500/15 text-green-600 border-green-500/30'
+    case 'overdue': case 'expired': case 'cancelled': return 'bg-red-500/15 text-red-600 border-red-500/30'
+    case 'followup': return 'bg-amber-500/15 text-amber-600 border-amber-500/30'
+    case 'sent': case 'issued': return 'bg-sky-500/15 text-sky-600 border-sky-500/30'
     default: return 'bg-slate-100 text-slate-600 border-slate-300'
   }
 }
@@ -132,13 +132,13 @@ export function FormGeneratorView({ call, onBack }: { call: Call; onBack: () => 
         <ArrowLeft className="h-3.5 w-3.5" />Back
       </button>
       <div className="flex items-center gap-2 mb-1">
-        <FileText className="h-5 w-5 text-amber-400" />
+        <FileText className="h-5 w-5 text-amber-600" />
         <h2 className="text-lg font-bold text-slate-900">Form Generator</h2>
       </div>
       <p className="text-xs text-slate-500 mb-5">Create quotations, invoices and receipts for your customers · issued by {issuer?.company_name || 'NNR-Solutions'}</p>
 
       {!issuer?.company_name && (
-        <div className="bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs rounded-lg px-3 py-2 mb-4">
+        <div className="bg-amber-500/10 border border-amber-500/30 text-amber-700 text-xs rounded-lg px-3 py-2 mb-4">
           Tip: set your company name, address and Tax ID in <span className="font-semibold">Settings → Company Details</span> — they appear as the issuer on every document.
         </div>
       )}
@@ -147,7 +147,7 @@ export function FormGeneratorView({ call, onBack }: { call: Call; onBack: () => 
       <div className="flex gap-1 border-b border-slate-200 mb-5 overflow-x-auto">
         {FORM_TYPES.map(ft => (
           <button key={ft.key} onClick={() => setTab(ft.key)}
-            className={`px-3 py-2.5 text-xs font-medium border-b-2 whitespace-nowrap transition-colors ${tab === ft.key ? 'border-amber-500 text-amber-400' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
+            className={`px-3 py-2.5 text-xs font-medium border-b-2 whitespace-nowrap transition-colors ${tab === ft.key ? 'border-amber-500 text-amber-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
             {ft.label}
           </button>
         ))}
@@ -196,7 +196,7 @@ export function FormGeneratorView({ call, onBack }: { call: Call; onBack: () => 
                 {filtered.map(f => (
                   <tr key={f.id} className="hover:bg-slate-100">
                     <td className="px-4 py-2.5 text-slate-600 whitespace-nowrap">{fmtDate(f.issue_date)}</td>
-                    <td className="px-3 py-2.5 font-mono text-amber-400 whitespace-nowrap">{f.doc_number}</td>
+                    <td className="px-3 py-2.5 font-mono text-amber-600 whitespace-nowrap">{f.doc_number}</td>
                     <td className="px-3 py-2.5 text-slate-500 whitespace-nowrap">{typeLabel(f.form_type)}</td>
                     <td className="px-3 py-2.5 text-slate-900 max-w-[180px] truncate">{f.client_name || '—'}</td>
                     <td className="px-3 py-2.5 text-right text-slate-700 whitespace-nowrap">{f.currency} {money(f.total)}</td>
@@ -205,7 +205,7 @@ export function FormGeneratorView({ call, onBack }: { call: Call; onBack: () => 
                     </td>
                     <td className="px-3 py-2.5">
                       <div className="flex items-center gap-1 justify-end">
-                        <button onClick={() => setPreview(f)} title="View / Print" className="p-1.5 rounded-lg text-slate-500 hover:text-amber-400 hover:bg-slate-100"><Printer className="h-4 w-4" /></button>
+                        <button onClick={() => setPreview(f)} title="View / Print" className="p-1.5 rounded-lg text-slate-500 hover:text-amber-600 hover:bg-slate-100"><Printer className="h-4 w-4" /></button>
                         <DeleteFormBtn form={f} call={call} onDeleted={load} />
                       </div>
                     </td>
@@ -254,12 +254,12 @@ function DeleteFormBtn({ form, call, onDeleted }: { form: GeneratedForm; call: C
   if (confirming) {
     return (
       <span className="inline-flex items-center gap-1">
-        <button onClick={del} disabled={busy} className="text-[11px] px-1.5 py-1 rounded bg-red-500/15 text-red-400 hover:bg-red-500/25">{busy ? '…' : 'Delete'}</button>
+        <button onClick={del} disabled={busy} className="text-[11px] px-1.5 py-1 rounded bg-red-500/15 text-red-600 hover:bg-red-500/25">{busy ? '…' : 'Delete'}</button>
         <button onClick={() => setConfirming(false)} className="text-[11px] px-1.5 py-1 rounded text-slate-500 hover:bg-slate-100">Cancel</button>
       </span>
     )
   }
-  return <button onClick={() => setConfirming(true)} title="Delete" className="p-1.5 rounded-lg text-slate-500 hover:text-red-400 hover:bg-red-500/10"><Trash2 className="h-4 w-4" /></button>
+  return <button onClick={() => setConfirming(true)} title="Delete" className="p-1.5 rounded-lg text-slate-500 hover:text-red-600 hover:bg-red-500/10"><Trash2 className="h-4 w-4" /></button>
 }
 
 // ── Editor ───────────────────────────────────────────────────────────────────
@@ -380,12 +380,12 @@ function FormEditor({ formType, companies, products, promos, onCreated, call }: 
           <label className="text-xs font-medium text-slate-500">Items</label>
           <div className="flex items-center gap-2">
             {products.length > 0 && (
-              <select value="" onChange={e => { if (e.target.value) { addProduct(e.target.value); e.target.value = '' } }} className={selectCls + ' h-7 text-[11px] text-amber-400 border-dashed'}>
+              <select value="" onChange={e => { if (e.target.value) { addProduct(e.target.value); e.target.value = '' } }} className={selectCls + ' h-7 text-[11px] text-amber-600 border-dashed'}>
                 <option value="">+ Add from products…</option>
                 {products.map(p => <option key={p.id} value={p.id} className="text-slate-700">{p.name} — {p.currency} {money(p.price)}</option>)}
               </select>
             )}
-            <button onClick={() => setItems([...items, { description: '', qty: 1, unit_price: 0 }])} className="flex items-center gap-1 text-[11px] text-amber-400 hover:text-amber-300"><Plus className="h-3.5 w-3.5" />Add item</button>
+            <button onClick={() => setItems([...items, { description: '', qty: 1, unit_price: 0 }])} className="flex items-center gap-1 text-[11px] text-amber-600 hover:text-amber-700"><Plus className="h-3.5 w-3.5" />Add item</button>
           </div>
         </div>
         <div className="space-y-2">
@@ -395,7 +395,7 @@ function FormEditor({ formType, companies, products, promos, onCreated, call }: 
               <input value={it.qty || ''} onChange={e => setItem(i, { qty: Number(e.target.value.replace(/[^0-9.]/g, '')) || 0 })} className={inputCls + ' w-16 text-right'} placeholder="Qty" inputMode="decimal" />
               <input value={it.unit_price || ''} onChange={e => setItem(i, { unit_price: Number(e.target.value.replace(/[^0-9.]/g, '')) || 0 })} className={inputCls + ' w-28 text-right'} placeholder="Unit price" inputMode="decimal" />
               <div className="w-28 h-9 flex items-center justify-end text-sm text-slate-600 px-2">{money((Number(it.qty) || 0) * (Number(it.unit_price) || 0))}</div>
-              <button onClick={() => setItems(items.length > 1 ? items.filter((_, idx) => idx !== i) : items)} className="h-9 w-9 flex items-center justify-center rounded-lg text-slate-500 hover:text-red-400 hover:bg-red-500/10"><X className="h-4 w-4" /></button>
+              <button onClick={() => setItems(items.length > 1 ? items.filter((_, idx) => idx !== i) : items)} className="h-9 w-9 flex items-center justify-center rounded-lg text-slate-500 hover:text-red-600 hover:bg-red-500/10"><X className="h-4 w-4" /></button>
             </div>
           ))}
         </div>
@@ -416,7 +416,7 @@ function FormEditor({ formType, companies, products, promos, onCreated, call }: 
           <div className="flex gap-8 text-slate-500"><span>Subtotal (excl. VAT)</span><span className="w-32 text-right text-slate-700">{currency} {money(subtotal)}</span></div>
           {promo && <div className="flex gap-8 text-emerald-400"><span>Discount {promo.code} ({promo.discount_percent}%)</span><span className="w-32 text-right">− {currency} {money(discount)}</span></div>}
           <div className="flex gap-8 text-slate-500"><span>VAT {vatRate || 0}%</span><span className="w-32 text-right text-slate-700">{currency} {money(vat)}</span></div>
-          <div className="flex gap-8 font-semibold text-slate-900"><span>Grand Total</span><span className="w-32 text-right text-amber-400">{currency} {money(total)}</span></div>
+          <div className="flex gap-8 font-semibold text-slate-900"><span>Grand Total</span><span className="w-32 text-right text-amber-600">{currency} {money(total)}</span></div>
         </div>
       </div>
 
@@ -429,7 +429,7 @@ function FormEditor({ formType, companies, products, promos, onCreated, call }: 
             {STATUSES[formType].map(s => <option key={s} value={s}>{STATUS_LABEL[s] ?? s}</option>)}
           </select>
         </div>
-        {error && <span className="text-xs text-red-400">{error}</span>}
+        {error && <span className="text-xs text-red-600">{error}</span>}
         <button onClick={generate} disabled={saving} className="ml-auto flex items-center gap-1.5 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-slate-950 text-sm font-semibold px-4 py-2 rounded-lg">
           {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}Generate {typeLabel(formType)}
         </button>
@@ -464,7 +464,7 @@ function PrintPreview({ form, issuer, onClose }: { form: GeneratedForm; issuer: 
 
       {/* toolbar */}
       <div className="no-print sticky top-0 flex items-center justify-between px-4 py-3 bg-white border-b border-slate-200">
-        <div className="flex items-center gap-2 text-slate-900 text-sm font-semibold"><FileText className="h-4 w-4 text-amber-400" />{typeLabel(form.form_type)} · {form.doc_number}</div>
+        <div className="flex items-center gap-2 text-slate-900 text-sm font-semibold"><FileText className="h-4 w-4 text-amber-600" />{typeLabel(form.form_type)} · {form.doc_number}</div>
         <div className="flex items-center gap-2">
           <button onClick={() => window.print()} className="flex items-center gap-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 text-sm font-semibold px-3 py-1.5 rounded-lg"><Printer className="h-4 w-4" />Print / Save PDF</button>
           <button onClick={onClose} className="p-1.5 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100"><X className="h-5 w-5" /></button>

@@ -68,7 +68,7 @@ const PACKAGES = [
 ] as const
 
 function packageBadgeCls(plan: string) {
-  if (plan === 'premium') return 'bg-amber-500/15 text-amber-400 border-amber-500/30'
+  if (plan === 'premium') return 'bg-amber-500/15 text-amber-600 border-amber-500/30'
   if (plan === 'gold')    return 'bg-yellow-500/15 text-yellow-300 border-yellow-500/30'
   if (plan === 'trial')   return 'bg-slate-100 text-slate-600 border-slate-300'
   return 'bg-slate-100 text-slate-500 border-slate-300'
@@ -243,15 +243,15 @@ function Dashboard({ token, onLogout }: { token: string; onLogout: () => void })
             <p className="text-[11px] text-slate-500 leading-tight">System Console · by NNR Solutions</p>
           </div>
           <button onClick={() => { setShowProducts(true); setShowForms(false); setShowSettings(false); setSelectedCompanyId(null) }} title="Products"
-            className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg hover:bg-slate-100 ${showProducts ? 'text-amber-400' : 'text-slate-500 hover:text-slate-900'}`}>
+            className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg hover:bg-slate-100 ${showProducts ? 'text-amber-600' : 'text-slate-500 hover:text-slate-900'}`}>
             <Package className="h-3.5 w-3.5" />Products
           </button>
           <button onClick={() => { setShowForms(true); setShowProducts(false); setShowSettings(false); setSelectedCompanyId(null) }} title="Form Generator"
-            className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg hover:bg-slate-100 ${showForms ? 'text-amber-400' : 'text-slate-500 hover:text-slate-900'}`}>
+            className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg hover:bg-slate-100 ${showForms ? 'text-amber-600' : 'text-slate-500 hover:text-slate-900'}`}>
             <FileText className="h-3.5 w-3.5" />Form Generator
           </button>
           <button onClick={() => { setShowSettings(true); setShowForms(false); setShowProducts(false); setSelectedCompanyId(null) }} title="Admin Settings"
-            className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg hover:bg-slate-100 ${showSettings ? 'text-amber-400' : 'text-slate-500 hover:text-slate-900'}`}>
+            className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg hover:bg-slate-100 ${showSettings ? 'text-amber-600' : 'text-slate-500 hover:text-slate-900'}`}>
             <Settings className="h-3.5 w-3.5" />Settings
           </button>
           <button onClick={onLogout} className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-900 px-3 py-1.5 rounded-lg hover:bg-slate-100">
@@ -262,7 +262,7 @@ function Dashboard({ token, onLogout }: { token: string; onLogout: () => void })
           <div className="max-w-5xl mx-auto px-4 flex gap-1">
             {([['companies', 'Companies', Building2], ['audit', 'Audit Log', ScrollText]] as const).map(([key, label, Icon]) => (
               <button key={key} onClick={() => setTab(key)}
-                className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-medium border-b-2 transition-colors ${tab === key ? 'border-amber-500 text-amber-400' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
+                className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-medium border-b-2 transition-colors ${tab === key ? 'border-amber-500 text-amber-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
                 <Icon className="h-3.5 w-3.5" />{label}
               </button>
             ))}
@@ -356,7 +356,7 @@ function CompaniesListTab({ companies, owners, onOpen, onCreate }: {
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
                 <p className="text-sm font-semibold text-slate-900 truncate">{c.name}</p>
-                <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${c.is_active ? 'bg-green-500/15 text-green-400' : 'bg-slate-200 text-slate-500'}`}>
+                <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${c.is_active ? 'bg-green-500/15 text-green-600' : 'bg-slate-200 text-slate-600'}`}>
                   {c.is_active ? 'Active' : 'Suspended'}
                 </span>
                 <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold border ${packageBadgeCls(c.plan)}`}>{packageLabel(c.plan)}</span>
@@ -375,10 +375,10 @@ function CompaniesListTab({ companies, owners, onOpen, onCreate }: {
 }
 
 function SubscriptionBadge({ sub }: { sub?: Subscription }) {
-  if (!sub || !sub.has_payment) return <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-500 border border-slate-300 font-medium">No payment</span>
-  if (sub.overdue) return <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-red-500/15 text-red-400 border border-red-500/30 font-semibold">Overdue {Math.abs(sub.days_remaining!)}d</span>
+  if (!sub || !sub.has_payment) return <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-300 font-medium">No payment</span>
+  if (sub.overdue) return <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-red-500/15 text-red-600 border border-red-500/30 font-semibold">Overdue {Math.abs(sub.days_remaining!)}d</span>
   const soon = (sub.days_remaining ?? 0) <= 30
-  return <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium border ${soon ? 'bg-amber-500/15 text-amber-400 border-amber-500/30' : 'bg-green-500/15 text-green-400 border-green-500/30'}`}>{sub.days_remaining}d left</span>
+  return <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium border ${soon ? 'bg-amber-500/15 text-amber-600 border-amber-500/30' : 'bg-green-500/15 text-green-600 border-green-500/30'}`}>{sub.days_remaining}d left</span>
 }
 
 // ── Company detail page ──────────────────────────────────────────────────────
@@ -527,7 +527,7 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
               <input value={nameValue} onChange={(e) => setNameValue(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter') saveName(); if (e.key === 'Escape') { setEditingName(false); setNameValue(c.name) } }}
                 className="h-8 rounded-lg bg-slate-100 border border-slate-300 px-2.5 text-base font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500/50" autoFocus />
-              <button onClick={saveName} disabled={busy === 'name'} className="p-1.5 rounded-lg text-green-400 hover:bg-green-500/10">
+              <button onClick={saveName} disabled={busy === 'name'} className="p-1.5 rounded-lg text-green-600 hover:bg-green-500/10">
                 {busy === 'name' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
               </button>
               <button onClick={() => { setEditingName(false); setNameValue(c.name) }} className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100"><X className="h-4 w-4" /></button>
@@ -535,25 +535,25 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
           ) : (
             <div className="flex items-center gap-2">
               <h1 className="text-xl font-bold text-slate-900 truncate">{c.name}</h1>
-              <button onClick={() => { setNameValue(c.name); setEditingName(true) }} className="p-1 rounded text-slate-500 hover:text-amber-400 hover:bg-slate-100"><Pencil className="h-4 w-4" /></button>
+              <button onClick={() => { setNameValue(c.name); setEditingName(true) }} className="p-1 rounded text-slate-500 hover:text-amber-600 hover:bg-slate-100"><Pencil className="h-4 w-4" /></button>
             </div>
           )}
           <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-            <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${c.is_active ? 'bg-green-500/15 text-green-400' : 'bg-slate-200 text-slate-500'}`}>{c.is_active ? 'Active' : 'Suspended'}</span>
+            <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${c.is_active ? 'bg-green-500/15 text-green-600' : 'bg-slate-200 text-slate-600'}`}>{c.is_active ? 'Active' : 'Suspended'}</span>
             <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold border ${packageBadgeCls(c.plan)}`}>{packageLabel(c.plan)}</span>
             <SubscriptionBadge sub={sub ?? undefined} />
             <span className="text-[11px] text-slate-500">· /{c.slug}</span>
           </div>
         </div>
         <button onClick={() => patch({ is_active: !c.is_active }, 'status')} disabled={busy === 'status'} title={c.is_active ? 'Suspend company' : 'Activate company'}
-          className={`p-2 rounded-lg flex-shrink-0 ${c.is_active ? 'text-green-400 hover:bg-green-500/10' : 'text-slate-500 hover:bg-slate-100'}`}>
+          className={`p-2 rounded-lg flex-shrink-0 ${c.is_active ? 'text-green-600 hover:bg-green-500/10' : 'text-slate-500 hover:bg-slate-100'}`}>
           {busy === 'status' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Power className="h-4 w-4" />}
         </button>
       </div>
 
       {/* Staff Login Code — compact single row */}
       <div className="bg-white border border-slate-200 rounded-xl px-4 py-3 mb-4 flex items-center gap-2.5 flex-wrap">
-        <KeyRound className="h-4 w-4 text-amber-400 flex-shrink-0" />
+        <KeyRound className="h-4 w-4 text-amber-600 flex-shrink-0" />
         <h3 className="text-sm font-semibold text-slate-900 whitespace-nowrap">Staff Login Code</h3>
         {editingCode ? (
           <>
@@ -561,19 +561,19 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
               value={codeValue}
               onChange={(e) => setCodeValue(e.target.value.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, ''))}
               onKeyDown={(e) => { if (e.key === 'Enter') saveCode(); if (e.key === 'Escape') { setEditingCode(false); setCodeValue(c.login_code ?? c.slug) } }}
-              className="h-8 w-44 rounded-lg bg-slate-100 border border-slate-300 px-2.5 text-sm font-mono text-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+              className="h-8 w-44 rounded-lg bg-slate-100 border border-slate-300 px-2.5 text-sm font-mono text-amber-700 focus:outline-none focus:ring-2 focus:ring-amber-500/50"
               autoFocus
             />
-            <button onClick={saveCode} disabled={busy === 'code'} className="p-1.5 rounded-lg text-green-400 hover:bg-green-500/10">
+            <button onClick={saveCode} disabled={busy === 'code'} className="p-1.5 rounded-lg text-green-600 hover:bg-green-500/10">
               {busy === 'code' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
             </button>
             <button onClick={() => { setEditingCode(false); setCodeValue(c.login_code ?? c.slug) }} className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100"><X className="h-4 w-4" /></button>
-            {c.live_staff > 0 && <span className="text-[11px] text-amber-400/80">⚠ re-points {c.live_staff} staff</span>}
+            {c.live_staff > 0 && <span className="text-[11px] text-amber-600/80">⚠ re-points {c.live_staff} staff</span>}
           </>
         ) : (
           <>
-            <code className="text-sm font-mono font-semibold text-amber-400 bg-slate-100 border border-slate-300 px-2.5 py-1 rounded-lg">{c.login_code ?? c.slug}</code>
-            <button onClick={() => { setCodeValue(c.login_code ?? c.slug); setEditingCode(true) }} className="p-1 rounded text-slate-500 hover:text-amber-400 hover:bg-slate-100"><Pencil className="h-3.5 w-3.5" /></button>
+            <code className="text-sm font-mono font-semibold text-amber-600 bg-slate-100 border border-slate-300 px-2.5 py-1 rounded-lg">{c.login_code ?? c.slug}</code>
+            <button onClick={() => { setCodeValue(c.login_code ?? c.slug); setEditingCode(true) }} className="p-1 rounded text-slate-500 hover:text-amber-600 hover:bg-slate-100"><Pencil className="h-3.5 w-3.5" /></button>
             <span className="text-[11px] text-slate-500 ml-auto hidden md:block">Staff enter this with their username &amp; password</span>
           </>
         )}
@@ -593,10 +593,10 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
             )}
           </button>
           {!editingBilling ? (
-            <button onClick={startBillingEdit} className="p-1 rounded text-slate-500 hover:text-amber-400 hover:bg-slate-100"><Pencil className="h-3.5 w-3.5" /></button>
+            <button onClick={startBillingEdit} className="p-1 rounded text-slate-500 hover:text-amber-600 hover:bg-slate-100"><Pencil className="h-3.5 w-3.5" /></button>
           ) : (
             <div className="flex items-center gap-1">
-              <button onClick={saveBilling} disabled={busy === 'billing'} className="p-1.5 rounded-lg text-green-400 hover:bg-green-500/10">
+              <button onClick={saveBilling} disabled={busy === 'billing'} className="p-1.5 rounded-lg text-green-600 hover:bg-green-500/10">
                 {busy === 'billing' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
               </button>
               <button onClick={() => setEditingBilling(false)} className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100"><X className="h-4 w-4" /></button>
@@ -675,8 +675,8 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
             <Detail label="Valid Until" icon={CalendarDays}>{fmtDate(sub.period_end)}</Detail>
             <Detail label="Status">
               {sub.overdue
-                ? <span className="text-red-400 font-semibold">Overdue by {Math.abs(sub.days_remaining!)} days</span>
-                : <span className={(sub.days_remaining ?? 0) <= 30 ? 'text-amber-400 font-semibold' : 'text-green-400 font-semibold'}>{sub.days_remaining} days remaining</span>}
+                ? <span className="text-red-600 font-semibold">Overdue by {Math.abs(sub.days_remaining!)} days</span>
+                : <span className={(sub.days_remaining ?? 0) <= 30 ? 'text-amber-600 font-semibold' : 'text-green-600 font-semibold'}>{sub.days_remaining} days remaining</span>}
             </Detail>
           </div>
         )}
@@ -717,7 +717,7 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
                     {inv.notes ? ` · ${inv.notes}` : ''}
                   </p>
                 </div>
-                <button onClick={() => setConfirmDeleteInv(inv)} title="Delete invoice" className="p-1.5 rounded-lg text-slate-500 hover:text-red-400 hover:bg-red-500/10 flex-shrink-0">
+                <button onClick={() => setConfirmDeleteInv(inv)} title="Delete invoice" className="p-1.5 rounded-lg text-slate-500 hover:text-red-600 hover:bg-red-500/10 flex-shrink-0">
                   <Trash2 className="h-4 w-4" />
                 </button>
               </div>
@@ -729,10 +729,10 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
       {/* Top Management — accounts + cross-company access */}
       <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
         <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-200">
-          <Crown className="h-4 w-4 text-amber-400" />
+          <Crown className="h-4 w-4 text-amber-600" />
           <h3 className="text-sm font-semibold text-slate-900">Top Management</h3>
           <span className="text-[11px] text-slate-500">{teamMembers.length}</span>
-          <button onClick={onAddOwner} className="ml-auto flex items-center gap-1.5 text-xs font-medium text-amber-400 hover:text-amber-300">
+          <button onClick={onAddOwner} className="ml-auto flex items-center gap-1.5 text-xs font-medium text-amber-600 hover:text-amber-700">
             <Plus className="h-3.5 w-3.5" />Add Top Management
           </button>
         </div>
@@ -748,25 +748,25 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
                 return (
                   <div key={o.id} className="bg-slate-50 rounded-lg p-3">
                     <div className="flex items-center gap-1.5 mb-2">
-                      <Crown className="h-3.5 w-3.5 text-amber-400 flex-shrink-0" />
+                      <Crown className="h-3.5 w-3.5 text-amber-600 flex-shrink-0" />
                       <p className="text-sm font-medium text-slate-900 truncate">{o.full_name}</p>
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${o.is_active ? 'bg-green-500/15 text-green-400' : 'bg-slate-200 text-slate-500'}`}>{o.is_active ? 'Active' : 'Suspended'}</span>
-                      {o.job_title && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-400 font-medium">{o.job_title}</span>}
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${o.is_active ? 'bg-green-500/15 text-green-600' : 'bg-slate-200 text-slate-600'}`}>{o.is_active ? 'Active' : 'Suspended'}</span>
+                      {o.job_title && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-600 font-medium">{o.job_title}</span>}
                       {busy === 'link-' + o.id && <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-500" />}
                       <div className="ml-auto flex items-center gap-1 flex-shrink-0">
                         {isHome ? (
                           <>
                             <button onClick={() => toggleOwner(o)} disabled={busy === o.id} title={o.is_active ? 'Suspend' : 'Activate'}
-                              className={`p-1.5 rounded-lg ${o.is_active ? 'text-amber-400 hover:bg-amber-500/10' : 'text-slate-500 hover:bg-slate-100'}`}>
+                              className={`p-1.5 rounded-lg ${o.is_active ? 'text-amber-600 hover:bg-amber-500/10' : 'text-slate-500 hover:bg-slate-100'}`}>
                               {busy === o.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Power className="h-4 w-4" />}
                             </button>
-                            <button onClick={() => setConfirmDeleteOwner(o)} title="Delete account" className="p-1.5 rounded-lg text-slate-500 hover:text-red-400 hover:bg-red-500/10">
+                            <button onClick={() => setConfirmDeleteOwner(o)} title="Delete account" className="p-1.5 rounded-lg text-slate-500 hover:text-red-600 hover:bg-red-500/10">
                               <Trash2 className="h-4 w-4" />
                             </button>
                           </>
                         ) : (
                           <button onClick={() => unlinkOwner(o.id, c.id)} disabled={busy === 'link-' + o.id} title="Remove this member’s access to this company"
-                            className="p-1 rounded text-slate-500 hover:text-red-400 hover:bg-red-500/10">
+                            className="p-1 rounded text-slate-500 hover:text-red-600 hover:bg-red-500/10">
                             <X className="h-4 w-4" />
                           </button>
                         )}
@@ -775,21 +775,21 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
                     <p className="text-[11px] text-slate-500 truncate mb-2">{o.email}</p>
                     <div className="flex flex-wrap items-center gap-1.5">
                       <span className="text-[11px] text-slate-500 mr-0.5">Access:</span>
-                      <span className="inline-flex items-center gap-1.5 text-[11px] rounded-md px-2 py-1 border bg-amber-500/10 border-amber-500/30 text-amber-300">
+                      <span className="inline-flex items-center gap-1.5 text-[11px] rounded-md px-2 py-1 border bg-amber-500/10 border-amber-500/30 text-amber-700">
                         <Building2 className="h-3 w-3 opacity-70" />{c.name}
                       </span>
                       {o.companies.filter(lc => lc.id !== c.id).map((lc) => (
                         <span key={lc.id} className="inline-flex items-center gap-1.5 text-[11px] rounded-md pl-2 pr-1 py-1 border bg-slate-100 border-slate-300 text-slate-700">
                           <Building2 className="h-3 w-3 opacity-70" />{lc.name}
                           <button onClick={() => unlinkOwner(o.id, lc.id)} disabled={busy === 'link-' + o.id} title="Remove access to this company"
-                            className="rounded hover:bg-red-500/20 text-slate-500 hover:text-red-400 p-0.5">
+                            className="rounded hover:bg-red-500/20 text-slate-500 hover:text-red-600 p-0.5">
                             <X className="h-3 w-3" />
                           </button>
                         </span>
                       ))}
                       {linkOptions.length > 0 && (
                         <select value="" onChange={(e) => { if (e.target.value) linkOwner(o.id, e.target.value) }} disabled={busy === 'link-' + o.id}
-                          className="text-[11px] bg-slate-100 border border-dashed border-slate-300 rounded-md px-2 py-1 text-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-500/50">
+                          className="text-[11px] bg-slate-100 border border-dashed border-slate-300 rounded-md px-2 py-1 text-amber-600 focus:outline-none focus:ring-1 focus:ring-amber-500/50">
                           <option value="">+ Link company</option>
                           {linkOptions.map(co => <option key={co.id} value={co.id} className="text-slate-700 bg-slate-100">{co.name}</option>)}
                         </select>
@@ -807,13 +807,13 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
       {!c.is_active && (
         <div className="bg-red-500/5 border border-red-500/30 rounded-xl p-4 mt-6">
           <div className="flex items-center gap-2 mb-1">
-            <AlertTriangle className="h-4 w-4 text-red-400" />
-            <h3 className="text-sm font-semibold text-red-300">Danger Zone</h3>
+            <AlertTriangle className="h-4 w-4 text-red-600" />
+            <h3 className="text-sm font-semibold text-red-700">Danger Zone</h3>
           </div>
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <p className="text-[11px] text-slate-500 max-w-md">Permanently remove <span className="text-slate-900 font-medium">{c.name}</span> and all of its data — users, cases, invoices and settings. This cannot be undone.</p>
             <button onClick={() => { setRemoveErr(''); setRemovePw(''); setRemoveStep('confirm') }}
-              className="flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/40 text-red-300 hover:bg-red-500/20 flex-shrink-0">
+              className="flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/40 text-red-700 hover:bg-red-500/20 flex-shrink-0">
               <Trash2 className="h-3.5 w-3.5" />Remove Company
             </button>
           </div>
@@ -823,7 +823,7 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
       {/* Remove company — step 1: confirm */}
       {removeStep === 'confirm' && (
         <Overlay onClose={() => setRemoveStep(null)}>
-          <div className="flex items-center gap-2 mb-3"><AlertTriangle className="h-5 w-5 text-red-400" /><h3 className="text-sm font-semibold text-slate-900">Remove {c.name}?</h3></div>
+          <div className="flex items-center gap-2 mb-3"><AlertTriangle className="h-5 w-5 text-red-600" /><h3 className="text-sm font-semibold text-slate-900">Remove {c.name}?</h3></div>
           <p className="text-sm text-slate-500 mb-5">This permanently deletes the company and <strong className="text-slate-900">all of its data</strong> — every user account, case, invoice and setting. This action cannot be undone.</p>
           <div className="flex gap-2 justify-end">
             <button onClick={() => setRemoveStep(null)} className="px-3 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg">Cancel</button>
@@ -837,7 +837,7 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
       {/* Remove company — step 2: admin password */}
       {removeStep === 'password' && (
         <Overlay onClose={() => { setRemoveStep(null); setRemovePw('') }}>
-          <div className="flex items-center gap-2 mb-3"><KeyRound className="h-5 w-5 text-red-400" /><h3 className="text-sm font-semibold text-slate-900">Confirm with your password</h3></div>
+          <div className="flex items-center gap-2 mb-3"><KeyRound className="h-5 w-5 text-red-600" /><h3 className="text-sm font-semibold text-slate-900">Confirm with your password</h3></div>
           <p className="text-sm text-slate-500 mb-4">Enter your admin login password to permanently remove <strong className="text-slate-900">{c.name}</strong>.</p>
           <Field label="Admin Password">
             <input type="password" value={removePw} autoFocus autoComplete="off"
@@ -845,7 +845,7 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
               onKeyDown={(e) => { if (e.key === 'Enter') deleteCompany() }}
               className={inputCls} placeholder="••••••••" />
           </Field>
-          {removeErr && <div className="flex items-start gap-2 bg-red-500/10 border border-red-500/20 text-red-400 text-sm rounded-lg px-3 py-2 mt-3"><AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" /><span>{removeErr}</span></div>}
+          {removeErr && <div className="flex items-start gap-2 bg-red-500/10 border border-red-500/20 text-red-600 text-sm rounded-lg px-3 py-2 mt-3"><AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" /><span>{removeErr}</span></div>}
           <div className="flex gap-2 justify-end mt-5">
             <button onClick={() => { setRemoveStep(null); setRemovePw('') }} className="px-3 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg">Cancel</button>
             <button onClick={deleteCompany} disabled={busy === 'remove' || !removePw} className="px-4 py-2 text-sm bg-red-500 hover:bg-red-400 disabled:opacity-40 text-slate-900 font-semibold rounded-lg flex items-center gap-1.5">
@@ -865,7 +865,7 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
       )}
       {confirmDeleteOwner && (
         <Overlay onClose={() => setConfirmDeleteOwner(null)}>
-          <div className="flex items-center gap-2 mb-3"><AlertTriangle className="h-5 w-5 text-red-400" /><h3 className="text-sm font-semibold text-slate-900">Delete owner account?</h3></div>
+          <div className="flex items-center gap-2 mb-3"><AlertTriangle className="h-5 w-5 text-red-600" /><h3 className="text-sm font-semibold text-slate-900">Delete owner account?</h3></div>
           <p className="text-sm text-slate-500 mb-5">Permanently deletes <strong className="text-slate-900">{confirmDeleteOwner.full_name}</strong> ({confirmDeleteOwner.email}) and revokes access.</p>
           <div className="flex gap-2 justify-end">
             <button onClick={() => setConfirmDeleteOwner(null)} className="px-3 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg">Cancel</button>
@@ -877,7 +877,7 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
       )}
       {confirmDeleteInv && (
         <Overlay onClose={() => setConfirmDeleteInv(null)}>
-          <div className="flex items-center gap-2 mb-3"><AlertTriangle className="h-5 w-5 text-red-400" /><h3 className="text-sm font-semibold text-slate-900">Delete invoice?</h3></div>
+          <div className="flex items-center gap-2 mb-3"><AlertTriangle className="h-5 w-5 text-red-600" /><h3 className="text-sm font-semibold text-slate-900">Delete invoice?</h3></div>
           <p className="text-sm text-slate-500 mb-5">Removes the {money(confirmDeleteInv.amount, confirmDeleteInv.currency)} payment from {fmtDate(confirmDeleteInv.payment_date)} and its proof image.</p>
           <div className="flex gap-2 justify-end">
             <button onClick={() => setConfirmDeleteInv(null)} className="px-3 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg">Cancel</button>
@@ -940,13 +940,13 @@ function RecordPaymentDialog({ companyId, call, onClose, onSaved }: {
   return (
     <Overlay onClose={onClose} wide>
       <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2"><Receipt className="h-5 w-5 text-amber-400" /><h3 className="text-sm font-semibold text-slate-900">Record Payment</h3></div>
+        <div className="flex items-center gap-2"><Receipt className="h-5 w-5 text-amber-600" /><h3 className="text-sm font-semibold text-slate-900">Record Payment</h3></div>
         <button onClick={onClose} className="text-slate-500 hover:text-slate-900"><X className="h-4 w-4" /></button>
       </div>
       <div className="space-y-3 max-h-[62vh] overflow-y-auto pr-1">
         <Field label="Payment Date * (starts a 1-year subscription)">
           <input type="date" value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)} className={inputCls} autoFocus />
-          {periodEndPreview && <p className="text-[11px] text-slate-500 mt-1">Valid until <span className="text-amber-400 font-medium">{periodEndPreview}</span></p>}
+          {periodEndPreview && <p className="text-[11px] text-slate-500 mt-1">Valid until <span className="text-amber-600 font-medium">{periodEndPreview}</span></p>}
         </Field>
         <div className="grid grid-cols-3 gap-2">
           <div className="col-span-2"><Field label="Amount"><input value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ''))} className={inputCls} placeholder="35000" inputMode="decimal" /></Field></div>
@@ -958,7 +958,7 @@ function RecordPaymentDialog({ companyId, call, onClose, onSaved }: {
           {proofData ? (
             <div className="flex items-center gap-3">
               <img src={proofData} alt="Proof" className="w-16 h-16 rounded-lg object-cover border border-slate-300" />
-              <div className="flex-1 min-w-0"><p className="text-xs text-slate-600 truncate">{proofName}</p><button onClick={() => { setProofData(null); setProofName('') }} className="text-[11px] text-red-400 hover:text-red-300">Remove</button></div>
+              <div className="flex-1 min-w-0"><p className="text-xs text-slate-600 truncate">{proofName}</p><button onClick={() => { setProofData(null); setProofName('') }} className="text-[11px] text-red-600 hover:text-red-700">Remove</button></div>
             </div>
           ) : (
             <label className="flex items-center gap-2 justify-center h-20 rounded-lg border-2 border-dashed border-slate-300 hover:border-slate-400 cursor-pointer text-slate-500 hover:text-slate-500">
@@ -967,7 +967,7 @@ function RecordPaymentDialog({ companyId, call, onClose, onSaved }: {
             </label>
           )}
         </Field>
-        {error && <div className="flex items-start gap-2 bg-red-500/10 border border-red-500/20 text-red-400 text-sm rounded-lg px-3 py-2"><AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" /><span>{error}</span></div>}
+        {error && <div className="flex items-start gap-2 bg-red-500/10 border border-red-500/20 text-red-600 text-sm rounded-lg px-3 py-2"><AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" /><span>{error}</span></div>}
       </div>
       <div className="flex gap-2 justify-end pt-4 mt-2 border-t border-slate-200">
         <button onClick={onClose} className="px-3 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg">Cancel</button>
@@ -1064,7 +1064,7 @@ function CreateCompanyDialog({ call, onClose, onCreated }: {
   return (
     <Overlay onClose={onClose} wide>
       <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2"><Building2 className="h-5 w-5 text-amber-400" /><h3 className="text-sm font-semibold text-slate-900">New Company</h3></div>
+        <div className="flex items-center gap-2"><Building2 className="h-5 w-5 text-amber-600" /><h3 className="text-sm font-semibold text-slate-900">New Company</h3></div>
         <button onClick={onClose} className="text-slate-500 hover:text-slate-900"><X className="h-4 w-4" /></button>
       </div>
       <div className="space-y-3 max-h-[62vh] overflow-y-auto pr-1">
@@ -1099,7 +1099,7 @@ function CreateCompanyDialog({ call, onClose, onCreated }: {
         {/* Owner account — becomes the super admin of this company */}
         <div className="border-t border-slate-200 pt-3 mt-1">
           <div className="flex items-center gap-1.5 mb-2">
-            <Crown className="h-3.5 w-3.5 text-amber-400" />
+            <Crown className="h-3.5 w-3.5 text-amber-600" />
             <p className="text-xs font-semibold text-slate-900">Owner Account</p>
           </div>
           <p className="text-[11px] text-slate-500 mb-2.5">The Owner is the super admin of this company. If this email already belongs to an owner, they&apos;ll be linked to this company instead (same login — they can switch between their companies).</p>
@@ -1117,7 +1117,7 @@ function CreateCompanyDialog({ call, onClose, onCreated }: {
           </div>
         </div>
 
-        {error && <div className="flex items-start gap-2 bg-red-500/10 border border-red-500/20 text-red-400 text-sm rounded-lg px-3 py-2"><AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" /><span>{error}</span></div>}
+        {error && <div className="flex items-start gap-2 bg-red-500/10 border border-red-500/20 text-red-600 text-sm rounded-lg px-3 py-2"><AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" /><span>{error}</span></div>}
       </div>
       <div className="flex gap-2 justify-end pt-4 mt-2 border-t border-slate-200">
         <button onClick={onClose} className="px-3 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg">Cancel</button>
@@ -1171,7 +1171,7 @@ function CreateOwnerDialog({ preselectCompanyId, call, onClose, onCreated }: {
   return (
     <Overlay onClose={onClose} wide>
       <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2"><Crown className="h-5 w-5 text-amber-400" /><h3 className="text-sm font-semibold text-slate-900">Add Top Management</h3></div>
+        <div className="flex items-center gap-2"><Crown className="h-5 w-5 text-amber-600" /><h3 className="text-sm font-semibold text-slate-900">Add Top Management</h3></div>
         <button onClick={onClose} className="text-slate-500 hover:text-slate-900"><X className="h-4 w-4" /></button>
       </div>
       <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-1">
@@ -1186,7 +1186,7 @@ function CreateOwnerDialog({ preselectCompanyId, call, onClose, onCreated }: {
           </Field>
           <Field label="Job Title"><input value={jobTitle} onChange={e => setJobTitle(e.target.value)} className={inputCls} placeholder="e.g. General Manager" /></Field>
         </div>
-        <p className="text-[11px] text-slate-500 -mt-1">Enter <span className="text-amber-400 font-medium">Owner</span> to grant full owner authority over the company. Leave other titles for Top Management.</p>
+        <p className="text-[11px] text-slate-500 -mt-1">Enter <span className="text-amber-600 font-medium">Owner</span> to grant full owner authority over the company. Leave other titles for Top Management.</p>
         <label className="flex items-center gap-2.5 pt-1 cursor-pointer">
           <button type="button" onClick={() => setIsActive(!isActive)} className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${isActive ? 'bg-amber-500' : 'bg-slate-200'}`}>
             <span className={`inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform ${isActive ? 'translate-x-5' : 'translate-x-1'}`} />
@@ -1194,7 +1194,7 @@ function CreateOwnerDialog({ preselectCompanyId, call, onClose, onCreated }: {
           <span className="text-sm text-slate-600">Account active</span>
         </label>
         {confirmInfo && (
-          <div className="flex items-start gap-2 bg-amber-500/10 border border-amber-500/30 text-amber-300 text-sm rounded-lg px-3 py-2">
+          <div className="flex items-start gap-2 bg-amber-500/10 border border-amber-500/30 text-amber-700 text-sm rounded-lg px-3 py-2">
             <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" />
             <span>
               {confirmInfo.name} already has an account{confirmInfo.company ? ` under ${confirmInfo.company}` : ' in another company'}.
@@ -1202,7 +1202,7 @@ function CreateOwnerDialog({ preselectCompanyId, call, onClose, onCreated }: {
             </span>
           </div>
         )}
-        {error && <div className="flex items-start gap-2 bg-red-500/10 border border-red-500/20 text-red-400 text-sm rounded-lg px-3 py-2"><AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" /><span>{error}</span></div>}
+        {error && <div className="flex items-start gap-2 bg-red-500/10 border border-red-500/20 text-red-600 text-sm rounded-lg px-3 py-2"><AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" /><span>{error}</span></div>}
       </div>
       <div className="flex gap-2 justify-end pt-4 mt-2 border-t border-slate-200">
         <button onClick={onClose} className="px-3 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg">Cancel</button>
@@ -1355,7 +1355,7 @@ function AdminSettingsView({ call, onBack }: { call: <T,>(a: string, p?: Record<
               <KeyRound className="h-4 w-4 text-slate-500" />
               <h3 className="text-sm font-semibold text-slate-900">Console Login &amp; Administrators</h3>
               {!adding && (
-                <button onClick={() => setAdding(true)} className="ml-auto flex items-center gap-1 text-xs text-amber-400 hover:text-amber-300">
+                <button onClick={() => setAdding(true)} className="ml-auto flex items-center gap-1 text-xs text-amber-600 hover:text-amber-700">
                   <UserPlus className="h-3.5 w-3.5" />Add User
                 </button>
               )}
@@ -1384,9 +1384,9 @@ function AdminSettingsView({ call, onBack }: { call: <T,>(a: string, p?: Record<
                         <p className="text-sm font-medium text-slate-900 truncate">{a.username}</p>
                         <p className="text-[11px] text-slate-500 truncate flex items-center gap-1"><Mail className="h-3 w-3" />{a.email || 'no email set'}</p>
                       </div>
-                      <button onClick={() => startEdit(a)} className="p-1.5 rounded text-slate-500 hover:text-amber-400 hover:bg-slate-100"><Pencil className="h-3.5 w-3.5" /></button>
+                      <button onClick={() => startEdit(a)} className="p-1.5 rounded text-slate-500 hover:text-amber-600 hover:bg-slate-100"><Pencil className="h-3.5 w-3.5" /></button>
                       {admins.length > 1 && (
-                        <button onClick={() => delAdmin(a)} disabled={busy === a.id} className="p-1.5 rounded text-slate-500 hover:text-red-400 hover:bg-slate-100">
+                        <button onClick={() => delAdmin(a)} disabled={busy === a.id} className="p-1.5 rounded text-slate-500 hover:text-red-600 hover:bg-slate-100">
                           {busy === a.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
                         </button>
                       )}
@@ -1397,7 +1397,7 @@ function AdminSettingsView({ call, onBack }: { call: <T,>(a: string, p?: Record<
 
               {adding && (
                 <div className="bg-slate-50 rounded-lg p-3 border border-amber-500/30 space-y-2.5">
-                  <p className="text-xs font-semibold text-amber-400">New Administrator</p>
+                  <p className="text-xs font-semibold text-amber-600">New Administrator</p>
                   <Field label="Username"><input value={nUser} onChange={(e) => setNUser(e.target.value)} className={inputCls} placeholder="username" autoComplete="off" /></Field>
                   <Field label="Admin Email"><input type="email" value={nEmail} onChange={(e) => setNEmail(e.target.value)} className={inputCls} placeholder="admin@nnr-solutions.com" autoComplete="off" /></Field>
                   <Field label="Password (min 6 chars)"><input type="text" value={nPass} onChange={(e) => setNPass(e.target.value)} className={inputCls} placeholder="••••••••" autoComplete="new-password" /></Field>
@@ -1418,10 +1418,10 @@ function AdminSettingsView({ call, onBack }: { call: <T,>(a: string, p?: Record<
               <Building className="h-4 w-4 text-slate-500" />
               <h3 className="text-sm font-semibold text-slate-900">Company Details</h3>
               {!editCo ? (
-                <button onClick={startCoEdit} className="ml-auto p-1 rounded text-slate-500 hover:text-amber-400 hover:bg-slate-100"><Pencil className="h-3.5 w-3.5" /></button>
+                <button onClick={startCoEdit} className="ml-auto p-1 rounded text-slate-500 hover:text-amber-600 hover:bg-slate-100"><Pencil className="h-3.5 w-3.5" /></button>
               ) : (
                 <div className="ml-auto flex items-center gap-1">
-                  <button onClick={saveCo} disabled={busy === 'co'} className="p-1.5 rounded-lg text-green-400 hover:bg-green-500/10">
+                  <button onClick={saveCo} disabled={busy === 'co'} className="p-1.5 rounded-lg text-green-600 hover:bg-green-500/10">
                     {busy === 'co' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
                   </button>
                   <button onClick={() => setEditCo(false)} className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100"><X className="h-4 w-4" /></button>
@@ -1529,7 +1529,7 @@ function Stat({ icon: Icon, label, live, max }: { icon: typeof Users; label: str
   return (
     <div className="bg-slate-50 rounded-lg px-3 py-2">
       <div className="flex items-center gap-1.5 text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-0.5"><Icon className="h-3 w-3" />{label}</div>
-      <p className={`text-sm font-semibold ${over ? 'text-red-400' : 'text-slate-900'}`}>{live}{max != null && <span className="text-slate-500 font-normal"> / {max}</span>}</p>
+      <p className={`text-sm font-semibold ${over ? 'text-red-600' : 'text-slate-900'}`}>{live}{max != null && <span className="text-slate-500 font-normal"> / {max}</span>}</p>
     </div>
   )
 }
