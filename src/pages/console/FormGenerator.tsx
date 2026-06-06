@@ -25,6 +25,7 @@ interface FormCompany {
 interface Issuer {
   company_name: string | null; office_type: string; branch_name: string | null
   address: string | null; tax_id: string | null; logo_url?: string | null
+  signatory_name?: string | null; signatory_title?: string | null
 }
 type Call = <T,>(a: string, p?: Record<string, unknown>) => Promise<T>
 
@@ -445,6 +446,12 @@ function PrintPreview({ form, issuer, onClose }: { form: GeneratedForm; issuer: 
   const issuerName = issuer?.company_name || 'NNR-Solutions Co., Ltd.'
   const issuerLine2 = issuer?.office_type === 'branch' && issuer?.branch_name ? issuer.branch_name : 'Head Office'
   const showVat = form.form_type !== 'receipt'
+  const signatoryName = issuer?.signatory_name || 'Dr. Poti Chaopaisarn'
+  const signatoryTitle = issuer?.signatory_title || 'Managing Director'
+  // Validity window for quotations (issue → due date).
+  const validityDays = form.form_type === 'quotation' && form.due_date
+    ? Math.max(0, Math.round((new Date(form.due_date + 'T00:00:00Z').getTime() - new Date(form.issue_date + 'T00:00:00Z').getTime()) / 86400000))
+    : null
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-black/70 backdrop-blur-sm print:bg-white print:static print:overflow-visible">
       <style>{`@media print {
@@ -540,12 +547,36 @@ function PrintPreview({ form, issuer, onClose }: { form: GeneratedForm; issuer: 
           </div>
           <p className="text-[11px] text-slate-600 italic mt-2">( {bahtText(form.total)} )</p>
 
-          {form.notes && <p className="text-[11px] text-slate-700 mt-4 border-t border-slate-200 pt-2"><span className="font-semibold">Notes: </span>{form.notes}</p>}
+          {/* validity & notes */}
+          <div className="mt-4 border-t border-slate-200 pt-2 space-y-1">
+            {validityDays !== null && (
+              <p className="text-[11px] text-slate-700">
+                <span className="font-semibold">Validity: </span>
+                This quotation is valid for {validityDays} day{validityDays === 1 ? '' : 's'} from the issue date
+                {form.due_date && <> — until <span className="font-medium">{fmtDate(form.due_date)}</span></>}.
+              </p>
+            )}
+            {form.notes && <p className="text-[11px] text-slate-700"><span className="font-semibold">Notes: </span>{form.notes}</p>}
+          </div>
 
           {/* signatures */}
-          <div className="grid grid-cols-2 gap-10 mt-20 text-[11px] text-center">
-            <div><div className="border-t border-slate-400 pt-1">Received by / Date</div></div>
-            <div><div className="border-t border-slate-400 pt-1">Issued by / Date</div></div>
+          <div className="grid grid-cols-2 gap-12 mt-20 text-[11px]">
+            <div className="text-center">
+              <div className="border-t border-slate-400 pt-1.5">
+                <p className="font-semibold text-slate-900">{issuerName}</p>
+                <p className="text-slate-900">{signatoryName}</p>
+                <p className="text-slate-600">{signatoryTitle}</p>
+                <p className="text-slate-500 mt-1">Authorised Signature / Date</p>
+              </div>
+            </div>
+            <div className="text-center">
+              <div className="border-t border-slate-400 pt-1.5">
+                <p className="font-semibold text-slate-900">{form.client_name || 'Client'}</p>
+                <p className="text-slate-600">&nbsp;</p>
+                <p className="text-slate-600">&nbsp;</p>
+                <p className="text-slate-500 mt-1">Authorised Signature / Date</p>
+              </div>
+            </div>
           </div>
         </div>
       </div>
