@@ -37,11 +37,11 @@ export function TrialBanner() {
     if (lang === 'th') {
       if (expired) return 'แพ็กเกจ Starter ของคุณสิ้นสุดแล้ว — อัปเกรดเป็น Gold หรือ Premium เพื่อใช้งานต่อ เรายินดีดูแลคุณเสมอ'
       if (urgent) return `แพ็กเกจ Starter ของคุณเหลืออีก ${daysLeft} วัน — อัปเกรดเป็น Gold หรือ Premium เพื่อให้ทุกอย่างราบรื่น เรายินดีช่วยเหลือ`
-      return `คุณกำลังใช้แพ็กเกจ Starter — มีเวลา ${daysLeft} วันในการสำรวจฟีเจอร์ทั้งหมดของ Kaizen อัปเกรดเป็น Gold หรือ Premium ได้ทุกเมื่อที่พร้อม`
+      return `คุณกำลังใช้แพ็กเกจ Starter — มีเวลา ${daysLeft} วันในการสำรวจฟีเจอร์ทั้งหมดของ Kaizen System อัปเกรดเป็น Gold หรือ Premium ได้ทุกเมื่อที่พร้อม`
     }
     if (expired) return "Your Starter plan has ended — upgrade to Gold or Premium to continue. We'd love to keep serving you."
     if (urgent) return `Your Starter plan has ${daysLeft} day${daysLeft === 1 ? '' : 's'} remaining — upgrade to Gold or Premium to keep everything running smoothly. We're happy to help.`
-    return `You're on the Starter plan — ${daysLeft} days to explore everything Kaizen offers. Upgrade to Gold or Premium whenever you're ready.`
+    return `You're on the Starter plan — ${daysLeft} days to explore everything Kaizen System offers. Upgrade to Gold or Premium whenever you're ready.`
   })()
 
   return (
