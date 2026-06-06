@@ -1029,11 +1029,13 @@ export function SettingsPage() {
                   <span className="font-semibold text-gray-700">NNR-Solutions Co., Ltd.</span>
                 </p>
                 <div className="flex justify-center pt-3 pb-1">
-                  <img
-                    src="/nnr-solutions-logo.png"
-                    alt="NNR-Solutions Co., Ltd."
-                    className="h-[104px] w-auto object-contain"
-                  />
+                  <div className="bg-white rounded-lg p-3 flex items-center justify-center">
+                    <img
+                      src="/nnr-solutions-logo.png"
+                      alt="NNR-Solutions Co., Ltd."
+                      className="h-[104px] w-auto object-contain"
+                    />
+                  </div>
                 </div>
               </div>
               <DialogFooter>
