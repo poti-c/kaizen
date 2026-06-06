@@ -6,6 +6,7 @@ const en = {
   nav: {
     dashboard: 'Dashboard', cases: 'Cases', newCase: 'New Case',
     calendar: 'Calendar', performance: 'Performance',
+    maintenance: 'Preventive Maintenance',
     notifications: 'Notifications', users: 'Users', settings: 'Settings',
     signOut: 'Sign Out', home: 'Home', alerts: 'Alerts',
   },
@@ -253,6 +254,7 @@ const th: Translations = {
   nav: {
     dashboard: 'แดชบอร์ด', cases: 'เคส', newCase: 'รายงานใหม่',
     calendar: 'ปฏิทิน', performance: 'ประสิทธิภาพ',
+    maintenance: 'การบำรุงรักษาเชิงป้องกัน',
     notifications: 'การแจ้งเตือน', users: 'ผู้ใช้งาน', settings: 'การตั้งค่า',
     signOut: 'ออกจากระบบ', home: 'หน้าหลัก', alerts: 'แจ้งเตือน',
   },

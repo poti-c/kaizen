@@ -5,7 +5,7 @@ import { Toaster } from 'sonner'
 import { AuthProvider, useAuth } from '@/contexts/AuthContext'
 import { PresenceProvider } from '@/contexts/PresenceContext'
 import { CompanyProvider, useCompany } from '@/contexts/CompanyContext'
-import { companyHasFeature, type FeatureKey } from '@/lib/utils'
+import { companyHasFeature, companyHasAddon, type FeatureKey, type AddonKey } from '@/lib/utils'
 import { ThemeProvider } from '@/contexts/ThemeContext'
 import { LanguageProvider } from '@/contexts/LanguageContext'
 import { ViewModeProvider } from '@/contexts/ViewModeContext'
@@ -20,6 +20,7 @@ import { UsersPage } from '@/pages/UsersPage'
 import { NotificationsPage } from '@/pages/NotificationsPage'
 import { SettingsPage } from '@/pages/SettingsPage'
 import { CasesCalendarPage } from '@/pages/CasesCalendarPage'
+import { PreventiveMaintenancePage } from '@/pages/PreventiveMaintenancePage'
 import { PerformancePage } from '@/pages/PerformancePage'
 import { PerformanceDetailPage } from '@/pages/PerformanceDetailPage'
 import { ChangePasswordPage } from '@/pages/ChangePasswordPage'
@@ -34,12 +35,13 @@ function RoleRedirect() {
 
 // Blocks access to a route if the user's role is not in the allowed list, or
 // if the company's package doesn't include the required feature.
-function ProtectedRoute({ roles, feature, children }: { roles: string[]; feature?: FeatureKey; children: React.ReactNode }) {
+function ProtectedRoute({ roles, feature, addon, children }: { roles: string[]; feature?: FeatureKey; addon?: AddonKey; children: React.ReactNode }) {
   const { profile } = useAuth()
   const { activeCompany } = useCompany()
   if (!profile) return null
   if (!roles.includes(profile.role)) return <Navigate to="/dashboard" replace />
   if (feature && !companyHasFeature(activeCompany, feature)) return <Navigate to="/dashboard" replace />
+  if (addon && !companyHasAddon(activeCompany, addon)) return <Navigate to="/dashboard" replace />
   return <>{children}</>
 }
 
@@ -79,6 +81,7 @@ export default function App() {
                     <Route path="performance/:userId" element={<ProtectedRoute roles={['super_admin', 'manager']} feature="performance_analytics"><PerformanceDetailPage /></ProtectedRoute>} />
                     <Route path="cases" element={<CasesPage />} />
                     <Route path="cases/calendar" element={<CasesCalendarPage />} />
+                    <Route path="maintenance" element={<ProtectedRoute roles={['super_admin', 'manager', 'staff']} addon="pms"><PreventiveMaintenancePage /></ProtectedRoute>} />
                     <Route path="cases/new" element={<CreateCasePage />} />
                     <Route path="cases/:id" element={<CaseDetailPage />} />
                     <Route path="users" element={<UsersPage />} />

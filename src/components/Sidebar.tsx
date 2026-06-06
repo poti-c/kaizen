@@ -1,13 +1,13 @@
 import { NavLink, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, FolderOpen, PlusCircle, Bell, Users,
-  Settings, LogOut, ChevronLeft, ChevronRight, CalendarDays, TrendingUp,
+  Settings, LogOut, ChevronLeft, ChevronRight, CalendarDays, TrendingUp, Wrench,
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useCompany } from '@/contexts/CompanyContext'
 import { useLanguage } from '@/contexts/LanguageContext'
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
-import { getInitials, companyHasFeature, type FeatureKey } from '@/lib/utils'
+import { getInitials, companyHasFeature, companyHasAddon, type FeatureKey, type AddonKey } from '@/lib/utils'
 import { DEPARTMENT_LABELS } from '@/types'
 import { useState } from 'react'
 import { cn } from '@/lib/utils'
@@ -19,11 +19,12 @@ export function Sidebar() {
   const navigate = useNavigate()
   const [collapsed, setCollapsed] = useState(false)
 
-  const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; roles: string[]; feature?: FeatureKey }[] = [
+  const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; roles: string[]; feature?: FeatureKey; addon?: AddonKey }[] = [
     { to: '/dashboard', icon: LayoutDashboard, label: t.nav.dashboard, roles: ['super_admin', 'manager'] },
     { to: '/performance', icon: TrendingUp, label: t.nav.performance, roles: ['super_admin', 'manager'], feature: 'performance_analytics' },
     { to: '/cases', icon: FolderOpen, label: t.nav.cases, roles: ['super_admin', 'manager', 'staff'] },
     { to: '/cases/calendar', icon: CalendarDays, label: t.nav.calendar, roles: ['super_admin', 'manager', 'staff'] },
+    { to: '/maintenance', icon: Wrench, label: t.nav.maintenance, roles: ['super_admin', 'manager', 'staff'], addon: 'pms' },
     { to: '/cases/new', icon: PlusCircle, label: t.nav.newCase, roles: ['staff', 'manager', 'super_admin'] },
     { to: '/notifications', icon: Bell, label: t.nav.notifications, roles: ['super_admin', 'manager', 'staff'] },
     { to: '/users', icon: Users, label: t.nav.users, roles: ['super_admin', 'manager'] },
@@ -38,6 +39,7 @@ export function Sidebar() {
   const visibleItems = NAV_ITEMS.filter((item) => {
     if (!profile || !item.roles.includes(profile.role)) return false
     if (item.feature && !companyHasFeature(activeCompany, item.feature)) return false
+    if (item.addon && !companyHasAddon(activeCompany, item.addon)) return false
     return true
   })
 
