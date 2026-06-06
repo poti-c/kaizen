@@ -194,7 +194,7 @@ export function FormGeneratorView({ call, onBack, initialPreviewId, onPreviewCon
                   <th className="text-left font-semibold px-4 py-2">Date</th>
                   <th className="text-left font-semibold px-3 py-2">Doc No.</th>
                   <th className="text-left font-semibold px-3 py-2">Type</th>
-                  <th className="text-left font-semibold px-3 py-2">Company</th>
+                  <th className="text-left font-semibold px-3 py-2">Client</th>
                   <th className="text-right font-semibold px-3 py-2">Amount</th>
                   <th className="text-left font-semibold px-3 py-2">Status</th>
                   <th className="px-3 py-2"></th>
