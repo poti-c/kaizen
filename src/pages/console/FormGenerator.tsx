@@ -24,7 +24,7 @@ interface FormCompany {
 }
 interface Issuer {
   company_name: string | null; office_type: string; branch_name: string | null
-  address: string | null; tax_id: string | null
+  address: string | null; tax_id: string | null; logo_url?: string | null
 }
 type Call = <T,>(a: string, p?: Record<string, unknown>) => Promise<T>
 
@@ -470,7 +470,9 @@ function PrintPreview({ form, issuer, onClose }: { form: GeneratedForm; issuer: 
           <div className="flex justify-between items-start">
             <div className="max-w-[55%]">
               <div className="flex items-center gap-2 mb-2">
-                <Building2 className="h-6 w-6 text-indigo-700" />
+                {issuer?.logo_url
+                  ? <img src={issuer.logo_url} alt={issuerName} className="h-10 w-auto max-w-[140px] object-contain" />
+                  : <Building2 className="h-6 w-6 text-indigo-700" />}
                 <span className="text-lg font-bold text-indigo-800 tracking-tight">{issuerName}</span>
               </div>
               <p className="text-[11px] text-slate-700">{issuerLine2}</p>

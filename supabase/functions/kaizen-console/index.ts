@@ -230,6 +230,7 @@ Deno.serve(async (req) => {
     if (body.branch_name !== undefined) patch.branch_name = cleanStr(body.branch_name);
     if (body.address !== undefined) patch.address = cleanStr(body.address);
     if (body.tax_id !== undefined) patch.tax_id = cleanStr(body.tax_id);
+    if (body.logo_url !== undefined) patch.logo_url = body.logo_url ? String(body.logo_url) : null;
     const { error } = await admin.from("kaizen_console_settings").update(patch).eq("id", true);
     if (error) return json({ error: error.message }, 400);
     await audit("update_settings", { patch }, ip, true);

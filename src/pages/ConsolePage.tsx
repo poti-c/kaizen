@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   Lock, Loader2, LogOut, Plus, Building2, Crown, Power,
   Trash2, X, Eye, EyeOff, Users, UserCog, ScrollText, AlertTriangle, Check,
@@ -1223,7 +1223,32 @@ function CreateOwnerDialog({ preselectCompanyId, call, onClose, onCreated }: {
 // ── Shared bits ──────────────────────────────────────────────────────────────
 // ── Admin Settings ─────────────────────────────────────────────────────────
 interface ConsoleAdmin { id: string; username: string; email: string | null; is_active: boolean; created_at: string }
-interface ConsoleSettings { company_name: string | null; office_type: string; branch_name: string | null; address: string | null; tax_id: string | null }
+interface ConsoleSettings { company_name: string | null; office_type: string; branch_name: string | null; address: string | null; tax_id: string | null; logo_url?: string | null }
+
+// Read an image file and downscale it to a compact data URL (keeps stored logo small).
+function fileToResizedDataUrl(file: File, max = 400): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onerror = () => reject(new Error('Could not read file'))
+    reader.onload = () => {
+      const img = new Image()
+      img.onerror = () => reject(new Error('Invalid image'))
+      img.onload = () => {
+        const scale = Math.min(1, max / Math.max(img.width, img.height))
+        const w = Math.round(img.width * scale), h = Math.round(img.height * scale)
+        const canvas = document.createElement('canvas')
+        canvas.width = w; canvas.height = h
+        const ctx = canvas.getContext('2d')
+        if (!ctx) return reject(new Error('Canvas unsupported'))
+        ctx.drawImage(img, 0, 0, w, h)
+        // PNG preserves transparency for logos.
+        resolve(canvas.toDataURL('image/png'))
+      }
+      img.src = reader.result as string
+    }
+    reader.readAsDataURL(file)
+  })
+}
 
 function AdminSettingsView({ call, onBack }: { call: <T,>(a: string, p?: Record<string, unknown>) => Promise<T>; onBack: () => void }) {
   const [loading, setLoading] = useState(true)
@@ -1286,6 +1311,26 @@ function AdminSettingsView({ call, onBack }: { call: <T,>(a: string, p?: Record<
       })
       setEditCo(false); load()
     } catch (e) { alert(e instanceof Error ? e.message : 'Failed') } finally { setBusy(null) }
+  }
+
+  const logoInputRef = useRef<HTMLInputElement>(null)
+  async function onLogoPick(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    e.target.value = '' // allow re-picking the same file
+    if (!file) return
+    if (!file.type.startsWith('image/')) { alert('Please choose an image file.'); return }
+    setBusy('logo')
+    try {
+      const dataUrl = await fileToResizedDataUrl(file, 400)
+      await call('update_settings', { logo_url: dataUrl })
+      load()
+    } catch (err) { alert(err instanceof Error ? err.message : 'Upload failed') } finally { setBusy(null) }
+  }
+  async function removeLogo() {
+    if (!confirm('Remove the company logo?')) return
+    setBusy('logo')
+    try { await call('update_settings', { logo_url: null }); load() }
+    catch (err) { alert(err instanceof Error ? err.message : 'Failed') } finally { setBusy(null) }
   }
 
   return (
@@ -1380,6 +1425,33 @@ function AdminSettingsView({ call, onBack }: { call: <T,>(a: string, p?: Record<
               )}
             </div>
             <p className="text-[11px] text-slate-500 mb-3">Used as the issuer on invoices generated for your customers.</p>
+
+            {/* Company logo */}
+            <div className="flex items-center gap-3 mb-4 pb-4 border-b border-slate-200">
+              <div className="w-16 h-16 rounded-lg bg-slate-50 border border-slate-200 flex items-center justify-center overflow-hidden shrink-0">
+                {company?.logo_url
+                  ? <img src={company.logo_url} alt="Company logo" className="max-w-full max-h-full object-contain" />
+                  : <ImageIcon className="h-6 w-6 text-slate-400" />}
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-slate-700">Company Logo</p>
+                <p className="text-[11px] text-slate-500 mb-2">Shown on generated invoices &amp; receipts. PNG or JPG.</p>
+                <div className="flex items-center gap-2">
+                  <input ref={logoInputRef} type="file" accept="image/*" onChange={onLogoPick} className="hidden" />
+                  <button onClick={() => logoInputRef.current?.click()} disabled={busy === 'logo'}
+                    className="flex items-center gap-1.5 px-2.5 h-7 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-semibold disabled:opacity-50">
+                    {busy === 'logo' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+                    {company?.logo_url ? 'Replace' : 'Upload'}
+                  </button>
+                  {company?.logo_url && (
+                    <button onClick={removeLogo} disabled={busy === 'logo'}
+                      className="flex items-center gap-1.5 px-2.5 h-7 rounded-lg text-slate-500 hover:text-red-500 hover:bg-slate-100 text-xs disabled:opacity-50">
+                      <Trash2 className="h-3.5 w-3.5" />Remove
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
 
             {editCo ? (
               <div className="space-y-2.5">
