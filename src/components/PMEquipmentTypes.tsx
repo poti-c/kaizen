@@ -47,6 +47,28 @@ const PM_DEFAULTS: { name: string; category: string }[] = [
   { name: 'Buggy / Vehicle', category: 'Property & Grounds' },
   { name: 'Gym Equipment', category: 'Property & Grounds' },
   { name: 'Furniture & Fixtures', category: 'Property & Grounds' },
+  // ── Resort-specific additions ──
+  { name: 'Dehumidifier', category: 'HVAC' },
+  { name: 'Solar Panel System', category: 'Electrical' },
+  { name: 'Outdoor / Garden Lighting', category: 'Electrical' },
+  { name: 'EV Charger', category: 'Electrical' },
+  { name: 'Water Storage Tank', category: 'Plumbing & Water' },
+  { name: 'Water Heat Pump', category: 'Plumbing & Water' },
+  { name: 'Septic / Wastewater Treatment', category: 'Plumbing & Water' },
+  { name: 'Sauna / Steam Room', category: 'Pool & Spa' },
+  { name: 'Pool Chlorination System', category: 'Pool & Spa' },
+  { name: 'Ice Machine', category: 'Kitchen & Laundry' },
+  { name: 'Walk-in Freezer', category: 'Kitchen & Laundry' },
+  { name: 'Grease Trap', category: 'Kitchen & Laundry' },
+  { name: 'Minibar Fridge', category: 'Kitchen & Laundry' },
+  { name: 'Pier / Jetty', category: 'Property & Grounds' },
+  { name: 'Water Feature / Fountain', category: 'Property & Grounds' },
+  { name: 'WiFi Access Point', category: 'Property & Grounds' },
+  { name: 'PABX / Telephone System', category: 'Property & Grounds' },
+  { name: 'AV / Sound System', category: 'Property & Grounds' },
+  { name: 'In-room Safe', category: 'Property & Grounds' },
+  { name: 'Television', category: 'Property & Grounds' },
+  { name: 'Pest Control Station', category: 'Property & Grounds' },
 ]
 
 interface EqType { id: string; company_id: string; name: string; category: string | null; sort_order: number; is_active: boolean }
