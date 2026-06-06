@@ -100,7 +100,7 @@ export function PMSummaryCard() {
           </Link>
 
           {/* Stats grid */}
-          <div className="flex-1 grid grid-cols-3 gap-1.5">
+          <div className="flex-1 grid grid-cols-3 auto-rows-fr gap-1.5">
             <Tile label="Up to date" value={good} tone="green" to="/maintenance?status=good" />
             <Tile label="Due soon" value={dueSoon} tone="amber" to="/maintenance?status=due_soon" />
             <Tile label="Overdue" value={overdueAssets} tone="red" to="/maintenance?status=overdue" />
@@ -131,7 +131,7 @@ function Tile({ label, value, tone, to }: { label: string; value: number | strin
       <p className="text-[10px] mt-0.5 opacity-80 leading-tight">{label}</p>
     </>
   )
-  const cls = `block rounded-md px-2 py-1 ${TONES[tone]}`
+  const cls = `flex flex-col justify-center h-full rounded-md px-2 py-1 ${TONES[tone]}`
   return to
     ? <Link to={to} className={`${cls} hover:brightness-95 transition-all`}>{inner}</Link>
     : <div className={cls}>{inner}</div>
