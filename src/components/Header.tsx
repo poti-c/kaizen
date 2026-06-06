@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Bell, Search, X, LayoutDashboard, FolderOpen, PlusCircle, Users, Settings, LogOut, CalendarDays, ChevronDown, Building2 } from 'lucide-react'
+import { Bell, Search, X, LayoutDashboard, FolderOpen, PlusCircle, Users, Settings, LogOut, CalendarDays, ChevronDown, Building2, Wrench } from 'lucide-react'
 import { useNavigate, Link, NavLink } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
 import { useCompany } from '@/contexts/CompanyContext'
@@ -7,7 +7,7 @@ import { useLanguage } from '@/contexts/LanguageContext'
 import { useViewMode } from '@/contexts/ViewModeContext'
 import { supabase } from '@/lib/supabase'
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
-import { getInitials, formatRelativeTime } from '@/lib/utils'
+import { getInitials, formatRelativeTime, companyHasAddon } from '@/lib/utils'
 import { DEPARTMENT_LABELS } from '@/types'
 import { cn } from '@/lib/utils'
 import type { KaizenNotification } from '@/types'
@@ -32,13 +32,17 @@ export function Header() {
     { to: '/dashboard',      icon: LayoutDashboard, label: t.nav.dashboard,      roles: ['super_admin', 'manager'] },
     { to: '/cases',          icon: FolderOpen,      label: t.nav.cases,           roles: ['super_admin', 'manager', 'staff'] },
     { to: '/cases/calendar', icon: CalendarDays,    label: t.nav.calendar,        roles: ['super_admin', 'manager', 'staff'] },
+    { to: '/maintenance',    icon: Wrench,          label: t.nav.maintenance,     roles: ['super_admin', 'manager', 'staff'], addon: 'pms' as const },
     { to: '/cases/new',      icon: PlusCircle,      label: t.nav.newCase,         roles: ['staff', 'manager', 'super_admin'] },
     { to: '/notifications',  icon: Bell,            label: t.nav.notifications,   roles: ['super_admin', 'manager', 'staff'] },
     { to: '/users',          icon: Users,           label: t.nav.users,           roles: ['super_admin', 'manager'] },
     { to: '/settings',       icon: Settings,        label: t.nav.settings,        roles: ['super_admin', 'manager', 'staff'] },
   ]
 
-  const visibleNavItems = NAV_ITEMS.filter(item => profile ? item.roles.includes(profile.role) : false)
+  const visibleNavItems = NAV_ITEMS.filter(item =>
+    (profile ? item.roles.includes(profile.role) : false) &&
+    (!('addon' in item) || companyHasAddon(activeCompany, item.addon as 'pms'))
+  )
 
   async function handleSignOut() {
     await signOut()

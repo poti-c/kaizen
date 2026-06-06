@@ -1,13 +1,15 @@
 import { useEffect, useState } from 'react'
 import { NavLink } from 'react-router-dom'
-import { LayoutDashboard, FolderOpen, PlusCircle, Bell, Users, Settings, TrendingUp, CalendarDays } from 'lucide-react'
+import { LayoutDashboard, FolderOpen, PlusCircle, Bell, Users, TrendingUp, CalendarDays, Wrench } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
+import { useCompany } from '@/contexts/CompanyContext'
 import { useLanguage } from '@/contexts/LanguageContext'
 import { supabase } from '@/lib/supabase'
-import { cn } from '@/lib/utils'
+import { cn, companyHasAddon } from '@/lib/utils'
 
 export function BottomNav() {
   const { profile } = useAuth()
+  const { activeCompany } = useCompany()
   const { t } = useLanguage()
   const [unread, setUnread] = useState(0)
 
@@ -34,14 +36,16 @@ export function BottomNav() {
   }
 
   const isStaff = profile?.role === 'staff'
+  const pms = companyHasAddon(activeCompany, 'pms')
 
   type NavItem = { to: string; icon: typeof FolderOpen; label: string; accent: boolean; badge?: number }
 
-  const items: NavItem[] = isStaff
+  const items: NavItem[] = (isStaff
     ? [
         { to: '/dashboard',      icon: LayoutDashboard, label: t.nav.home,     accent: false },
         { to: '/cases',          icon: FolderOpen,      label: t.nav.cases,    accent: false },
         { to: '/cases/new',      icon: PlusCircle,      label: t.nav.newCase,  accent: true  },
+        pms ? { to: '/maintenance', icon: Wrench,       label: t.nav.maintenance, accent: false } : null,
         { to: '/cases/calendar', icon: CalendarDays,    label: t.nav.calendar, accent: false },
         { to: '/notifications',  icon: Bell,            label: t.nav.alerts,   accent: false, badge: unread },
       ]
@@ -49,9 +53,11 @@ export function BottomNav() {
         { to: '/dashboard',    icon: LayoutDashboard, label: t.nav.home,        accent: false },
         { to: '/cases',        icon: FolderOpen,      label: t.nav.cases,       accent: false },
         { to: '/cases/new',    icon: PlusCircle,      label: t.nav.newCase,     accent: true  },
+        pms ? { to: '/maintenance', icon: Wrench,     label: t.nav.maintenance, accent: false } : null,
         { to: '/performance',  icon: TrendingUp,      label: t.nav.performance, accent: false },
         { to: '/users',        icon: Users,           label: t.nav.users,       accent: false },
       ]
+  ).filter(Boolean) as NavItem[]
 
   return (
     <nav
