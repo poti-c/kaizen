@@ -237,13 +237,17 @@ function Dashboard({ token, onLogout }: { token: string; onLogout: () => void })
     <div className="min-h-screen bg-slate-950 text-slate-200">
       <header className="border-b border-slate-800 bg-slate-900/80 backdrop-blur sticky top-0 z-10">
         <div className="max-w-5xl mx-auto px-4 h-14 flex items-center gap-3">
-          <button onClick={() => { setShowProducts(false); setShowForms(false); setShowSettings(false); setSelectedCompanyId(null) }} title="Back to Companies"
+          <button onClick={() => { setShowProducts(false); setShowForms(false); setShowSettings(false); setSelectedCompanyId(null) }} title="Back to Clients"
             className="flex items-center gap-3 flex-1 min-w-0 text-left rounded-lg -mx-1 px-1 py-1 hover:bg-slate-800/60 transition-colors">
             <img src="/kaizen-icon.svg" alt="Kaizen" className="w-8 h-8 rounded-lg object-contain flex-shrink-0" />
             <div className="min-w-0">
               <h1 className="text-sm font-bold text-white leading-tight">Kaizen System</h1>
               <p className="text-[11px] text-slate-400 leading-tight">System Console · by NNR Solutions</p>
             </div>
+          </button>
+          <button onClick={() => { setShowProducts(false); setShowForms(false); setShowSettings(false); setSelectedCompanyId(null); setTab('companies') }} title="Clients"
+            className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg hover:bg-slate-800 ${!showProducts && !showForms && !showSettings && !selectedCompany && tab === 'companies' ? 'text-amber-400' : 'text-slate-400 hover:text-white'}`}>
+            <Building2 className="h-3.5 w-3.5" />Clients
           </button>
           <button onClick={() => { setShowProducts(true); setShowForms(false); setShowSettings(false); setSelectedCompanyId(null) }} title="Products"
             className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg hover:bg-slate-800 ${showProducts ? 'text-amber-400' : 'text-slate-400 hover:text-white'}`}>
@@ -263,7 +267,7 @@ function Dashboard({ token, onLogout }: { token: string; onLogout: () => void })
         </div>
         {!selectedCompany && !showSettings && !showForms && !showProducts && (
           <div className="max-w-5xl mx-auto px-4 flex gap-1">
-            {([['companies', 'Companies', Building2], ['audit', 'Audit Log', ScrollText]] as const).map(([key, label, Icon]) => (
+            {([['companies', 'Clients', Building2], ['audit', 'Audit Log', ScrollText]] as const).map(([key, label, Icon]) => (
               <button key={key} onClick={() => setTab(key)}
                 className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-medium border-b-2 transition-colors ${tab === key ? 'border-amber-500 text-amber-400' : 'border-transparent text-slate-400 hover:text-slate-300'}`}>
                 <Icon className="h-3.5 w-3.5" />{label}
@@ -342,11 +346,11 @@ function CompaniesListTab({ companies, owners, onOpen, onCreate }: {
     <div>
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h2 className="text-base font-semibold text-white">Companies</h2>
-          <p className="text-xs text-slate-400">{companies.length} compan{companies.length !== 1 ? 'ies' : 'y'} · click to open</p>
+          <h2 className="text-base font-semibold text-white">Clients</h2>
+          <p className="text-xs text-slate-400">{companies.length} client{companies.length !== 1 ? 's' : ''} · click to open</p>
         </div>
         <button onClick={onCreate} className="flex items-center gap-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-semibold px-3 py-2 rounded-lg transition-colors">
-          <Plus className="h-3.5 w-3.5" />Add Company
+          <Plus className="h-3.5 w-3.5" />Add Client
         </button>
       </div>
       <div className="space-y-3">
@@ -817,7 +821,7 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
             <p className="text-[11px] text-slate-400 max-w-md">Permanently remove <span className="text-white font-medium">{c.name}</span> and all of its data — users, cases, invoices and settings. This cannot be undone.</p>
             <button onClick={() => { setRemoveErr(''); setRemovePw(''); setRemoveStep('confirm') }}
               className="flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/40 text-red-300 hover:bg-red-500/20 flex-shrink-0">
-              <Trash2 className="h-3.5 w-3.5" />Remove Company
+              <Trash2 className="h-3.5 w-3.5" />Remove Client
             </button>
           </div>
         </div>
@@ -1067,7 +1071,7 @@ function CreateCompanyDialog({ call, onClose, onCreated }: {
   return (
     <Overlay onClose={onClose} wide>
       <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2"><Building2 className="h-5 w-5 text-amber-400" /><h3 className="text-sm font-semibold text-white">New Company</h3></div>
+        <div className="flex items-center gap-2"><Building2 className="h-5 w-5 text-amber-400" /><h3 className="text-sm font-semibold text-white">New Client</h3></div>
         <button onClick={onClose} className="text-slate-400 hover:text-white"><X className="h-4 w-4" /></button>
       </div>
       <div className="space-y-3 max-h-[62vh] overflow-y-auto pr-1">
