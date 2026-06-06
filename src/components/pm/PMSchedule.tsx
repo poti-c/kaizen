@@ -5,7 +5,7 @@ import { useCompany } from '@/contexts/CompanyContext'
 import { useAuth } from '@/contexts/AuthContext'
 import { toast } from 'sonner'
 
-interface PMTask {
+export interface PMTask {
   id: string; company_id: string; asset_id: string; due_date: string; status: string
   performed_at: string | null; checklist_results: { item: string; result: string }[]
   findings: string | null; readings: string | null; parts_used: string | null; notes: string | null
@@ -16,7 +16,7 @@ const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 function dayKey(d: Date) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` }
 function fmt(d: string) { return new Date(d + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }) }
 
-function taskTone(t: PMTask): { chip: string; dot: string; label: string } {
+export function taskTone(t: PMTask): { chip: string; dot: string; label: string } {
   if (t.status === 'done' || t.status === 'approved') return { chip: 'bg-green-100 text-green-700 border-green-200', dot: 'bg-green-500', label: 'Done' }
   if (t.status === 'pending_approval') return { chip: 'bg-violet-100 text-violet-700 border-violet-200', dot: 'bg-violet-500', label: 'Awaiting approval' }
   const overdue = t.due_date < dayKey(new Date())
@@ -118,7 +118,7 @@ export function PMSchedule() {
   )
 }
 
-function PMTaskModal({ task, onClose, onDone }: { task: PMTask; onClose: () => void; onDone: () => void }) {
+export function PMTaskModal({ task, onClose, onDone }: { task: PMTask; onClose: () => void; onDone: () => void }) {
   const { profile } = useAuth()
   const items = task.asset?.checklist ?? []
   const pending = task.status === 'pending_approval'

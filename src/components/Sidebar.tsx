@@ -76,6 +76,7 @@ export function Sidebar() {
           <NavLink
             key={to}
             to={to}
+            end={to === '/cases'}
             className={({ isActive }) =>
               cn(
                 'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all',

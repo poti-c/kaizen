@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ChevronLeft, ChevronRight, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Wrench } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useCompany } from '@/contexts/CompanyContext'
@@ -9,25 +9,24 @@ import { cn, companyHasAddon } from '@/lib/utils'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import type { KaizenCase, Department } from '@/types'
 import { DEPARTMENTS } from '@/types'
-import { PMSchedule } from '@/components/pm/PMSchedule'
+import { PMTaskModal, taskTone, type PMTask } from '@/components/pm/PMSchedule'
 
 const PRIORITY_COLORS: Record<string, string> = {
-  low:      'bg-green-500 text-white',
-  medium:   'bg-blue-400 text-white',
-  high:     'bg-orange-500 text-white',
-  critical: 'bg-red-500 text-white',
+  low: 'bg-green-500 text-white', medium: 'bg-blue-400 text-white',
+  high: 'bg-orange-500 text-white', critical: 'bg-red-500 text-white',
 }
-
-const MONTH_NAMES_EN = [
-  'January','February','March','April','May','June',
-  'July','August','September','October','November','December',
-]
-const MONTH_NAMES_TH = [
-  'มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน',
-  'กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม',
-]
+const MONTH_NAMES_EN = ['January','February','March','April','May','June','July','August','September','October','November','December']
+const MONTH_NAMES_TH = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม']
 const DAY_LABELS_EN = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun']
 const DAY_LABELS_TH = ['จ','อ','พ','พฤ','ศ','ส','อา']
+
+const PM_NAME = 'Preventive Maintenance Scheduler'
+
+function isoKey(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+}
+
+type Entry = { kind: 'case'; case: KaizenCase } | { kind: 'pm'; task: PMTask }
 
 export function CasesCalendarPage() {
   const { profile } = useAuth()
@@ -39,258 +38,182 @@ export function CasesCalendarPage() {
   const [viewYear, setViewYear] = useState(today.getFullYear())
   const [viewMonth, setViewMonth] = useState(today.getMonth())
   const [cases, setCases] = useState<KaizenCase[]>([])
+  const [pmTasks, setPmTasks] = useState<PMTask[]>([])
   const [loading, setLoading] = useState(true)
-  const [selectedDate, setSelectedDate] = useState<Date | null>(null)
-  const [selectedCases, setSelectedCases] = useState<KaizenCase[]>([])
+  const [selectedKey, setSelectedKey] = useState<string>(isoKey(today))
   const [deptFilter, setDeptFilter] = useState<Department | 'all'>(
     () => (localStorage.getItem('kaizen-default-dept') as Department | 'all') || 'all'
   )
+  const pmEnabled = companyHasAddon(activeCompany, 'pms')
+  const [mode, setMode] = useState<'cases' | 'pm'>('cases')
+  const [showPM, setShowPM] = useState(false)
+  const [openTask, setOpenTask] = useState<PMTask | null>(null)
 
   const MONTH_NAMES = lang === 'th' ? MONTH_NAMES_TH : MONTH_NAMES_EN
   const DAY_LABELS = lang === 'th' ? DAY_LABELS_TH : DAY_LABELS_EN
-
-  const pmEnabled = companyHasAddon(activeCompany, 'pms')
-  const [mode, setMode] = useState<'cases' | 'pm'>('cases')
+  const showPmData = pmEnabled && (mode === 'pm' || showPM)
+  const showCaseData = mode === 'cases'
 
   useEffect(() => {
-    if (profile && activeCompany) fetchCases()
-  }, [profile, activeCompany, viewMonth, viewYear])
+    if (profile && activeCompany) fetchData()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile, activeCompany, viewMonth, viewYear, mode, showPM])
 
-  const ModeTabs = pmEnabled ? (
-    <div className="flex gap-1 border-b border-gray-200">
-      {([['cases', t.calendar.casesCalendar], ['pm', t.nav.maintenance]] as const).map(([m, label]) => (
-        <button key={m} onClick={() => setMode(m)}
-          className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${mode === m ? 'border-[var(--brand-primary)] text-[var(--brand-primary)]' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
-          {label}
-        </button>
-      ))}
-    </div>
-  ) : null
-
-  // Render the PM schedule view (after all hooks above — never early-return before a hook).
-  if (pmEnabled && mode === 'pm') {
-    return (
-      <div className="p-4 md:p-6 max-w-7xl mx-auto animate-fade-in">
-        <div className="mb-5 space-y-3">
-          <h1 className="text-xl md:text-2xl font-bold text-gray-900">{t.nav.maintenance}</h1>
-          {ModeTabs}
-        </div>
-        <PMSchedule />
-      </div>
-    )
-  }
-
-  async function fetchCases() {
+  async function fetchData() {
+    if (!activeCompany) return
     setLoading(true)
-    const start = new Date(viewYear, viewMonth, 1).toISOString()
-    const end = new Date(viewYear, viewMonth + 1, 0, 23, 59, 59).toISOString()
+    const start = new Date(viewYear, viewMonth, 1)
+    const end = new Date(viewYear, viewMonth + 1, 0, 23, 59, 59)
+    const jobs: PromiseLike<unknown>[] = []
 
-    let query = supabase
-      .from('kaizen_cases')
-      .select('*')
-      .eq('company_id', activeCompany!.id)
-      .gte('created_at', start)
-      .lte('created_at', end)
+    if (showCaseData) {
+      let q = supabase.from('kaizen_cases').select('*').eq('company_id', activeCompany.id)
+        .gte('created_at', start.toISOString()).lte('created_at', end.toISOString())
+      if (profile?.role === 'staff') q = q.eq('department', profile.department)
+      jobs.push(q.then(({ data }) => setCases((data || []) as KaizenCase[])))
+    } else { setCases([]) }
 
-    // Staff: own department only. Super Admin & Manager: all cases
-    if (profile?.role === 'staff') {
-      query = query.eq('department', profile.department)
-    }
+    if (showPmData) {
+      jobs.push((async () => {
+        await supabase.rpc('kaizen_pm_sync')
+        const from = isoKey(new Date(viewYear, viewMonth - 1, 21))
+        const to = isoKey(new Date(viewYear, viewMonth + 1, 14))
+        const { data } = await supabase.from('kaizen_pm_tasks')
+          .select('*, asset:kaizen_pm_assets(name, location, notes, checklist, department, type:kaizen_pm_equipment_types(name))')
+          .eq('company_id', activeCompany.id).neq('status', 'cancelled').gte('due_date', from).lte('due_date', to)
+        setPmTasks((data as PMTask[]) ?? [])
+      })())
+    } else { setPmTasks([]) }
 
-    const { data } = await query
-    setCases((data || []) as KaizenCase[])
+    await Promise.all(jobs)
     setLoading(false)
   }
 
-  function prevMonth() {
-    if (viewMonth === 0) { setViewMonth(11); setViewYear(y => y - 1) }
-    else setViewMonth(m => m - 1)
-  }
-  function nextMonth() {
-    if (viewMonth === 11) { setViewMonth(0); setViewYear(y => y + 1) }
-    else setViewMonth(m => m + 1)
-  }
-  function goToday() {
-    setViewMonth(today.getMonth())
-    setViewYear(today.getFullYear())
-  }
+  function prevMonth() { if (viewMonth === 0) { setViewMonth(11); setViewYear(y => y - 1) } else setViewMonth(m => m - 1) }
+  function nextMonth() { if (viewMonth === 11) { setViewMonth(0); setViewYear(y => y + 1) } else setViewMonth(m => m + 1) }
+  function goToday() { setViewMonth(today.getMonth()); setViewYear(today.getFullYear()); setSelectedKey(isoKey(today)) }
 
-  // Apply dept filter (client-side)
   const filteredCases = cases.filter(c => {
-    if (profile?.role === 'staff') return true // staff always sees own dept (filtered server-side)
+    if (profile?.role === 'staff') return true
     if (deptFilter === 'all') return true
     return c.department === deptFilter
   })
 
-  // Build calendar grid (Monday-first, like iCal)
-  const firstDayOfMonth = new Date(viewYear, viewMonth, 1).getDay() // 0=Sun
+  // Monday-first grid
+  const firstDayOfMonth = new Date(viewYear, viewMonth, 1).getDay()
   const startOffset = firstDayOfMonth === 0 ? 6 : firstDayOfMonth - 1
   const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate()
   const daysInPrevMonth = new Date(viewYear, viewMonth, 0).getDate()
-
   type Cell = { date: Date; isCurrentMonth: boolean }
   const cells: Cell[] = []
-
-  for (let i = startOffset - 1; i >= 0; i--) {
-    cells.push({ date: new Date(viewYear, viewMonth - 1, daysInPrevMonth - i), isCurrentMonth: false })
-  }
-  for (let d = 1; d <= daysInMonth; d++) {
-    cells.push({ date: new Date(viewYear, viewMonth, d), isCurrentMonth: true })
-  }
+  for (let i = startOffset - 1; i >= 0; i--) cells.push({ date: new Date(viewYear, viewMonth - 1, daysInPrevMonth - i), isCurrentMonth: false })
+  for (let d = 1; d <= daysInMonth; d++) cells.push({ date: new Date(viewYear, viewMonth, d), isCurrentMonth: true })
   const remaining = (7 - (cells.length % 7)) % 7
-  for (let d = 1; d <= remaining; d++) {
-    cells.push({ date: new Date(viewYear, viewMonth + 1, d), isCurrentMonth: false })
-  }
+  for (let d = 1; d <= remaining; d++) cells.push({ date: new Date(viewYear, viewMonth + 1, d), isCurrentMonth: false })
 
-  // Group cases by day key (using filtered cases)
-  const casesByDate: Record<string, KaizenCase[]> = {}
-  filteredCases.forEach(c => {
-    const d = new Date(c.created_at)
-    const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
-    if (!casesByDate[key]) casesByDate[key] = []
-    casesByDate[key].push(c)
+  // Entries by day key
+  const byDay: Record<string, Entry[]> = {}
+  if (showCaseData) filteredCases.forEach(c => {
+    const k = isoKey(new Date(c.created_at)); (byDay[k] ||= []).push({ kind: 'case', case: c })
   })
-
-  function cellKey(date: Date) {
-    return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`
-  }
+  if (showPmData) pmTasks.forEach(tk => { (byDay[tk.due_date] ||= []).push({ kind: 'pm', task: tk }) })
 
   function isToday(date: Date) {
-    return date.getDate() === today.getDate() &&
-      date.getMonth() === today.getMonth() &&
-      date.getFullYear() === today.getFullYear()
+    return date.getDate() === today.getDate() && date.getMonth() === today.getMonth() && date.getFullYear() === today.getFullYear()
   }
-
-  function getCaseColor(c: KaizenCase) {
-    if (['closed'].includes(c.status)) return 'bg-gray-200 text-gray-400'
+  function caseColor(c: KaizenCase) {
+    if (c.status === 'closed') return 'bg-gray-200 text-gray-500'
     return PRIORITY_COLORS[c.priority] || 'bg-gray-400 text-white'
   }
 
-  const legend = [
-    { label: t.priority.low,      color: 'bg-green-500' },
-    { label: t.priority.medium,   color: 'bg-blue-400' },
-    { label: t.priority.high,     color: 'bg-orange-500' },
-    { label: t.priority.critical, color: 'bg-red-500' },
-    { label: t.status.closed,     color: 'bg-gray-200 border border-gray-300' },
-  ]
-
-  const showDeptFilter = profile?.role === 'super_admin' || profile?.role === 'manager'
+  const showDeptFilter = (profile?.role === 'super_admin' || profile?.role === 'manager') && mode === 'cases'
+  const selectedDate = selectedKey ? new Date(selectedKey + 'T00:00:00') : null
+  const selectedEntries = byDay[selectedKey] ?? []
 
   return (
-    <div className="p-4 md:p-6 max-w-7xl mx-auto animate-fade-in">
-
+    <div className="p-4 md:p-6 max-w-5xl mx-auto animate-fade-in">
       {/* Header */}
-      <div className="mb-5 space-y-3">
-        <h1 className="text-xl md:text-2xl font-bold text-gray-900">
-          {t.calendar.casesCalendar}
-        </h1>
-        {ModeTabs}
-        {/* Controls row — single line on mobile */}
-        <div className="flex items-center gap-2">
-          {/* Department filter */}
+      <div className="mb-4 space-y-3">
+        <h1 className="text-xl md:text-2xl font-bold text-gray-900">{mode === 'pm' ? PM_NAME : t.calendar.casesCalendar}</h1>
+        {pmEnabled && (
+          <div className="flex gap-1 border-b border-gray-200">
+            {([['cases', t.calendar.casesCalendar], ['pm', PM_NAME]] as const).map(([m, label]) => (
+              <button key={m} onClick={() => setMode(m)}
+                className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${mode === m ? 'border-[var(--brand-primary)] text-[var(--brand-primary)]' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Controls — macOS-style grouped nav */}
+        <div className="flex items-center gap-2 flex-wrap">
           {showDeptFilter && (
             <Select value={deptFilter} onValueChange={(v) => setDeptFilter(v as Department | 'all')}>
-              <SelectTrigger className="h-9 w-36 text-sm flex-shrink-0">
-                <SelectValue placeholder={t.calendar.allDepts} />
-              </SelectTrigger>
+              <SelectTrigger className="h-8 w-32 text-xs flex-shrink-0"><SelectValue placeholder={t.calendar.allDepts} /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">{t.calendar.allDepts}</SelectItem>
                 {DEPARTMENTS.filter(d => d.value !== 'top_management').map((d) => (
-                  <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>
+                  <SelectItem key={d.value} value={d.value} className="text-xs">{d.label}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
           )}
-          {/* Month navigation — centred, takes remaining space */}
-          <div className="flex items-center gap-1 flex-1 justify-center">
-            <button onClick={prevMonth} className="p-2 rounded-lg hover:bg-gray-100 transition-colors border border-gray-200">
-              <ChevronLeft className="h-4 w-4 text-gray-600" />
-            </button>
-            <span className="text-sm font-semibold text-gray-900 whitespace-nowrap px-1">
-              {MONTH_NAMES[viewMonth]} {viewYear}
-            </span>
-            <button onClick={nextMonth} className="p-2 rounded-lg hover:bg-gray-100 transition-colors border border-gray-200">
-              <ChevronRight className="h-4 w-4 text-gray-600" />
-            </button>
+          {mode === 'cases' && pmEnabled && (
+            <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer flex-shrink-0">
+              <input type="checkbox" checked={showPM} onChange={(e) => setShowPM(e.target.checked)} className="accent-[var(--brand-primary)]" />
+              <Wrench className="h-3.5 w-3.5" />Show maintenance
+            </label>
+          )}
+          <div className="flex items-center gap-1 ml-auto bg-white border border-gray-200 rounded-lg p-0.5">
+            <button onClick={prevMonth} className="p-1.5 rounded-md hover:bg-gray-100"><ChevronLeft className="h-4 w-4 text-gray-600" /></button>
+            <span className="text-sm font-semibold text-gray-900 whitespace-nowrap px-2 min-w-[110px] text-center">{MONTH_NAMES[viewMonth]} {viewYear}</span>
+            <button onClick={nextMonth} className="p-1.5 rounded-md hover:bg-gray-100"><ChevronRight className="h-4 w-4 text-gray-600" /></button>
+            <button onClick={goToday} className="px-2.5 h-7 text-xs font-medium text-gray-600 hover:bg-gray-100 rounded-md">{t.calendar.today}</button>
           </div>
-          <button
-            onClick={goToday}
-            className="flex-shrink-0 px-3 py-1.5 text-sm font-medium border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
-          >
-            {t.calendar.today}
-          </button>
         </div>
       </div>
 
       {/* Calendar */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-        {/* Day header row */}
         <div className="grid grid-cols-7 border-b border-gray-100 bg-gray-50">
           {DAY_LABELS.map((d, i) => (
-            <div
-              key={d}
-              className={`py-2.5 text-xs font-semibold uppercase tracking-wider text-center ${
-                i >= 5 ? 'text-blue-400' : 'text-gray-500'
-              }`}
-            >
-              {d}
-            </div>
+            <div key={d} className={`py-2 text-[11px] font-semibold uppercase tracking-wider text-center ${i >= 5 ? 'text-blue-400' : 'text-gray-500'}`}>{d}</div>
           ))}
         </div>
-
-        {/* Day cells */}
         {loading ? (
-          <div className="flex items-center justify-center py-24">
-            <div className="w-8 h-8 border-2 border-[var(--brand-primary)] border-t-transparent rounded-full animate-spin" />
-          </div>
+          <div className="flex items-center justify-center py-24"><div className="w-8 h-8 border-2 border-[var(--brand-primary)] border-t-transparent rounded-full animate-spin" /></div>
         ) : (
           <div className="grid grid-cols-7 divide-x divide-y divide-gray-100">
             {cells.map((cell, i) => {
-              const cellCases = casesByDate[cellKey(cell.date)] || []
+              const key = isoKey(cell.date)
+              const entries = byDay[key] || []
               const today_ = isToday(cell.date)
+              const selected = key === selectedKey
               const isWeekend = i % 7 >= 5
               return (
-                <div
-                  key={i}
-                  onClick={() => { const dayCases = casesByDate[cellKey(cell.date)] || []; if (dayCases.length > 0) { setSelectedDate(cell.date); setSelectedCases(dayCases) } }}
-                  className={cn(
-                    `min-h-[90px] md:min-h-[110px] p-1 md:p-1.5`,
-                    (casesByDate[cellKey(cell.date)] || []).length > 0 ? 'cursor-pointer' : '',
-                    !cell.isCurrentMonth ? 'bg-gray-50/70' : isWeekend ? 'bg-blue-50/20' : 'bg-white'
-                  )}
-                >
-                  {/* Day number */}
+                <div key={i} onClick={() => setSelectedKey(key)}
+                  className={cn('min-h-[78px] md:min-h-[104px] p-1 md:p-1.5 cursor-pointer transition-colors',
+                    selected ? 'bg-[var(--brand-primary)]/5' : !cell.isCurrentMonth ? 'bg-gray-50/70' : isWeekend ? 'bg-blue-50/20' : 'bg-white hover:bg-gray-50')}>
                   <div className="flex justify-end mb-1">
-                    <span
-                      className={`text-xs font-medium w-6 h-6 flex items-center justify-center rounded-full leading-none ${
-                        today_
-                          ? 'bg-[var(--brand-primary)] text-white font-bold'
-                          : cell.isCurrentMonth
-                          ? isWeekend ? 'text-blue-500' : 'text-gray-700'
-                          : 'text-gray-300'
-                      }`}
-                    >
+                    <span className={cn('text-xs w-6 h-6 flex items-center justify-center rounded-full leading-none',
+                      today_ ? 'bg-[var(--brand-primary)] text-white font-bold'
+                      : selected ? 'border border-[var(--brand-primary)] text-[var(--brand-primary)] font-semibold'
+                      : cell.isCurrentMonth ? (isWeekend ? 'text-blue-500' : 'text-gray-700') : 'text-gray-300')}>
                       {cell.date.getDate()}
                     </span>
                   </div>
-
-                  {/* Case strips */}
                   <div className="space-y-0.5">
-                    {cellCases.slice(0, 3).map(c => (
-                      <button
-                        key={c.id}
-                        onClick={() => navigate(`/cases/${c.id}`)}
-                        className={`w-full text-left px-1.5 py-0.5 rounded text-[10px] font-medium truncate block leading-4 ${getCaseColor(c)} hover:opacity-75 transition-opacity`}
-                        title={`${c.case_number} · ${c.title}`}
-                      >
-                        {c.case_number}
-                      </button>
+                    {entries.slice(0, 3).map((e, idx) => e.kind === 'case' ? (
+                      <button key={'c' + e.case.id} onClick={(ev) => { ev.stopPropagation(); navigate(`/cases/${e.case.id}`) }}
+                        className={`w-full text-left px-1.5 py-0.5 rounded text-[10px] font-medium truncate block leading-4 ${caseColor(e.case)} hover:opacity-75`}
+                        title={`${e.case.case_number} · ${e.case.title}`}>{e.case.case_number}</button>
+                    ) : (
+                      <button key={'p' + e.task.id} onClick={(ev) => { ev.stopPropagation(); setOpenTask(e.task) }}
+                        className={`w-full text-left px-1.5 py-0.5 rounded border text-[10px] font-medium truncate flex items-center gap-1 leading-4 ${taskTone(e.task).chip}`}
+                        title={e.task.asset?.name}><Wrench className="h-2.5 w-2.5 flex-shrink-0" /><span className="truncate">{e.task.asset?.name ?? 'Asset'}</span></button>
                     ))}
-                    {cellCases.length > 3 && (
-                      <p className="text-[10px] text-gray-400 pl-1 leading-4">
-                        +{cellCases.length - 3} {t.calendar.more}
-                      </p>
-                    )}
+                    {entries.length > 3 && <p className="text-[10px] text-gray-400 pl-1 leading-4">+{entries.length - 3} {t.calendar.more}</p>}
                   </div>
                 </div>
               )
@@ -299,47 +222,65 @@ export function CasesCalendarPage() {
         )}
       </div>
 
-      {/* Day detail modal */}
+      {/* Inline selected-day list (iPhone-style) */}
       {selectedDate && (
-        <>
-          <div className="fixed inset-0 z-40 bg-black/40" onClick={() => setSelectedDate(null)} />
-          <div className="fixed inset-x-4 top-1/2 -translate-y-1/2 z-50 bg-white rounded-2xl shadow-2xl max-w-md mx-auto overflow-hidden">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-              <h3 className="font-semibold text-gray-900">
-                {selectedDate.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
-              </h3>
-              <button onClick={() => setSelectedDate(null)} className="p-1 hover:bg-gray-100 rounded-lg">
-                <X className="h-4 w-4 text-gray-500" />
-              </button>
-            </div>
-            <div className="max-h-80 overflow-y-auto divide-y divide-gray-50">
-              {selectedCases.map((c) => (
-                <div key={c.id} onClick={() => { navigate(`/cases/${c.id}`); setSelectedDate(null) }}
-                  className="flex items-center gap-3 px-5 py-3.5 hover:bg-gray-50 cursor-pointer">
-                  <div className={cn('w-2 h-2 rounded-full flex-shrink-0', getCaseColor(c).includes('green') ? 'bg-green-500' : getCaseColor(c).includes('blue') ? 'bg-blue-400' : getCaseColor(c).includes('orange') ? 'bg-orange-500' : getCaseColor(c).includes('red') ? 'bg-red-500' : 'bg-gray-300')} />
+        <div className="mt-4 bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-100">
+            <h3 className="text-sm font-semibold text-gray-900">{selectedDate.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</h3>
+          </div>
+          {selectedEntries.length === 0 ? (
+            <p className="px-4 py-8 text-center text-sm text-gray-400">{mode === 'pm' ? 'No maintenance scheduled.' : 'Nothing on this day.'}</p>
+          ) : (
+            <div className="divide-y divide-gray-50">
+              {selectedEntries.map((e) => e.kind === 'case' ? (
+                <div key={'c' + e.case.id} onClick={() => navigate(`/cases/${e.case.id}`)} className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 cursor-pointer">
+                  <span className={cn('w-2.5 h-2.5 rounded-full flex-shrink-0', caseColor(e.case).split(' ')[0])} />
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-900 truncate">{c.title}</p>
-                    <p className="text-xs text-gray-400">{c.case_number} · {c.department}</p>
+                    <p className="text-sm font-medium text-gray-900 truncate">{e.case.title}</p>
+                    <p className="text-xs text-gray-400">{e.case.case_number} · {e.case.department}</p>
                   </div>
                 </div>
+              ) : (
+                <button key={'p' + e.task.id} onClick={() => setOpenTask(e.task)} className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 text-left">
+                  <span className={cn('w-2.5 h-2.5 rounded-full flex-shrink-0', taskTone(e.task).dot)} />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-900 truncate flex items-center gap-1.5"><Wrench className="h-3 w-3 text-gray-400" />{e.task.asset?.name ?? 'Maintenance'}</p>
+                    <p className="text-xs text-gray-400">{taskTone(e.task).label}{e.task.asset?.location ? ` · ${e.task.asset.location}` : ''}</p>
+                  </div>
+                </button>
               ))}
             </div>
-          </div>
-        </>
+          )}
+        </div>
       )}
 
       {/* Legend */}
       <div className="flex items-center gap-4 mt-3 flex-wrap">
-        <span className="text-xs text-gray-400 font-medium">
-          {t.calendar.priorityLabel}
-        </span>
-        {legend.map(({ label, color }) => (
-          <div key={label} className="flex items-center gap-1.5">
-            <div className={`w-3 h-2.5 rounded-sm ${color}`} />
-            <span className="text-xs text-gray-500">{label}</span>
-          </div>
-        ))}
+        {mode === 'pm' ? (
+          <>
+            <Legend color="bg-sky-500" label="Scheduled" />
+            <Legend color="bg-amber-500" label="In progress" />
+            <Legend color="bg-violet-500" label="Awaiting approval" />
+            <Legend color="bg-red-500" label="Overdue" />
+            <Legend color="bg-green-500" label="Done" />
+          </>
+        ) : (
+          <>
+            <span className="text-xs text-gray-400 font-medium">{t.calendar.priorityLabel}</span>
+            <Legend color="bg-green-500" label={t.priority.low} />
+            <Legend color="bg-blue-400" label={t.priority.medium} />
+            <Legend color="bg-orange-500" label={t.priority.high} />
+            <Legend color="bg-red-500" label={t.priority.critical} />
+            <Legend color="bg-gray-200 border border-gray-300" label={t.status.closed} />
+          </>
+        )}
       </div>
+
+      {openTask && <PMTaskModal task={openTask} onClose={() => setOpenTask(null)} onDone={() => { setOpenTask(null); fetchData() }} />}
     </div>
   )
+}
+
+function Legend({ color, label }: { color: string; label: string }) {
+  return <div className="flex items-center gap-1.5"><div className={`w-3 h-2.5 rounded-sm ${color}`} /><span className="text-xs text-gray-500">{label}</span></div>
 }

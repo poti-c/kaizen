@@ -297,6 +297,7 @@ export function Header() {
                 <NavLink
                   key={to}
                   to={to}
+                  end={to === '/cases'}
                   onClick={() => setShowMobileNav(false)}
                   className={({ isActive }) =>
                     cn(
