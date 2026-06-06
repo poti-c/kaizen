@@ -11,7 +11,8 @@ import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
 import { DEPARTMENT_LABELS, DEPARTMENTS } from '@/types'
 import type { KaizenCompany } from '@/types'
-import { CATEGORIES, LOCATIONS, getInitials, companyHasFeature } from '@/lib/utils'
+import { CATEGORIES, LOCATIONS, getInitials, companyHasFeature, companyHasAddon } from '@/lib/utils'
+import { PMEquipmentTypes } from '@/components/PMEquipmentTypes'
 import { toast } from 'sonner'
 import { usePushNotifications } from '@/hooks/usePushNotifications'
 
@@ -798,6 +799,9 @@ export function SettingsPage() {
 
       {/* ── Companies — founder only ── */}
       {profile?.email === 'poti@nanirand.com' && <CompaniesSection />}
+
+      {/* ── Preventive Maintenance equipment types — Top Management, PMS add-on only ── */}
+      {profile?.role === 'super_admin' && companyHasAddon(activeCompany, 'pms') && <PMEquipmentTypes />}
 
       {/* Theme settings — super admin only, and only if the package includes it */}
       {profile?.role === 'super_admin' && companyHasFeature(activeCompany, 'custom_theme') && (
