@@ -1011,13 +1011,6 @@ export function SettingsPage() {
                 </DialogTitle>
               </DialogHeader>
               <div className="text-xs text-gray-500 space-y-3 leading-relaxed text-left max-h-[55vh] overflow-y-auto">
-                <div className="flex justify-center pt-1 pb-2">
-                  <img
-                    src="/nnr-solutions-logo.png"
-                    alt="NNR-Solutions Co., Ltd."
-                    className="h-20 w-auto object-contain"
-                  />
-                </div>
                 <p>
                   All intellectual property rights relating to this application, including but not limited to its software,
                   source code, system design, user interface, workflow logic, database structure, documentation, name, logo,
@@ -1035,6 +1028,13 @@ export function SettingsPage() {
                   create derivative works from the application, in whole or in part, without prior written permission from{' '}
                   <span className="font-semibold text-gray-700">NNR-Solutions Co., Ltd.</span>
                 </p>
+                <div className="flex justify-center pt-3 pb-1">
+                  <img
+                    src="/nnr-solutions-logo.png"
+                    alt="NNR-Solutions Co., Ltd."
+                    className="h-[104px] w-auto object-contain"
+                  />
+                </div>
               </div>
               <DialogFooter>
                 <Button variant="outline" className="w-full" onClick={() => setSupportDialog(null)}>{lang === 'th' ? 'ปิด' : 'Close'}</Button>
