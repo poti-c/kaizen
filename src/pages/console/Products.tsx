@@ -186,7 +186,7 @@ function ProductCard({ product, call, onSaved, onDeleted, isNew }: { product: Pr
 
   return (
     <div className={`rounded-lg border p-3 ${d.is_active ? 'bg-slate-800/40 border-slate-700' : 'bg-slate-800/20 border-slate-800'}`}>
-      <fieldset disabled={locked} className={locked ? 'opacity-60 transition-opacity' : 'transition-opacity'}>
+      <fieldset disabled={locked} className={locked ? 'opacity-80 transition-opacity' : 'transition-opacity'}>
       <div className="flex items-center gap-2 mb-2.5">
         <input value={d.name} onChange={e => set({ name: e.target.value })} className={inputCls + ' flex-1 font-semibold'} placeholder={isPackage ? 'Package name' : 'Product name'} />
         <button onClick={() => set({ is_active: !d.is_active })} title={d.is_active ? 'Active' : 'Inactive'} className={`p-2 rounded-lg ${d.is_active ? 'text-green-400 hover:bg-green-500/10' : 'text-slate-500 hover:bg-slate-800'}`}><Power className="h-4 w-4" /></button>
@@ -225,12 +225,21 @@ function ProductCard({ product, call, onSaved, onDeleted, isNew }: { product: Pr
         <div className="mt-2.5">
           <p className="text-[11px] font-medium text-slate-400 mb-1.5">Feature Authorities</p>
           <div className="grid grid-cols-2 gap-1.5">
-            {CAPABILITIES.map(c => (
-              <label key={c.key} className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
-                <input type="checkbox" checked={!!d.features[c.key]} onChange={() => toggleFeature(c.key)} className="accent-amber-500" />
-                {c.label}
-              </label>
-            ))}
+            {CAPABILITIES.map(c => {
+              const on = !!d.features[c.key]
+              return (
+                <label key={c.key} className={`flex items-center gap-2 text-xs ${locked ? '' : 'cursor-pointer'} ${on ? 'text-slate-200' : 'text-slate-500'}`}>
+                  {locked ? (
+                    on
+                      ? <Check className="h-4 w-4 text-amber-400 flex-shrink-0" />
+                      : <span className="h-3.5 w-3.5 rounded-[3px] border border-slate-600 flex-shrink-0" />
+                  ) : (
+                    <input type="checkbox" checked={on} onChange={() => toggleFeature(c.key)} className="accent-amber-500" />
+                  )}
+                  {c.label}
+                </label>
+              )
+            })}
           </div>
         </div>
       )}
