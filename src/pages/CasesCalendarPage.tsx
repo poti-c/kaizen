@@ -133,18 +133,18 @@ export function CasesCalendarPage() {
       <div className="mb-4 space-y-3">
         <h1 className="text-xl md:text-2xl font-bold text-gray-900">{t.nav.calendar}</h1>
         {pmEnabled && (
-          <div className="flex gap-1 border-b border-gray-200">
-            {([['cases', 'Cases'], ['pm', 'PM Schedules'], ['combined', 'Combined']] as const).map(([m, label]) => (
+          <div className="flex gap-1 border-b border-gray-200 overflow-x-auto">
+            {([['cases', 'Cases'], ['pm', 'Preventive Maintenance Schedules'], ['combined', 'Combined']] as const).map(([m, label]) => (
               <button key={m} onClick={() => setMode(m)}
-                className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${mode === m ? 'border-[var(--brand-primary)] text-[var(--brand-primary)]' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+                className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px whitespace-nowrap transition-colors ${mode === m ? 'border-[var(--brand-primary)] text-[var(--brand-primary)]' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
                 {label}
               </button>
             ))}
           </div>
         )}
 
-        {/* Centered month label */}
-        <p className="text-center text-base font-semibold text-gray-900">{MONTH_NAMES[viewMonth]} {viewYear}</p>
+        {/* Month label */}
+        <p className="text-right text-base font-semibold text-gray-900">{MONTH_NAMES[viewMonth]} {viewYear}</p>
 
         {/* Controls: department (left) · prev/Today/next (right) */}
         <div className="flex items-center gap-2">
@@ -247,27 +247,27 @@ export function CasesCalendarPage() {
         </div>
       )}
 
-      {/* Legend */}
-      <div className="flex items-center gap-4 mt-3 flex-wrap">
+      {/* Legend — Case priority and PM status split by a divider */}
+      <div className="mt-3 space-y-2">
         {showCaseData && (
-          <>
-            <span className="text-xs text-gray-400 font-medium">{t.calendar.priorityLabel}</span>
+          <div className="flex items-center gap-4 flex-wrap">
+            <span className="text-xs text-gray-400 font-medium">Case Priority:</span>
             <Legend color="bg-green-500" label={t.priority.low} />
             <Legend color="bg-blue-400" label={t.priority.medium} />
             <Legend color="bg-orange-500" label={t.priority.high} />
             <Legend color="bg-red-500" label={t.priority.critical} />
             <Legend color="bg-gray-200 border border-gray-300" label={t.status.closed} />
-          </>
+          </div>
         )}
         {showPmData && (
-          <>
-            {showCaseData && <span className="text-gray-300">|</span>}
+          <div className={`flex items-center gap-4 flex-wrap ${showCaseData ? 'border-t border-gray-200 pt-2' : ''}`}>
+            <span className="text-xs text-gray-400 font-medium">PM Status:</span>
             <Legend color="bg-sky-500" label="Scheduled" />
             <Legend color="bg-amber-500" label="In progress" />
             <Legend color="bg-violet-500" label="Awaiting approval" />
             <Legend color="bg-red-500" label="Overdue" />
             <Legend color="bg-green-500" label="Done" />
-          </>
+          </div>
         )}
       </div>
 
