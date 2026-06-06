@@ -1,13 +1,14 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { ChevronLeft, ChevronRight, Loader2, X, Check, Play, MapPin, Wrench } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Loader2, X, Check, Play, MapPin, Wrench, ThumbsUp, Undo2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useCompany } from '@/contexts/CompanyContext'
+import { useAuth } from '@/contexts/AuthContext'
 import { toast } from 'sonner'
 
 interface PMTask {
   id: string; company_id: string; asset_id: string; due_date: string; status: string
   performed_at: string | null; checklist_results: { item: string; result: string }[]
-  findings: string | null; readings: string | null; parts_used: string | null
+  findings: string | null; readings: string | null; parts_used: string | null; notes: string | null
   asset?: { name: string; location: string | null; notes: string | null; checklist: string[]; department: string | null; type?: { name: string } | null } | null
 }
 
@@ -17,6 +18,7 @@ function fmt(d: string) { return new Date(d + 'T00:00:00').toLocaleDateString('e
 
 function taskTone(t: PMTask): { chip: string; dot: string; label: string } {
   if (t.status === 'done' || t.status === 'approved') return { chip: 'bg-green-100 text-green-700 border-green-200', dot: 'bg-green-500', label: 'Done' }
+  if (t.status === 'pending_approval') return { chip: 'bg-violet-100 text-violet-700 border-violet-200', dot: 'bg-violet-500', label: 'Awaiting approval' }
   const overdue = t.due_date < dayKey(new Date())
   if (overdue) return { chip: 'bg-red-100 text-red-700 border-red-200', dot: 'bg-red-500', label: 'Overdue' }
   if (t.status === 'in_progress') return { chip: 'bg-amber-100 text-amber-700 border-amber-200', dot: 'bg-amber-500', label: 'In progress' }
@@ -40,7 +42,7 @@ export function PMSchedule() {
   const load = useCallback(async () => {
     if (!companyId) return
     setLoading(true)
-    await supabase.rpc('kaizen_pm_materialize_tasks') // ensure upcoming tasks exist
+    await supabase.rpc('kaizen_pm_sync') // materialize tasks, escalate overdue, send reminders
     const from = dayKey(cells[0]); const to = dayKey(cells[cells.length - 1])
     const { data, error } = await supabase
       .from('kaizen_pm_tasks')
@@ -117,17 +119,36 @@ export function PMSchedule() {
 }
 
 function PMTaskModal({ task, onClose, onDone }: { task: PMTask; onClose: () => void; onDone: () => void }) {
+  const { profile } = useAuth()
   const items = task.asset?.checklist ?? []
-  const done = task.status === 'done' || task.status === 'approved'
+  const pending = task.status === 'pending_approval'
+  const finished = task.status === 'done' || task.status === 'approved'
+  const recorded = finished || pending // execution already captured
+  // Approver = Top Management, or the responsible department's manager.
+  const isApprover = profile?.role === 'super_admin' || (profile?.role === 'manager' && profile?.department === task.asset?.department)
   const [results, setResults] = useState<Record<string, string>>(() => {
     const init: Record<string, string> = {}
-    if (done) for (const r of task.checklist_results ?? []) init[r.item] = r.result
+    if (recorded) for (const r of task.checklist_results ?? []) init[r.item] = r.result
     return init
   })
   const [findings, setFindings] = useState(task.findings ?? '')
   const [readings, setReadings] = useState(task.readings ?? '')
   const [parts, setParts] = useState(task.parts_used ?? '')
   const [busy, setBusy] = useState(false)
+
+  async function approve() {
+    setBusy(true)
+    const { error } = await supabase.rpc('kaizen_pm_approve_task', { p_task: task.id })
+    setBusy(false)
+    if (error) toast.error(error.message); else { toast.success('Maintenance approved'); onDone() }
+  }
+  async function reject() {
+    const note = prompt('Reason for returning this task to the technician?') ?? ''
+    setBusy(true)
+    const { error } = await supabase.rpc('kaizen_pm_reject_task', { p_task: task.id, p_note: note || null })
+    setBusy(false)
+    if (error) toast.error(error.message); else { toast.success('Returned to technician'); onDone() }
+  }
 
   async function start() {
     setBusy(true)
@@ -171,7 +192,7 @@ function PMTaskModal({ task, onClose, onDone }: { task: PMTask; onClose: () => v
                 {items.map((it) => (
                   <div key={it} className="flex items-center gap-2">
                     <span className="flex-1 text-sm text-gray-800">{it}</span>
-                    {done ? (
+                    {recorded ? (
                       <span className={`text-[11px] px-1.5 py-0.5 rounded-full ${results[it] === 'pass' ? 'bg-green-100 text-green-700' : results[it] === 'fail' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-500'}`}>{(results[it] ?? 'na').toUpperCase()}</span>
                     ) : (
                       <div className="flex gap-1">
@@ -187,12 +208,13 @@ function PMTaskModal({ task, onClose, onDone }: { task: PMTask; onClose: () => v
             </div>
           )}
 
-          {done ? (
+          {recorded ? (
             <div className="space-y-1.5 text-xs text-gray-600">
               {task.readings && <p><span className="font-medium">Readings:</span> {task.readings}</p>}
               {task.parts_used && <p><span className="font-medium">Parts:</span> {task.parts_used}</p>}
               {task.findings && <p><span className="font-medium">Findings:</span> {task.findings}</p>}
-              {task.performed_at && <p className="text-gray-400">Completed {new Date(task.performed_at).toLocaleString()}</p>}
+              {task.performed_at && <p className="text-gray-400">Performed {new Date(task.performed_at).toLocaleString()}</p>}
+              {pending && <p className="text-violet-600 font-medium">Awaiting approval{!isApprover ? ' by the responsible manager / Top Management' : ''}.</p>}
             </div>
           ) : (
             <>
@@ -202,14 +224,21 @@ function PMTaskModal({ task, onClose, onDone }: { task: PMTask; onClose: () => v
             </>
           )}
         </div>
-        {!done && (
+        {pending && isApprover ? (
+          <div className="flex items-center gap-2 px-5 py-4 border-t border-gray-200">
+            <button onClick={reject} disabled={busy} className="flex items-center gap-1.5 px-3 h-9 rounded-lg text-red-600 hover:bg-red-50 text-sm font-medium"><Undo2 className="h-4 w-4" />Return</button>
+            <button onClick={approve} disabled={busy} className="ml-auto flex items-center gap-1.5 px-4 h-9 rounded-lg bg-green-600 hover:bg-green-500 text-white text-sm font-semibold disabled:opacity-50">
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ThumbsUp className="h-4 w-4" />}Approve
+            </button>
+          </div>
+        ) : !recorded ? (
           <div className="flex items-center gap-2 px-5 py-4 border-t border-gray-200">
             {task.status === 'scheduled' && <button onClick={start} disabled={busy} className="flex items-center gap-1.5 px-3 h-9 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium"><Play className="h-4 w-4" />Start</button>}
             <button onClick={complete} disabled={busy} className="ml-auto flex items-center gap-1.5 px-4 h-9 rounded-lg bg-[var(--brand-primary)] text-white text-sm font-semibold disabled:opacity-50">
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}Complete
             </button>
           </div>
-        )}
+        ) : null}
       </div>
     </div>
   )

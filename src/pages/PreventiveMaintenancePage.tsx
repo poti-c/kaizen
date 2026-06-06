@@ -34,29 +34,32 @@ export function PreventiveMaintenancePage() {
   const [q, setQ] = useState('')
   const [filter, setFilter] = useState<AssetStatus | 'all'>('all')
   const [view, setView] = useState<'assets' | 'schedule'>('assets')
+  const [dueSoonDays, setDueSoonDays] = useState(7)
 
   const load = useCallback(async () => {
     if (!companyId) return
     setLoading(true)
-    const [a, t] = await Promise.all([
+    const [a, t, s] = await Promise.all([
       supabase.from('kaizen_pm_assets').select('*, type:kaizen_pm_equipment_types(name, category)').eq('company_id', companyId).order('next_maintenance_date', { ascending: true, nullsFirst: false }),
       supabase.from('kaizen_pm_equipment_types').select('id, name, category, is_active').eq('company_id', companyId).eq('is_active', true).order('category').order('name'),
+      supabase.from('kaizen_pm_settings').select('due_soon_days').eq('company_id', companyId).maybeSingle(),
     ])
     if (a.error) toast.error(a.error.message)
     setAssets((a.data as Asset[]) ?? [])
     setTypes((t.data as EqType[]) ?? [])
+    if (s.data?.due_soon_days != null) setDueSoonDays(s.data.due_soon_days)
     setLoading(false)
   }, [companyId])
   useEffect(() => { load() }, [load])
 
   const counts = assets.reduce((acc, a) => {
-    const s = assetStatus(a.next_maintenance_date, a.is_active)
+    const s = assetStatus(a.next_maintenance_date, a.is_active, dueSoonDays)
     acc[s] = (acc[s] ?? 0) + 1
     return acc
   }, {} as Record<AssetStatus, number>)
 
   const filtered = assets.filter((a) => {
-    if (filter !== 'all' && assetStatus(a.next_maintenance_date, a.is_active) !== filter) return false
+    if (filter !== 'all' && assetStatus(a.next_maintenance_date, a.is_active, dueSoonDays) !== filter) return false
     if (q && !`${a.name} ${a.location ?? ''} ${a.type?.name ?? ''}`.toLowerCase().includes(q.toLowerCase())) return false
     return true
   })
@@ -116,7 +119,7 @@ export function PreventiveMaintenancePage() {
       ) : (
         <div className="space-y-2">
           {filtered.map((a) => {
-            const s = assetStatus(a.next_maintenance_date, a.is_active)
+            const s = assetStatus(a.next_maintenance_date, a.is_active, dueSoonDays)
             const m = STATUS_META[s]
             return (
               <button key={a.id} onClick={() => canManage && setEditor(a)} className="w-full flex items-center gap-3 bg-white border border-gray-200 rounded-xl p-3 text-left hover:border-gray-300 transition-colors">

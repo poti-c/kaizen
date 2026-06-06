@@ -13,6 +13,7 @@ import { DEPARTMENT_LABELS, DEPARTMENTS } from '@/types'
 import type { KaizenCompany } from '@/types'
 import { CATEGORIES, LOCATIONS, getInitials, companyHasFeature, companyHasAddon } from '@/lib/utils'
 import { PMEquipmentTypes } from '@/components/PMEquipmentTypes'
+import { PMSettings } from '@/components/PMSettings'
 import { toast } from 'sonner'
 import { usePushNotifications } from '@/hooks/usePushNotifications'
 
@@ -800,7 +801,8 @@ export function SettingsPage() {
       {/* ── Companies — founder only ── */}
       {profile?.email === 'poti@nanirand.com' && <CompaniesSection />}
 
-      {/* ── Preventive Maintenance equipment types — Top Management, PMS add-on only ── */}
+      {/* ── Preventive Maintenance — Top Management, PMS add-on only ── */}
+      {profile?.role === 'super_admin' && companyHasAddon(activeCompany, 'pms') && <PMSettings />}
       {profile?.role === 'super_admin' && companyHasAddon(activeCompany, 'pms') && <PMEquipmentTypes />}
 
       {/* Theme settings — super admin only, and only if the package includes it */}
