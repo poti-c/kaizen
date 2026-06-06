@@ -112,12 +112,34 @@ async function packageDefaults(planKey) {
   return data ?? null;
 }
 
-function subscriptionFromEnd(period_end) {
-  if (!period_end) return { period_end: null, days_remaining: null, overdue: false, has_payment: false };
+function daysUntil(dateStr) {
   const today = new Date(); today.setUTCHours(0, 0, 0, 0);
-  const end = new Date(period_end + "T00:00:00Z");
-  const days = Math.ceil((end.getTime() - today.getTime()) / 86400000);
-  return { period_end, days_remaining: days, overdue: days < 0, has_payment: true };
+  const end = new Date(dateStr + "T00:00:00Z");
+  return Math.ceil((end.getTime() - today.getTime()) / 86400000);
+}
+// Lifecycle: a 'trial' company with no payment is on a free trial (period
+// derived from created_at + trialDays); once any payment exists, or for
+// paid plans, it's a subscription (period = latest payment's period_end).
+function computeSubscription(plan, created_at, latestPaymentEnd, trialDays) {
+  if (latestPaymentEnd) {
+    const days = daysUntil(latestPaymentEnd);
+    return { is_trial: false, has_payment: true, start: null, end: latestPaymentEnd, period_end: latestPaymentEnd, days_remaining: days, overdue: days < 0 };
+  }
+  if (plan === "trial" && created_at) {
+    const start = String(created_at).slice(0, 10);
+    const endD = new Date(start + "T00:00:00Z"); endD.setUTCDate(endD.getUTCDate() + (trialDays || 30));
+    const end = endD.toISOString().slice(0, 10);
+    const days = daysUntil(end);
+    return { is_trial: true, has_payment: false, start, end, period_end: end, days_remaining: days, overdue: days < 0 };
+  }
+  return { is_trial: false, has_payment: false, start: null, end: null, period_end: null, days_remaining: null, overdue: false };
+}
+// Map of package key -> duration_days (for trial length & subscription term).
+async function planDurations() {
+  const { data } = await admin.from("kaizen_products").select("key, duration_days").eq("kind", "package");
+  const m = {};
+  for (const p of (data ?? [])) m[p.key] = p.duration_days ?? null;
+  return m;
 }
 
 Deno.serve(async (req) => {
@@ -259,11 +281,12 @@ Deno.serve(async (req) => {
     for (const r of invoices) {
       if (!latestEnd[r.company_id] || r.period_end > latestEnd[r.company_id]) latestEnd[r.company_id] = r.period_end;
     }
+    const durations = await planDurations();
     const companyStats = companies.map((c) => ({
       ...c,
       live_managers: profiles.filter(p => p.company_id === c.id && p.role === "manager").length,
       live_staff: profiles.filter(p => p.company_id === c.id && p.role === "staff").length,
-      subscription: subscriptionFromEnd(latestEnd[c.id] ?? null),
+      subscription: computeSubscription(c.plan, c.created_at, latestEnd[c.id] ?? null, durations["trial"]),
     }));
     const ownersOut = owners.map((o) => {
       const ids = links.filter(l => l.super_admin_id === o.id).map(l => l.company_id);
@@ -530,8 +553,13 @@ Deno.serve(async (req) => {
   if (action === "list_invoices") {
     const company_id = String(body.company_id ?? "");
     if (!company_id) return json({ error: "company_id required" }, 400);
-    const { data } = await admin.from("kaizen_invoices").select("*").eq("company_id", company_id).order("payment_date", { ascending: false });
-    const rows = data ?? [];
+    const [invRes, coRes, docsRes, durations] = await Promise.all([
+      admin.from("kaizen_invoices").select("*").eq("company_id", company_id).order("payment_date", { ascending: false }),
+      admin.from("kaizen_companies").select("plan, created_at").eq("id", company_id).maybeSingle(),
+      admin.from("kaizen_generated_forms").select("id, form_type, doc_number, issue_date, total, currency, status, created_at").eq("company_id", company_id).order("issue_date", { ascending: false }),
+      planDurations(),
+    ]);
+    const rows = invRes.data ?? [];
     const invoices = [];
     for (const row of rows) {
       let proof_url = null;
@@ -543,7 +571,12 @@ Deno.serve(async (req) => {
     }
     let period_end = null;
     for (const r of rows) { if (!period_end || r.period_end > period_end) period_end = r.period_end; }
-    return json({ invoices, subscription: subscriptionFromEnd(period_end) });
+    const co = coRes.data;
+    return json({
+      invoices,
+      documents: docsRes.data ?? [],
+      subscription: computeSubscription(co?.plan, co?.created_at, period_end, durations["trial"]),
+    });
   }
 
   if (action === "add_invoice") {
@@ -552,7 +585,11 @@ Deno.serve(async (req) => {
     if (!company_id || !payment_date) return json({ error: "company_id and payment_date are required." }, 400);
     const pd = new Date(payment_date + "T00:00:00Z");
     if (isNaN(pd.getTime())) return json({ error: "Invalid payment date." }, 400);
-    const pe = new Date(pd); pe.setUTCFullYear(pe.getUTCFullYear() + 1);
+    // Subscription term = current plan's duration_days (default 365).
+    const { data: co } = await admin.from("kaizen_companies").select("plan").eq("id", company_id).maybeSingle();
+    const durations = await planDurations();
+    const term = Number(durations[co?.plan]) || 365;
+    const pe = new Date(pd); pe.setUTCDate(pe.getUTCDate() + term);
     const period_end = pe.toISOString().slice(0, 10);
     const payee = body.payee ? String(body.payee).trim() : null;
     const amount = (body.amount !== undefined && body.amount !== null && body.amount !== "") ? Number(body.amount) : null;

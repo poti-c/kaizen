@@ -37,6 +37,11 @@ async function callConsole<T = any>(action: string, payload: Record<string, unkn
 // ── Types ────────────────────────────────────────────────────────────────────
 interface Subscription {
   period_end: string | null; days_remaining: number | null; overdue: boolean; has_payment: boolean
+  is_trial?: boolean; start?: string | null; end?: string | null
+}
+interface ClientDocument {
+  id: string; form_type: 'quotation' | 'invoice' | 'tax_invoice_receipt' | 'receipt'
+  doc_number: string; issue_date: string; total: number; currency: string; status: string; created_at: string
 }
 interface ConsoleCompany {
   id: string; name: string; slug: string; is_active: boolean
@@ -63,10 +68,14 @@ interface AuditEntry {
 
 // SaaS package tiers
 const PACKAGES = [
-  { key: 'premium', label: 'Premium', desc: 'All features unlocked' },
-  { key: 'gold',    label: 'Gold',    desc: 'Core features' },
-  { key: 'trial',   label: 'Starter', desc: 'Entry package' },
+  { key: 'premium', label: 'Premium', desc: 'All features unlocked', term: '1-year subscription' },
+  { key: 'gold',    label: 'Gold',    desc: 'Core features',         term: '1-year subscription' },
+  { key: 'trial',   label: 'Starter', desc: 'Entry package',         term: '30-day free trial' },
 ] as const
+
+const FORM_TYPE_LABEL: Record<string, string> = {
+  quotation: 'Quotation', invoice: 'Invoice', tax_invoice_receipt: 'Tax Invoice / Receipt', receipt: 'Receipt',
+}
 
 function packageBadgeCls(plan: string) {
   if (plan === 'premium') return 'bg-amber-500/15 text-amber-400 border-amber-500/30'
@@ -302,6 +311,7 @@ function Dashboard({ token, onLogout }: { token: string; onLogout: () => void })
             reload={load}
             onBack={() => setSelectedCompanyId(null)}
             onAddOwner={() => { setPreselectCompany(selectedCompany.id); setShowCreate(true) }}
+            onOpenForm={openForm}
           />
         ) : tab === 'companies' ? (
           <CompaniesListTab companies={companies} owners={owners} onOpen={setSelectedCompanyId} onCreate={() => setShowCreateCompany(true)} />
@@ -391,6 +401,11 @@ function CompaniesListTab({ companies, owners, onOpen, onCreate }: {
 }
 
 function SubscriptionBadge({ sub }: { sub?: Subscription }) {
+  if (sub?.is_trial) {
+    if (sub.overdue) return <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-red-500/15 text-red-400 border border-red-500/30 font-semibold">Trial expired</span>
+    const warn = (sub.days_remaining ?? 0) <= 7
+    return <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium border ${warn ? 'bg-amber-500/15 text-amber-400 border-amber-500/30' : 'bg-sky-500/15 text-sky-300 border-sky-500/30'}`}>Trial · {sub.days_remaining}d left</span>
+  }
   if (!sub || !sub.has_payment) return <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700 font-medium">No payment</span>
   if (sub.overdue) return <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-red-500/15 text-red-400 border border-red-500/30 font-semibold">Overdue {Math.abs(sub.days_remaining!)}d</span>
   const soon = (sub.days_remaining ?? 0) <= 30
@@ -398,7 +413,7 @@ function SubscriptionBadge({ sub }: { sub?: Subscription }) {
 }
 
 // ── Company detail page ──────────────────────────────────────────────────────
-function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack, onAddOwner }: {
+function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack, onAddOwner, onOpenForm }: {
   company: ConsoleCompany
   owners: ConsoleOwner[]
   allCompanies: ConsoleCompany[]
@@ -406,6 +421,7 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
   reload: () => void
   onBack: () => void
   onAddOwner: () => void
+  onOpenForm: (formId: string) => void
 }) {
   const c = company
   // Top Management of this company: members homed here, plus anyone granted
@@ -430,8 +446,9 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
   const [removePw, setRemovePw] = useState('')
   const [removeErr, setRemoveErr] = useState('')
 
-  // Invoices
+  // Invoices + generated documents (Transaction History)
   const [invoices, setInvoices] = useState<Invoice[]>([])
+  const [documents, setDocuments] = useState<ClientDocument[]>([])
   const [sub, setSub] = useState<Subscription | null>(c.subscription ?? null)
   const [invLoading, setInvLoading] = useState(true)
   const [showPay, setShowPay] = useState(false)
@@ -441,8 +458,8 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
   const loadInvoices = useCallback(async () => {
     setInvLoading(true)
     try {
-      const d = await call<{ invoices: Invoice[]; subscription: Subscription }>('list_invoices', { company_id: c.id })
-      setInvoices(d.invoices); setSub(d.subscription)
+      const d = await call<{ invoices: Invoice[]; documents: ClientDocument[]; subscription: Subscription }>('list_invoices', { company_id: c.id })
+      setInvoices(d.invoices); setDocuments(d.documents ?? []); setSub(d.subscription)
     } catch (e) { console.error('Invoice load failed:', e) } finally { setInvLoading(false) }
   }, [call, c.id])
   useEffect(() => { loadInvoices() }, [loadInvoices])
@@ -660,6 +677,7 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
                     {active && <Check className="h-3 w-3 ml-auto" />}
                   </div>
                   <p className="text-[9px] opacity-70 mt-0.5">{p.desc}</p>
+                  <p className="text-[9px] font-medium opacity-90 mt-0.5">{p.term}</p>
                 </button>
               )
             })}
@@ -672,68 +690,99 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
         </div>
       </div>
 
-      {/* Subscription card */}
+      {/* Subscription / Trial card */}
       <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 mb-4">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <Clock className="h-4 w-4 text-slate-400" />
-            <h3 className="text-sm font-semibold text-white">Subscription</h3>
+            <h3 className="text-sm font-semibold text-white">{sub?.is_trial ? 'Free Trial' : 'Subscription'}</h3>
+            {sub?.is_trial && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-sky-500/15 text-sky-300 border border-sky-500/30 font-medium">Trial</span>}
           </div>
           <button onClick={() => setShowPay(true)} className="flex items-center gap-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-semibold px-3 py-1.5 rounded-lg">
-            <Plus className="h-3.5 w-3.5" />Record Payment
+            <Plus className="h-3.5 w-3.5" />{sub?.is_trial ? 'Activate Subscription' : 'Record Payment'}
           </button>
         </div>
-        {!sub || !sub.has_payment ? (
-          <p className="text-sm text-slate-400">No payment recorded yet. Record a payment to start the 1-year subscription.</p>
+        {sub?.is_trial ? (
+          <>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              <Detail label="Trial Started" icon={CalendarDays}>{fmtDate(sub.start ?? null)}</Detail>
+              <Detail label="Trial Ends" icon={CalendarDays}>{fmtDate(sub.end ?? null)}</Detail>
+              <Detail label="Status">
+                {sub.overdue
+                  ? <span className="text-red-400 font-semibold">Trial expired {Math.abs(sub.days_remaining!)}d ago</span>
+                  : <span className={(sub.days_remaining ?? 0) <= 7 ? 'text-amber-400 font-semibold' : 'text-green-400 font-semibold'}>{sub.days_remaining} days left</span>}
+              </Detail>
+            </div>
+            <p className="text-[11px] text-slate-400 mt-3">Starter is a 30-day free trial. The client app shows a countdown and a reminder in the final 7 days to upgrade to Gold or Premium. Record a payment to convert to a paid subscription.</p>
+          </>
+        ) : !sub || !sub.has_payment ? (
+          <p className="text-sm text-slate-400">No payment recorded yet. Record a payment to start the subscription for this package.</p>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-            <Detail label="Last Payment" icon={Receipt}>{fmtDate(invoices[0]?.payment_date ?? null)}</Detail>
+            <Detail label="Subscription Start" icon={Receipt}>{fmtDate(invoices[0]?.payment_date ?? sub.start ?? null)}</Detail>
             <Detail label="Valid Until" icon={CalendarDays}>{fmtDate(sub.period_end)}</Detail>
             <Detail label="Status">
               {sub.overdue
-                ? <span className="text-red-400 font-semibold">Overdue by {Math.abs(sub.days_remaining!)} days</span>
+                ? <span className="text-red-400 font-semibold">Expired {Math.abs(sub.days_remaining!)} days ago</span>
                 : <span className={(sub.days_remaining ?? 0) <= 30 ? 'text-amber-400 font-semibold' : 'text-green-400 font-semibold'}>{sub.days_remaining} days remaining</span>}
             </Detail>
           </div>
         )}
       </div>
 
-      {/* Invoices */}
+      {/* Transaction History — generated documents + recorded payments */}
       <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden mb-4">
         <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-800">
           <Receipt className="h-4 w-4 text-slate-400" />
-          <h3 className="text-sm font-semibold text-white">Payment Invoices</h3>
-          <span className="text-[11px] text-slate-400">{invoices.length}</span>
+          <h3 className="text-sm font-semibold text-white">Transaction History</h3>
+          <span className="text-[11px] text-slate-400">{invoices.length + documents.length}</span>
         </div>
         {invLoading ? (
           <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-slate-300" /></div>
-        ) : invoices.length === 0 ? (
-          <p className="px-4 py-8 text-center text-sm text-slate-300">No invoices yet.</p>
+        ) : (invoices.length + documents.length) === 0 ? (
+          <p className="px-4 py-8 text-center text-sm text-slate-300">No transactions yet. Documents from the Form Generator and recorded payments will appear here.</p>
         ) : (
           <div className="divide-y divide-slate-800">
+            {/* Generated documents (Form Generator) — click to open the PDF */}
+            {documents.map((doc) => (
+              <button key={`d-${doc.id}`} onClick={() => onOpenForm(doc.id)} className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-slate-800/50 transition-colors">
+                <div className="w-11 h-11 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center flex-shrink-0">
+                  <FileText className="h-4 w-4 text-sky-400" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-medium text-white truncate">{FORM_TYPE_LABEL[doc.form_type]} · {doc.doc_number}</p>
+                    <span className="text-[11px] text-slate-400 flex-shrink-0">{fmtDate(doc.issue_date)}</span>
+                  </div>
+                  <p className="text-[11px] text-slate-400 truncate">{money(doc.total, doc.currency)} · <span className="capitalize">{doc.status}</span> · from Form Generator</p>
+                </div>
+                <ChevronRight className="h-4 w-4 text-slate-500 flex-shrink-0" />
+              </button>
+            ))}
+            {/* Recorded subscription payments */}
             {invoices.map((inv) => (
-              <div key={inv.id} className="flex items-center gap-3 px-4 py-3">
-                {/* Proof thumbnail */}
+              <div key={`p-${inv.id}`} className="flex items-center gap-3 px-4 py-3">
                 {inv.proof_url ? (
                   <button onClick={() => setLightbox(inv.proof_url)} className="w-11 h-11 rounded-lg overflow-hidden border border-slate-700 flex-shrink-0 hover:ring-2 hover:ring-amber-500/50">
                     <img src={inv.proof_url} alt="Proof" className="w-full h-full object-cover" />
                   </button>
                 ) : (
                   <div className="w-11 h-11 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center flex-shrink-0">
-                    <ImageIcon className="h-4 w-4 text-slate-300" />
+                    <Receipt className="h-4 w-4 text-green-400" />
                   </div>
                 )}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <p className="text-sm font-medium text-white">{money(inv.amount, inv.currency)}</p>
                     <span className="text-[11px] text-slate-400">{fmtDate(inv.payment_date)}</span>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-500/15 text-green-300 border border-green-500/30">Payment</span>
                   </div>
                   <p className="text-[11px] text-slate-400 truncate">
                     {inv.payee || 'Payee not set'} · covers {fmtDate(inv.period_start)} → {fmtDate(inv.period_end)}
                     {inv.notes ? ` · ${inv.notes}` : ''}
                   </p>
                 </div>
-                <button onClick={() => setConfirmDeleteInv(inv)} title="Delete invoice" className="p-1.5 rounded-lg text-slate-400 hover:text-red-400 hover:bg-red-500/10 flex-shrink-0">
+                <button onClick={() => setConfirmDeleteInv(inv)} title="Delete payment" className="p-1.5 rounded-lg text-slate-400 hover:text-red-400 hover:bg-red-500/10 flex-shrink-0">
                   <Trash2 className="h-4 w-4" />
                 </button>
               </div>
