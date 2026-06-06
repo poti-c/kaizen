@@ -2,6 +2,7 @@ import { Outlet, Navigate, useLocation } from 'react-router-dom'
 import { Sidebar } from './Sidebar'
 import { Header } from './Header'
 import { BottomNav } from './BottomNav'
+import { TrialBanner } from './TrialBanner'
 import { useAuth } from '@/contexts/AuthContext'
 import { useViewMode } from '@/contexts/ViewModeContext'
 
@@ -41,6 +42,7 @@ export function Layout() {
 
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
         <Header />
+        <TrialBanner />
         <main
           className="flex-1 overflow-y-auto overflow-x-hidden"
           style={{ paddingBottom: showBottomNav ? 'calc(4rem + env(safe-area-inset-bottom, 0px))' : undefined }}
