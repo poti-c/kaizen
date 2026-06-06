@@ -20,8 +20,6 @@ const MONTH_NAMES_TH = ['มกราคม','กุมภาพันธ์','�
 const DAY_LABELS_EN = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun']
 const DAY_LABELS_TH = ['จ','อ','พ','พฤ','ศ','ส','อา']
 
-const PM_NAME = 'Preventive Maintenance Scheduler'
-
 function isoKey(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 }
@@ -45,19 +43,18 @@ export function CasesCalendarPage() {
     () => (localStorage.getItem('kaizen-default-dept') as Department | 'all') || 'all'
   )
   const pmEnabled = companyHasAddon(activeCompany, 'pms')
-  const [mode, setMode] = useState<'cases' | 'pm'>('cases')
-  const [showPM, setShowPM] = useState(false)
+  const [mode, setMode] = useState<'cases' | 'pm' | 'combined'>('cases')
   const [openTask, setOpenTask] = useState<PMTask | null>(null)
 
   const MONTH_NAMES = lang === 'th' ? MONTH_NAMES_TH : MONTH_NAMES_EN
   const DAY_LABELS = lang === 'th' ? DAY_LABELS_TH : DAY_LABELS_EN
-  const showPmData = pmEnabled && (mode === 'pm' || showPM)
-  const showCaseData = mode === 'cases'
+  const showPmData = pmEnabled && (mode === 'pm' || mode === 'combined')
+  const showCaseData = mode === 'cases' || mode === 'combined'
 
   useEffect(() => {
     if (profile && activeCompany) fetchData()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profile, activeCompany, viewMonth, viewYear, mode, showPM])
+  }, [profile, activeCompany, viewMonth, viewYear, mode])
 
   async function fetchData() {
     if (!activeCompany) return
@@ -126,7 +123,7 @@ export function CasesCalendarPage() {
     return PRIORITY_COLORS[c.priority] || 'bg-gray-400 text-white'
   }
 
-  const showDeptFilter = (profile?.role === 'super_admin' || profile?.role === 'manager') && mode === 'cases'
+  const showDeptFilter = (profile?.role === 'super_admin' || profile?.role === 'manager') && showCaseData
   const selectedDate = selectedKey ? new Date(selectedKey + 'T00:00:00') : null
   const selectedEntries = byDay[selectedKey] ?? []
 
@@ -134,10 +131,10 @@ export function CasesCalendarPage() {
     <div className="p-4 md:p-6 max-w-5xl mx-auto animate-fade-in">
       {/* Header */}
       <div className="mb-4 space-y-3">
-        <h1 className="text-xl md:text-2xl font-bold text-gray-900">{mode === 'pm' ? PM_NAME : t.calendar.casesCalendar}</h1>
+        <h1 className="text-xl md:text-2xl font-bold text-gray-900">{t.nav.calendar}</h1>
         {pmEnabled && (
           <div className="flex gap-1 border-b border-gray-200">
-            {([['cases', t.calendar.casesCalendar], ['pm', PM_NAME]] as const).map(([m, label]) => (
+            {([['cases', 'Cases'], ['pm', 'PM Schedules'], ['combined', 'Combined']] as const).map(([m, label]) => (
               <button key={m} onClick={() => setMode(m)}
                 className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${mode === m ? 'border-[var(--brand-primary)] text-[var(--brand-primary)]' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
                 {label}
@@ -146,11 +143,14 @@ export function CasesCalendarPage() {
           </div>
         )}
 
-        {/* Controls — macOS-style grouped nav */}
-        <div className="flex items-center gap-2 flex-wrap">
+        {/* Centered month label */}
+        <p className="text-center text-base font-semibold text-gray-900">{MONTH_NAMES[viewMonth]} {viewYear}</p>
+
+        {/* Controls: department (left) · prev/Today/next (right) */}
+        <div className="flex items-center gap-2">
           {showDeptFilter && (
             <Select value={deptFilter} onValueChange={(v) => setDeptFilter(v as Department | 'all')}>
-              <SelectTrigger className="h-8 w-32 text-xs flex-shrink-0"><SelectValue placeholder={t.calendar.allDepts} /></SelectTrigger>
+              <SelectTrigger className="h-8 w-36 text-[11px] whitespace-nowrap flex-shrink-0"><SelectValue placeholder={t.calendar.allDepts} /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">{t.calendar.allDepts}</SelectItem>
                 {DEPARTMENTS.filter(d => d.value !== 'top_management').map((d) => (
@@ -159,17 +159,10 @@ export function CasesCalendarPage() {
               </SelectContent>
             </Select>
           )}
-          {mode === 'cases' && pmEnabled && (
-            <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer flex-shrink-0">
-              <input type="checkbox" checked={showPM} onChange={(e) => setShowPM(e.target.checked)} className="accent-[var(--brand-primary)]" />
-              <Wrench className="h-3.5 w-3.5" />Show maintenance
-            </label>
-          )}
           <div className="flex items-center gap-1 ml-auto bg-white border border-gray-200 rounded-lg p-0.5">
-            <button onClick={prevMonth} className="p-1.5 rounded-md hover:bg-gray-100"><ChevronLeft className="h-4 w-4 text-gray-600" /></button>
-            <span className="text-sm font-semibold text-gray-900 whitespace-nowrap px-2 min-w-[110px] text-center">{MONTH_NAMES[viewMonth]} {viewYear}</span>
-            <button onClick={nextMonth} className="p-1.5 rounded-md hover:bg-gray-100"><ChevronRight className="h-4 w-4 text-gray-600" /></button>
-            <button onClick={goToday} className="px-2.5 h-7 text-xs font-medium text-gray-600 hover:bg-gray-100 rounded-md">{t.calendar.today}</button>
+            <button onClick={prevMonth} title="Previous month" className="p-1.5 rounded-md hover:bg-gray-100"><ChevronLeft className="h-4 w-4 text-gray-600" /></button>
+            <button onClick={goToday} className="px-3 h-7 text-xs font-medium text-gray-700 hover:bg-gray-100 rounded-md">{t.calendar.today}</button>
+            <button onClick={nextMonth} title="Next month" className="p-1.5 rounded-md hover:bg-gray-100"><ChevronRight className="h-4 w-4 text-gray-600" /></button>
           </div>
         </div>
       </div>
@@ -256,15 +249,7 @@ export function CasesCalendarPage() {
 
       {/* Legend */}
       <div className="flex items-center gap-4 mt-3 flex-wrap">
-        {mode === 'pm' ? (
-          <>
-            <Legend color="bg-sky-500" label="Scheduled" />
-            <Legend color="bg-amber-500" label="In progress" />
-            <Legend color="bg-violet-500" label="Awaiting approval" />
-            <Legend color="bg-red-500" label="Overdue" />
-            <Legend color="bg-green-500" label="Done" />
-          </>
-        ) : (
+        {showCaseData && (
           <>
             <span className="text-xs text-gray-400 font-medium">{t.calendar.priorityLabel}</span>
             <Legend color="bg-green-500" label={t.priority.low} />
@@ -272,6 +257,16 @@ export function CasesCalendarPage() {
             <Legend color="bg-orange-500" label={t.priority.high} />
             <Legend color="bg-red-500" label={t.priority.critical} />
             <Legend color="bg-gray-200 border border-gray-300" label={t.status.closed} />
+          </>
+        )}
+        {showPmData && (
+          <>
+            {showCaseData && <span className="text-gray-300">|</span>}
+            <Legend color="bg-sky-500" label="Scheduled" />
+            <Legend color="bg-amber-500" label="In progress" />
+            <Legend color="bg-violet-500" label="Awaiting approval" />
+            <Legend color="bg-red-500" label="Overdue" />
+            <Legend color="bg-green-500" label="Done" />
           </>
         )}
       </div>
