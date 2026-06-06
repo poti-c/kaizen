@@ -237,11 +237,14 @@ function Dashboard({ token, onLogout }: { token: string; onLogout: () => void })
     <div className="min-h-screen bg-slate-950 text-slate-200">
       <header className="border-b border-slate-800 bg-slate-900/80 backdrop-blur sticky top-0 z-10">
         <div className="max-w-5xl mx-auto px-4 h-14 flex items-center gap-3">
-          <img src="/kaizen-icon.svg" alt="Kaizen" className="w-8 h-8 rounded-lg object-contain flex-shrink-0" />
-          <div className="flex-1">
-            <h1 className="text-sm font-bold text-white leading-tight">Kaizen System</h1>
-            <p className="text-[11px] text-slate-400 leading-tight">System Console · by NNR Solutions</p>
-          </div>
+          <button onClick={() => { setShowProducts(false); setShowForms(false); setShowSettings(false); setSelectedCompanyId(null) }} title="Back to Companies"
+            className="flex items-center gap-3 flex-1 min-w-0 text-left rounded-lg -mx-1 px-1 py-1 hover:bg-slate-800/60 transition-colors">
+            <img src="/kaizen-icon.svg" alt="Kaizen" className="w-8 h-8 rounded-lg object-contain flex-shrink-0" />
+            <div className="min-w-0">
+              <h1 className="text-sm font-bold text-white leading-tight">Kaizen System</h1>
+              <p className="text-[11px] text-slate-400 leading-tight">System Console · by NNR Solutions</p>
+            </div>
+          </button>
           <button onClick={() => { setShowProducts(true); setShowForms(false); setShowSettings(false); setSelectedCompanyId(null) }} title="Products"
             className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg hover:bg-slate-800 ${showProducts ? 'text-amber-400' : 'text-slate-400 hover:text-white'}`}>
             <Package className="h-3.5 w-3.5" />Products
