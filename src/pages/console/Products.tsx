@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
-  Package, Loader2, Plus, Trash2, ArrowLeft, Check, Crown, Tag, Box, Ticket, X, Power,
+  Package, Loader2, Plus, Trash2, ArrowLeft, Check, Crown, Tag, Box, Ticket, X, Power, Pencil, Lock,
 } from 'lucide-react'
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -164,15 +164,17 @@ function ProductCard({ product, call, onSaved, onDeleted, isNew }: { product: Pr
   const [d, setD] = useState<Product>(product)
   const [busy, setBusy] = useState(false)
   const [confirmDel, setConfirmDel] = useState(false)
+  // Saved products open locked (read-only); new ones open in edit mode.
+  const [locked, setLocked] = useState(!isNew)
   const isPackage = d.kind === 'package'
 
-  function set(patch: Partial<Product>) { setD({ ...d, ...patch }) }
-  function toggleFeature(k: string) { setD({ ...d, features: { ...d.features, [k]: !d.features[k] } }) }
+  function set(patch: Partial<Product>) { if (!locked) setD({ ...d, ...patch }) }
+  function toggleFeature(k: string) { if (!locked) setD({ ...d, features: { ...d.features, [k]: !d.features[k] } }) }
 
   async function save() {
     if (!d.name.trim()) { alert('Name is required.'); return }
     setBusy(true)
-    try { await call('upsert_product', { product: d }); onSaved() }
+    try { await call('upsert_product', { product: d }); setLocked(true); onSaved() }
     catch (e) { alert(e instanceof Error ? e.message : 'Failed') } finally { setBusy(false) }
   }
   async function del() {
@@ -184,6 +186,7 @@ function ProductCard({ product, call, onSaved, onDeleted, isNew }: { product: Pr
 
   return (
     <div className={`rounded-lg border p-3 ${d.is_active ? 'bg-slate-800/40 border-slate-700' : 'bg-slate-800/20 border-slate-800'}`}>
+      <fieldset disabled={locked} className={locked ? 'opacity-60 transition-opacity' : 'transition-opacity'}>
       <div className="flex items-center gap-2 mb-2.5">
         <input value={d.name} onChange={e => set({ name: e.target.value })} className={inputCls + ' flex-1 font-semibold'} placeholder={isPackage ? 'Package name' : 'Product name'} />
         <button onClick={() => set({ is_active: !d.is_active })} title={d.is_active ? 'Active' : 'Inactive'} className={`p-2 rounded-lg ${d.is_active ? 'text-green-400 hover:bg-green-500/10' : 'text-slate-500 hover:bg-slate-800'}`}><Power className="h-4 w-4" /></button>
@@ -232,6 +235,7 @@ function ProductCard({ product, call, onSaved, onDeleted, isNew }: { product: Pr
         </div>
       )}
 
+      </fieldset>
       <div className="flex items-center gap-2 mt-3 pt-2.5 border-t border-slate-800">
         {confirmDel ? (
           <div className="flex items-center gap-2">
@@ -244,9 +248,18 @@ function ProductCard({ product, call, onSaved, onDeleted, isNew }: { product: Pr
             {isNew ? <X className="h-3.5 w-3.5" /> : <Trash2 className="h-3.5 w-3.5" />}{isNew ? 'Discard' : 'Delete'}
           </button>
         )}
-        <button onClick={save} disabled={busy} className="ml-auto flex items-center gap-1.5 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-slate-950 text-xs font-semibold px-3 py-1.5 rounded-lg">
-          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}{isNew ? 'Create' : 'Save'}
-        </button>
+        {locked ? (
+          <>
+            <span className="ml-auto flex items-center gap-1 text-[11px] text-slate-500"><Lock className="h-3 w-3" />Locked</span>
+            <button onClick={() => setLocked(false)} className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold px-3 py-1.5 rounded-lg">
+              <Pencil className="h-3.5 w-3.5" />Edit
+            </button>
+          </>
+        ) : (
+          <button onClick={save} disabled={busy} className="ml-auto flex items-center gap-1.5 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-slate-950 text-xs font-semibold px-3 py-1.5 rounded-lg">
+            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}{isNew ? 'Create' : 'Save'}
+          </button>
+        )}
       </div>
     </div>
   )
