@@ -586,7 +586,6 @@ function PrintPreview({ form, issuer, onClose }: { form: GeneratedForm; issuer: 
               {issuerName}{issuer?.tax_id ? ` · Tax ID ${issuer.tax_id}` : ''}
               {issuer?.address ? ` · ${issuer.address.replace(/\s*\n\s*/g, ', ')}` : ''}
             </p>
-            <p className="mt-0.5">This is a computer-generated document produced by the Kaizen System and is valid without signature unless otherwise required.</p>
           </div>
         </div>
       </div>
