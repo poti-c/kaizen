@@ -705,14 +705,51 @@ Deno.serve(async (req) => {
 
   // ── Client payment submissions (PromptPay proof) ──────────────────────────
   if (action === "list_payments") {
-    const [pmtRes, coRes, recRes] = await Promise.all([
+    const [pmtRes, coRes, recRes, profRes, prodRes, allInvRes] = await Promise.all([
       admin.from("kaizen_payment_submissions").select("*").order("created_at", { ascending: false }),
-      admin.from("kaizen_companies").select("id, name, contact_email"),
+      admin.from("kaizen_companies").select("id, name, plan, subscription_end, created_at, contact_person, contact_email, contact_phone"),
       admin.from("kaizen_invoices").select("id, company_id, amount, currency, payment_date, receipt_requested, receipt_requested_at, receipt_issued, receipt_issued_at").eq("receipt_requested", true).order("receipt_requested_at", { ascending: false }),
+      admin.from("kaizen_profiles").select("id, full_name, role"),
+      admin.from("kaizen_products").select("kind, key, name, price, currency, duration_days, duration_label"),
+      admin.from("kaizen_invoices").select("company_id, payment_date"),
     ]);
+    const co = {};
+    for (const c of (coRes.data ?? [])) co[c.id] = c;
+    const prof = {};
+    for (const p of (profRes.data ?? [])) prof[p.id] = p;
+    const prod = {};
+    for (const pr of (prodRes.data ?? [])) prod[pr.key] = pr;
+    const invByCo = {};
+    for (const iv of (allInvRes.data ?? [])) {
+      if (!invByCo[iv.company_id]) invByCo[iv.company_id] = { count: 0, last: null };
+      invByCo[iv.company_id].count++;
+      if (!invByCo[iv.company_id].last || iv.payment_date > invByCo[iv.company_id].last) invByCo[iv.company_id].last = iv.payment_date;
+    }
+    const payments = (pmtRes.data ?? []).map((p) => {
+      const c = co[p.company_id] || {};
+      const s = prof[p.submitted_by] || {};
+      const pr = prod[p.target] || {};
+      const h = invByCo[p.company_id] || { count: 0, last: null };
+      return {
+        ...p,
+        company_name: c.name ?? null,
+        company_plan: c.plan ?? null,
+        company_sub_end: c.subscription_end ?? null,
+        company_created_at: c.created_at ?? null,
+        contact_person: c.contact_person ?? null,
+        contact_email: c.contact_email ?? null,
+        contact_phone: c.contact_phone ?? null,
+        submitter_name: s.full_name ?? null,
+        submitter_role: s.role ?? null,
+        list_price: pr.price ?? null,
+        term_days: pr.duration_days ?? null,
+        term_label: pr.duration_label ?? null,
+        pay_count: h.count,
+        last_paid: h.last,
+      };
+    });
     const names = {};
-    for (const c of (coRes.data ?? [])) names[c.id] = c.name;
-    const payments = (pmtRes.data ?? []).map((p) => ({ ...p, company_name: names[p.company_id] ?? null }));
+    for (const id in co) names[id] = co[id].name;
     const receipt_requests = (recRes.data ?? []).map((r) => ({ ...r, company_name: names[r.company_id] ?? null }));
     return json({ payments, receipt_requests });
   }

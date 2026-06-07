@@ -1213,8 +1213,77 @@ interface PaymentSub {
   id: string; company_id: string; company_name: string | null; kind: string; target: string
   target_label: string | null; amount: number | null; currency: string; proof_url: string | null
   note: string | null; status: string; created_at: string
+  company_plan?: string | null; company_sub_end?: string | null; company_created_at?: string | null
+  contact_person?: string | null; contact_email?: string | null; contact_phone?: string | null
+  submitter_name?: string | null; submitter_role?: string | null
+  list_price?: number | null; term_days?: number | null; term_label?: string | null
+  pay_count?: number; last_paid?: string | null
 }
 interface ReceiptReq { id: string; company_id: string; company_name: string | null; amount: number | null; currency: string; payment_date: string; receipt_issued: boolean }
+
+const PLAN_LABEL: Record<string, string> = { trial: 'Starter', gold: 'Gold', premium: 'Premium' }
+const PAY_ROLE_LABEL: Record<string, string> = { super_admin: 'Top Management', manager: 'Manager', staff: 'Staff' }
+const planLabel = (p?: string | null) => (p ? PLAN_LABEL[p] ?? p : '—')
+const fmtDateTime = (iso?: string | null) => iso ? new Date(iso).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'
+
+function PaymentDetail({ p }: { p: PaymentSub }) {
+  const amt = p.amount ?? null
+  const list = p.list_price ?? null
+  const match = amt != null && list != null ? Math.abs(amt - list) < 1 : null
+  const newEnd = p.term_days ? new Date(Date.now() + p.term_days * 86400000).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : null
+  return (
+    <div className="mt-2.5 pt-2.5 border-t border-slate-800 grid sm:grid-cols-2 gap-x-4 gap-y-1.5 text-[11px]">
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <span className="text-slate-500 w-20 flex-shrink-0">Amount</span>
+        <span className="text-slate-200">{money(amt, p.currency)}</span>
+        {list != null && (match
+          ? <span className="text-green-400">✓ matches list price</span>
+          : <span className="text-amber-400">⚠ list is {money(list, p.currency)}</span>)}
+      </div>
+      <div className="flex items-center gap-1.5">
+        <span className="text-slate-500 w-20 flex-shrink-0">Verification</span>
+        <span className="text-amber-400">Not auto-verified — review slip</span>
+      </div>
+      <div className="flex items-start gap-1.5">
+        <span className="text-slate-500 w-20 flex-shrink-0">{p.kind === 'subscription' ? 'Change' : 'Add-on'}</span>
+        <span className="text-slate-200">
+          {p.kind === 'subscription'
+            ? <>{planLabel(p.company_plan)} → {p.target_label ?? p.target}{newEnd ? ` · until ${newEnd}` : ''}</>
+            : <>Enables {p.target_label ?? p.target}</>}
+        </span>
+      </div>
+      <div className="flex items-start gap-1.5">
+        <span className="text-slate-500 w-20 flex-shrink-0">Current</span>
+        <span className="text-slate-200">{planLabel(p.company_plan)}{p.company_sub_end ? ` · ends ${fmtDate(p.company_sub_end)}` : ''}</span>
+      </div>
+      <div className="flex items-start gap-1.5">
+        <span className="text-slate-500 w-20 flex-shrink-0">Submitted by</span>
+        <span className="text-slate-200 truncate">{p.submitter_name ?? '—'}{p.submitter_role ? ` (${PAY_ROLE_LABEL[p.submitter_role] ?? p.submitter_role})` : ''}</span>
+      </div>
+      <div className="flex items-start gap-1.5">
+        <span className="text-slate-500 w-20 flex-shrink-0">Submitted</span>
+        <span className="text-slate-200">{fmtDateTime(p.created_at)}</span>
+      </div>
+      <div className="flex items-start gap-1.5 sm:col-span-2">
+        <span className="text-slate-500 w-20 flex-shrink-0">Contact</span>
+        <span className="text-slate-200 truncate">{[p.contact_person, p.contact_phone, p.contact_email].filter(Boolean).join(' · ') || '—'}</span>
+      </div>
+      <div className="flex items-start gap-1.5 sm:col-span-2">
+        <span className="text-slate-500 w-20 flex-shrink-0">History</span>
+        <span className="text-slate-200">{p.pay_count ? `${p.pay_count} prior payment${p.pay_count === 1 ? '' : 's'}${p.last_paid ? ` · last ${fmtDate(p.last_paid)}` : ''}` : 'First payment from this client'}</span>
+      </div>
+      {p.note && (
+        <div className="flex items-start gap-1.5 sm:col-span-2">
+          <span className="text-slate-500 w-20 flex-shrink-0">Note</span>
+          <span className="text-slate-200">{p.note}</span>
+        </div>
+      )}
+      <div className="sm:col-span-2 mt-0.5 text-[10px] text-slate-500">
+        Approving sets the plan{newEnd ? `, extends the subscription to ${newEnd}` : ''}, generates an invoice, and emails a receipt if email is configured.
+      </div>
+    </div>
+  )
+}
 function PaymentsView({ call, onBack, reload }: { call: <T,>(a: string, p?: Record<string, unknown>) => Promise<T>; onBack: () => void; reload: () => void }) {
   const [items, setItems] = useState<PaymentSub[]>([])
   const [receipts, setReceipts] = useState<ReceiptReq[]>([])
@@ -1288,25 +1357,28 @@ function PaymentsView({ call, onBack, reload }: { call: <T,>(a: string, p?: Reco
               <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1.5">{g.label}</p>
               <div className="space-y-2">
                 {g.rows.map((p) => (
-                  <div key={p.id} className="flex items-center gap-3 bg-slate-900 border border-slate-800 rounded-xl p-3">
-                    {p.proof_url
-                      ? <button onClick={() => setLightbox(p.proof_url)} className="w-12 h-12 rounded-lg overflow-hidden border border-slate-700 flex-shrink-0 hover:ring-2 hover:ring-amber-500/50"><img src={p.proof_url} alt="Slip" className="w-full h-full object-cover" /></button>
-                      : <div className="w-12 h-12 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center flex-shrink-0"><Receipt className="h-4 w-4 text-slate-500" /></div>}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <p className="text-sm font-semibold text-white truncate">{p.company_name ?? '—'}</p>
-                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">{p.kind === 'subscription' ? 'Subscription' : 'Add-on'}</span>
-                        {p.status === 'approved' && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-500/15 text-green-400 border border-green-500/30">Approved</span>}
-                        {p.status === 'rejected' && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-red-500/15 text-red-400 border border-red-500/30">Rejected</span>}
+                  <div key={p.id} className="bg-slate-900 border border-slate-800 rounded-xl p-3">
+                    <div className="flex items-start gap-3">
+                      {p.proof_url
+                        ? <button onClick={() => setLightbox(p.proof_url)} className="w-12 h-12 rounded-lg overflow-hidden border border-slate-700 flex-shrink-0 hover:ring-2 hover:ring-amber-500/50"><img src={p.proof_url} alt="Slip" className="w-full h-full object-cover" /></button>
+                        : <div className="w-12 h-12 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center flex-shrink-0"><Receipt className="h-4 w-4 text-slate-500" /></div>}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="text-sm font-semibold text-white truncate">{p.company_name ?? '—'}</p>
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">{p.kind === 'subscription' ? 'Subscription' : 'Add-on'}</span>
+                          {p.status === 'approved' && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-500/15 text-green-400 border border-green-500/30">Approved</span>}
+                          {p.status === 'rejected' && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-red-500/15 text-red-400 border border-red-500/30">Rejected</span>}
+                        </div>
+                        <p className="text-[11px] text-slate-400 truncate">{p.target_label ?? p.target} · {money(p.amount, p.currency)} · {fmtDate(p.created_at)}</p>
                       </div>
-                      <p className="text-[11px] text-slate-400 truncate">{p.target_label ?? p.target} · {money(p.amount, p.currency)} · {fmtDate(p.created_at)}</p>
+                      {p.status === 'pending' && (
+                        <div className="flex items-center gap-1.5 flex-shrink-0">
+                          <button onClick={() => approve(p)} disabled={busy === p.id} className="px-2.5 h-8 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-semibold disabled:opacity-50">{busy === p.id ? '…' : 'Approve'}</button>
+                          <button onClick={() => reject(p)} disabled={busy === p.id} className="px-2.5 h-8 rounded-lg text-slate-400 hover:text-red-400 hover:bg-red-500/10 text-xs">Reject</button>
+                        </div>
+                      )}
                     </div>
-                    {p.status === 'pending' && (
-                      <div className="flex items-center gap-1.5 flex-shrink-0">
-                        <button onClick={() => approve(p)} disabled={busy === p.id} className="px-2.5 h-8 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-semibold disabled:opacity-50">{busy === p.id ? '…' : 'Approve'}</button>
-                        <button onClick={() => reject(p)} disabled={busy === p.id} className="px-2.5 h-8 rounded-lg text-slate-400 hover:text-red-400 hover:bg-red-500/10 text-xs">Reject</button>
-                      </div>
-                    )}
+                    {p.status === 'pending' && <PaymentDetail p={p} />}
                   </div>
                 ))}
               </div>
