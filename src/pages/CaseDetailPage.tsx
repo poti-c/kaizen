@@ -496,37 +496,48 @@ export function CaseDetailPage() {
         }))
       )
 
-      // A manager/Top-Management resolution skips the manager-approval step and
-      // goes straight to Top Management to close; a staff resolution goes to the
-      // PIC's department manager first.
+      // Routing:
+      //  • Manager / Top-Management resolution → skip manager approval → Top Management closes.
+      //  • Staff resolution → the PIC's department manager approves first…
+      //  • …unless that department has NO active manager, in which case it goes
+      //    straight to Top Management.
       const resolverManagerial = profile?.role === 'manager' || profile?.role === 'super_admin'
+      const picDepts = picProfiles.map(p => p.department).filter(Boolean) as string[]
+      const approverDepts = (picDepts.length ? picDepts : [kcase?.department].filter(Boolean)) as string[]
+      let hasDeptManager = false
+      if (!resolverManagerial) {
+        const { data: mgrs } = await supabase.from('kaizen_profiles')
+          .select('id').eq('role', 'manager').eq('is_active', true).in('department', approverDepts)
+        hasDeptManager = !!mgrs && mgrs.length > 0
+      }
+      const goesToManager = !resolverManagerial && hasDeptManager
+      const stampManagerApproval = resolverManagerial // managerial resolver implicitly signs off the manager step
       const nowIso = new Date().toISOString()
       const { error: resErr } = await supabase.from('kaizen_cases').update({
-        status: resolverManagerial ? 'pending_admin_approval' : 'pending_manager_approval',
+        status: goesToManager ? 'pending_manager_approval' : 'pending_admin_approval',
         resolved_by: profile?.id,
         resolution_note: resolutionNote.trim(),
         resolved_at: nowIso,
-        ...(resolverManagerial ? { manager_approved_by: profile?.id, manager_approved_at: nowIso } : {}),
+        ...(stampManagerApproval ? { manager_approved_by: profile?.id, manager_approved_at: nowIso } : {}),
         updated_at: nowIso,
       }).eq('id', id!)
       if (resErr) throw resErr
 
       await addTimeline('resolved', `${profile?.full_name || 'Staff'} resolved the case: ${resolutionNote}`)
 
-      const picDepts = picProfiles.map(p => p.department).filter(Boolean) as string[]
-      if (resolverManagerial) {
-        // Notify Top Management to close.
-        await notifyByDeptRole({ roles: ['super_admin'] }, 'Case Ready to Close',
-          `${profile?.full_name} resolved case ${kcase?.case_number} — awaiting closure by Top Management.`)
-      } else {
-        // Notify the PIC's department manager(s) to approve, and Top Management for visibility.
-        await notifyByDeptRole({ departments: picDepts.length ? picDepts : [kcase?.department], roles: ['manager'] },
+      if (goesToManager) {
+        // Notify the PIC's department manager(s) to approve; Top Management for visibility.
+        await notifyByDeptRole({ departments: approverDepts, roles: ['manager'] },
           'Case Ready for Approval', `${profile?.full_name} resolved case ${kcase?.case_number} — awaiting your approval.`)
         await notifyByDeptRole({ roles: ['super_admin'] },
           'Case Resolved', `${profile?.full_name} resolved case ${kcase?.case_number} — pending manager approval.`)
+      } else {
+        // No department manager (or a managerial resolver) → Top Management closes.
+        await notifyByDeptRole({ roles: ['super_admin'] }, 'Case Ready to Close',
+          `${profile?.full_name} resolved case ${kcase?.case_number} — awaiting closure by Top Management.`)
       }
 
-      toast.success(resolverManagerial ? 'Resolution submitted. Awaiting Top Management closure.' : 'Case marked as resolved. Awaiting manager approval.')
+      toast.success(goesToManager ? 'Case marked as resolved. Awaiting manager approval.' : 'Resolution submitted. Awaiting Top Management closure.')
       fetchCase()
     } catch {
       toast.error('Failed to submit resolution.')
