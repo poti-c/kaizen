@@ -99,6 +99,9 @@ export function CaseDetailPage() {
   const [selectedPics, setSelectedPics] = useState<string[]>([])
   const [notifyDepts, setNotifyDepts] = useState<string[]>([])
   const [savingPic, setSavingPic] = useState(false)
+  // Auto-prompt to assign a PIC (+ optional due date) on unassigned PM cases.
+  const [pmPromptDismissed, setPmPromptDismissed] = useState(false)
+  const [promptDue, setPromptDue] = useState('')
 
   // Due date (manager can set if missing)
   const [showDueDateEditor, setShowDueDateEditor] = useState(false)
@@ -202,6 +205,7 @@ export function CaseDetailPage() {
         pic_ids: validPics,
         person_in_charge: validPics[0],
         updated_at: new Date().toISOString(),
+        ...(promptDue ? { due_date: promptDue } : {}),
         ...statusUpdate,
       }).eq('id', id!)
       if (picErr) { toast.error('Failed to update In Charge.'); return }
@@ -903,8 +907,54 @@ export function CaseDetailPage() {
   const canReopen         = profile?.role === 'super_admin' && kcase.status === 'closed'
   const canDelete         = profile?.role === 'super_admin'
 
+  // Auto-prompt: an unassigned, auto-created PM case → ask the dept manager /
+  // Top Management to pick a PIC (+ optional due date) before proceeding.
+  const isPmAutoCase = !kcase.created_by && (kcase.case_number?.startsWith('PM-') || kcase.category === 'preventive_maintenance')
+  const caseHasPic = !!(kcase.pic_ids?.length) || !!kcase.person_in_charge
+  const showPmAssignPrompt = isPmAutoCase && !caseHasPic && canManagerAssign && kcase.status !== 'closed' && !pmPromptDismissed
+
   return (
     <div className="p-4 md:p-6 max-w-5xl mx-auto animate-fade-in">
+      {/* Auto-prompt: assign PIC + optional due date on an unassigned PM case */}
+      {showPmAssignPrompt && (
+        <Dialog open onOpenChange={(o) => { if (!o) setPmPromptDismissed(true) }}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Assign this maintenance case</DialogTitle>
+              <DialogDescription>
+                PMS auto-created this case from an overdue preventive-maintenance task. Choose who will handle it, and optionally set a new due date.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3">
+              <div>
+                <Label className="mb-1.5 block">Person in charge</Label>
+                <div className="max-h-52 overflow-y-auto rounded-lg border border-gray-200 divide-y divide-gray-50">
+                  {picCandidates.length === 0 && <p className="px-3 py-3 text-sm text-gray-400">No assignable people found.</p>}
+                  {picCandidates.map(p => (
+                    <label key={p.id} className="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-gray-50">
+                      <input type="checkbox" className="accent-[var(--brand-primary)]" checked={selectedPics.includes(p.id)}
+                        onChange={() => setSelectedPics(prev => prev.includes(p.id) ? prev.filter(x => x !== p.id) : [...prev, p.id])} />
+                      <span className="text-sm text-gray-800 flex-1">{p.full_name}</span>
+                      <span className="text-[11px] text-gray-400">{DEPARTMENT_LABELS[p.department as Department] ?? p.department}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <Label className="mb-1.5 block">New due date <span className="text-gray-400 font-normal">(optional)</span></Label>
+                <Input type="date" value={promptDue} onChange={(e) => setPromptDue(e.target.value)} />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setPmPromptDismissed(true)}>Later</Button>
+              <Button onClick={async () => { await savePic(); setPmPromptDismissed(true) }} disabled={savingPic || selectedPics.length === 0}>
+                {savingPic ? 'Assigning…' : 'Assign'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
       {/* Header card */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 mb-4 md:mb-6">
         {/* Top row: back + case number + action buttons */}
