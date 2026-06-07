@@ -36,6 +36,12 @@ function ErrorReporterBridge() {
   return null
 }
 
+// Console has no CompanyProvider — just install the global window/promise handlers.
+function ConsoleErrorReporter() {
+  React.useEffect(() => { installGlobalErrorReporter() }, [])
+  return null
+}
+
 // All roles land on /dashboard; staff with must_change_password go to /change-password
 function RoleRedirect() {
   const { profile } = useAuth()
@@ -66,10 +72,15 @@ export default function App() {
   // ── System Console: fully isolated from app auth (own route tree) ──
   if (typeof window !== 'undefined' && window.location.pathname.startsWith('/admin')) {
     return (
-      <div className="h-[100dvh] overflow-y-auto bg-slate-950">
-        <ConsolePage />
-        <Toaster position="top-right" richColors />
-      </div>
+      <LanguageProvider>
+        <ErrorBoundary>
+          <ConsoleErrorReporter />
+          <div className="h-[100dvh] overflow-y-auto bg-slate-950">
+            <ConsolePage />
+            <Toaster position="top-right" richColors />
+          </div>
+        </ErrorBoundary>
+      </LanguageProvider>
     )
   }
 
