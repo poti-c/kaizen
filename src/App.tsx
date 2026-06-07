@@ -21,6 +21,7 @@ import { NotificationsPage } from '@/pages/NotificationsPage'
 import { SettingsPage } from '@/pages/SettingsPage'
 import { CasesCalendarPage } from '@/pages/CasesCalendarPage'
 import { PreventiveMaintenancePage } from '@/pages/PreventiveMaintenancePage'
+import { PackagesExpansions } from '@/components/PackagesExpansions'
 import { PerformancePage } from '@/pages/PerformancePage'
 import { PerformanceDetailPage } from '@/pages/PerformanceDetailPage'
 import { ChangePasswordPage } from '@/pages/ChangePasswordPage'
@@ -87,6 +88,7 @@ export default function App() {
                     <Route path="users" element={<UsersPage />} />
                     <Route path="notifications" element={<NotificationsPage />} />
                     <Route path="settings" element={<SettingsPage />} />
+                    <Route path="packages" element={<ProtectedRoute roles={['super_admin', 'manager']}><PackagesExpansions /></ProtectedRoute>} />
                   </Route>
                   <Route path="*" element={<Navigate to="/dashboard" replace />} />
                 </Routes>

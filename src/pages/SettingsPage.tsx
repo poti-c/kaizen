@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
-import { Eye, EyeOff, Loader2, Palette, Lock, Info, Scale, Pencil, Check, X, Bell, BellOff, BellRing, Plus, Trash2, Building2, Tag, MapPin, AlertTriangle, LifeBuoy, HelpCircle, MessageSquare, Smartphone, Mail, ChevronRight, ChevronDown, UserX, Camera } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { Eye, EyeOff, Loader2, Palette, Lock, Info, Scale, Pencil, Check, X, Bell, BellOff, BellRing, Plus, Trash2, Building2, Tag, MapPin, AlertTriangle, LifeBuoy, HelpCircle, MessageSquare, Smartphone, Mail, ChevronRight, ChevronDown, UserX, Camera, Sparkles } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useCompany } from '@/contexts/CompanyContext'
@@ -14,7 +15,6 @@ import type { KaizenCompany } from '@/types'
 import { CATEGORIES, LOCATIONS, getInitials, companyHasFeature, companyHasAddon } from '@/lib/utils'
 import { PMEquipmentTypes } from '@/components/PMEquipmentTypes'
 import { PMSettings } from '@/components/PMSettings'
-import { PackagesExpansions } from '@/components/PackagesExpansions'
 import { toast } from 'sonner'
 import { usePushNotifications } from '@/hooks/usePushNotifications'
 
@@ -38,6 +38,7 @@ const PRESET_COLORS = [
 export function SettingsPage() {
   const { profile, refreshProfile } = useAuth()
   const { activeCompany } = useCompany()
+  const navigate = useNavigate()
   const companyId = activeCompany?.id ?? profile?.company_id ?? null
   const { status: pushStatus, supported: pushSupported, isIOS: pushIsIOS, isStandalone: pushIsStandalone, subscribe, unsubscribe } = usePushNotifications(profile?.id)
   const { settings, updateSettings } = useTheme()
@@ -910,6 +911,19 @@ export function SettingsPage() {
           <h2 className="font-semibold text-gray-900">{lang === 'th' ? 'ฝ่ายสนับสนุน' : 'Support'}</h2>
         </div>
         <div className="divide-y divide-gray-100">
+          {/* Packages & Expansions — first; navigates to its own page; hidden for staff */}
+          {profile?.role !== 'staff' && (
+            <button onClick={() => navigate('/packages')} className="w-full flex items-center gap-3 px-6 py-3.5 hover:bg-gray-50 transition-colors text-left">
+              <div className="w-8 h-8 rounded-lg bg-[var(--brand-primary)]/10 flex items-center justify-center flex-shrink-0">
+                <Sparkles className="h-4 w-4 text-[var(--brand-primary)]" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-gray-900">{lang === 'th' ? 'แพ็กเกจและส่วนเสริม' : 'Packages & Expansions'}</p>
+                <p className="text-xs text-gray-400">{lang === 'th' ? 'แผน อัปเกรด และส่วนเสริม' : 'Your plan, upgrades & add-ons'}</p>
+              </div>
+              <ChevronRight className="h-4 w-4 text-gray-300 flex-shrink-0" />
+            </button>
+          )}
           {[
             { key: 'help' as const, icon: HelpCircle, label: lang === 'th' ? 'ช่วยเหลือ' : 'Help', sub: lang === 'th' ? 'ต้องการความช่วยเหลือ' : 'Get assistance from our team' },
             { key: 'feedback' as const, icon: MessageSquare, label: lang === 'th' ? 'ข้อเสนอแนะ' : 'Feedback', sub: lang === 'th' ? 'แบ่งปันความคิดเห็นของคุณ' : 'Share your thoughts with us' },
@@ -933,9 +947,6 @@ export function SettingsPage() {
           ))}
         </div>
       </div>
-
-      {/* ── Packages & Expansions — Top Management only ── */}
-      {profile?.role === 'super_admin' && <PackagesExpansions />}
 
       {/* Support dialogs */}
       <Dialog open={!!supportDialog} onOpenChange={(open) => { if (!open) setSupportDialog(null) }}>

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Wrench, Plus, Trash2, Check, X, Pencil, Loader2, Sparkles } from 'lucide-react'
+import { Wrench, Plus, Trash2, Check, X, Pencil, Loader2, Sparkles, ChevronDown, ChevronRight } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useCompany } from '@/contexts/CompanyContext'
 import { useLanguage } from '@/contexts/LanguageContext'
@@ -84,6 +84,8 @@ export function PMEquipmentTypes() {
   const [newCat, setNewCat] = useState<string>(PM_CATEGORIES[0])
   const [editId, setEditId] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
+  const toggleCat = (c: string) => setCollapsed((prev) => { const n = new Set(prev); n.has(c) ? n.delete(c) : n.add(c); return n })
 
   const load = useCallback(async () => {
     if (!companyId) return
@@ -180,8 +182,12 @@ export function PMEquipmentTypes() {
         <div className="space-y-4">
           {[...grouped, ...(uncategorized.length ? [{ cat: 'Other', items: uncategorized }] : [])].map((g) => (
             <div key={g.cat}>
-              <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">{g.cat}</p>
-              <div className="space-y-1">
+              <button onClick={() => toggleCat(g.cat)} className="w-full flex items-center gap-1.5 mb-1.5 text-left">
+                {collapsed.has(g.cat) ? <ChevronRight className="h-3.5 w-3.5 text-gray-400" /> : <ChevronDown className="h-3.5 w-3.5 text-gray-400" />}
+                <span className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide">{g.cat}</span>
+                <span className="text-[11px] text-gray-300">({g.items.length})</span>
+              </button>
+              <div className={`space-y-1 ${collapsed.has(g.cat) ? 'hidden' : ''}`}>
                 {g.items.map((t) => (
                   <div key={t.id} className={`flex items-center gap-2 px-3 py-2 rounded-lg border ${t.is_active ? 'border-gray-200 bg-gray-50' : 'border-gray-200 bg-gray-100 opacity-60'}`}>
                     {editId === t.id ? (
