@@ -344,6 +344,9 @@ function FormEditor({ formType, companies, products, promos, onCreated, call, in
     prefilled.current = true
     if (initialCompanyId) pickCompany(initialCompanyId)
     if (initialItems && initialItems.length) setItems(initialItems)
+    // The line amount already equals what the client paid, so no VAT is added
+    // on top — the receipt total must match the payment.
+    setVatRate('0')
     onPrefilled?.()
   }, [initialCompanyId, initialItems])  // eslint-disable-line react-hooks/exhaustive-deps
 
