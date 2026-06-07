@@ -130,6 +130,7 @@ export function NotificationsPage() {
                     onClick={() => {
                       markRead(n.id)
                       if (n.case_id) navigate(`/cases/${n.case_id}`)
+                      else if (n.notification_type === 'pm') navigate('/maintenance')
                     }}
                   >
                     <div className={cn('w-2.5 h-2.5 rounded-full mt-2 flex-shrink-0', typeColors[n.notification_type] || 'bg-gray-400', n.is_read && 'opacity-30')} />

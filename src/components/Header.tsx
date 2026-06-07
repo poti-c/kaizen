@@ -117,7 +117,13 @@ export function Header() {
             <div
               key={n.id}
               className={`px-4 py-3 cursor-pointer hover:bg-gray-50 active:bg-gray-100 transition-colors ${!n.is_read ? 'bg-blue-50/50' : ''}`}
-              onClick={() => { markRead(n.id); if (n.case_id) navigate(`/cases/${n.case_id}`); setShowNotifs(false) }}
+              onClick={() => {
+                markRead(n.id)
+                if (n.case_id) navigate(`/cases/${n.case_id}`)
+                else if (n.notification_type === 'pm') navigate('/maintenance')
+                else navigate('/notifications')
+                setShowNotifs(false)
+              }}
             >
               <div className="flex items-start gap-3">
                 {!n.is_read && <div className="w-2 h-2 rounded-full bg-blue-500 mt-1.5 flex-shrink-0" />}
