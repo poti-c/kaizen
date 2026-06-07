@@ -1155,10 +1155,12 @@ function AuditTab({ call }: { call: <T,>(a: string, p?: Record<string, unknown>)
     try { await call('resolve_error', { error_id: id, resolved }) } catch { reload() }
   }
 
+  const { node: periodNode, inPeriod } = usePeriodFilter([...entries.map(e => e.created_at), ...appErrors.map(e => e.created_at)])
   if (loading) return <div className="flex justify-center py-20"><Loader2 className="h-6 w-6 animate-spin text-slate-300" /></div>
-  const activity = entries.filter(e => e.success)
-  const consoleErrors = entries.filter(e => !e.success)
-  const openAppErrors = appErrors.filter(e => !e.resolved)
+  const activity = entries.filter(e => e.success && inPeriod(e.created_at))
+  const consoleErrors = entries.filter(e => !e.success && inPeriod(e.created_at))
+  const shownAppErrors = appErrors.filter(e => inPeriod(e.created_at))
+  const openAppErrors = shownAppErrors.filter(e => !e.resolved)
   const errCount = consoleErrors.length + openAppErrors.length
 
   return (
@@ -1170,6 +1172,8 @@ function AuditTab({ call }: { call: <T,>(a: string, p?: Record<string, unknown>)
           <button key={k} onClick={() => setSub(k)} className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px ${sub === k ? 'border-amber-500 text-amber-400' : 'border-transparent text-slate-400 hover:text-slate-300'}`}>{label}</button>
         ))}
       </div>
+
+      {periodNode}
 
       {sub === 'activity' ? (
         <div className="bg-slate-900 border border-slate-800 rounded-xl divide-y divide-slate-800 overflow-hidden">
@@ -1190,7 +1194,7 @@ function AuditTab({ call }: { call: <T,>(a: string, p?: Record<string, unknown>)
           <div>
             <p className="text-[11px] uppercase tracking-wide text-slate-500 mb-1.5">Client app errors</p>
             <div className="bg-slate-900 border border-slate-800 rounded-xl divide-y divide-slate-800 overflow-hidden">
-              {appErrors.map((e) => (
+              {shownAppErrors.map((e) => (
                 <div key={e.id} className={`px-4 py-2.5 text-xs ${e.resolved ? 'opacity-50' : ''}`}>
                   <div className="flex items-center gap-3">
                     <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${e.resolved ? 'bg-slate-500' : 'bg-red-400'}`} />
@@ -1209,7 +1213,7 @@ function AuditTab({ call }: { call: <T,>(a: string, p?: Record<string, unknown>)
                   )}
                 </div>
               ))}
-              {appErrors.length === 0 && <div className="px-4 py-8 text-center text-sm text-slate-300">No client-app errors logged. 🎉</div>}
+              {shownAppErrors.length === 0 && <div className="px-4 py-8 text-center text-sm text-slate-300">No client-app errors logged. 🎉</div>}
             </div>
           </div>
 
@@ -1351,21 +1355,24 @@ function PaymentsView({ call, onBack, reload, onIssue, onViewReceipt }: { call: 
     catch (e) { alert(e instanceof Error ? e.message : 'Failed') } finally { setBusy(null) }
   }
 
-  const pending = items.filter(i => i.status === 'pending')
-  const reviewed = items.filter(i => i.status !== 'pending')
+  const { node: periodNode, inPeriod } = usePeriodFilter([...items.map(i => i.created_at), ...receipts.map(r => r.payment_date)])
+  const pending = items.filter(i => i.status === 'pending' && inPeriod(i.created_at))
+  const reviewed = items.filter(i => i.status !== 'pending' && inPeriod(i.created_at))
+  const shownReceipts = receipts.filter(r => inPeriod(r.payment_date))
 
   return (
     <div>
       <button onClick={onBack} className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-white mb-4"><ArrowLeft className="h-3.5 w-3.5" />Back</button>
       <h2 className="text-lg font-bold text-white mb-1">Payments</h2>
-      <p className="text-xs text-slate-400 mb-4">Client PromptPay submissions awaiting review. Approving activates the subscription or add-on instantly.</p>
+      <p className="text-xs text-slate-400 mb-3">Client PromptPay submissions awaiting review. Approving activates the subscription or add-on instantly.</p>
+      {periodNode}
 
       {/* Receipt / tax requests */}
-      {receipts.length > 0 && (
+      {shownReceipts.length > 0 && (
         <div className="mb-5">
           <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1.5">Receipt / Tax requests</p>
           <div className="space-y-2">
-            {receipts.map((r) => (
+            {shownReceipts.map((r) => (
               <div key={r.id} className="flex items-center gap-3 bg-slate-900 border border-slate-800 rounded-xl p-3">
                 <div className="w-12 h-12 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center flex-shrink-0"><FileText className="h-4 w-4 text-amber-400" /></div>
                 <div className="flex-1 min-w-0">
@@ -1471,6 +1478,54 @@ const PIE_PALETTE = ['#f59e0b', '#8b5cf6', '#22c55e', '#06b6d4', '#ec4899', '#f9
 
 interface FinRow { amount: number | null; payment_date?: string; created_at?: string; status?: string; kind?: string; target?: string; target_label?: string | null }
 
+// Reusable Month / Year / All-time date filter. Pass the data's dates to build
+// the year dropdown. Returns the control UI (`node`) and an `inPeriod` predicate.
+function usePeriodFilter(dates?: (string | null | undefined)[]) {
+  const nowY = new Date().getFullYear(), nowM = new Date().getMonth()
+  const [mode, setMode] = useState<'month' | 'year' | 'all'>('month')
+  const [year, setYear] = useState(nowY)
+  const [month, setMonth] = useState(nowM)
+  const datesKey = (dates ?? []).filter(Boolean).join(',')
+  const years = useMemo(() => {
+    const s = new Set<number>([nowY])
+    ;(dates ?? []).forEach(d => { if (d) { const y = new Date(d).getFullYear(); if (!isNaN(y)) s.add(y) } })
+    return Array.from(s).sort((a, b) => b - a)
+  }, [datesKey, nowY]) // eslint-disable-line react-hooks/exhaustive-deps
+  const inPeriod = (iso?: string | null) => {
+    if (mode === 'all') return true
+    if (!iso) return false
+    const d = new Date(iso); if (isNaN(d.getTime())) return false
+    if (d.getFullYear() !== year) return false
+    return mode === 'year' ? true : d.getMonth() === month
+  }
+  const isCurrentMonth = year === nowY && month === nowM
+  const periodLabel = mode === 'all' ? 'All time' : mode === 'year' ? String(year) : `${MONTHS_LONG[month]} ${year}`
+  const stepMonth = (delta: number) => { let m = month + delta, y = year; if (m < 0) { m = 11; y-- } else if (m > 11) { m = 0; y++ } setMonth(m); setYear(y) }
+  const node = (
+    <div className="flex flex-wrap items-center gap-2 mb-3">
+      <div className="flex bg-slate-900 border border-slate-800 rounded-lg p-0.5">
+        {(['month', 'year', 'all'] as const).map(m => (
+          <button key={m} onClick={() => setMode(m)} className={`px-2.5 h-7 rounded-md text-xs font-medium transition-colors ${mode === m ? 'bg-amber-500 text-slate-950' : 'text-slate-400 hover:text-white'}`}>{m === 'month' ? 'Month' : m === 'year' ? 'Year' : 'All time'}</button>
+        ))}
+      </div>
+      {mode !== 'all' && (
+        <select value={year} onChange={(e) => setYear(Number(e.target.value))} className="h-8 rounded-lg bg-slate-900 border border-slate-800 text-sm text-white px-2 focus:outline-none focus:ring-2 focus:ring-amber-500/50">
+          {years.map(y => <option key={y} value={y}>{y}</option>)}
+        </select>
+      )}
+      {mode === 'month' && (
+        <div className="flex items-center gap-1 bg-slate-900 border border-slate-800 rounded-lg px-1 h-8">
+          <button onClick={() => stepMonth(-1)} className="p-1 text-slate-400 hover:text-white"><ChevronLeft className="h-4 w-4" /></button>
+          <span className="min-w-[96px] text-center text-sm font-medium text-white">{isCurrentMonth ? 'This Month' : MONTHS_LONG[month]}</span>
+          <button onClick={() => stepMonth(1)} className="p-1 text-slate-400 hover:text-white"><ChevronRight className="h-4 w-4" /></button>
+        </div>
+      )}
+      <span className="text-[11px] text-slate-500 ml-1">{periodLabel}</span>
+    </div>
+  )
+  return { node, inPeriod, periodLabel, mode }
+}
+
 function DashboardHome({ companies, metrics, call, onView, onOpenClient }: { companies: ConsoleCompany[]; metrics: Metrics | null; call: <T,>(a: string, p?: Record<string, unknown>) => Promise<T>; onView: (v: View) => void; onOpenClient: (id: string) => void }) {
   const total = companies.length
   const active = companies.filter(c => c.is_active).length
@@ -1493,11 +1548,7 @@ function DashboardHome({ companies, metrics, call, onView, onOpenClient }: { com
   // Clients whose subscription is expiring soon (≤14 days) or expired.
   const attention = companies.filter(c => c.subscription && (c.subscription.overdue || (c.subscription.days_remaining != null && c.subscription.days_remaining <= 14)))
 
-  // ── Revenue period filter (Month / Year / All-time) ────────────────────────
-  const now = new Date()
-  const [mode, setMode] = useState<'month' | 'year' | 'all'>('month')
-  const [year, setYear] = useState(now.getFullYear())
-  const [month, setMonth] = useState(now.getMonth())
+  // Revenue figures, period-filtered (shared Month/Year/All-time control).
   const [invoices, setInvoices] = useState<FinRow[]>([])
   const [submissions, setSubmissions] = useState<FinRow[]>([])
   useEffect(() => {
@@ -1505,21 +1556,7 @@ function DashboardHome({ companies, metrics, call, onView, onOpenClient }: { com
       .then(d => { setInvoices(d.invoices ?? []); setSubmissions(d.submissions ?? []) })
       .catch(() => { /* leave empty */ })
   }, [call])
-
-  const years = useMemo(() => {
-    const s = new Set<number>([now.getFullYear()])
-    invoices.forEach(r => { if (r.payment_date) s.add(new Date(r.payment_date).getFullYear()) })
-    submissions.forEach(r => { if (r.created_at) s.add(new Date(r.created_at).getFullYear()) })
-    return Array.from(s).sort((a, b) => b - a)
-  }, [invoices, submissions, now])
-
-  const inPeriod = (iso?: string) => {
-    if (mode === 'all') return true
-    if (!iso) return false
-    const d = new Date(iso)
-    if (d.getFullYear() !== year) return false
-    return mode === 'year' ? true : d.getMonth() === month
-  }
+  const { node: periodNode, inPeriod, periodLabel } = usePeriodFilter([...invoices.map(i => i.payment_date), ...submissions.map(s => s.created_at)])
   const sum = (arr: FinRow[], ok: (r: FinRow) => boolean) => arr.reduce((s, r) => s + (ok(r) ? Number(r.amount) || 0 : 0), 0)
   const pRevenue = sum(invoices, r => inPeriod(r.payment_date))
   const pOpportunity = sum(submissions, r => r.status === 'pending' && inPeriod(r.created_at))
@@ -1537,14 +1574,6 @@ function DashboardHome({ companies, metrics, call, onView, onOpenClient }: { com
     .sort((a, b) => b.value - a.value)
   const pieSlices = pieData.filter(d => d.value > 0)
   const pieTotal = pieSlices.reduce((s, d) => s + d.value, 0)
-
-  const isCurrentMonth = year === now.getFullYear() && month === now.getMonth()
-  const periodLabel = mode === 'all' ? 'All time' : mode === 'year' ? String(year) : `${MONTHS_LONG[month]} ${year}`
-  const stepMonth = (delta: number) => {
-    let m = month + delta, y = year
-    if (m < 0) { m = 11; y -= 1 } else if (m > 11) { m = 0; y += 1 }
-    setMonth(m); setYear(y)
-  }
 
   return (
     <div>
@@ -1566,31 +1595,8 @@ function DashboardHome({ companies, metrics, call, onView, onOpenClient }: { com
         <StatTile label="Gold → Premium" value={`${gpPct}%`} tone="violet" hint={`${conv?.gold_to_premium ?? 0} of ${goldEver} gold clients`} />
       </div>
 
-      {/* Period selector */}
-      <div className="flex flex-wrap items-center gap-2 mb-3">
-        <div className="flex bg-slate-900 border border-slate-800 rounded-lg p-0.5">
-          {(['month', 'year', 'all'] as const).map(m => (
-            <button key={m} onClick={() => setMode(m)}
-              className={`px-2.5 h-7 rounded-md text-xs font-medium transition-colors ${mode === m ? 'bg-amber-500 text-slate-950' : 'text-slate-400 hover:text-white'}`}>
-              {m === 'month' ? 'Month' : m === 'year' ? 'Year' : 'All time'}
-            </button>
-          ))}
-        </div>
-        {mode !== 'all' && (
-          <select value={year} onChange={(e) => setYear(Number(e.target.value))}
-            className="h-8 rounded-lg bg-slate-900 border border-slate-800 text-sm text-white px-2 focus:outline-none focus:ring-2 focus:ring-amber-500/50">
-            {years.map(y => <option key={y} value={y}>{y}</option>)}
-          </select>
-        )}
-        {mode === 'month' && (
-          <div className="flex items-center gap-1 bg-slate-900 border border-slate-800 rounded-lg px-1 h-8">
-            <button onClick={() => stepMonth(-1)} className="p-1 text-slate-400 hover:text-white"><ChevronLeft className="h-4 w-4" /></button>
-            <span className="min-w-[96px] text-center text-sm font-medium text-white">{isCurrentMonth ? 'This Month' : MONTHS_LONG[month]}</span>
-            <button onClick={() => stepMonth(1)} className="p-1 text-slate-400 hover:text-white"><ChevronRight className="h-4 w-4" /></button>
-          </div>
-        )}
-        <span className="text-[11px] text-slate-500 ml-1">{periodLabel}</span>
-      </div>
+      {/* Period selector (shared component) */}
+      {periodNode}
 
       {/* Revenue composition + figures */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-6">
@@ -1676,16 +1682,29 @@ function NotificationsView({ call, onGo, onOpenClient }: { call: <T,>(a: string,
     if (!n.read) { setNotifs(prev => prev.map(x => x.id === n.id ? { ...x, read: true } : x)); try { await call('mark_notification_read', { notification_id: n.id }) } catch { /* ignore */ } }
     if (n.company_id) onOpenClient(n.company_id)
   }
+  async function markAll() {
+    setNotifs(prev => prev.map(x => ({ ...x, read: true })))
+    try { await call('mark_all_notifications_read') } catch { /* ignore */ }
+  }
+  const { node: periodNode, inPeriod } = usePeriodFilter([...notifs.map(n => n.created_at), ...errors.map(e => e.created_at)])
   if (loading) return <div className="flex justify-center py-20"><Loader2 className="h-6 w-6 animate-spin text-slate-300" /></div>
   const pendingPay = (pay?.payments ?? []).filter(p => p.status === 'pending')
   const pendingRcpt = (pay?.receipt_requests ?? []).filter(r => !r.receipt_issued)
-  const nothing = !pendingPay.length && !pendingRcpt.length && !errors.length && !notifs.length
+  const shownNotifs = notifs.filter(n => inPeriod(n.created_at))
+  const shownErrors = errors.filter(e => inPeriod(e.created_at))
+  const unread = notifs.filter(n => !n.read).length
+  const nothing = !pendingPay.length && !pendingRcpt.length && !shownErrors.length && !shownNotifs.length
   return (
     <div>
-      <h2 className="text-lg font-bold text-white mb-4">Notifications</h2>
-      {nothing && <p className="py-12 text-center text-sm text-slate-400">You're all caught up. 🎉</p>}
-      {notifs.map((n) => (
-        <button key={n.id} onClick={() => openNotif(n)} className="w-full flex items-center gap-3 bg-slate-900 border border-slate-800 rounded-xl p-4 mb-2 text-left hover:border-slate-700">
+      <div className="flex items-center gap-2 mb-3">
+        <h2 className="text-lg font-bold text-white">Notifications</h2>
+        {unread > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-violet-500/20 text-violet-300 border border-violet-500/30 font-semibold">{unread} unread</span>}
+        {unread > 0 && <button onClick={markAll} className="ml-auto text-[11px] text-amber-400 hover:text-amber-300">Mark all read</button>}
+      </div>
+      {periodNode}
+      {nothing && <p className="py-12 text-center text-sm text-slate-400">Nothing in this period. 🎉</p>}
+      {shownNotifs.map((n) => (
+        <button key={n.id} onClick={() => openNotif(n)} className={`w-full flex items-center gap-3 border rounded-xl p-4 mb-2 text-left transition-colors ${n.read ? 'bg-slate-900/50 border-slate-800/70 hover:border-slate-700' : 'bg-slate-900 border-violet-500/30 hover:border-violet-500/50'}`}>
           <div className="w-10 h-10 rounded-lg bg-violet-500/10 text-violet-400 flex items-center justify-center flex-shrink-0"><Sparkles className="h-5 w-5" /></div>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-semibold text-white flex items-center gap-2">{n.title}{!n.read && <span className="w-1.5 h-1.5 rounded-full bg-violet-400" />}</p>
@@ -1709,11 +1728,11 @@ function NotificationsView({ call, onGo, onOpenClient }: { call: <T,>(a: string,
           <ChevronRight className="h-4 w-4 text-slate-500" />
         </button>
       )}
-      {errors.length > 0 && (
+      {shownErrors.length > 0 && (
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 mt-2">
           <div className="flex items-center gap-2 mb-2"><AlertTriangle className="h-4 w-4 text-red-400" /><h3 className="text-sm font-semibold text-white">Recent errors</h3><button onClick={() => onGo('audit')} className="ml-auto text-[11px] text-amber-400">View all</button></div>
           <div className="space-y-1">
-            {errors.map((e) => (
+            {shownErrors.map((e) => (
               <div key={e.id} className="flex items-center gap-2 text-xs"><span className="w-1.5 h-1.5 rounded-full bg-red-400" /><span className="font-mono text-slate-300 w-36 truncate">{e.action}</span><span className="text-slate-500 flex-1 truncate">{JSON.stringify(e.detail)}</span></div>
             ))}
           </div>
