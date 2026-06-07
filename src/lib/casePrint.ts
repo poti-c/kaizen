@@ -4,6 +4,7 @@ import type { KaizenCase, KaizenProfile, KaizenCaseTimeline, KaizenCasePhoto } f
 export const CATEGORY_LABELS_EN: Record<string, string> = {
   maintenance: 'Maintenance', cleanliness: 'Cleanliness', safety: 'Safety',
   guest_complaint: 'Guest Complaint', equipment: 'Equipment', other: 'Other',
+  preventive_maintenance: 'Preventive Maintenance',
 }
 
 /**

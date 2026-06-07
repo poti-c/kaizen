@@ -969,7 +969,7 @@ export function CaseDetailPage() {
           const badLocation = kcase.location && kcase.location !== 'Others' &&
             !validLocations.some(v => v.toLowerCase() === kcase.location!.toLowerCase())
           const catLower = (kcase.category || '').toLowerCase().replace(/ /g, '_')
-          const badCategory = kcase.category && kcase.category !== 'other' &&
+          const badCategory = kcase.category && kcase.category !== 'other' && kcase.category !== 'preventive_maintenance' &&
             !validCategories.some(v => v.toLowerCase() === catLower) &&
             !customCatList.some(label => label.toLowerCase().replace(/ /g, '_') === catLower)
           if (!badDept && !badLocation && !badCategory) return null
@@ -1051,6 +1051,10 @@ export function CaseDetailPage() {
               <span className="text-gray-400 mr-0.5">{t.caseDetail.openedBy}</span>
               {(() => {
                 const creator = kcase.creator as KaizenProfile | undefined
+                // Auto-created from an overdue PM task (no human creator) → show "PMS".
+                if (!kcase.created_by && (kcase.case_number?.startsWith('PM-') || kcase.category === 'preventive_maintenance')) {
+                  return <span className="truncate font-semibold text-[var(--brand-primary)]">PMS</span>
+                }
                 const name = creator?.full_name || 'Unknown'
                 if (creator?.deleted_at) {
                   return <span className="truncate font-medium text-red-500 line-through" title={t.caseDetail.removedFromCompany}>{name}</span>
@@ -1513,8 +1517,8 @@ export function CaseDetailPage() {
             )
           })()}
 
-          {/* Change Priority — super_admin only */}
-          {profile?.role === 'super_admin' && (
+          {/* Change Priority — Top Management or the case's department manager */}
+          {canManagerAssign && kcase.status !== 'closed' && (
             <div className="bg-white rounded-xl border border-amber-300 shadow-sm p-5">
               <div className="flex items-center gap-2 mb-3">
                 <AlertTriangle className="h-4 w-4 text-amber-500" />

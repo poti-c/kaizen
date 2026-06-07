@@ -176,6 +176,11 @@ export function SettingsPage() {
         if (row.key === 'custom_categories') c = row.value as string[]
         if (row.key === 'custom_locations') l = row.value as string[]
       })
+      // PMS-subscribed clients get a built-in "Preventive Maintenance" category
+      // (used by auto-created overdue-maintenance cases).
+      if (companyHasAddon(activeCompany, 'pms') && !c.some(x => x.toLowerCase() === 'preventive maintenance')) {
+        c = [...c, 'Preventive Maintenance']
+      }
       setDeptList(d); setCatList(c); setLocList(l)
     }
     loadLists()

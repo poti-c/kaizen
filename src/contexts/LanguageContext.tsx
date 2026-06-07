@@ -193,6 +193,7 @@ const en = {
   categories: {
     maintenance: 'Maintenance', cleanliness: 'Cleanliness', safety: 'Safety',
     guest_complaint: 'Guest Complaint', equipment: 'Equipment', other: 'Other',
+    preventive_maintenance: 'Preventive Maintenance',
   },
   perf: {
     overallTitle: 'Overall Performance Score',
@@ -495,6 +496,7 @@ const th: Translations = {
   categories: {
     maintenance: 'การซ่อมบำรุง', cleanliness: 'ความสะอาด', safety: 'ความปลอดภัย',
     guest_complaint: 'ข้อร้องเรียนแขก', equipment: 'อุปกรณ์', other: 'อื่นๆ',
+    preventive_maintenance: 'การบำรุงรักษาเชิงป้องกัน',
   },
   perf: {
     overallTitle: 'คะแนนประสิทธิภาพโดยรวม',

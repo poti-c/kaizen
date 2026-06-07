@@ -11,7 +11,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { PhotoUpload } from '@/components/PhotoUpload'
-import { generateCaseNumber, CATEGORIES, LOCATIONS } from '@/lib/utils'
+import { generateCaseNumber, CATEGORIES, LOCATIONS, companyHasAddon } from '@/lib/utils'
 import { DEPARTMENTS, PRIORITY_LABELS } from '@/types'
 import type { CasePriority, Department } from '@/types'
 import { toast } from 'sonner'
@@ -239,7 +239,10 @@ export function CreateCasePage() {
                   <SelectValue placeholder={t.createCase.selectCategory} />
                 </SelectTrigger>
                 <SelectContent>
-                  {customCategories.map(({ slug, label }) => (
+                  {(companyHasAddon(activeCompany, 'pms') && !customCategories.some(c => c.slug === 'preventive_maintenance')
+                    ? [...customCategories, { slug: 'preventive_maintenance', label: 'Preventive Maintenance' }]
+                    : customCategories
+                  ).map(({ slug, label }) => (
                     <SelectItem key={slug} value={slug}>{label}</SelectItem>
                   ))}
                 </SelectContent>
