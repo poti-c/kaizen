@@ -293,6 +293,7 @@ Deno.serve(async (req) => {
     if (body.promptpay_name !== undefined) patch.promptpay_name = cleanStr(body.promptpay_name);
     if (body.promptpay_qr !== undefined) patch.promptpay_qr = body.promptpay_qr ? String(body.promptpay_qr) : null;
     if (body.support_email !== undefined) patch.support_email = cleanStr(body.support_email);
+    if (body.todos !== undefined) patch.todos = Array.isArray(body.todos) ? body.todos : [];
     const { error } = await admin.from("kaizen_console_settings").update(patch).eq("id", true);
     if (error) return json({ error: error.message }, 400);
     await audit("update_settings", { patch }, ip, true);

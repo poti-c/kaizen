@@ -1460,7 +1460,8 @@ function CreateOwnerDialog({ preselectCompanyId, call, onClose, onCreated }: {
 // ── Shared bits ──────────────────────────────────────────────────────────────
 // ── Admin Settings ─────────────────────────────────────────────────────────
 interface ConsoleAdmin { id: string; username: string; email: string | null; is_active: boolean; created_at: string }
-interface ConsoleSettings { company_name: string | null; office_type: string; branch_name: string | null; address: string | null; tax_id: string | null; logo_url?: string | null; signatory_name?: string | null; signatory_title?: string | null; phone?: string | null; email?: string | null; website?: string | null; promptpay_id?: string | null; promptpay_name?: string | null; promptpay_qr?: string | null; support_email?: string | null }
+interface TodoItem { id: string; text: string; done: boolean }
+interface ConsoleSettings { company_name: string | null; office_type: string; branch_name: string | null; address: string | null; tax_id: string | null; logo_url?: string | null; signatory_name?: string | null; signatory_title?: string | null; phone?: string | null; email?: string | null; website?: string | null; promptpay_id?: string | null; promptpay_name?: string | null; promptpay_qr?: string | null; support_email?: string | null; todos?: TodoItem[] | null }
 
 // Read an image file and downscale it to a compact data URL (keeps stored logo small).
 function fileToResizedDataUrl(file: File, max = 400): Promise<string> {
@@ -1502,6 +1503,19 @@ function AdminSettingsView({ call, onBack }: { call: <T,>(a: string, p?: Record<
   // company editing
   const [editCo, setEditCo] = useState(false)
   const [co, setCo] = useState<ConsoleSettings>({ company_name: '', office_type: 'head_office', branch_name: '', address: '', tax_id: '', signatory_name: '', signatory_title: '', phone: '', email: '', website: '', promptpay_id: '', promptpay_name: '', support_email: '' })
+
+  // To-Do / suggestions
+  const [todos, setTodos] = useState<TodoItem[]>([])
+  const [newTodo, setNewTodo] = useState('')
+  useEffect(() => { setTodos(company?.todos ?? []) }, [company])
+  async function saveTodos(next: TodoItem[]) {
+    setTodos(next)
+    try { await call('update_settings', { todos: next }) } catch (e) { alert(e instanceof Error ? e.message : 'Failed') }
+  }
+  function addTodo() {
+    const t = newTodo.trim(); if (!t) return
+    saveTodos([...todos, { id: `t${Date.now()}`, text: t, done: false }]); setNewTodo('')
+  }
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -1779,6 +1793,29 @@ function AdminSettingsView({ call, onBack }: { call: <T,>(a: string, p?: Record<
                   {company?.promptpay_qr && <button onClick={removeQr} disabled={busy === 'qr'} className="flex items-center gap-1.5 px-2.5 h-7 rounded-lg text-slate-500 hover:text-red-500 hover:bg-slate-100 text-xs disabled:opacity-50"><Trash2 className="h-3.5 w-3.5" />Remove</button>}
                 </div>
               </div>
+            </div>
+          </div>
+
+          {/* To-Do & Suggestions */}
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <ScrollText className="h-4 w-4 text-slate-400" />
+              <h3 className="text-sm font-semibold text-white">To-Do &amp; Suggestions</h3>
+            </div>
+            <p className="text-[11px] text-slate-500 mb-3">Parked ideas and pending setup. Tick when done, or ask to build any of these later.</p>
+            <div className="space-y-1.5 mb-3">
+              {todos.length === 0 && <p className="text-xs text-slate-500">Nothing here yet.</p>}
+              {todos.map((it) => (
+                <div key={it.id} className="flex items-start gap-2 bg-slate-800/40 rounded-lg px-3 py-2">
+                  <input type="checkbox" checked={it.done} onChange={() => saveTodos(todos.map(x => x.id === it.id ? { ...x, done: !x.done } : x))} className="accent-amber-500 mt-0.5" />
+                  <span className={`flex-1 text-xs ${it.done ? 'text-slate-500 line-through' : 'text-slate-200'}`}>{it.text}</span>
+                  <button onClick={() => saveTodos(todos.filter(x => x.id !== it.id))} className="text-slate-500 hover:text-red-400"><Trash2 className="h-3.5 w-3.5" /></button>
+                </div>
+              ))}
+            </div>
+            <div className="flex items-center gap-2">
+              <input value={newTodo} onChange={(e) => setNewTodo(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addTodo()} placeholder="Add a note or idea…" className={inputCls + ' flex-1'} />
+              <button onClick={addTodo} className="flex items-center gap-1 px-3 h-9 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-semibold"><Plus className="h-3.5 w-3.5" />Add</button>
             </div>
           </div>
         </div>
