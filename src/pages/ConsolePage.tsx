@@ -255,6 +255,7 @@ function Dashboard({ token, adminName, onLogout }: { token: string; adminName: s
   const load = useCallback(async () => {
     setLoading(true)
     try {
+      try { await call('sync_trial_alerts') } catch { /* non-blocking */ }
       const data = await call<{ owners: ConsoleOwner[]; companies: ConsoleCompany[]; payments_pending?: number; metrics?: Metrics }>('list')
       setOwners(data.owners); setCompanies(data.companies); setPayCount(data.payments_pending ?? 0); setMetrics(data.metrics ?? null)
       try { const s = await call<{ company: ConsoleSettings | null }>('get_settings'); setTodos(s.company?.todos ?? []) } catch { /* ignore */ }
@@ -403,6 +404,12 @@ function CompaniesListTab({ companies, owners, onOpen, onCreate }: {
                 </span>
                 <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold border ${packageBadgeCls(c.plan)}`}>{packageLabel(c.plan)}</span>
                 <SubscriptionBadge sub={c.subscription} />
+                {(() => {
+                  const ad = c.addons as Record<string, unknown> | null
+                  if (ad?.pms === true) return <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-sky-500/15 text-sky-300 border border-sky-500/30 font-medium">PMS</span>
+                  if (ad && typeof ad.pms_trial_until === 'string') return <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-violet-500/15 text-violet-300 border border-violet-500/30 font-medium">PMS trial</span>
+                  return null
+                })()}
               </div>
               <p className="text-[11px] text-slate-400 truncate mt-0.5">
                 /{c.slug} · {superAdminCount(c.id)} super admin{superAdminCount(c.id) !== 1 ? 's' : ''} · {c.live_managers}M / {c.live_staff}S

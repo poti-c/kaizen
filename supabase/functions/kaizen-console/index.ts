@@ -773,6 +773,50 @@ Deno.serve(async (req) => {
     return json({ success: true });
   }
 
+  // Idempotent: when a client's PMS trial is within 2 days of ending, raise an
+  // upsell alert once — a notification, a to-do, and a calendar task. Marked via
+  // addons.pms_trial_alerted so it never duplicates. Called on Console load.
+  if (action === "sync_trial_alerts") {
+    const today = new Date(); today.setUTCHours(0, 0, 0, 0);
+    const horizon = new Date(today); horizon.setUTCDate(horizon.getUTCDate() + 2);
+    const { data: cos } = await admin.from("kaizen_companies").select("id, name, addons");
+    let created = 0;
+    for (const c of cos ?? []) {
+      const ad = (c.addons && typeof c.addons === "object") ? { ...c.addons } : {};
+      const until = ad["pms_trial_until"];
+      if (ad["pms"] === true) continue;            // already a paying PMS client
+      if (typeof until !== "string") continue;     // no active trial
+      if (ad["pms_trial_alerted"] === true) continue; // already alerted
+      const untilDate = new Date(until + "T00:00:00Z");
+      if (isNaN(untilDate.getTime()) || untilDate < today || untilDate > horizon) continue;
+
+      await admin.from("kaizen_console_notifications").insert({
+        type: "pms_trial_ending", company_id: c.id, title: "PMS trial ending soon",
+        body: `${c.name ?? "A client"}'s Preventive Maintenance trial ends ${until}. A good moment to follow up about subscribing.`,
+      });
+
+      const { data: s } = await admin.from("kaizen_console_settings").select("todos").eq("id", true).maybeSingle();
+      const todos = Array.isArray(s?.todos) ? s.todos : [];
+      const todoId = "pms-trial-" + c.id;
+      if (!todos.some((t) => t && t.id === todoId)) {
+        todos.push({ id: todoId, text: `Follow up with ${c.name ?? "client"} about subscribing to PMS (trial ends ${until}).`, done: false });
+        await admin.from("kaizen_console_settings").update({ todos }).eq("id", true);
+      }
+
+      await admin.from("kaizen_appointments").insert({
+        kind: "meeting", mode: "phone", status: "scheduled",
+        title: `Upsell PMS — ${c.name ?? "client"}`, company_id: c.id, client_name: c.name,
+        start_at: until + "T09:00:00Z", all_day: true,
+        notes: `PMS free trial ends ${until}. Reach out about converting to a paid PMS subscription.`,
+      });
+
+      ad["pms_trial_alerted"] = true;
+      await admin.from("kaizen_companies").update({ addons: ad }).eq("id", c.id);
+      created++;
+    }
+    return json({ created });
+  }
+
   if (action === "issue_receipt") {
     const invoice_id = String(body.invoice_id ?? "");
     if (!invoice_id) return json({ error: "invoice_id required" }, 400);

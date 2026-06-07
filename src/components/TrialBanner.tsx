@@ -1,4 +1,5 @@
-import { AlertTriangle, Clock, Wrench } from 'lucide-react'
+import { useState } from 'react'
+import { AlertTriangle, Clock, Wrench, X } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useCompany } from '@/contexts/CompanyContext'
 import { useAuth } from '@/contexts/AuthContext'
@@ -8,24 +9,36 @@ import { addonTrialDaysLeft } from '@/lib/utils'
 const TRIAL_DAYS = 30
 
 /**
- * Reminds decision-makers to subscribe to the Preventive Maintenance add-on
- * in the final 2 days of its 7-day free trial.
+ * Gentle (non-pushy) reminder in the final 2 days of the 7-day Preventive
+ * Maintenance trial. The client can dismiss it with X; we only remember the
+ * dismissal for the current session (sessionStorage), so it reappears the next
+ * time they sign in / the next day — present but never nagging.
  */
 export function PmsTrialBanner() {
   const { activeCompany } = useCompany()
   const { profile } = useAuth()
   const { lang } = useLanguage()
+  const dismissKey = `pms-trial-banner-dismissed:${activeCompany?.id ?? ''}`
+  const [dismissed, setDismissed] = useState<boolean>(() => {
+    try { return sessionStorage.getItem(dismissKey) === '1' } catch { return false }
+  })
   if (!profile || (profile.role !== 'super_admin' && profile.role !== 'manager')) return null
   const left = addonTrialDaysLeft(activeCompany, 'pms')
-  if (left == null || left > 2) return null
+  if (left == null || left > 2 || dismissed) return null
+
+  function dismiss() {
+    try { sessionStorage.setItem(dismissKey, '1') } catch { /* ignore */ }
+    setDismissed(true)
+  }
   const msg = lang === 'th'
-    ? `ทดลองใช้ Preventive Maintenance เหลืออีก ${left} วัน — สมัครสมาชิกเพื่อใช้งานตารางบำรุงรักษาต่อเนื่อง`
-    : `Your Preventive Maintenance trial ends in ${left} day${left === 1 ? '' : 's'} — subscribe to keep your maintenance schedules running.`
+    ? `ทดลองใช้ Preventive Maintenance เหลืออีก ${left} วัน — หากเป็นประโยชน์กับทีมงาน สามารถสมัครสมาชิกเพื่อใช้งานต่อได้ ไม่ต้องรีบ`
+    : `Your Preventive Maintenance trial has ${left} day${left === 1 ? '' : 's'} left. If it's been useful, you can subscribe any time to keep it — no rush.`
   return (
     <div className="flex items-center gap-2 px-4 py-2 text-xs sm:text-sm font-medium border-b bg-amber-50 border-amber-300 text-amber-900">
       <Wrench className="h-4 w-4 flex-shrink-0" />
       <span className="flex-1">{msg}</span>
-      <Link to="/packages" className="underline font-semibold whitespace-nowrap">{lang === 'th' ? 'สมัครสมาชิก' : 'Subscribe'}</Link>
+      <Link to="/packages" className="underline font-semibold whitespace-nowrap">{lang === 'th' ? 'ดูแพ็กเกจ' : 'View plans'}</Link>
+      <button onClick={dismiss} aria-label={lang === 'th' ? 'ปิด' : 'Dismiss'} className="p-0.5 rounded hover:bg-amber-100 flex-shrink-0"><X className="h-3.5 w-3.5" /></button>
     </div>
   )
 }

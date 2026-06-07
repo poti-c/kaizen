@@ -188,7 +188,7 @@ export function PackagesExpansions() {
   async function startPmsTrial() {
     if (upgradeLocked) { toast.error('Only Top Management have access.'); return }
     setBusy(true)
-    const { data, error } = await supabase.rpc('kaizen_start_pms_trial')
+    const { data, error } = await supabase.rpc('kaizen_start_pms_trial', { p_company_id: activeCompany?.id })
     setBusy(false)
     if (error) { toast.error(error.message); return }
     toast.success(`Preventive Maintenance unlocked until ${fmtDate(data as string)}`)
