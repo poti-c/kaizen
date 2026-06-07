@@ -28,6 +28,20 @@ import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { buildCasePrintHtml, CATEGORY_LABELS_EN } from '@/lib/casePrint'
 
+// Lightweight title matching so recurrence reflects the SAME item/problem, not
+// just the same category at a location. Tokens are lowercased words ≥3 chars,
+// minus generic stop-words; two titles are "related" if they share any token.
+const TITLE_STOP = new Set(['the', 'and', 'for', 'with', 'not', 'was', 'are', 'has', 'this', 'that', 'room', 'area', 'guest', 'guests', 'issue', 'problem', 'again', 'broken'])
+function titleTokens(t?: string | null): Set<string> {
+  return new Set(String(t || '').toLowerCase().split(/[^a-z0-9]+/).filter(w => w.length >= 3 && !TITLE_STOP.has(w)))
+}
+function titlesRelated(a?: string | null, b?: string | null): boolean {
+  const ta = titleTokens(a), tb = titleTokens(b)
+  if (!ta.size || !tb.size) return true   // nothing meaningful to compare → don't exclude
+  for (const w of ta) if (tb.has(w)) return true
+  return false
+}
+
 export function CaseDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
@@ -1301,20 +1315,31 @@ export function CaseDetailPage() {
           </div>
 
           {/* Recurring Issue Detection — auto, managers/admins only */}
-          {canManagerAssign && companyHasFeature(activeCompany, 'recurring_detection') && recurringCases.length > 0 && (() => {
-            const count = recurringCases.length
-            const isChronic = count >= 3
-            const isRecurring = count >= 2
+          {canManagerAssign && companyHasFeature(activeCompany, 'recurring_detection') && (recurringCases.length > 0 || kcase.is_recurring) && (() => {
+            // Narrow same-location+category matches to the same item via titles.
+            const related = recurringCases.filter(rc => titlesRelated(rc.title, kcase.title))
+            const count = related.length
+            const flagged = kcase.is_recurring === true
+            if (count === 0 && !flagged) return null
+            // The reporter's manual "recurring problem" flag counts like an extra prior report.
+            const score = count + (flagged ? 1 : 0)
+            const isChronic = score >= 3
+            const isRecurring = score === 2
+            const flaggedOnly = count === 0 && flagged
             const borderColor = isChronic ? 'border-red-300' : isRecurring ? 'border-orange-300' : 'border-yellow-300'
             const bgColor = isChronic ? 'bg-red-50' : isRecurring ? 'bg-orange-50' : 'bg-yellow-50'
             const textColor = isChronic ? 'text-red-700' : isRecurring ? 'text-orange-700' : 'text-yellow-700'
             const iconColor = isChronic ? 'text-red-500' : isRecurring ? 'text-orange-500' : 'text-yellow-500'
-            const badgeLabel = isChronic
+            const badgeLabel = flaggedOnly
+              ? t.caseDetail.recurringFlagged
+              : isChronic
               ? t.caseDetail.recurringChronic(count)
               : isRecurring
               ? t.caseDetail.recurringRecurring(count)
               : t.caseDetail.recurringOnce(count)
-            const advice = isChronic
+            const advice = flaggedOnly
+              ? t.caseDetail.recurringFlaggedAdvice
+              : isChronic
               ? t.caseDetail.recurringChronicAdvice
               : isRecurring
               ? t.caseDetail.recurringRecurringAdvice
@@ -1338,9 +1363,9 @@ export function CaseDetailPage() {
                     : <ChevronDown className={`h-4 w-4 ${iconColor} flex-shrink-0`} />
                   }
                 </button>
-                {recurringOpen && (
+                {recurringOpen && related.length > 0 && (
                   <div className="bg-white divide-y divide-gray-50">
-                    {recurringCases.map((rc) => (
+                    {related.map((rc) => (
                       <Link
                         key={rc.id}
                         to={`/cases/${rc.id}`}
