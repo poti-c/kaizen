@@ -779,6 +779,15 @@ Deno.serve(async (req) => {
     return json({ success: true });
   }
 
+  if (action === "mark_notification_done") {
+    const id = String(body.notification_id ?? "");
+    if (!id) return json({ error: "notification_id required" }, 400);
+    const done = body.done !== false;
+    await admin.from("kaizen_console_notifications").update({ done, read: true }).eq("id", id);
+    await audit("mark_notification_done", { id, done }, ip, true);
+    return json({ success: true });
+  }
+
   // Idempotent: when a client's PMS trial is within 2 days of ending, raise an
   // upsell alert once — a notification, a to-do, and a calendar task. Marked via
   // addons.pms_trial_alerted so it never duplicates. Called on Console load.

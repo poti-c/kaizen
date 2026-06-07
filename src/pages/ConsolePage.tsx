@@ -1660,12 +1660,13 @@ function DashboardHome({ companies, metrics, call, onView, onOpenClient }: { com
 }
 
 // ── Notifications ────────────────────────────────────────────────────────────
-interface ConsoleNotif { id: string; type: string; company_id: string | null; company_name: string | null; title: string; body: string | null; read: boolean; created_at: string }
+interface ConsoleNotif { id: string; type: string; company_id: string | null; company_name: string | null; title: string; body: string | null; read: boolean; done?: boolean; created_at: string }
 function NotificationsView({ call, onGo, onOpenClient }: { call: <T,>(a: string, p?: Record<string, unknown>) => Promise<T>; onGo: (v: View) => void; onOpenClient: (id: string) => void }) {
   const [pay, setPay] = useState<{ payments: PaymentSub[]; receipt_requests: ReceiptReq[] } | null>(null)
   const [errors, setErrors] = useState<AuditEntry[]>([])
   const [notifs, setNotifs] = useState<ConsoleNotif[]>([])
   const [loading, setLoading] = useState(true)
+  const [showDone, setShowDone] = useState(false)
   useEffect(() => {
     (async () => {
       try {
@@ -1686,33 +1687,45 @@ function NotificationsView({ call, onGo, onOpenClient }: { call: <T,>(a: string,
     setNotifs(prev => prev.map(x => ({ ...x, read: true })))
     try { await call('mark_all_notifications_read') } catch { /* ignore */ }
   }
+  async function markDone(n: ConsoleNotif) {
+    setNotifs(prev => prev.map(x => x.id === n.id ? { ...x, done: true, read: true } : x))
+    try { await call('mark_notification_done', { notification_id: n.id, done: true }) } catch { /* ignore */ }
+  }
   const { node: periodNode, inPeriod } = usePeriodFilter([...notifs.map(n => n.created_at), ...errors.map(e => e.created_at)])
   if (loading) return <div className="flex justify-center py-20"><Loader2 className="h-6 w-6 animate-spin text-slate-300" /></div>
   const pendingPay = (pay?.payments ?? []).filter(p => p.status === 'pending')
   const pendingRcpt = (pay?.receipt_requests ?? []).filter(r => !r.receipt_issued)
-  const shownNotifs = notifs.filter(n => inPeriod(n.created_at))
+  const shownNotifs = notifs.filter(n => inPeriod(n.created_at) && (showDone || !n.done))
+  const doneCount = notifs.filter(n => n.done).length
   const shownErrors = errors.filter(e => inPeriod(e.created_at))
-  const unread = notifs.filter(n => !n.read).length
+  const unread = notifs.filter(n => !n.read && !n.done).length
   const nothing = !pendingPay.length && !pendingRcpt.length && !shownErrors.length && !shownNotifs.length
   return (
     <div>
-      <div className="flex items-center gap-2 mb-3">
+      <div className="flex items-center gap-2 mb-3 flex-wrap">
         <h2 className="text-lg font-bold text-white">Notifications</h2>
         {unread > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-violet-500/20 text-violet-300 border border-violet-500/30 font-semibold">{unread} unread</span>}
-        {unread > 0 && <button onClick={markAll} className="ml-auto text-[11px] text-amber-400 hover:text-amber-300">Mark all read</button>}
+        <div className="ml-auto flex items-center gap-3">
+          {doneCount > 0 && <button onClick={() => setShowDone(v => !v)} className="text-[11px] text-slate-400 hover:text-white">{showDone ? 'Hide done' : `Show done (${doneCount})`}</button>}
+          {unread > 0 && <button onClick={markAll} className="text-[11px] text-amber-400 hover:text-amber-300">Mark all read</button>}
+        </div>
       </div>
       {periodNode}
       {nothing && <p className="py-12 text-center text-sm text-slate-400">Nothing in this period. 🎉</p>}
       {shownNotifs.map((n) => (
-        <button key={n.id} onClick={() => openNotif(n)} className={`w-full flex items-center gap-3 border rounded-xl p-4 mb-2 text-left transition-colors ${n.read ? 'bg-slate-900/50 border-slate-800/70 hover:border-slate-700' : 'bg-slate-900 border-violet-500/30 hover:border-violet-500/50'}`}>
-          <div className="w-10 h-10 rounded-lg bg-violet-500/10 text-violet-400 flex items-center justify-center flex-shrink-0"><Sparkles className="h-5 w-5" /></div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-white flex items-center gap-2">{n.title}{!n.read && <span className="w-1.5 h-1.5 rounded-full bg-violet-400" />}</p>
-            <p className="text-[11px] text-slate-400 truncate">{n.body}</p>
-            <p className="text-[10px] text-slate-500 mt-0.5">{new Date(n.created_at).toLocaleString()}</p>
-          </div>
-          <ChevronRight className="h-4 w-4 text-slate-500 flex-shrink-0" />
-        </button>
+        <div key={n.id} className={`w-full flex items-center gap-3 border rounded-xl p-4 mb-2 transition-colors ${n.done ? 'bg-slate-900/40 border-slate-800/60 opacity-70' : n.read ? 'bg-slate-900/50 border-slate-800/70' : 'bg-slate-900 border-violet-500/30'}`}>
+          <button onClick={() => openNotif(n)} className="flex items-center gap-3 flex-1 min-w-0 text-left">
+            <div className="w-10 h-10 rounded-lg bg-violet-500/10 text-violet-400 flex items-center justify-center flex-shrink-0"><Sparkles className="h-5 w-5" /></div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-white flex items-center gap-2">{n.title}{!n.read && !n.done && <span className="w-1.5 h-1.5 rounded-full bg-violet-400" />}</p>
+              <p className="text-[11px] text-slate-400 truncate">{n.body}</p>
+              <p className="text-[10px] text-slate-500 mt-0.5">{new Date(n.created_at).toLocaleString()}</p>
+            </div>
+          </button>
+          {n.done
+            ? <span className="text-[11px] text-green-400 flex items-center gap-1 flex-shrink-0"><Check className="h-3.5 w-3.5" />Done</span>
+            : <button onClick={() => markDone(n)} className="text-[11px] px-2 py-1 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800 flex-shrink-0">Mark done</button>}
+        </div>
       ))}
       {pendingPay.length > 0 && (
         <button onClick={() => onGo('payments')} className="w-full flex items-center gap-3 bg-slate-900 border border-slate-800 rounded-xl p-4 mb-2 text-left hover:border-slate-700">
