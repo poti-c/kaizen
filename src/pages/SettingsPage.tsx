@@ -24,7 +24,7 @@ const DEFAULT_CATEGORIES = [...CATEGORIES].map(c => c.replace(/_/g, ' ').replace
 const DEFAULT_LOCATIONS = [...LOCATIONS] as string[]
 
 // Support
-const SUPPORT_EMAIL = 'chaopoti@gmail.com'
+const DEFAULT_SUPPORT_EMAIL = 'potichao@me.com'
 
 const PRESET_COLORS = [
   { label: 'Teal Pro',     primary: '#0891b2', accent: '#06b6d4', sidebar: '#1c2b3a' },
@@ -284,6 +284,12 @@ export function SettingsPage() {
 
   // Support dialog
   const [supportDialog, setSupportDialog] = useState<'help' | 'feedback' | 'compatibility' | 'legal' | null>(null)
+  // Support email is configurable in the Console (Company Profile); fall back to the default.
+  const [supportEmail, setSupportEmail] = useState(DEFAULT_SUPPORT_EMAIL)
+  useEffect(() => {
+    supabase.from('kaizen_console_settings').select('support_email').eq('id', true).maybeSingle()
+      .then(({ data }) => { if (data?.support_email) setSupportEmail(data.support_email) })
+  }, [])
 
   async function confirmBulkDelete() {
     if (!bulkConfirm || !_pendingBulkRef.current) return
@@ -966,10 +972,10 @@ export function SettingsPage() {
               </DialogHeader>
               <div className="bg-gray-50 rounded-lg px-3 py-2.5 flex items-center gap-2 text-sm">
                 <Mail className="h-4 w-4 text-gray-400 flex-shrink-0" />
-                <span className="text-gray-700 font-medium">{SUPPORT_EMAIL}</span>
+                <span className="text-gray-700 font-medium">{supportEmail}</span>
               </div>
               <DialogFooter>
-                <a href={`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent('Kaizen — Help Request')}`} className="w-full">
+                <a href={`mailto:${supportEmail}?subject=${encodeURIComponent('Kaizen — Help Request')}`} className="w-full">
                   <Button className="w-full"><Mail className="h-4 w-4" />{lang === 'th' ? 'ส่งอีเมล' : 'Send Email'}</Button>
                 </a>
               </DialogFooter>
@@ -990,7 +996,7 @@ export function SettingsPage() {
                 </DialogDescription>
               </DialogHeader>
               <DialogFooter>
-                <a href={`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent('Kaizen — Feedback')}`} className="w-full">
+                <a href={`mailto:${supportEmail}?subject=${encodeURIComponent('Kaizen — Feedback')}`} className="w-full">
                   <Button className="w-full"><Mail className="h-4 w-4" />{lang === 'th' ? 'ส่งอีเมล' : 'Send Email'}</Button>
                 </a>
               </DialogFooter>

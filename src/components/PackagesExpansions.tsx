@@ -272,7 +272,7 @@ export function PackagesExpansions() {
         </button>
       </div>
 
-      {payItem && <PayModal item={payItem} vendor={vendor} companyId={activeCompany?.id ?? ''} supportEmail={vendor?.support_email ?? SALES_EMAIL} onClose={() => setPayItem(null)} />}
+      {payItem && <PayModal item={payItem} vendor={vendor} companyId={activeCompany?.id ?? ''} supportEmail={vendor?.support_email ?? 'potichao@me.com'} onClose={() => setPayItem(null)} />}
     </div>
   )
 }
