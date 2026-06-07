@@ -258,6 +258,10 @@ Deno.serve(async (req) => {
     if (body.phone !== undefined) patch.phone = cleanStr(body.phone);
     if (body.email !== undefined) patch.email = cleanStr(body.email);
     if (body.website !== undefined) patch.website = cleanStr(body.website);
+    if (body.promptpay_id !== undefined) patch.promptpay_id = cleanStr(body.promptpay_id);
+    if (body.promptpay_name !== undefined) patch.promptpay_name = cleanStr(body.promptpay_name);
+    if (body.promptpay_qr !== undefined) patch.promptpay_qr = body.promptpay_qr ? String(body.promptpay_qr) : null;
+    if (body.support_email !== undefined) patch.support_email = cleanStr(body.support_email);
     const { error } = await admin.from("kaizen_console_settings").update(patch).eq("id", true);
     if (error) return json({ error: error.message }, 400);
     await audit("update_settings", { patch }, ip, true);
@@ -282,6 +286,7 @@ Deno.serve(async (req) => {
       if (!latestEnd[r.company_id] || r.period_end > latestEnd[r.company_id]) latestEnd[r.company_id] = r.period_end;
     }
     const durations = await planDurations();
+    const { count: paymentsPending } = await admin.from("kaizen_payment_submissions").select("id", { count: "exact", head: true }).eq("status", "pending");
     const companyStats = companies.map((c) => ({
       ...c,
       live_super_admins: profiles.filter(p => p.company_id === c.id && p.role === "super_admin").length,
@@ -293,7 +298,7 @@ Deno.serve(async (req) => {
       const ids = links.filter(l => l.super_admin_id === o.id).map(l => l.company_id);
       return { ...o, companies: companyStats.filter(c => ids.includes(c.id)) };
     });
-    return json({ owners: ownersOut, companies: companyStats });
+    return json({ owners: ownersOut, companies: companyStats, payments_pending: paymentsPending ?? 0 });
   }
 
   if (action === "list_company_users") {
@@ -596,6 +601,65 @@ Deno.serve(async (req) => {
       documents: docsRes.data ?? [],
       subscription: computeSubscription(co?.plan, co?.created_at, period_end, durations["trial"]),
     });
+  }
+
+  // ── Client payment submissions (PromptPay proof) ──────────────────────────
+  if (action === "list_payments") {
+    const [pmtRes, coRes] = await Promise.all([
+      admin.from("kaizen_payment_submissions").select("*").order("created_at", { ascending: false }),
+      admin.from("kaizen_companies").select("id, name"),
+    ]);
+    const names = {};
+    for (const c of (coRes.data ?? [])) names[c.id] = c.name;
+    const payments = (pmtRes.data ?? []).map((p) => ({ ...p, company_name: names[p.company_id] ?? null }));
+    return json({ payments });
+  }
+
+  if (action === "approve_payment") {
+    const id = String(body.submission_id ?? "");
+    if (!id) return json({ error: "submission_id required" }, 400);
+    const { data: sub } = await admin.from("kaizen_payment_submissions").select("*").eq("id", id).maybeSingle();
+    if (!sub) return json({ error: "Submission not found" }, 404);
+    if (sub.status !== "pending") return json({ error: "Already reviewed." }, 400);
+
+    if (sub.kind === "subscription") {
+      // Apply the plan + its package defaults, set subscription end, log an invoice.
+      const pkg = await packageDefaults(sub.target);
+      const durations = await planDurations();
+      const term = Number(durations[sub.target]) || 365;
+      const pe = new Date(); pe.setUTCDate(pe.getUTCDate() + term);
+      const period_end = pe.toISOString().slice(0, 10);
+      const today = new Date().toISOString().slice(0, 10);
+      await admin.from("kaizen_companies").update({
+        plan: sub.target, subscription_end: period_end,
+        max_super_admins: pkg?.max_super_admins ?? null,
+        max_managers: pkg?.max_managers ?? null, max_staff: pkg?.max_staff ?? null,
+        multi_company: !!pkg?.multi_company, features: pkg?.features ?? {},
+      }).eq("id", sub.company_id);
+      await admin.from("kaizen_invoices").insert({
+        company_id: sub.company_id, payee: sub.target_label ?? sub.target, amount: sub.amount,
+        currency: sub.currency ?? "THB", payment_date: today, period_start: today, period_end,
+        notes: "Client PromptPay payment (approved)",
+      });
+    } else {
+      // Add-on: enable it on the company's addons map.
+      const { data: co } = await admin.from("kaizen_companies").select("addons").eq("id", sub.company_id).maybeSingle();
+      const addons = (co?.addons && typeof co.addons === "object") ? co.addons : {};
+      addons[sub.target] = true;
+      await admin.from("kaizen_companies").update({ addons }).eq("id", sub.company_id);
+    }
+    await admin.from("kaizen_payment_submissions").update({ status: "approved", reviewed_at: new Date().toISOString() }).eq("id", id);
+    await audit("approve_payment", { id, kind: sub.kind, target: sub.target, company_id: sub.company_id }, ip, true);
+    return json({ success: true });
+  }
+
+  if (action === "reject_payment") {
+    const id = String(body.submission_id ?? "");
+    if (!id) return json({ error: "submission_id required" }, 400);
+    const { error } = await admin.from("kaizen_payment_submissions").update({ status: "rejected", reviewed_at: new Date().toISOString() }).eq("id", id);
+    if (error) return json({ error: error.message }, 400);
+    await audit("reject_payment", { id }, ip, true);
+    return json({ success: true });
   }
 
   if (action === "add_invoice") {

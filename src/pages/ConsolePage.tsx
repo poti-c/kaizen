@@ -231,11 +231,13 @@ function Dashboard({ token, onLogout }: { token: string; onLogout: () => void })
   const [showSettings, setShowSettings] = useState(false)
   const [showForms, setShowForms] = useState(false)
   const [showProducts, setShowProducts] = useState(false)
+  const [showPayments, setShowPayments] = useState(false)
+  const [payCount, setPayCount] = useState(0)
   const [formPreviewId, setFormPreviewId] = useState<string | null>(null)
 
   // Open a specific form in the Form Generator history (used by Calendar deep-link).
   const openForm = useCallback((formId: string) => {
-    setFormPreviewId(formId); setShowForms(true); setShowProducts(false); setShowSettings(false); setSelectedCompanyId(null)
+    setFormPreviewId(formId); setShowForms(true); setShowPayments(false); setShowProducts(false); setShowSettings(false); setSelectedCompanyId(null)
   }, [])
 
   const call = useCallback(async <T,>(action: string, payload: Record<string, unknown> = {}): Promise<T> => {
@@ -246,8 +248,8 @@ function Dashboard({ token, onLogout }: { token: string; onLogout: () => void })
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const data = await call<{ owners: ConsoleOwner[]; companies: ConsoleCompany[] }>('list')
-      setOwners(data.owners); setCompanies(data.companies)
+      const data = await call<{ owners: ConsoleOwner[]; companies: ConsoleCompany[]; payments_pending?: number }>('list')
+      setOwners(data.owners); setCompanies(data.companies); setPayCount(data.payments_pending ?? 0)
     } catch (e) { console.error('Console load failed:', e) } finally { setLoading(false) }
   }, [call])
 
@@ -259,7 +261,7 @@ function Dashboard({ token, onLogout }: { token: string; onLogout: () => void })
     <div className="min-h-screen bg-slate-950 text-slate-200">
       <header className="border-b border-slate-800 bg-slate-900/80 backdrop-blur sticky top-0 z-10">
         <div className="max-w-5xl mx-auto px-4 h-14 flex items-center gap-3">
-          <button onClick={() => { setShowProducts(false); setShowForms(false); setShowSettings(false); setSelectedCompanyId(null) }} title="Back to Clients"
+          <button onClick={() => { setShowPayments(false); setShowProducts(false); setShowForms(false); setShowSettings(false); setSelectedCompanyId(null) }} title="Back to Clients"
             className="flex items-center gap-3 flex-1 min-w-0 text-left rounded-lg -mx-1 px-1 py-1 hover:bg-slate-800/60 transition-colors">
             <img src="/kaizen-icon.svg" alt="Kaizen" className="w-8 h-8 rounded-lg object-contain flex-shrink-0" />
             <div className="min-w-0">
@@ -267,19 +269,24 @@ function Dashboard({ token, onLogout }: { token: string; onLogout: () => void })
               <p className="text-[11px] text-slate-400 leading-tight">System Console · by NNR Solutions</p>
             </div>
           </button>
-          <button onClick={() => { setShowProducts(false); setShowForms(false); setShowSettings(false); setSelectedCompanyId(null); setTab('companies') }} title="Clients"
-            className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg hover:bg-slate-800 ${!showProducts && !showForms && !showSettings && !selectedCompany && tab === 'companies' ? 'text-amber-400' : 'text-slate-400 hover:text-white'}`}>
+          <button onClick={() => { setShowPayments(false); setShowProducts(false); setShowForms(false); setShowSettings(false); setSelectedCompanyId(null); setTab('companies') }} title="Clients"
+            className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg hover:bg-slate-800 ${!showPayments && !showProducts && !showForms && !showSettings && !selectedCompany && tab === 'companies' ? 'text-amber-400' : 'text-slate-400 hover:text-white'}`}>
             <Building2 className="h-3.5 w-3.5" />Clients
           </button>
-          <button onClick={() => { setShowProducts(true); setShowForms(false); setShowSettings(false); setSelectedCompanyId(null) }} title="Products"
+          <button onClick={() => { setShowPayments(true); setShowProducts(false); setShowForms(false); setShowSettings(false); setSelectedCompanyId(null) }} title="Payments"
+            className={`relative flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg hover:bg-slate-800 ${showPayments ? 'text-amber-400' : 'text-slate-400 hover:text-white'}`}>
+            <Receipt className="h-3.5 w-3.5" />Payments
+            {payCount > 0 && <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">{payCount}</span>}
+          </button>
+          <button onClick={() => { setShowProducts(true); setShowPayments(false); setShowForms(false); setShowSettings(false); setSelectedCompanyId(null) }} title="Products"
             className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg hover:bg-slate-800 ${showProducts ? 'text-amber-400' : 'text-slate-400 hover:text-white'}`}>
             <Package className="h-3.5 w-3.5" />Products
           </button>
-          <button onClick={() => { setShowForms(true); setShowProducts(false); setShowSettings(false); setSelectedCompanyId(null) }} title="Form Generator"
+          <button onClick={() => { setShowForms(true); setShowPayments(false); setShowProducts(false); setShowSettings(false); setSelectedCompanyId(null) }} title="Form Generator"
             className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg hover:bg-slate-800 ${showForms ? 'text-amber-400' : 'text-slate-400 hover:text-white'}`}>
             <FileText className="h-3.5 w-3.5" />Form Generator
           </button>
-          <button onClick={() => { setShowSettings(true); setShowForms(false); setShowProducts(false); setSelectedCompanyId(null) }} title="Admin Settings"
+          <button onClick={() => { setShowSettings(true); setShowPayments(false); setShowForms(false); setShowProducts(false); setSelectedCompanyId(null) }} title="Admin Settings"
             className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg hover:bg-slate-800 ${showSettings ? 'text-amber-400' : 'text-slate-400 hover:text-white'}`}>
             <Settings className="h-3.5 w-3.5" />Settings
           </button>
@@ -287,7 +294,7 @@ function Dashboard({ token, onLogout }: { token: string; onLogout: () => void })
             <LogOut className="h-3.5 w-3.5" />Sign Out
           </button>
         </div>
-        {!selectedCompany && !showSettings && !showForms && !showProducts && (
+        {!selectedCompany && !showSettings && !showForms && !showProducts && !showPayments && (
           <div className="max-w-5xl mx-auto px-4 flex gap-1">
             {([['companies', 'Clients', Building2], ['calendar', 'Calendar', CalendarDays], ['audit', 'Audit Log', ScrollText]] as const).map(([key, label, Icon]) => (
               <button key={key} onClick={() => setTab(key)}
@@ -300,7 +307,9 @@ function Dashboard({ token, onLogout }: { token: string; onLogout: () => void })
       </header>
 
       <main className="max-w-5xl mx-auto px-4 py-6">
-        {showProducts ? (
+        {showPayments ? (
+          <PaymentsView call={call} onBack={() => setShowPayments(false)} reload={load} />
+        ) : showProducts ? (
           <ProductsView call={call} onBack={() => setShowProducts(false)} />
         ) : showForms ? (
           <FormGeneratorView call={call} onBack={() => setShowForms(false)} initialPreviewId={formPreviewId} onPreviewConsumed={() => setFormPreviewId(null)} />
@@ -1116,6 +1125,95 @@ function AuditTab({ call }: { call: <T,>(a: string, p?: Record<string, unknown>)
   )
 }
 
+// ── Payments inbox ───────────────────────────────────────────────────────────
+interface PaymentSub {
+  id: string; company_id: string; company_name: string | null; kind: string; target: string
+  target_label: string | null; amount: number | null; currency: string; proof_url: string | null
+  note: string | null; status: string; created_at: string
+}
+function PaymentsView({ call, onBack, reload }: { call: <T,>(a: string, p?: Record<string, unknown>) => Promise<T>; onBack: () => void; reload: () => void }) {
+  const [items, setItems] = useState<PaymentSub[]>([])
+  const [loading, setLoading] = useState(true)
+  const [busy, setBusy] = useState<string | null>(null)
+  const [lightbox, setLightbox] = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try { const d = await call<{ payments: PaymentSub[] }>('list_payments'); setItems(d.payments) }
+    catch (e) { console.error('Payments load failed:', e) } finally { setLoading(false) }
+  }, [call])
+  useEffect(() => { load() }, [load])
+
+  async function approve(p: PaymentSub) {
+    if (!confirm(`Approve this payment and ${p.kind === 'subscription' ? `activate the ${p.target_label ?? p.target}` : `enable ${p.target_label ?? p.target}`} for ${p.company_name}?`)) return
+    setBusy(p.id)
+    try { await call('approve_payment', { submission_id: p.id }); await load(); reload() }
+    catch (e) { alert(e instanceof Error ? e.message : 'Failed') } finally { setBusy(null) }
+  }
+  async function reject(p: PaymentSub) {
+    if (!confirm('Reject this payment submission?')) return
+    setBusy(p.id)
+    try { await call('reject_payment', { submission_id: p.id }); await load() }
+    catch (e) { alert(e instanceof Error ? e.message : 'Failed') } finally { setBusy(null) }
+  }
+
+  const pending = items.filter(i => i.status === 'pending')
+  const reviewed = items.filter(i => i.status !== 'pending')
+
+  return (
+    <div>
+      <button onClick={onBack} className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-white mb-4"><ArrowLeft className="h-3.5 w-3.5" />Back</button>
+      <h2 className="text-lg font-bold text-white mb-1">Payments</h2>
+      <p className="text-xs text-slate-400 mb-4">Client PromptPay submissions awaiting review. Approving activates the subscription or add-on instantly.</p>
+
+      {loading ? (
+        <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-slate-300" /></div>
+      ) : items.length === 0 ? (
+        <p className="py-12 text-center text-sm text-slate-400">No payment submissions yet.</p>
+      ) : (
+        <div className="space-y-4">
+          {[{ label: 'Pending', rows: pending }, { label: 'Reviewed', rows: reviewed }].filter(g => g.rows.length).map((g) => (
+            <div key={g.label}>
+              <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1.5">{g.label}</p>
+              <div className="space-y-2">
+                {g.rows.map((p) => (
+                  <div key={p.id} className="flex items-center gap-3 bg-slate-900 border border-slate-800 rounded-xl p-3">
+                    {p.proof_url
+                      ? <button onClick={() => setLightbox(p.proof_url)} className="w-12 h-12 rounded-lg overflow-hidden border border-slate-700 flex-shrink-0 hover:ring-2 hover:ring-amber-500/50"><img src={p.proof_url} alt="Slip" className="w-full h-full object-cover" /></button>
+                      : <div className="w-12 h-12 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center flex-shrink-0"><Receipt className="h-4 w-4 text-slate-500" /></div>}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-sm font-semibold text-white truncate">{p.company_name ?? '—'}</p>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">{p.kind === 'subscription' ? 'Subscription' : 'Add-on'}</span>
+                        {p.status === 'approved' && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-500/15 text-green-400 border border-green-500/30">Approved</span>}
+                        {p.status === 'rejected' && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-red-500/15 text-red-400 border border-red-500/30">Rejected</span>}
+                      </div>
+                      <p className="text-[11px] text-slate-400 truncate">{p.target_label ?? p.target} · {money(p.amount, p.currency)} · {fmtDate(p.created_at)}</p>
+                    </div>
+                    {p.status === 'pending' && (
+                      <div className="flex items-center gap-1.5 flex-shrink-0">
+                        <button onClick={() => approve(p)} disabled={busy === p.id} className="px-2.5 h-8 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-semibold disabled:opacity-50">{busy === p.id ? '…' : 'Approve'}</button>
+                        <button onClick={() => reject(p)} disabled={busy === p.id} className="px-2.5 h-8 rounded-lg text-slate-400 hover:text-red-400 hover:bg-red-500/10 text-xs">Reject</button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {lightbox && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80" onClick={() => setLightbox(null)}>
+          <button className="absolute top-4 right-4 text-white/70 hover:text-white" onClick={() => setLightbox(null)}><X className="h-6 w-6" /></button>
+          <img src={lightbox} alt="Payment slip" className="max-w-full max-h-full rounded-lg object-contain" onClick={(e) => e.stopPropagation()} />
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Create company dialog ────────────────────────────────────────────────────
 function CreateCompanyDialog({ call, onClose, onCreated }: {
   call: <T,>(a: string, p?: Record<string, unknown>) => Promise<T>
@@ -1334,7 +1432,7 @@ function CreateOwnerDialog({ preselectCompanyId, call, onClose, onCreated }: {
 // ── Shared bits ──────────────────────────────────────────────────────────────
 // ── Admin Settings ─────────────────────────────────────────────────────────
 interface ConsoleAdmin { id: string; username: string; email: string | null; is_active: boolean; created_at: string }
-interface ConsoleSettings { company_name: string | null; office_type: string; branch_name: string | null; address: string | null; tax_id: string | null; logo_url?: string | null; signatory_name?: string | null; signatory_title?: string | null; phone?: string | null; email?: string | null; website?: string | null }
+interface ConsoleSettings { company_name: string | null; office_type: string; branch_name: string | null; address: string | null; tax_id: string | null; logo_url?: string | null; signatory_name?: string | null; signatory_title?: string | null; phone?: string | null; email?: string | null; website?: string | null; promptpay_id?: string | null; promptpay_name?: string | null; promptpay_qr?: string | null; support_email?: string | null }
 
 // Read an image file and downscale it to a compact data URL (keeps stored logo small).
 function fileToResizedDataUrl(file: File, max = 400): Promise<string> {
@@ -1375,7 +1473,7 @@ function AdminSettingsView({ call, onBack }: { call: <T,>(a: string, p?: Record<
 
   // company editing
   const [editCo, setEditCo] = useState(false)
-  const [co, setCo] = useState<ConsoleSettings>({ company_name: '', office_type: 'head_office', branch_name: '', address: '', tax_id: '', signatory_name: '', signatory_title: '', phone: '', email: '', website: '' })
+  const [co, setCo] = useState<ConsoleSettings>({ company_name: '', office_type: 'head_office', branch_name: '', address: '', tax_id: '', signatory_name: '', signatory_title: '', phone: '', email: '', website: '', promptpay_id: '', promptpay_name: '', support_email: '' })
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -1411,6 +1509,7 @@ function AdminSettingsView({ call, onBack }: { call: <T,>(a: string, p?: Record<
       branch_name: company?.branch_name ?? '', address: company?.address ?? '', tax_id: company?.tax_id ?? '',
       signatory_name: company?.signatory_name ?? '', signatory_title: company?.signatory_title ?? '',
       phone: company?.phone ?? '', email: company?.email ?? '', website: company?.website ?? '',
+      promptpay_id: company?.promptpay_id ?? '', promptpay_name: company?.promptpay_name ?? '', support_email: company?.support_email ?? '',
     })
     setEditCo(true)
   }
@@ -1423,6 +1522,7 @@ function AdminSettingsView({ call, onBack }: { call: <T,>(a: string, p?: Record<
         address: co.address, tax_id: co.tax_id,
         signatory_name: co.signatory_name, signatory_title: co.signatory_title,
         phone: co.phone, email: co.email, website: co.website,
+        promptpay_id: co.promptpay_id, promptpay_name: co.promptpay_name, support_email: co.support_email,
       })
       setEditCo(false); load()
     } catch (e) { alert(e instanceof Error ? e.message : 'Failed') } finally { setBusy(null) }
@@ -1445,6 +1545,21 @@ function AdminSettingsView({ call, onBack }: { call: <T,>(a: string, p?: Record<
     if (!confirm('Remove the company logo?')) return
     setBusy('logo')
     try { await call('update_settings', { logo_url: null }); load() }
+    catch (err) { alert(err instanceof Error ? err.message : 'Failed') } finally { setBusy(null) }
+  }
+  const qrInputRef = useRef<HTMLInputElement>(null)
+  async function onQrPick(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]; e.target.value = ''
+    if (!file) return
+    if (!file.type.startsWith('image/')) { alert('Please choose an image file.'); return }
+    setBusy('qr')
+    try { await call('update_settings', { promptpay_qr: await fileToResizedDataUrl(file, 600) }); load() }
+    catch (err) { alert(err instanceof Error ? err.message : 'Upload failed') } finally { setBusy(null) }
+  }
+  async function removeQr() {
+    if (!confirm('Remove the PromptPay QR?')) return
+    setBusy('qr')
+    try { await call('update_settings', { promptpay_qr: null }); load() }
     catch (err) { alert(err instanceof Error ? err.message : 'Failed') } finally { setBusy(null) }
   }
 
@@ -1599,6 +1714,11 @@ function AdminSettingsView({ call, onBack }: { call: <T,>(a: string, p?: Record<
                   <Field label="Signatory Title"><input value={co.signatory_title ?? ''} onChange={(e) => setCo({ ...co, signatory_title: e.target.value })} className={inputCls} placeholder="Managing Director" /></Field>
                 </div>
                 <p className="text-[11px] text-slate-400">Name &amp; title printed on the issuer signature line of every document.</p>
+                <div className="grid grid-cols-2 gap-2.5 pt-1 border-t border-slate-800">
+                  <Field label="PromptPay ID (phone / Tax ID)"><input value={co.promptpay_id ?? ''} onChange={(e) => setCo({ ...co, promptpay_id: e.target.value })} className={inputCls} placeholder="0898130699" /></Field>
+                  <Field label="PromptPay Account Name"><input value={co.promptpay_name ?? ''} onChange={(e) => setCo({ ...co, promptpay_name: e.target.value })} className={inputCls} placeholder="NNR-Solutions Co., Ltd." /></Field>
+                </div>
+                <Field label="Support Email (shown to clients in Help)"><input type="email" value={co.support_email ?? ''} onChange={(e) => setCo({ ...co, support_email: e.target.value })} className={inputCls} placeholder="support@nnr-solutions.com" /></Field>
               </div>
             ) : (
               <div className="grid grid-cols-2 gap-3">
@@ -1610,8 +1730,28 @@ function AdminSettingsView({ call, onBack }: { call: <T,>(a: string, p?: Record<
                 <Detail label="Email">{company?.email || '—'}</Detail>
                 <div className="col-span-2"><Detail label="Website">{company?.website || '—'}</Detail></div>
                 <div className="col-span-2"><Detail label="Authorised Signatory">{company?.signatory_name || '—'}{company?.signatory_title ? ` · ${company.signatory_title}` : ''}</Detail></div>
+                <Detail label="PromptPay">{company?.promptpay_id || '—'}{company?.promptpay_name ? ` · ${company.promptpay_name}` : ''}</Detail>
+                <Detail label="Support Email">{company?.support_email || '—'}</Detail>
               </div>
             )}
+
+            {/* PromptPay QR upload (for the client payment screen) */}
+            <div className="flex items-center gap-3 mt-4 pt-4 border-t border-slate-800">
+              <div className="w-16 h-16 rounded-lg bg-slate-50 border border-slate-200 flex items-center justify-center overflow-hidden shrink-0">
+                {company?.promptpay_qr ? <img src={company.promptpay_qr} alt="PromptPay QR" className="max-w-full max-h-full object-contain" /> : <ImageIcon className="h-6 w-6 text-slate-400" />}
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-slate-700">PromptPay QR</p>
+                <p className="text-[11px] text-slate-500 mb-2">Shown to clients on the payment screen.</p>
+                <div className="flex items-center gap-2">
+                  <input ref={qrInputRef} type="file" accept="image/*" onChange={onQrPick} className="hidden" />
+                  <button onClick={() => qrInputRef.current?.click()} disabled={busy === 'qr'} className="flex items-center gap-1.5 px-2.5 h-7 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-semibold disabled:opacity-50">
+                    {busy === 'qr' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}{company?.promptpay_qr ? 'Replace' : 'Upload'}
+                  </button>
+                  {company?.promptpay_qr && <button onClick={removeQr} disabled={busy === 'qr'} className="flex items-center gap-1.5 px-2.5 h-7 rounded-lg text-slate-500 hover:text-red-500 hover:bg-slate-100 text-xs disabled:opacity-50"><Trash2 className="h-3.5 w-3.5" />Remove</button>}
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}
