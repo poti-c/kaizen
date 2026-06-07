@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Sparkles, Crown, Check, X as XIcon, Wrench, Clock, Loader2, Mail, ArrowLeft, Lock, Calendar, Upload, QrCode } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
@@ -9,7 +9,10 @@ import { toast } from 'sonner'
 
 const SALES_EMAIL = 'info@nnr-solutions.com'
 const RANK: Record<string, number> = { trial: 0, gold: 1, premium: 2 }
-const PRICE: Record<string, number> = { gold: 39000, premium: 0, pms: 10000 } // 0 = quote only
+const PRICE: Record<string, number> = { gold: 39000, premium: 0, pms: 10000 } // fallback only — live prices come from kaizen_products
+const ICON_BY_KEY: Record<string, typeof Crown> = { trial: Sparkles, gold: Crown, premium: Crown }
+
+interface ProdRow { key: string | null; kind: string; name: string; price: number | string | null; currency: string | null; duration_label: string | null; sort_order: number | null }
 
 interface Txn { id: string; amount: number | null; currency: string; payment_date: string; period_end: string | null; receipt_requested: boolean; receipt_issued: boolean }
 interface PayItem { kind: 'subscription' | 'addon'; target: string; label: string; amount: number }
@@ -77,11 +80,38 @@ export function PackagesExpansions() {
   const [vendor, setVendor] = useState<Vendor | null>(null)
   const [payItem, setPayItem] = useState<PayItem | null>(null)
   const [txns, setTxns] = useState<Txn[]>([])
+  const [products, setProducts] = useState<ProdRow[]>([])
 
   useEffect(() => {
     supabase.from('kaizen_console_settings').select('promptpay_id, promptpay_name, promptpay_qr, support_email').eq('id', true).maybeSingle()
       .then(({ data }) => setVendor(data as Vendor))
+    supabase.from('kaizen_products').select('key, kind, name, price, currency, duration_label, sort_order').eq('is_active', true)
+      .then(({ data }) => setProducts((data as ProdRow[]) ?? []))
   }, [])
+
+  // Live subscription plans + prices from the Console's Products table (fallback to defaults).
+  const packages = useMemo(() => {
+    const pkgs = products.filter(p => p.kind === 'package' && p.key)
+    if (!pkgs.length) return PACKAGES.map(p => ({ ...p, amount: PRICE[p.key] ?? 0 }))
+    return [...pkgs].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)).map(p => {
+      const amount = Number(p.price) || 0
+      const isTrial = p.key === 'trial'
+      const display = isTrial
+        ? `Free · ${p.duration_label || '30 days'}`
+        : amount > 0
+          ? `฿${amount.toLocaleString()} · ${p.duration_label || '1 year'}`
+          : 'Contact for pricing'
+      return { key: p.key as string, name: p.name, price: display, amount, icon: ICON_BY_KEY[p.key as string] || Crown }
+    })
+  }, [products])
+
+  const price = useMemo(() => {
+    const m: Record<string, number> = { ...PRICE }
+    packages.forEach(p => { m[p.key] = p.amount })
+    const pmsProd = products.find(p => p.key === 'pms') || products.find(p => /preventive|maintenance/i.test(p.name || ''))
+    if (pmsProd) m['pms'] = Number(pmsProd.price) || m['pms']
+    return m
+  }, [products, packages])
 
   const loadTxns = () => {
     const cid = activeCompany?.id
@@ -113,7 +143,7 @@ export function PackagesExpansions() {
   const sub = subscriptionInfo(activeCompany)
   const plan = activeCompany?.plan ?? 'trial'
   const planRank = RANK[plan] ?? 0
-  const planName = PACKAGES.find(p => p.key === plan)?.name ?? 'Starter'
+  const planName = packages.find(p => p.key === plan)?.name ?? 'Starter'
   const maxM = activeCompany?.max_managers ?? null
   const maxS = activeCompany?.max_staff ?? null
 
@@ -189,7 +219,7 @@ export function PackagesExpansions() {
       {/* Packages */}
       <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-2">Subscription plans</p>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
-        {PACKAGES.map((p) => {
+        {packages.map((p) => {
           const current = p.key === plan
           const canUpgrade = (RANK[p.key] ?? 0) > planRank   // only higher tiers
           const Icon = p.icon
@@ -203,7 +233,7 @@ export function PackagesExpansions() {
               {!hidePrices && <p className="text-sm font-bold text-gray-900 mb-2">{p.price}</p>}
               <div className="flex-1" />
               {canUpgrade && (
-                <button onClick={() => openPay({ kind: 'subscription', target: p.key, label: `${p.name} plan`, amount: PRICE[p.key] ?? 0 })}
+                <button onClick={() => openPay({ kind: 'subscription', target: p.key, label: `${p.name} plan`, amount: p.amount })}
                   className={`mt-3 w-full h-8 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 ${upgradeLocked ? 'bg-gray-100 text-gray-400' : 'bg-[var(--brand-primary)] text-white hover:opacity-90'}`}>
                   {upgradeLocked && <Lock className="h-3 w-3" />}Upgrade
                 </button>
@@ -265,7 +295,7 @@ export function PackagesExpansions() {
                   {purchased && sub.end && <p className="text-[11px] text-gray-500 mt-1 flex items-center gap-1"><Calendar className="h-3 w-3" />Active until {fmtDate(sub.end)}{sub.daysLeft != null && !sub.expired ? ` · ${sub.daysLeft} days left` : ''}</p>}
                   <div className="flex items-center gap-2 mt-2">
                     {purchased ? null : trialLeft != null || trialUsed ? (
-                      <button onClick={() => openPay({ kind: 'addon', target: a.key, label: a.name, amount: PRICE[a.key] ?? 0 })} className={`h-8 px-3 rounded-lg text-xs font-semibold flex items-center gap-1.5 ${upgradeLocked ? 'bg-gray-100 text-gray-400' : 'bg-[var(--brand-primary)] text-white'}`}>{upgradeLocked && <Lock className="h-3 w-3" />}Subscribe</button>
+                      <button onClick={() => openPay({ kind: 'addon', target: a.key, label: a.name, amount: price[a.key] ?? 0 })} className={`h-8 px-3 rounded-lg text-xs font-semibold flex items-center gap-1.5 ${upgradeLocked ? 'bg-gray-100 text-gray-400' : 'bg-[var(--brand-primary)] text-white'}`}>{upgradeLocked && <Lock className="h-3 w-3" />}Subscribe</button>
                     ) : (
                       <>
                         <button onClick={startPmsTrial} disabled={busy} className={`h-8 px-3 rounded-lg text-xs font-semibold disabled:opacity-50 flex items-center gap-1.5 ${upgradeLocked ? 'bg-gray-100 text-gray-400' : 'bg-[var(--brand-primary)] text-white'}`}>
