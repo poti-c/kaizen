@@ -838,6 +838,17 @@ Deno.serve(async (req) => {
     return json({ success: true, to });
   }
 
+  // Mark a receipt as issued WITHOUT sending email — for when the admin has
+  // delivered the tax invoice manually (e.g. before Resend is configured).
+  if (action === "mark_receipt_issued") {
+    const invoice_id = String(body.invoice_id ?? "");
+    if (!invoice_id) return json({ error: "invoice_id required" }, 400);
+    const { error } = await admin.from("kaizen_invoices").update({ receipt_issued: true, receipt_issued_at: new Date().toISOString() }).eq("id", invoice_id);
+    if (error) return json({ error: error.message }, 400);
+    await audit("mark_receipt_issued", { invoice_id }, ip, true);
+    return json({ success: true });
+  }
+
   if (action === "approve_payment") {
     const id = String(body.submission_id ?? "");
     if (!id) return json({ error: "submission_id required" }, 400);

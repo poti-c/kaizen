@@ -1321,6 +1321,12 @@ function PaymentsView({ call, onBack, reload }: { call: <T,>(a: string, p?: Reco
     try { const res = await call<{ to: string }>('issue_receipt', { invoice_id: r.id }); alert(`Receipt emailed to ${res.to}`); await load(); reload() }
     catch (e) { alert(e instanceof Error ? e.message : 'Failed') } finally { setBusy(null) }
   }
+  async function markIssued(r: ReceiptReq) {
+    if (!confirm(`Mark this receipt for ${r.company_name} as issued manually? Use this when you've emailed/delivered the tax invoice yourself (e.g. before automatic email is set up). The client's history will show "Receipt sent".`)) return
+    setBusy(r.id)
+    try { await call('mark_receipt_issued', { invoice_id: r.id }); await load(); reload() }
+    catch (e) { alert(e instanceof Error ? e.message : 'Failed') } finally { setBusy(null) }
+  }
 
   async function approve(p: PaymentSub) {
     if (!confirm(`Approve this payment and ${p.kind === 'subscription' ? `activate the ${p.target_label ?? p.target}` : `enable ${p.target_label ?? p.target}`} for ${p.company_name}?`)) return
@@ -1356,7 +1362,10 @@ function PaymentsView({ call, onBack, reload }: { call: <T,>(a: string, p?: Reco
                   <p className="text-sm font-semibold text-white truncate">{r.company_name ?? '—'}</p>
                   <p className="text-[11px] text-slate-400 truncate">{money(r.amount, r.currency)} · {fmtDate(r.payment_date)}</p>
                 </div>
-                <button onClick={() => issueReceipt(r)} disabled={busy === r.id} className="px-2.5 h-8 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-semibold disabled:opacity-50">{busy === r.id ? '…' : 'Issue & send'}</button>
+                <div className="flex items-center gap-1.5 flex-shrink-0">
+                  <button onClick={() => issueReceipt(r)} disabled={busy === r.id} className="px-2.5 h-8 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-semibold disabled:opacity-50">{busy === r.id ? '…' : 'Issue & send'}</button>
+                  <button onClick={() => markIssued(r)} disabled={busy === r.id} className="px-2.5 h-8 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800 text-xs font-medium disabled:opacity-50" title="Mark as issued manually (no email)">Mark issued</button>
+                </div>
               </div>
             ))}
           </div>
