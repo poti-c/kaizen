@@ -399,7 +399,7 @@ export function PackagesExpansions() {
           <div className="bg-white rounded-2xl p-5 max-w-md w-full shadow-xl text-center" onClick={(e) => e.stopPropagation()}>
             <div className="w-12 h-12 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-3"><Check className="h-6 w-6 text-green-600" /></div>
             <h3 className="text-[15px] font-bold text-gray-900 mb-2">Request received</h3>
-            <p className="text-[12px] leading-snug text-gray-600">Thank you. Your request has been received. Please allow <span className="font-semibold text-gray-900">2–3 working days</span> for our team to prepare and deliver your Tax Invoice / Receipt to your registered company email.</p>
+            <p className="text-[12px] leading-snug text-gray-600">Please allow <span className="font-semibold text-gray-900">2–3 working days</span> for our team to prepare and deliver your Tax Invoice / Receipt to your registered company email.</p>
             <button onClick={() => setReceiptDone(false)} className="mt-5 h-9 px-5 rounded-lg text-[13px] font-semibold bg-[var(--brand-primary)] text-white hover:opacity-90">Done</button>
           </div>
         </div>
