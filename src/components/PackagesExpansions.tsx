@@ -376,16 +376,16 @@ export function PackagesExpansions() {
       {/* Receipt request — confirmation prompt */}
       {receiptFor && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={() => !receiptBusy && setReceiptFor(null)}>
-          <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-xl" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-base font-bold text-gray-900 mb-2">Request Tax Invoice / Receipt</h3>
-            <div className="text-sm text-gray-600 space-y-2">
+          <div className="bg-white rounded-2xl p-5 max-w-md w-full shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-[15px] font-bold text-gray-900 mb-3 text-center">Request Tax Invoice / Receipt</h3>
+            <div className="text-[12px] leading-snug text-gray-600 space-y-2">
               <p>A Tax Invoice / Receipt can be requested <span className="font-semibold text-gray-900">only once</span> per payment. To prevent duplicate tax documents — which is not permitted under tax regulations — <span className="font-semibold text-gray-900">this request cannot be undone.</span></p>
               <p>The document will be issued to your <span className="font-semibold text-gray-900">registered company email only</span>.</p>
               <p>If any company details need to be corrected, please <a href={`mailto:${SALES_EMAIL}?subject=${encodeURIComponent('Update company details — ' + (activeCompany?.name ?? ''))}`} className="text-[var(--brand-primary)] font-medium underline">contact us</a> before requesting.</p>
             </div>
             <div className="flex items-center justify-end gap-2 mt-5">
-              <button onClick={() => setReceiptFor(null)} disabled={receiptBusy} className="h-9 px-4 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-100 disabled:opacity-50">Cancel</button>
-              <button onClick={confirmReceipt} disabled={receiptBusy} className="h-9 px-4 rounded-lg text-sm font-semibold bg-[var(--brand-primary)] text-white hover:opacity-90 disabled:opacity-50 flex items-center gap-1.5">
+              <button onClick={() => setReceiptFor(null)} disabled={receiptBusy} className="h-9 px-4 rounded-lg text-[13px] font-medium text-gray-600 hover:bg-gray-100 disabled:opacity-50">Cancel</button>
+              <button onClick={confirmReceipt} disabled={receiptBusy} className="h-9 px-4 rounded-lg text-[13px] font-semibold bg-[var(--brand-primary)] text-white hover:opacity-90 disabled:opacity-50 flex items-center gap-1.5">
                 {receiptBusy && <Loader2 className="h-4 w-4 animate-spin" />}Request
               </button>
             </div>
@@ -396,11 +396,11 @@ export function PackagesExpansions() {
       {/* Receipt request — success acknowledgement */}
       {receiptDone && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={() => setReceiptDone(false)}>
-          <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-xl text-center" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl p-5 max-w-md w-full shadow-xl text-center" onClick={(e) => e.stopPropagation()}>
             <div className="w-12 h-12 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-3"><Check className="h-6 w-6 text-green-600" /></div>
-            <h3 className="text-base font-bold text-gray-900 mb-2">Request received</h3>
-            <p className="text-sm text-gray-600">Thank you. Your request has been received. Please allow <span className="font-semibold text-gray-900">2–3 working days</span> for our team to prepare and deliver your Tax Invoice / Receipt to your registered company email.</p>
-            <button onClick={() => setReceiptDone(false)} className="mt-5 h-9 px-5 rounded-lg text-sm font-semibold bg-[var(--brand-primary)] text-white hover:opacity-90">Done</button>
+            <h3 className="text-[15px] font-bold text-gray-900 mb-2">Request received</h3>
+            <p className="text-[12px] leading-snug text-gray-600">Thank you. Your request has been received. Please allow <span className="font-semibold text-gray-900">2–3 working days</span> for our team to prepare and deliver your Tax Invoice / Receipt to your registered company email.</p>
+            <button onClick={() => setReceiptDone(false)} className="mt-5 h-9 px-5 rounded-lg text-[13px] font-semibold bg-[var(--brand-primary)] text-white hover:opacity-90">Done</button>
           </div>
         </div>
       )}
