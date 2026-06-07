@@ -759,6 +759,11 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
           <div className="space-y-2">
             {ADDONS.map((a) => {
               const on = !!c.addons?.[a.key]
+              const ad = c.addons as Record<string, unknown> | null
+              const trialUntilRaw = ad ? ad[`${a.key}_trial_until`] : null
+              const trialLeft = (!on && typeof trialUntilRaw === 'string')
+                ? Math.ceil((new Date(trialUntilRaw + 'T00:00:00Z').getTime() - Date.now()) / 86400000)
+                : null
               return (
                 <label key={a.key} className="flex items-center gap-2.5 cursor-pointer">
                   <input
@@ -772,6 +777,11 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
                   <span className="text-[11px] text-slate-500">{a.price}</span>
                   {on && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-500/15 text-green-300 border border-green-500/30">Active</span>}
                   {busy === `addon:${a.key}` && <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400" />}
+                  {trialLeft != null && (
+                    trialLeft >= 0
+                      ? <span className="ml-auto text-[10px] px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-300 border border-violet-500/30 font-medium whitespace-nowrap">Trial activated · {trialLeft} day{trialLeft === 1 ? '' : 's'} left</span>
+                      : <span className="ml-auto text-[10px] px-2 py-0.5 rounded-full bg-slate-700 text-slate-300 border border-slate-600 font-medium whitespace-nowrap">Trial ended</span>
+                  )}
                 </label>
               )
             })}
