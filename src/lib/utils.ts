@@ -274,6 +274,16 @@ export function getSLARemaining(kcase: KaizenCase): number {
 
 export function isSLABreached(kcase: KaizenCase): boolean {
   if (kcase.status === 'closed') return false
+  // Cases awaiting approval are waiting on a reviewer, not stalled by the team —
+  // don't count them as overdue.
+  if (kcase.status === 'pending_manager_approval' || kcase.status === 'pending_admin_approval') return false
+  // Honour an explicit due date when set (overdue once that day has passed);
+  // otherwise fall back to the priority SLA measured from creation.
+  if (kcase.due_date) {
+    const raw = String(kcase.due_date)
+    const due = new Date(raw.length <= 10 ? `${raw}T23:59:59` : raw)
+    if (!isNaN(due.getTime())) return new Date() > due
+  }
   return getSLARemaining(kcase) < 0
 }
 
