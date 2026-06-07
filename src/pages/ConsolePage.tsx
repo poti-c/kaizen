@@ -1439,9 +1439,11 @@ function DashboardHome({ companies, metrics, call, onView, onOpenClient }: { com
         <StatTile label="Gold" value={gold} tone="amber" />
         <StatTile label="Premium" value={premium} tone="violet" />
 
+        <div className="col-span-2 sm:col-span-3 lg:col-span-5 h-px bg-slate-700/70 my-1" />
+
         <StatTile label="Conversion rate" value={`${conversionRate}%`} tone="green" hint={`${converted} of ${planned} on a paid tier`} className="col-span-2" />
-        <StatTile label="Trial → Gold" value={`${tgPct}%`} tone="amber" hint={`${conv?.trial_to_gold ?? 0} of ${planned} clients`} />
-        <StatTile label="Trial → Premium" value={`${tpPct}%`} tone="violet" hint={`${conv?.trial_to_premium ?? 0} of ${planned} clients`} />
+        <StatTile label="Trial → Gold" value={`${tgPct}%`} tone="sky" hint={`${conv?.trial_to_gold ?? 0} of ${planned} clients`} />
+        <StatTile label="Trial → Premium" value={`${tpPct}%`} tone="amber" hint={`${conv?.trial_to_premium ?? 0} of ${planned} clients`} />
         <StatTile label="Gold → Premium" value={`${gpPct}%`} tone="violet" hint={`${conv?.gold_to_premium ?? 0} of ${goldEver} gold clients`} />
       </div>
 
