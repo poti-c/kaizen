@@ -245,7 +245,7 @@ function Dashboard({ token, adminName, onLogout }: { token: string; adminName: s
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null)
   const [payCount, setPayCount] = useState(0)
   const [formPreviewId, setFormPreviewId] = useState<string | null>(null)
-  const [formDraft, setFormDraft] = useState<{ formType: 'tax_invoice_receipt'; companyId?: string; items: { description: string; qty: number; unit_price: number }[] } | null>(null)
+  const [formDraft, setFormDraft] = useState<{ formType: 'tax_invoice_receipt'; companyId?: string; items: { description: string; qty: number; unit_price: number }[]; invoiceId?: string } | null>(null)
 
   const call = useCallback(async <T,>(action: string, payload: Record<string, unknown> = {}): Promise<T> => {
     try { return await callConsole<T>(action, payload, token) }
@@ -257,7 +257,7 @@ function Dashboard({ token, adminName, onLogout }: { token: string; adminName: s
   // "Issue" on a receipt request → Form Generator (Tax Invoice/Receipt) prefilled.
   const issueReceiptForm = useCallback((r: ReceiptReq) => {
     const desc = `${r.payee ?? 'Subscription'}${r.period_start && r.period_end ? ` (covers ${r.period_start} → ${r.period_end})` : ''}`
-    setFormDraft({ formType: 'tax_invoice_receipt', companyId: r.company_id, items: [{ description: desc, qty: 1, unit_price: Number(r.amount) || 0 }] })
+    setFormDraft({ formType: 'tax_invoice_receipt', companyId: r.company_id, items: [{ description: desc, qty: 1, unit_price: Number(r.amount) || 0 }], invoiceId: r.id })
     setSelectedCompanyId(null); setView('forms')
   }, [])
 
@@ -338,7 +338,7 @@ function Dashboard({ token, adminName, onLogout }: { token: string; adminName: s
           ) : view === 'calendar' ? (
             <CalendarView call={call} onOpenForm={openForm} />
           ) : view === 'payments' ? (
-            <PaymentsView call={call} onBack={() => go('dashboard')} reload={load} onIssue={issueReceiptForm} />
+            <PaymentsView call={call} onBack={() => go('dashboard')} reload={load} onIssue={issueReceiptForm} onViewReceipt={openForm} />
           ) : view === 'products' ? (
             <ProductsView call={call} onBack={() => go('dashboard')} />
           ) : view === 'forms' ? (
@@ -1246,7 +1246,7 @@ interface PaymentSub {
   list_price?: number | null; term_days?: number | null; term_label?: string | null
   pay_count?: number; last_paid?: string | null
 }
-interface ReceiptReq { id: string; company_id: string; company_name: string | null; amount: number | null; currency: string; payment_date: string; receipt_issued: boolean; payee?: string | null; period_start?: string | null; period_end?: string | null }
+interface ReceiptReq { id: string; company_id: string; company_name: string | null; amount: number | null; currency: string; payment_date: string; receipt_issued: boolean; payee?: string | null; period_start?: string | null; period_end?: string | null; receipt_form_id?: string | null; receipt_sent?: boolean }
 
 const PLAN_LABEL: Record<string, string> = { trial: 'Starter', gold: 'Gold', premium: 'Premium' }
 const PAY_ROLE_LABEL: Record<string, string> = { super_admin: 'Top Management', manager: 'Manager', staff: 'Staff' }
@@ -1311,7 +1311,7 @@ function PaymentDetail({ p }: { p: PaymentSub }) {
     </div>
   )
 }
-function PaymentsView({ call, onBack, reload, onIssue }: { call: <T,>(a: string, p?: Record<string, unknown>) => Promise<T>; onBack: () => void; reload: () => void; onIssue: (r: ReceiptReq) => void }) {
+function PaymentsView({ call, onBack, reload, onIssue, onViewReceipt }: { call: <T,>(a: string, p?: Record<string, unknown>) => Promise<T>; onBack: () => void; reload: () => void; onIssue: (r: ReceiptReq) => void; onViewReceipt: (formId: string) => void }) {
   const [items, setItems] = useState<PaymentSub[]>([])
   const [receipts, setReceipts] = useState<ReceiptReq[]>([])
   const [loading, setLoading] = useState(true)
@@ -1326,9 +1326,15 @@ function PaymentsView({ call, onBack, reload, onIssue }: { call: <T,>(a: string,
   useEffect(() => { load() }, [load])
 
   async function markIssued(r: ReceiptReq) {
-    if (!confirm(`Mark this receipt for ${r.company_name} as issued manually? Use this when you've emailed/delivered the tax invoice yourself (e.g. before automatic email is set up). The client's history will show "Receipt sent".`)) return
+    if (!confirm(`Mark this receipt for ${r.company_name} as issued manually? Use this when you've delivered the tax invoice yourself (without generating it here).`)) return
     setBusy(r.id)
     try { await call('mark_receipt_issued', { invoice_id: r.id }); await load(); reload() }
+    catch (e) { alert(e instanceof Error ? e.message : 'Failed') } finally { setBusy(null) }
+  }
+  async function markSent(r: ReceiptReq) {
+    if (!confirm(`Mark this tax invoice / receipt for ${r.company_name} as sent to the client?`)) return
+    setBusy(r.id)
+    try { await call('mark_receipt_sent', { invoice_id: r.id }); await load(); reload() }
     catch (e) { alert(e instanceof Error ? e.message : 'Failed') } finally { setBusy(null) }
   }
 
@@ -1355,11 +1361,11 @@ function PaymentsView({ call, onBack, reload, onIssue }: { call: <T,>(a: string,
       <p className="text-xs text-slate-400 mb-4">Client PromptPay submissions awaiting review. Approving activates the subscription or add-on instantly.</p>
 
       {/* Receipt / tax requests */}
-      {receipts.filter(r => !r.receipt_issued).length > 0 && (
+      {receipts.length > 0 && (
         <div className="mb-5">
           <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1.5">Receipt / Tax requests</p>
           <div className="space-y-2">
-            {receipts.filter(r => !r.receipt_issued).map((r) => (
+            {receipts.map((r) => (
               <div key={r.id} className="flex items-center gap-3 bg-slate-900 border border-slate-800 rounded-xl p-3">
                 <div className="w-12 h-12 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center flex-shrink-0"><FileText className="h-4 w-4 text-amber-400" /></div>
                 <div className="flex-1 min-w-0">
@@ -1367,8 +1373,19 @@ function PaymentsView({ call, onBack, reload, onIssue }: { call: <T,>(a: string,
                   <p className="text-[11px] text-slate-400 truncate">{money(r.amount, r.currency)} · {fmtDate(r.payment_date)}</p>
                 </div>
                 <div className="flex items-center gap-1.5 flex-shrink-0">
-                  <button onClick={() => onIssue(r)} disabled={busy === r.id} className="px-2.5 h-8 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-semibold disabled:opacity-50" title="Open the Form Generator to create the tax invoice / receipt">Issue</button>
-                  <button onClick={() => markIssued(r)} disabled={busy === r.id} className="px-2.5 h-8 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800 text-xs font-medium disabled:opacity-50" title="Mark as issued manually (you delivered it yourself)">Mark issued</button>
+                  {!r.receipt_issued ? (
+                    <>
+                      <button onClick={() => onIssue(r)} disabled={busy === r.id} className="px-2.5 h-8 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-semibold disabled:opacity-50" title="Open the Form Generator to create the tax invoice / receipt">Issue</button>
+                      <button onClick={() => markIssued(r)} disabled={busy === r.id} className="px-2.5 h-8 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800 text-xs font-medium disabled:opacity-50" title="Mark as issued manually (you delivered it yourself)">Mark issued</button>
+                    </>
+                  ) : (
+                    <>
+                      <button onClick={() => r.receipt_form_id && onViewReceipt(r.receipt_form_id)} disabled={busy === r.id || !r.receipt_form_id} className="px-2.5 h-8 rounded-lg bg-green-600 hover:bg-green-500 text-white text-xs font-semibold disabled:opacity-50 flex items-center gap-1.5" title={r.receipt_form_id ? 'View / download the issued document' : 'Issued manually (no document on file)'}><Check className="h-3.5 w-3.5" />Issued</button>
+                      {r.receipt_sent
+                        ? <span className="px-2.5 h-8 inline-flex items-center rounded-lg text-green-400 text-xs font-medium">Sent ✓</span>
+                        : <button onClick={() => markSent(r)} disabled={busy === r.id} className="px-2.5 h-8 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800 text-xs font-medium disabled:opacity-50" title="Mark as delivered to the client">Mark Sent</button>}
+                    </>
+                  )}
                 </div>
               </div>
             ))}

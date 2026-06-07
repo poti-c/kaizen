@@ -104,7 +104,7 @@ function bahtText(amount: number): string {
 }
 
 // ── Main view ────────────────────────────────────────────────────────────────
-interface FormDraft { formType: FormType; companyId?: string; items?: LineItem[] }
+interface FormDraft { formType: FormType; companyId?: string; items?: LineItem[]; invoiceId?: string }
 export function FormGeneratorView({ call, onBack, initialPreviewId, onPreviewConsumed, initialDraft, onDraftConsumed }: { call: Call; onBack: () => void; initialPreviewId?: string | null; onPreviewConsumed?: () => void; initialDraft?: FormDraft | null; onDraftConsumed?: () => void }) {
   const [loading, setLoading] = useState(true)
   const [forms, setForms] = useState<GeneratedForm[]>([])
@@ -116,7 +116,20 @@ export function FormGeneratorView({ call, onBack, initialPreviewId, onPreviewCon
   const [preview, setPreview] = useState<GeneratedForm | null>(null)
   const [filterType, setFilterType] = useState<'all' | FormType>('all')
   const [draft, setDraft] = useState<FormDraft | null>(initialDraft ?? null)
-  useEffect(() => { if (initialDraft) { setDraft(initialDraft); setTab(initialDraft.formType) } }, [initialDraft])
+  const [linkInvoiceId, setLinkInvoiceId] = useState<string | null>(initialDraft?.invoiceId ?? null)
+  const [pendingApproval, setPendingApproval] = useState(false)
+  useEffect(() => { if (initialDraft) { setDraft(initialDraft); setTab(initialDraft.formType); setLinkInvoiceId(initialDraft.invoiceId ?? null) } }, [initialDraft])
+
+  async function approveForm() {
+    if (!preview) return
+    if (linkInvoiceId) { try { await call('link_receipt_form', { invoice_id: linkInvoiceId, form_id: preview.id }) } catch (e) { console.error(e) } }
+    setLinkInvoiceId(null); setPendingApproval(false); setPreview(null); load()
+  }
+  async function rejectForm() {
+    if (!preview) return
+    try { await call('delete_form', { form_id: preview.id }) } catch (e) { console.error(e) }
+    setLinkInvoiceId(null); setPendingApproval(false); setPreview(null); load()
+  }
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -174,7 +187,7 @@ export function FormGeneratorView({ call, onBack, initialPreviewId, onPreviewCon
         initialCompanyId={draft && draft.formType === tab ? draft.companyId : undefined}
         initialItems={draft && draft.formType === tab ? draft.items : undefined}
         onPrefilled={() => { setDraft(null); onDraftConsumed?.() }}
-        onCreated={(f) => { load(); setPreview(f) }}
+        onCreated={(f) => { setPreview(f); if (linkInvoiceId) { setPendingApproval(true) } else { load() } }}
         call={call}
       />
 
@@ -232,7 +245,7 @@ export function FormGeneratorView({ call, onBack, initialPreviewId, onPreviewCon
         )}
       </div>
 
-      {preview && <PrintPreview form={preview} issuer={issuer} onClose={() => setPreview(null)} />}
+      {preview && <PrintPreview form={preview} issuer={issuer} onClose={() => { if (!pendingApproval) setPreview(null) }} pendingApproval={pendingApproval} onApprove={approveForm} onReject={rejectForm} />}
     </div>
   )
 }
@@ -472,7 +485,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 
 // ── Printable document ───────────────────────────────────────────────────────
-function PrintPreview({ form, issuer, onClose }: { form: GeneratedForm; issuer: Issuer | null; onClose: () => void }) {
+function PrintPreview({ form, issuer, onClose, pendingApproval, onApprove, onReject }: { form: GeneratedForm; issuer: Issuer | null; onClose: () => void; pendingApproval?: boolean; onApprove?: () => void; onReject?: () => void }) {
   const issuerName = issuer?.company_name || 'NNR-Solutions Co., Ltd.'
   const issuerLine2 = issuer?.office_type === 'branch' && issuer?.branch_name ? issuer.branch_name : 'Head Office'
   const showVat = form.form_type !== 'receipt'
@@ -491,12 +504,22 @@ function PrintPreview({ form, issuer, onClose }: { form: GeneratedForm; issuer: 
         .no-print { display: none !important; }
       }`}</style>
 
+      {/* Approve / reject gate (shown right after generating from a receipt request) */}
+      {pendingApproval && (
+        <div className="no-print sticky top-0 z-10 flex items-center gap-3 px-4 py-3 bg-amber-50 border-b border-amber-200">
+          <span className="text-sm font-medium text-amber-900 flex-1">Review this document. Approve to record &amp; issue it, or reject to discard.</span>
+          <button onClick={() => window.print()} className="flex items-center gap-1.5 border border-amber-300 text-amber-800 hover:bg-amber-100 text-sm font-medium px-3 py-1.5 rounded-lg"><Printer className="h-4 w-4" />Preview / Save PDF</button>
+          <button onClick={onReject} className="text-sm font-medium text-slate-600 hover:text-red-600 px-3 py-1.5 rounded-lg">Reject</button>
+          <button onClick={onApprove} className="flex items-center gap-1.5 bg-green-600 hover:bg-green-500 text-white text-sm font-semibold px-3 py-1.5 rounded-lg"><Check className="h-4 w-4" />Approve &amp; issue</button>
+        </div>
+      )}
+
       {/* toolbar */}
       <div className="no-print sticky top-0 flex items-center justify-between px-4 py-3 bg-white border-b border-slate-200">
         <div className="flex items-center gap-2 text-slate-900 text-sm font-semibold"><FileText className="h-4 w-4 text-amber-600" />{typeLabel(form.form_type)} · {form.doc_number}</div>
         <div className="flex items-center gap-2">
           <button onClick={() => window.print()} className="flex items-center gap-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 text-sm font-semibold px-3 py-1.5 rounded-lg"><Printer className="h-4 w-4" />Print / Save PDF</button>
-          <button onClick={onClose} className="p-1.5 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100"><X className="h-5 w-5" /></button>
+          {!pendingApproval && <button onClick={onClose} className="p-1.5 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100"><X className="h-5 w-5" /></button>}
         </div>
       </div>
 

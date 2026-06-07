@@ -708,7 +708,7 @@ Deno.serve(async (req) => {
     const [pmtRes, coRes, recRes, profRes, prodRes, allInvRes] = await Promise.all([
       admin.from("kaizen_payment_submissions").select("*").order("created_at", { ascending: false }),
       admin.from("kaizen_companies").select("id, name, plan, subscription_end, created_at, contact_person, contact_email, contact_phone"),
-      admin.from("kaizen_invoices").select("id, company_id, amount, currency, payment_date, payee, period_start, period_end, receipt_requested, receipt_requested_at, receipt_issued, receipt_issued_at").eq("receipt_requested", true).order("receipt_requested_at", { ascending: false }),
+      admin.from("kaizen_invoices").select("id, company_id, amount, currency, payment_date, payee, period_start, period_end, receipt_requested, receipt_requested_at, receipt_issued, receipt_issued_at, receipt_form_id, receipt_sent, receipt_sent_at").eq("receipt_requested", true).order("receipt_requested_at", { ascending: false }),
       admin.from("kaizen_profiles").select("id, full_name, role"),
       admin.from("kaizen_products").select("kind, key, name, price, currency, duration_days, duration_label"),
       admin.from("kaizen_invoices").select("company_id, payment_date"),
@@ -846,6 +846,29 @@ Deno.serve(async (req) => {
     const { error } = await admin.from("kaizen_invoices").update({ receipt_issued: true, receipt_issued_at: new Date().toISOString() }).eq("id", invoice_id);
     if (error) return json({ error: error.message }, 400);
     await audit("mark_receipt_issued", { invoice_id }, ip, true);
+    return json({ success: true });
+  }
+
+  // Approve a generated tax invoice/receipt: link it to its invoice, mark the
+  // invoice's receipt issued, and finalise the form's status.
+  if (action === "link_receipt_form") {
+    const invoice_id = String(body.invoice_id ?? "");
+    const form_id = String(body.form_id ?? "");
+    if (!invoice_id || !form_id) return json({ error: "invoice_id and form_id required" }, 400);
+    const { error } = await admin.from("kaizen_invoices").update({ receipt_form_id: form_id, receipt_issued: true, receipt_issued_at: new Date().toISOString() }).eq("id", invoice_id);
+    if (error) return json({ error: error.message }, 400);
+    await admin.from("kaizen_generated_forms").update({ status: "issued" }).eq("id", form_id);
+    await audit("link_receipt_form", { invoice_id, form_id }, ip, true);
+    return json({ success: true });
+  }
+
+  // Mark an issued receipt as delivered/sent to the client.
+  if (action === "mark_receipt_sent") {
+    const invoice_id = String(body.invoice_id ?? "");
+    if (!invoice_id) return json({ error: "invoice_id required" }, 400);
+    const { error } = await admin.from("kaizen_invoices").update({ receipt_sent: true, receipt_sent_at: new Date().toISOString() }).eq("id", invoice_id);
+    if (error) return json({ error: error.message }, 400);
+    await audit("mark_receipt_sent", { invoice_id }, ip, true);
     return json({ success: true });
   }
 
