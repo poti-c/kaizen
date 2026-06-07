@@ -496,25 +496,37 @@ export function CaseDetailPage() {
         }))
       )
 
+      // A manager/Top-Management resolution skips the manager-approval step and
+      // goes straight to Top Management to close; a staff resolution goes to the
+      // PIC's department manager first.
+      const resolverManagerial = profile?.role === 'manager' || profile?.role === 'super_admin'
+      const nowIso = new Date().toISOString()
       const { error: resErr } = await supabase.from('kaizen_cases').update({
-        status: 'pending_manager_approval',
+        status: resolverManagerial ? 'pending_admin_approval' : 'pending_manager_approval',
         resolved_by: profile?.id,
         resolution_note: resolutionNote.trim(),
-        resolved_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
+        resolved_at: nowIso,
+        ...(resolverManagerial ? { manager_approved_by: profile?.id, manager_approved_at: nowIso } : {}),
+        updated_at: nowIso,
       }).eq('id', id!)
       if (resErr) throw resErr
 
       await addTimeline('resolved', `${profile?.full_name || 'Staff'} resolved the case: ${resolutionNote}`)
 
-      // Notify the manager of the CASE's department
-      await notifyByDeptRole(
-        { departments: [kcase?.department], roles: ['manager'] },
-        'Case Ready for Approval',
-        `${profile?.full_name} resolved case ${kcase?.case_number} — awaiting your approval.`,
-      )
+      const picDepts = picProfiles.map(p => p.department).filter(Boolean) as string[]
+      if (resolverManagerial) {
+        // Notify Top Management to close.
+        await notifyByDeptRole({ roles: ['super_admin'] }, 'Case Ready to Close',
+          `${profile?.full_name} resolved case ${kcase?.case_number} — awaiting closure by Top Management.`)
+      } else {
+        // Notify the PIC's department manager(s) to approve, and Top Management for visibility.
+        await notifyByDeptRole({ departments: picDepts.length ? picDepts : [kcase?.department], roles: ['manager'] },
+          'Case Ready for Approval', `${profile?.full_name} resolved case ${kcase?.case_number} — awaiting your approval.`)
+        await notifyByDeptRole({ roles: ['super_admin'] },
+          'Case Resolved', `${profile?.full_name} resolved case ${kcase?.case_number} — pending manager approval.`)
+      }
 
-      toast.success('Case marked as resolved. Awaiting manager approval.')
+      toast.success(resolverManagerial ? 'Resolution submitted. Awaiting Top Management closure.' : 'Case marked as resolved. Awaiting manager approval.')
       fetchCase()
     } catch {
       toast.error('Failed to submit resolution.')
@@ -865,18 +877,17 @@ export function CaseDetailPage() {
     ? kcase.pic_ids
     : (kcase.person_in_charge ? [kcase.person_in_charge] : [])
   const isInCharge = !!profile?.id && picIdsForResolve.includes(profile.id)
+  // Department(s) of the people in charge — their department manager may act.
+  const picDepartments = new Set(picProfiles.map(p => p.department).filter(Boolean) as string[])
+  const isPicDeptManager = profile?.role === 'manager' && !isHRManager &&
+    (picDepartments.has(profile.department as string) || (picDepartments.size === 0 && profile.department === kcase.department))
+  // Solve + propose resolution photos: Super Admin, the Person in Charge, or the
+  // PIC's department manager — NOT every staff member.
   const canStaffResolve   = !isHRManager &&
-    (
-      profile?.role === 'staff' ||
-      profile?.role === 'super_admin' ||
-      (profile?.role === 'manager' && profile?.department === kcase.department) ||
-      isInCharge
-    ) &&
+    (profile?.role === 'super_admin' || isInCharge || isPicDeptManager) &&
     ['in_progress', 'assigned', 'reopened'].includes(kcase.status)
-  const canManagerApprove = !isHRManager && (
-      profile?.role === 'super_admin' ||
-      (profile?.role === 'manager' && profile?.department === kcase.department)
-    ) && kcase.status === 'pending_manager_approval'
+  const canManagerApprove = (profile?.role === 'super_admin' || isPicDeptManager) &&
+    kcase.status === 'pending_manager_approval'
   const canAdminApprove   = profile?.role === 'super_admin' && kcase.status === 'pending_admin_approval'
   const canReopen         = profile?.role === 'super_admin' && kcase.status === 'closed'
   const canDelete         = profile?.role === 'super_admin'
