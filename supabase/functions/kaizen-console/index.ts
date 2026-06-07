@@ -53,7 +53,7 @@ function normUser(u) {
   return String(u || "").trim().toLowerCase().split(" ").filter(Boolean).join(".");
 }
 function cleanStr(v) {
-  return v === null ? null : String(v).trim() || null;
+  return (v === null || v === undefined) ? null : String(v).trim() || null;
 }
 
 async function sha256(str) {
