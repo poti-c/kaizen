@@ -896,7 +896,7 @@ export function CaseDetailPage() {
   // PIC's department manager — NOT every staff member.
   const canStaffResolve   = !isHRManager &&
     (profile?.role === 'super_admin' || isInCharge || isPicDeptManager) &&
-    ['in_progress', 'assigned', 'reopened'].includes(kcase.status)
+    ['open', 'in_progress', 'assigned', 'reopened'].includes(kcase.status)
   const canManagerApprove = (profile?.role === 'super_admin' || isPicDeptManager) &&
     kcase.status === 'pending_manager_approval'
   const canAdminApprove   = profile?.role === 'super_admin' && kcase.status === 'pending_admin_approval'
