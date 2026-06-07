@@ -445,7 +445,7 @@ export function CasesPage() {
     const badLocation = c.location && c.location !== 'Others' &&
       !customLocations.some(l => l.toLowerCase() === c.location!.toLowerCase())
     const catSlug = (c.category || '').toLowerCase().replace(/ /g, '_')
-    const badCategory = c.category && c.category !== 'other' &&
+    const badCategory = c.category && c.category !== 'other' && catSlug !== 'preventive_maintenance' &&
       !validCategorySlugs.some(s => s.toLowerCase() === catSlug)
     return badDept || badLocation || badCategory
   })
@@ -506,7 +506,7 @@ export function CasesPage() {
                         Location &ldquo;{c.location}&rdquo; removed
                       </span>
                     )}
-                    {c.category && c.category !== 'other' && !validCategorySlugs.some(s => s.toLowerCase() === (c.category || '').toLowerCase().replace(/ /g, '_')) && (
+                    {c.category && c.category !== 'other' && (c.category || '').toLowerCase().replace(/ /g, '_') !== 'preventive_maintenance' && !validCategorySlugs.some(s => s.toLowerCase() === (c.category || '').toLowerCase().replace(/ /g, '_')) && (
                       <span className="text-xs text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded">
                         Category &ldquo;{c.category}&rdquo; removed
                       </span>
