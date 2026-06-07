@@ -384,6 +384,15 @@ Deno.serve(async (req) => {
     return json({ owners: ownersOut, companies: companyStats, payments_pending: paymentsPending ?? 0, metrics });
   }
 
+  if (action === "finance") {
+    // Raw rows so the dashboard can filter revenue by month/year client-side.
+    const [invRes, subRes] = await Promise.all([
+      admin.from("kaizen_invoices").select("amount, payment_date"),
+      admin.from("kaizen_payment_submissions").select("amount, status, created_at"),
+    ]);
+    return json({ invoices: invRes.data ?? [], submissions: subRes.data ?? [] });
+  }
+
   if (action === "list_company_users") {
     const company_id = String(body.company_id ?? "");
     if (!company_id) return json({ error: "company_id required" }, 400);

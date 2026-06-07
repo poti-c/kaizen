@@ -1,11 +1,12 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import {
   Lock, Loader2, LogOut, Plus, Building2, Crown, Power,
   Trash2, X, Eye, EyeOff, Users, UserCog, ScrollText, AlertTriangle, Check,
-  ChevronRight, ChevronDown, Pencil, CalendarDays, ArrowLeft, Receipt, Upload, ImageIcon, Clock, Link2, KeyRound,
+  ChevronRight, ChevronLeft, ChevronDown, Pencil, CalendarDays, ArrowLeft, Receipt, Upload, ImageIcon, Clock, Link2, KeyRound,
   Settings, Mail, UserPlus, Building, FileText, Package,
   LayoutDashboard, Bell, ListChecks, TrendingUp, TrendingDown, Wallet,
 } from 'lucide-react'
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts'
 import { FormGeneratorView } from './console/FormGenerator'
 import { ProductsView } from './console/Products'
 import { CalendarView } from './console/Calendar'
@@ -319,7 +320,7 @@ function Dashboard({ token, adminName, onLogout }: { token: string; adminName: s
             <CompanyDetailView company={selectedCompany} owners={owners} allCompanies={companies} call={call} reload={load}
               onBack={() => setSelectedCompanyId(null)} onAddOwner={() => { setPreselectCompany(selectedCompany.id); setShowCreate(true) }} onOpenForm={openForm} />
           ) : view === 'dashboard' ? (
-            <DashboardHome companies={companies} metrics={metrics} onView={go} onOpenClient={setSelectedCompanyId} />
+            <DashboardHome companies={companies} metrics={metrics} call={call} onView={go} onOpenClient={setSelectedCompanyId} />
           ) : view === 'notifications' ? (
             <NotificationsView call={call} onGo={go} />
           ) : view === 'clients' ? (
@@ -1346,7 +1347,22 @@ function MoneyCard({ icon: Icon, label, value, tone, onClick }: { icon: typeof W
     </C>
   )
 }
-function DashboardHome({ companies, metrics, onView, onOpenClient }: { companies: ConsoleCompany[]; metrics: Metrics | null; onView: (v: View) => void; onOpenClient: (id: string) => void }) {
+function BigStat({ label, value, tone = 'slate', onClick }: { label: string; value: number; tone?: string; onClick?: () => void }) {
+  const tones: Record<string, string> = { slate: 'text-white', green: 'text-green-400', sky: 'text-sky-400', amber: 'text-amber-400', violet: 'text-violet-400' }
+  const C = onClick ? 'button' : 'div'
+  return (
+    <C onClick={onClick} className={`bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col justify-center text-left h-full min-h-[112px] ${onClick ? 'hover:border-slate-700 transition-colors' : ''}`}>
+      <p className={`text-4xl font-bold leading-none ${tones[tone]}`}>{value}</p>
+      <p className="text-xs text-slate-400 mt-2">{label}</p>
+    </C>
+  )
+}
+
+const MONTHS_LONG = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+
+interface FinRow { amount: number | null; payment_date?: string; created_at?: string; status?: string }
+
+function DashboardHome({ companies, metrics, call, onView, onOpenClient }: { companies: ConsoleCompany[]; metrics: Metrics | null; call: <T,>(a: string, p?: Record<string, unknown>) => Promise<T>; onView: (v: View) => void; onOpenClient: (id: string) => void }) {
   const total = companies.length
   const active = companies.filter(c => c.is_active).length
   const starter = companies.filter(c => c.plan === 'trial').length
@@ -1358,46 +1374,134 @@ function DashboardHome({ companies, metrics, onView, onOpenClient }: { companies
   const converted = gold + premium
   const conversionRate = planned > 0 ? Math.round((converted / planned) * 100) : 0
   const conv = metrics?.conversions
-  const totalUpgrades = conv ? conv.trial_to_gold + conv.trial_to_premium + conv.gold_to_premium : 0
   const baht = (n: number) => `฿${(n || 0).toLocaleString()}`
   // Clients whose subscription is expiring soon (≤14 days) or expired.
   const attention = companies.filter(c => c.subscription && (c.subscription.overdue || (c.subscription.days_remaining != null && c.subscription.days_remaining <= 14)))
+
+  // ── Revenue period filter (year dropdown + month navigator) ────────────────
+  const now = new Date()
+  const [year, setYear] = useState(now.getFullYear())
+  const [month, setMonth] = useState(now.getMonth())
+  const [invoices, setInvoices] = useState<FinRow[]>([])
+  const [submissions, setSubmissions] = useState<FinRow[]>([])
+  useEffect(() => {
+    call<{ invoices: FinRow[]; submissions: FinRow[] }>('finance')
+      .then(d => { setInvoices(d.invoices ?? []); setSubmissions(d.submissions ?? []) })
+      .catch(() => { /* leave empty */ })
+  }, [call])
+
+  const years = useMemo(() => {
+    const s = new Set<number>([now.getFullYear()])
+    invoices.forEach(r => { if (r.payment_date) s.add(new Date(r.payment_date).getFullYear()) })
+    submissions.forEach(r => { if (r.created_at) s.add(new Date(r.created_at).getFullYear()) })
+    return Array.from(s).sort((a, b) => b - a)
+  }, [invoices, submissions, now])
+
+  const inMonth = (iso?: string) => { if (!iso) return false; const d = new Date(iso); return d.getFullYear() === year && d.getMonth() === month }
+  const sum = (arr: FinRow[], ok: (r: FinRow) => boolean) => arr.reduce((s, r) => s + (ok(r) ? Number(r.amount) || 0 : 0), 0)
+  const pRevenue = sum(invoices, r => inMonth(r.payment_date))
+  const pOpportunity = sum(submissions, r => r.status === 'pending' && inMonth(r.created_at))
+  const pLost = sum(submissions, r => r.status === 'rejected' && inMonth(r.created_at))
+  const pieTotal = pRevenue + pOpportunity + pLost
+  const pieData = [
+    { name: 'Recorded', value: pRevenue, color: '#22c55e' },
+    { name: 'Pending', value: pOpportunity, color: '#f59e0b' },
+    { name: 'Lost', value: pLost, color: '#ef4444' },
+  ]
+  const pieSlices = pieData.filter(d => d.value > 0)
+  const isCurrentMonth = year === now.getFullYear() && month === now.getMonth()
+  const stepMonth = (delta: number) => {
+    let m = month + delta, y = year
+    if (m < 0) { m = 11; y -= 1 } else if (m > 11) { m = 0; y += 1 }
+    setMonth(m); setYear(y)
+  }
+
   return (
     <div>
       <h2 className="text-lg font-bold text-white mb-4">Dashboard</h2>
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
-        <StatTile label="Total clients" value={total} onClick={() => onView('clients')} />
-        <StatTile label="Active" value={active} tone="green" />
-        <StatTile label="Starter" value={starter} tone="sky" />
-        <StatTile label="Gold" value={gold} tone="amber" />
-        <StatTile label="Premium" value={premium} tone="violet" />
-        <StatTile label="Conversion rate" value={`${conversionRate}%`} tone="green" hint={`${converted} of ${planned} on a paid tier`} />
-      </div>
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
-        <MoneyCard icon={Wallet} label="Revenue (recorded)" value={baht(metrics?.revenue ?? 0)} tone="green" />
-        <MoneyCard icon={TrendingUp} label="Sales opportunity (pending)" value={baht(metrics?.opportunity ?? 0)} tone="amber" onClick={() => onView('payments')} />
-        <MoneyCard icon={TrendingDown} label="Opportunity lost" value={baht(metrics?.lost ?? 0)} tone="red" />
+
+      {/* Clients · plans · conversions */}
+      <div className="grid grid-cols-2 lg:grid-cols-5 lg:grid-rows-3 gap-3 mb-6">
+        <div className="lg:col-start-1 lg:row-start-1 lg:row-span-3"><BigStat label="Total clients" value={total} onClick={() => onView('clients')} /></div>
+        <div className="lg:col-start-2 lg:row-start-1 lg:row-span-3"><BigStat label="Active" value={active} tone="green" /></div>
+
+        <div className="lg:col-start-3 lg:row-start-1"><StatTile label="Starter" value={starter} tone="sky" /></div>
+        <div className="lg:col-start-4 lg:row-start-1"><StatTile label="Gold" value={gold} tone="amber" /></div>
+        <div className="lg:col-start-5 lg:row-start-1"><StatTile label="Premium" value={premium} tone="violet" /></div>
+
+        <div className="lg:col-start-3 lg:row-start-2"><StatTile label="Trial → Gold" value={conv?.trial_to_gold ?? 0} tone="amber" /></div>
+        <div className="lg:col-start-4 lg:row-start-2"><StatTile label="Trial → Premium" value={conv?.trial_to_premium ?? 0} tone="violet" /></div>
+        <div className="lg:col-start-5 lg:row-start-2"><StatTile label="Gold → Premium" value={conv?.gold_to_premium ?? 0} tone="violet" /></div>
+
+        <div className="col-span-2 lg:col-start-3 lg:col-span-3 lg:row-start-3">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 h-full flex items-center justify-between">
+            <div>
+              <p className="text-2xl font-bold leading-none text-green-400">{conversionRate}%</p>
+              <p className="text-[11px] text-slate-400 mt-1.5">Conversion rate</p>
+            </div>
+            <p className="text-[11px] text-slate-500 text-right">{converted} of {planned}<br />on a paid tier</p>
+          </div>
+        </div>
       </div>
 
-      {/* Conversion breakdown */}
-      <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 mb-6">
-        <div className="flex items-baseline justify-between mb-3">
-          <h3 className="text-sm font-semibold text-white">Upgrade conversions</h3>
-          <span className="text-[11px] text-slate-400">{totalUpgrades} upgrade{totalUpgrades === 1 ? '' : 's'} · {conversionRate}% on a paid tier</span>
+      {/* Period selector */}
+      <div className="flex items-center gap-2 mb-3">
+        <select value={year} onChange={(e) => setYear(Number(e.target.value))}
+          className="h-8 rounded-lg bg-slate-900 border border-slate-800 text-sm text-white px-2 focus:outline-none focus:ring-2 focus:ring-amber-500/50">
+          {years.map(y => <option key={y} value={y}>{y}</option>)}
+        </select>
+        <div className="flex items-center gap-1 bg-slate-900 border border-slate-800 rounded-lg px-1 h-8">
+          <button onClick={() => stepMonth(-1)} className="p-1 text-slate-400 hover:text-white"><ChevronLeft className="h-4 w-4" /></button>
+          <span className="min-w-[96px] text-center text-sm font-medium text-white">{isCurrentMonth ? 'This Month' : MONTHS_LONG[month]}</span>
+          <button onClick={() => stepMonth(1)} className="p-1 text-slate-400 hover:text-white"><ChevronRight className="h-4 w-4" /></button>
         </div>
-        <div className="grid grid-cols-3 gap-3">
-          {[
-            { label: 'Trial → Gold', value: conv?.trial_to_gold ?? 0, tone: 'text-amber-400' },
-            { label: 'Trial → Premium', value: conv?.trial_to_premium ?? 0, tone: 'text-violet-400' },
-            { label: 'Gold → Premium', value: conv?.gold_to_premium ?? 0, tone: 'text-violet-400' },
-          ].map((x) => (
-            <div key={x.label} className="bg-slate-800/60 border border-slate-800 rounded-lg p-3">
-              <p className={`text-xl font-bold leading-none ${x.tone}`}>{x.value}</p>
-              <p className="text-[11px] text-slate-400 mt-1.5">{x.label}</p>
+        <span className="text-[11px] text-slate-500 ml-1">{MONTHS_LONG[month]} {year}</span>
+      </div>
+
+      {/* Revenue composition + figures */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-6">
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
+          <h3 className="text-sm font-semibold text-white mb-0.5">Revenue composition</h3>
+          <p className="text-[11px] text-slate-400 mb-3">Contribution to total opportunity</p>
+          <div className="flex items-center gap-4">
+            <div className="relative flex-shrink-0" style={{ width: 130, height: 130 }}>
+              {pieTotal === 0 ? (
+                <div className="w-full h-full rounded-full border-[14px] border-slate-800 flex items-center justify-center"><span className="text-slate-500 text-[10px]">No data</span></div>
+              ) : (
+                <>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie data={pieSlices} cx="50%" cy="50%" innerRadius={40} outerRadius={62} paddingAngle={pieSlices.length > 1 ? 3 : 0} dataKey="value" startAngle={90} endAngle={-270}>
+                        {pieSlices.map((e, i) => <Cell key={i} fill={e.color} stroke="none" />)}
+                      </Pie>
+                      <Tooltip formatter={(v: number, n: string) => [baht(v), n]} contentStyle={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: 8, fontSize: 12 }} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                    <span className="text-sm font-bold text-white leading-none">{baht(pieTotal)}</span>
+                    <span className="text-[9px] text-slate-500 mt-0.5">Total</span>
+                  </div>
+                </>
+              )}
             </div>
-          ))}
+            <div className="flex-1 min-w-0 space-y-2">
+              {pieData.map(d => (
+                <div key={d.name} className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0"><span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: d.color }} /><span className="text-xs text-slate-300 truncate">{d.name}</span></div>
+                  <span className="text-xs font-semibold text-white flex-shrink-0">{baht(d.value)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-3">
+          <MoneyCard icon={Wallet} label="Revenue recorded" value={baht(pRevenue)} tone="green" />
+          <MoneyCard icon={TrendingUp} label="Sales opportunity (pending)" value={baht(pOpportunity)} tone="amber" onClick={() => onView('payments')} />
+          <MoneyCard icon={TrendingDown} label="Opportunity lost" value={baht(pLost)} tone="red" />
         </div>
       </div>
+
       {attention.length > 0 && (
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
           <h3 className="text-sm font-semibold text-white mb-2">Needs attention · renewals</h3>
