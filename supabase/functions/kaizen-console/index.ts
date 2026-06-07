@@ -294,6 +294,7 @@ Deno.serve(async (req) => {
     if (body.promptpay_qr !== undefined) patch.promptpay_qr = body.promptpay_qr ? String(body.promptpay_qr) : null;
     if (body.support_email !== undefined) patch.support_email = cleanStr(body.support_email);
     if (body.todos !== undefined) patch.todos = Array.isArray(body.todos) ? body.todos : [];
+    if (body.auto_fix !== undefined) patch.auto_fix = !!body.auto_fix;
     const { error } = await admin.from("kaizen_console_settings").update(patch).eq("id", true);
     if (error) return json({ error: error.message }, 400);
     await audit("update_settings", { patch }, ip, true);
@@ -306,7 +307,7 @@ Deno.serve(async (req) => {
       admin.from("kaizen_companies").select("*").order("name"),
       admin.from("kaizen_super_admin_companies").select("super_admin_id, company_id"),
       admin.from("kaizen_profiles").select("company_id, role"),
-      admin.from("kaizen_invoices").select("company_id, period_end"),
+      admin.from("kaizen_invoices").select("company_id, period_end, amount"),
     ]);
     const owners = ownersRes.data ?? [];
     const companies = companiesRes.data ?? [];
@@ -318,11 +319,19 @@ Deno.serve(async (req) => {
       if (!latestEnd[r.company_id] || r.period_end > latestEnd[r.company_id]) latestEnd[r.company_id] = r.period_end;
     }
     const durations = await planDurations();
-    const [{ count: payPending }, { count: rcptPending }] = await Promise.all([
+    const [{ count: payPending }, { count: rcptPending }, subsRes] = await Promise.all([
       admin.from("kaizen_payment_submissions").select("id", { count: "exact", head: true }).eq("status", "pending"),
       admin.from("kaizen_invoices").select("id", { count: "exact", head: true }).eq("receipt_requested", true).eq("receipt_issued", false),
+      admin.from("kaizen_payment_submissions").select("amount, status"),
     ]);
     const paymentsPending = (payPending ?? 0) + (rcptPending ?? 0);
+    const subs = subsRes.data ?? [];
+    const sum = (arr, f) => arr.reduce((s, x) => s + (f(x) ? Number(x.amount) || 0 : 0), 0);
+    const metrics = {
+      revenue: invoices.reduce((s, r) => s + (Number(r.amount) || 0), 0),
+      opportunity: sum(subs, (x) => x.status === "pending"),
+      lost: sum(subs, (x) => x.status === "rejected"),
+    };
     const companyStats = companies.map((c) => ({
       ...c,
       live_super_admins: profiles.filter(p => p.company_id === c.id && p.role === "super_admin").length,
@@ -334,7 +343,7 @@ Deno.serve(async (req) => {
       const ids = links.filter(l => l.super_admin_id === o.id).map(l => l.company_id);
       return { ...o, companies: companyStats.filter(c => ids.includes(c.id)) };
     });
-    return json({ owners: ownersOut, companies: companyStats, payments_pending: paymentsPending ?? 0 });
+    return json({ owners: ownersOut, companies: companyStats, payments_pending: paymentsPending ?? 0, metrics });
   }
 
   if (action === "list_company_users") {

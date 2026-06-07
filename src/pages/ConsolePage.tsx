@@ -4,6 +4,7 @@ import {
   Trash2, X, Eye, EyeOff, Users, UserCog, ScrollText, AlertTriangle, Check,
   ChevronRight, ChevronDown, Pencil, CalendarDays, ArrowLeft, Receipt, Upload, ImageIcon, Clock, Link2, KeyRound,
   Settings, Mail, UserPlus, Building, FileText, Package,
+  LayoutDashboard, Bell, ListChecks, TrendingUp, TrendingDown, Wallet,
 } from 'lucide-react'
 import { FormGeneratorView } from './console/FormGenerator'
 import { ProductsView } from './console/Products'
@@ -217,131 +218,121 @@ function LoginScreen({ onLogin }: { onLogin: (t: string) => void }) {
 }
 
 // ── Dashboard ────────────────────────────────────────────────────────────────
-type Tab = 'companies' | 'calendar' | 'audit'
+type View = 'dashboard' | 'notifications' | 'clients' | 'calendar' | 'payments' | 'products' | 'forms' | 'audit' | 'todos' | 'settings'
+interface Metrics { revenue: number; opportunity: number; lost: number }
 
 function Dashboard({ token, onLogout }: { token: string; onLogout: () => void }) {
-  const [tab, setTab] = useState<Tab>('companies')
+  const [view, setView] = useState<View>('dashboard')
   const [owners, setOwners] = useState<ConsoleOwner[]>([])
   const [companies, setCompanies] = useState<ConsoleCompany[]>([])
+  const [metrics, setMetrics] = useState<Metrics | null>(null)
+  const [todos, setTodos] = useState<TodoItem[]>([])
   const [loading, setLoading] = useState(true)
   const [showCreate, setShowCreate] = useState(false)
   const [showCreateCompany, setShowCreateCompany] = useState(false)
   const [preselectCompany, setPreselectCompany] = useState<string | null>(null)
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null)
-  const [showSettings, setShowSettings] = useState(false)
-  const [showForms, setShowForms] = useState(false)
-  const [showProducts, setShowProducts] = useState(false)
-  const [showPayments, setShowPayments] = useState(false)
   const [payCount, setPayCount] = useState(0)
   const [formPreviewId, setFormPreviewId] = useState<string | null>(null)
-
-  // Open a specific form in the Form Generator history (used by Calendar deep-link).
-  const openForm = useCallback((formId: string) => {
-    setFormPreviewId(formId); setShowForms(true); setShowPayments(false); setShowProducts(false); setShowSettings(false); setSelectedCompanyId(null)
-  }, [])
 
   const call = useCallback(async <T,>(action: string, payload: Record<string, unknown> = {}): Promise<T> => {
     try { return await callConsole<T>(action, payload, token) }
     catch (err) { if ((err as { status?: number }).status === 401) onLogout(); throw err }
   }, [token, onLogout])
 
+  const openForm = useCallback((formId: string) => { setFormPreviewId(formId); setSelectedCompanyId(null); setView('forms') }, [])
+
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const data = await call<{ owners: ConsoleOwner[]; companies: ConsoleCompany[]; payments_pending?: number }>('list')
-      setOwners(data.owners); setCompanies(data.companies); setPayCount(data.payments_pending ?? 0)
+      const data = await call<{ owners: ConsoleOwner[]; companies: ConsoleCompany[]; payments_pending?: number; metrics?: Metrics }>('list')
+      setOwners(data.owners); setCompanies(data.companies); setPayCount(data.payments_pending ?? 0); setMetrics(data.metrics ?? null)
+      try { const s = await call<{ company: ConsoleSettings | null }>('get_settings'); setTodos(s.company?.todos ?? []) } catch { /* ignore */ }
     } catch (e) { console.error('Console load failed:', e) } finally { setLoading(false) }
   }, [call])
 
   useEffect(() => { load() }, [load])
 
   const selectedCompany = companies.find(c => c.id === selectedCompanyId) || null
+  const go = (v: View) => { setSelectedCompanyId(null); setView(v) }
+
+  const NAV: { key: View; label: string; icon: typeof Building2; badge?: number }[] = [
+    { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    { key: 'notifications', label: 'Notifications', icon: Bell, badge: payCount },
+    { key: 'clients', label: 'Clients', icon: Building2 },
+    { key: 'calendar', label: 'Calendar', icon: CalendarDays },
+    { key: 'payments', label: 'Payments', icon: Receipt, badge: payCount },
+    { key: 'products', label: 'Products', icon: Package },
+    { key: 'forms', label: 'Form Generator', icon: FileText },
+    { key: 'audit', label: 'Audit Logs', icon: ScrollText },
+    { key: 'todos', label: 'To-Do Lists', icon: ListChecks },
+    { key: 'settings', label: 'Settings', icon: Settings },
+  ]
+  const openTodos = todos.filter(t => !t.done)
+  const todayStr = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-200">
-      <header className="border-b border-slate-800 bg-slate-900/80 backdrop-blur sticky top-0 z-10">
-        <div className="max-w-5xl mx-auto px-4 h-14 flex items-center gap-3">
-          <button onClick={() => { setShowPayments(false); setShowProducts(false); setShowForms(false); setShowSettings(false); setSelectedCompanyId(null) }} title="Back to Clients"
-            className="flex items-center gap-3 flex-1 min-w-0 text-left rounded-lg -mx-1 px-1 py-1 hover:bg-slate-800/60 transition-colors">
-            <img src="/kaizen-icon.svg" alt="Kaizen" className="w-8 h-8 rounded-lg object-contain flex-shrink-0" />
-            <div className="min-w-0">
-              <h1 className="text-sm font-bold text-white leading-tight">Kaizen System</h1>
-              <p className="text-[11px] text-slate-400 leading-tight">System Console · by NNR Solutions</p>
-            </div>
-          </button>
-          <button onClick={() => { setShowPayments(false); setShowProducts(false); setShowForms(false); setShowSettings(false); setSelectedCompanyId(null); setTab('companies') }} title="Clients"
-            className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg hover:bg-slate-800 ${!showPayments && !showProducts && !showForms && !showSettings && !selectedCompany && tab === 'companies' ? 'text-amber-400' : 'text-slate-400 hover:text-white'}`}>
-            <Building2 className="h-3.5 w-3.5" />Clients
-          </button>
-          <button onClick={() => { setShowPayments(true); setShowProducts(false); setShowForms(false); setShowSettings(false); setSelectedCompanyId(null) }} title="Payments"
-            className={`relative flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg hover:bg-slate-800 ${showPayments ? 'text-amber-400' : 'text-slate-400 hover:text-white'}`}>
-            <Receipt className="h-3.5 w-3.5" />Payments
-            {payCount > 0 && <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">{payCount}</span>}
-          </button>
-          <button onClick={() => { setShowProducts(true); setShowPayments(false); setShowForms(false); setShowSettings(false); setSelectedCompanyId(null) }} title="Products"
-            className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg hover:bg-slate-800 ${showProducts ? 'text-amber-400' : 'text-slate-400 hover:text-white'}`}>
-            <Package className="h-3.5 w-3.5" />Products
-          </button>
-          <button onClick={() => { setShowForms(true); setShowPayments(false); setShowProducts(false); setShowSettings(false); setSelectedCompanyId(null) }} title="Form Generator"
-            className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg hover:bg-slate-800 ${showForms ? 'text-amber-400' : 'text-slate-400 hover:text-white'}`}>
-            <FileText className="h-3.5 w-3.5" />Form Generator
-          </button>
-          <button onClick={() => { setShowSettings(true); setShowPayments(false); setShowForms(false); setShowProducts(false); setSelectedCompanyId(null) }} title="Admin Settings"
-            className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg hover:bg-slate-800 ${showSettings ? 'text-amber-400' : 'text-slate-400 hover:text-white'}`}>
-            <Settings className="h-3.5 w-3.5" />Settings
-          </button>
-          <button onClick={onLogout} className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-white px-3 py-1.5 rounded-lg hover:bg-slate-800">
-            <LogOut className="h-3.5 w-3.5" />Sign Out
-          </button>
+    <div className="min-h-screen bg-slate-950 text-slate-200 flex">
+      {/* Sidebar */}
+      <aside className="w-56 flex-shrink-0 border-r border-slate-800 bg-slate-900 flex flex-col h-screen sticky top-0">
+        <div className="flex items-center gap-2 px-4 h-14 border-b border-slate-800 flex-shrink-0">
+          <img src="/kaizen-icon.svg" alt="Kaizen" className="w-8 h-8 rounded-lg object-contain" />
+          <div className="min-w-0"><p className="text-sm font-bold text-white leading-tight">Kaizen System</p><p className="text-[10px] text-slate-400 leading-tight">System Console</p></div>
         </div>
-        {!selectedCompany && !showSettings && !showForms && !showProducts && !showPayments && (
-          <div className="max-w-5xl mx-auto px-4 flex gap-1">
-            {([['companies', 'Clients', Building2], ['calendar', 'Calendar', CalendarDays], ['audit', 'Audit Log', ScrollText]] as const).map(([key, label, Icon]) => (
-              <button key={key} onClick={() => setTab(key)}
-                className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-medium border-b-2 transition-colors ${tab === key ? 'border-amber-500 text-amber-400' : 'border-transparent text-slate-400 hover:text-slate-300'}`}>
-                <Icon className="h-3.5 w-3.5" />{label}
-              </button>
-            ))}
+        <nav className="flex-1 overflow-y-auto p-2 space-y-0.5">
+          {NAV.map(({ key, label, icon: Icon, badge }) => (
+            <button key={key} onClick={() => go(key)}
+              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors ${view === key && !selectedCompany ? 'bg-amber-500/15 text-amber-400 font-medium' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+              <Icon className="h-4 w-4 flex-shrink-0" /><span className="flex-1 text-left truncate">{label}</span>
+              {badge ? <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">{badge}</span> : null}
+            </button>
+          ))}
+        </nav>
+        <button onClick={onLogout} className="flex items-center gap-2.5 px-4 py-3 border-t border-slate-800 text-sm text-slate-400 hover:text-white flex-shrink-0"><LogOut className="h-4 w-4" />Sign Out</button>
+      </aside>
+
+      {/* Main */}
+      <div className="flex-1 min-w-0 flex flex-col h-screen overflow-hidden">
+        <header className="border-b border-slate-800 bg-slate-900/60 px-6 py-3 flex items-center justify-between gap-4 flex-shrink-0">
+          <div>
+            <p className="text-sm font-semibold text-white">Welcome back 👋</p>
+            <p className="text-[11px] text-slate-400">{todayStr}</p>
           </div>
-        )}
-      </header>
+          <button onClick={() => go('todos')} className="text-right text-[11px] text-slate-400 hover:text-white max-w-[60%] truncate">
+            {openTodos.length ? <><span className="text-amber-400 font-medium">{openTodos.length} to-do{openTodos.length === 1 ? '' : 's'}</span> · {openTodos[0].text}</> : 'No pending to-dos 🎉'}
+          </button>
+        </header>
 
-      <main className="max-w-5xl mx-auto px-4 py-6">
-        {showPayments ? (
-          <PaymentsView call={call} onBack={() => setShowPayments(false)} reload={load} />
-        ) : showProducts ? (
-          <ProductsView call={call} onBack={() => setShowProducts(false)} />
-        ) : showForms ? (
-          <FormGeneratorView call={call} onBack={() => setShowForms(false)} initialPreviewId={formPreviewId} onPreviewConsumed={() => setFormPreviewId(null)} />
-        ) : showSettings ? (
-          <AdminSettingsView call={call} onBack={() => setShowSettings(false)} />
-        ) : loading ? (
-          <div className="flex justify-center py-20"><Loader2 className="h-6 w-6 animate-spin text-slate-300" /></div>
-        ) : selectedCompany ? (
-          <CompanyDetailView
-            company={selectedCompany}
-            owners={owners}
-            allCompanies={companies}
-            call={call}
-            reload={load}
-            onBack={() => setSelectedCompanyId(null)}
-            onAddOwner={() => { setPreselectCompany(selectedCompany.id); setShowCreate(true) }}
-            onOpenForm={openForm}
-          />
-        ) : tab === 'companies' ? (
-          <CompaniesListTab companies={companies} owners={owners} onOpen={setSelectedCompanyId} onCreate={() => setShowCreateCompany(true)} />
-        ) : tab === 'calendar' ? (
-          <CalendarView call={call} onOpenForm={openForm} />
-        ) : (
-          <AuditTab call={call} />
-        )}
-      </main>
-
-      <footer className="border-t border-slate-800 mt-4">
-        <div className="max-w-5xl mx-auto px-4 py-5 text-center">
-          <p className="text-[11px] text-slate-300">© 2026 NNR Solutions · All rights reserved · Version 1.0</p>
-        </div>
-      </footer>
+        <main className="flex-1 overflow-y-auto px-6 py-6">
+          {loading ? (
+            <div className="flex justify-center py-20"><Loader2 className="h-6 w-6 animate-spin text-slate-300" /></div>
+          ) : selectedCompany ? (
+            <CompanyDetailView company={selectedCompany} owners={owners} allCompanies={companies} call={call} reload={load}
+              onBack={() => setSelectedCompanyId(null)} onAddOwner={() => { setPreselectCompany(selectedCompany.id); setShowCreate(true) }} onOpenForm={openForm} />
+          ) : view === 'dashboard' ? (
+            <DashboardHome companies={companies} metrics={metrics} onView={go} onOpenClient={setSelectedCompanyId} />
+          ) : view === 'notifications' ? (
+            <NotificationsView call={call} onGo={go} />
+          ) : view === 'clients' ? (
+            <CompaniesListTab companies={companies} owners={owners} onOpen={setSelectedCompanyId} onCreate={() => setShowCreateCompany(true)} />
+          ) : view === 'calendar' ? (
+            <CalendarView call={call} onOpenForm={openForm} />
+          ) : view === 'payments' ? (
+            <PaymentsView call={call} onBack={() => go('dashboard')} reload={load} />
+          ) : view === 'products' ? (
+            <ProductsView call={call} onBack={() => go('dashboard')} />
+          ) : view === 'forms' ? (
+            <FormGeneratorView call={call} onBack={() => go('dashboard')} initialPreviewId={formPreviewId} onPreviewConsumed={() => setFormPreviewId(null)} />
+          ) : view === 'audit' ? (
+            <AuditTab call={call} />
+          ) : view === 'todos' ? (
+            <TodosView call={call} />
+          ) : (
+            <AdminSettingsView call={call} onBack={() => go('dashboard')} />
+          )}
+          <p className="text-center text-[11px] text-slate-500 mt-8">© 2026 NNR Solutions · All rights reserved · Version 1.0</p>
+        </main>
+      </div>
 
       {showCreate && (
         <CreateOwnerDialog
@@ -1103,14 +1094,22 @@ function RecordPaymentDialog({ companyId, plan, call, onClose, onSaved }: {
 function AuditTab({ call }: { call: <T,>(a: string, p?: Record<string, unknown>) => Promise<T> }) {
   const [entries, setEntries] = useState<AuditEntry[]>([])
   const [loading, setLoading] = useState(true)
+  const [sub, setSub] = useState<'activity' | 'errors'>('activity')
   useEffect(() => { call<{ entries: AuditEntry[] }>('audit_log').then(d => setEntries(d.entries)).catch((e) => console.error('Audit log load failed:', e)).finally(() => setLoading(false)) }, [call])
   if (loading) return <div className="flex justify-center py-20"><Loader2 className="h-6 w-6 animate-spin text-slate-300" /></div>
+  const rows = sub === 'errors' ? entries.filter(e => !e.success) : entries.filter(e => e.success)
+  const errCount = entries.filter(e => !e.success).length
   return (
     <div>
-      <h2 className="text-base font-semibold text-white mb-1">Audit Log</h2>
-      <p className="text-xs text-slate-400 mb-4">Last 50 console events</p>
+      <h2 className="text-base font-semibold text-white mb-1">Audit Logs</h2>
+      <p className="text-xs text-slate-400 mb-3">Last 50 console events</p>
+      <div className="flex gap-1 border-b border-slate-800 mb-3">
+        {([['activity', 'Activity'], ['errors', `Errors${errCount ? ` (${errCount})` : ''}`]] as const).map(([k, label]) => (
+          <button key={k} onClick={() => setSub(k)} className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px ${sub === k ? 'border-amber-500 text-amber-400' : 'border-transparent text-slate-400 hover:text-slate-300'}`}>{label}</button>
+        ))}
+      </div>
       <div className="bg-slate-900 border border-slate-800 rounded-xl divide-y divide-slate-800 overflow-hidden">
-        {entries.map((e) => (
+        {rows.map((e) => (
           <div key={e.id} className="flex items-center gap-3 px-4 py-2.5 text-xs">
             <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${e.success ? 'bg-green-400' : 'bg-red-400'}`} />
             <span className="font-mono text-slate-300 w-40 flex-shrink-0">{e.action}</span>
@@ -1119,7 +1118,7 @@ function AuditTab({ call }: { call: <T,>(a: string, p?: Record<string, unknown>)
             <span className="text-slate-300 flex-shrink-0 w-32 text-right">{new Date(e.created_at).toLocaleString()}</span>
           </div>
         ))}
-        {entries.length === 0 && <div className="px-4 py-8 text-center text-sm text-slate-300">No events yet.</div>}
+        {rows.length === 0 && <div className="px-4 py-8 text-center text-sm text-slate-300">{sub === 'errors' ? 'No errors logged. 🎉' : 'No events yet.'}</div>}
       </div>
     </div>
   )
@@ -1238,6 +1237,186 @@ function PaymentsView({ call, onBack, reload }: { call: <T,>(a: string, p?: Reco
           <img src={lightbox} alt="Payment slip" className="max-w-full max-h-full rounded-lg object-contain" onClick={(e) => e.stopPropagation()} />
         </div>
       )}
+    </div>
+  )
+}
+
+// ── Dashboard home ───────────────────────────────────────────────────────────
+function StatTile({ label, value, tone = 'slate', onClick }: { label: string; value: number; tone?: string; onClick?: () => void }) {
+  const tones: Record<string, string> = { slate: 'text-white', green: 'text-green-400', sky: 'text-sky-400', amber: 'text-amber-400', violet: 'text-violet-400' }
+  const C = onClick ? 'button' : 'div'
+  return (
+    <C onClick={onClick} className={`bg-slate-900 border border-slate-800 rounded-xl p-4 text-left ${onClick ? 'hover:border-slate-700 transition-colors' : ''}`}>
+      <p className={`text-2xl font-bold leading-none ${tones[tone]}`}>{value}</p>
+      <p className="text-[11px] text-slate-400 mt-1.5">{label}</p>
+    </C>
+  )
+}
+function MoneyCard({ icon: Icon, label, value, tone, onClick }: { icon: typeof Wallet; label: string; value: string; tone: string; onClick?: () => void }) {
+  const ring: Record<string, string> = { green: 'text-green-400 bg-green-500/10', amber: 'text-amber-400 bg-amber-500/10', red: 'text-red-400 bg-red-500/10' }
+  const C = onClick ? 'button' : 'div'
+  return (
+    <C onClick={onClick} className={`bg-slate-900 border border-slate-800 rounded-xl p-4 text-left flex items-center gap-3 ${onClick ? 'hover:border-slate-700 transition-colors' : ''}`}>
+      <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${ring[tone]}`}><Icon className="h-5 w-5" /></div>
+      <div className="min-w-0"><p className="text-lg font-bold text-white leading-none truncate">{value}</p><p className="text-[11px] text-slate-400 mt-1">{label}</p></div>
+    </C>
+  )
+}
+function DashboardHome({ companies, metrics, onView, onOpenClient }: { companies: ConsoleCompany[]; metrics: Metrics | null; onView: (v: View) => void; onOpenClient: (id: string) => void }) {
+  const total = companies.length
+  const active = companies.filter(c => c.is_active).length
+  const starter = companies.filter(c => c.plan === 'trial').length
+  const gold = companies.filter(c => c.plan === 'gold').length
+  const premium = companies.filter(c => c.plan === 'premium').length
+  const baht = (n: number) => `฿${(n || 0).toLocaleString()}`
+  // Clients whose subscription is expiring soon (≤14 days) or expired.
+  const attention = companies.filter(c => c.subscription && (c.subscription.overdue || (c.subscription.days_remaining != null && c.subscription.days_remaining <= 14)))
+  return (
+    <div>
+      <h2 className="text-lg font-bold text-white mb-4">Dashboard</h2>
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-4">
+        <StatTile label="Total clients" value={total} onClick={() => onView('clients')} />
+        <StatTile label="Active" value={active} tone="green" />
+        <StatTile label="Starter" value={starter} tone="sky" />
+        <StatTile label="Gold" value={gold} tone="amber" />
+        <StatTile label="Premium" value={premium} tone="violet" />
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
+        <MoneyCard icon={Wallet} label="Revenue (recorded)" value={baht(metrics?.revenue ?? 0)} tone="green" />
+        <MoneyCard icon={TrendingUp} label="Sales opportunity (pending)" value={baht(metrics?.opportunity ?? 0)} tone="amber" onClick={() => onView('payments')} />
+        <MoneyCard icon={TrendingDown} label="Opportunity lost" value={baht(metrics?.lost ?? 0)} tone="red" />
+      </div>
+      {attention.length > 0 && (
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
+          <h3 className="text-sm font-semibold text-white mb-2">Needs attention · renewals</h3>
+          <div className="space-y-1.5">
+            {attention.slice(0, 6).map((c) => (
+              <button key={c.id} onClick={() => onOpenClient(c.id)} className="w-full flex items-center gap-2 text-left text-sm hover:bg-slate-800 rounded-lg px-2 py-1.5">
+                <span className="flex-1 truncate text-slate-200">{c.name}</span>
+                <SubscriptionBadge sub={c.subscription} />
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Notifications ────────────────────────────────────────────────────────────
+function NotificationsView({ call, onGo }: { call: <T,>(a: string, p?: Record<string, unknown>) => Promise<T>; onGo: (v: View) => void }) {
+  const [pay, setPay] = useState<{ payments: PaymentSub[]; receipt_requests: ReceiptReq[] } | null>(null)
+  const [errors, setErrors] = useState<AuditEntry[]>([])
+  const [loading, setLoading] = useState(true)
+  useEffect(() => {
+    (async () => {
+      try {
+        const [p, a] = await Promise.all([
+          call<{ payments: PaymentSub[]; receipt_requests: ReceiptReq[] }>('list_payments'),
+          call<{ entries: AuditEntry[] }>('audit_log'),
+        ])
+        setPay(p); setErrors((a.entries ?? []).filter(e => !e.success).slice(0, 8))
+      } catch (e) { console.error(e) } finally { setLoading(false) }
+    })()
+  }, [call])
+  if (loading) return <div className="flex justify-center py-20"><Loader2 className="h-6 w-6 animate-spin text-slate-300" /></div>
+  const pendingPay = (pay?.payments ?? []).filter(p => p.status === 'pending')
+  const pendingRcpt = (pay?.receipt_requests ?? []).filter(r => !r.receipt_issued)
+  const nothing = !pendingPay.length && !pendingRcpt.length && !errors.length
+  return (
+    <div>
+      <h2 className="text-lg font-bold text-white mb-4">Notifications</h2>
+      {nothing && <p className="py-12 text-center text-sm text-slate-400">You're all caught up. 🎉</p>}
+      {pendingPay.length > 0 && (
+        <button onClick={() => onGo('payments')} className="w-full flex items-center gap-3 bg-slate-900 border border-slate-800 rounded-xl p-4 mb-2 text-left hover:border-slate-700">
+          <div className="w-10 h-10 rounded-lg bg-amber-500/10 text-amber-400 flex items-center justify-center"><Receipt className="h-5 w-5" /></div>
+          <div className="flex-1"><p className="text-sm font-semibold text-white">{pendingPay.length} payment{pendingPay.length === 1 ? '' : 's'} awaiting review</p><p className="text-[11px] text-slate-400">Approve to activate the client's plan or add-on.</p></div>
+          <ChevronRight className="h-4 w-4 text-slate-500" />
+        </button>
+      )}
+      {pendingRcpt.length > 0 && (
+        <button onClick={() => onGo('payments')} className="w-full flex items-center gap-3 bg-slate-900 border border-slate-800 rounded-xl p-4 mb-2 text-left hover:border-slate-700">
+          <div className="w-10 h-10 rounded-lg bg-sky-500/10 text-sky-400 flex items-center justify-center"><FileText className="h-5 w-5" /></div>
+          <div className="flex-1"><p className="text-sm font-semibold text-white">{pendingRcpt.length} receipt request{pendingRcpt.length === 1 ? '' : 's'}</p><p className="text-[11px] text-slate-400">Issue &amp; send a tax invoice / receipt.</p></div>
+          <ChevronRight className="h-4 w-4 text-slate-500" />
+        </button>
+      )}
+      {errors.length > 0 && (
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 mt-2">
+          <div className="flex items-center gap-2 mb-2"><AlertTriangle className="h-4 w-4 text-red-400" /><h3 className="text-sm font-semibold text-white">Recent errors</h3><button onClick={() => onGo('audit')} className="ml-auto text-[11px] text-amber-400">View all</button></div>
+          <div className="space-y-1">
+            {errors.map((e) => (
+              <div key={e.id} className="flex items-center gap-2 text-xs"><span className="w-1.5 h-1.5 rounded-full bg-red-400" /><span className="font-mono text-slate-300 w-36 truncate">{e.action}</span><span className="text-slate-500 flex-1 truncate">{JSON.stringify(e.detail)}</span></div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── To-Do Lists ──────────────────────────────────────────────────────────────
+function TodosView({ call }: { call: <T,>(a: string, p?: Record<string, unknown>) => Promise<T> }) {
+  const [todos, setTodos] = useState<TodoItem[]>([])
+  const [autoFix, setAutoFix] = useState(false)
+  const [newTodo, setNewTodo] = useState('')
+  const [loading, setLoading] = useState(true)
+  const load = useCallback(async () => {
+    setLoading(true)
+    try { const s = await call<{ company: ConsoleSettings | null }>('get_settings'); setTodos(s.company?.todos ?? []); setAutoFix(!!(s.company as { auto_fix?: boolean } | null)?.auto_fix) }
+    catch (e) { console.error(e) } finally { setLoading(false) }
+  }, [call])
+  useEffect(() => { load() }, [load])
+  async function saveTodos(next: TodoItem[]) { setTodos(next); try { await call('update_settings', { todos: next }) } catch (e) { alert(e instanceof Error ? e.message : 'Failed') } }
+  async function toggleAuto() { const v = !autoFix; setAutoFix(v); try { await call('update_settings', { auto_fix: v }) } catch (e) { alert(e instanceof Error ? e.message : 'Failed') } }
+  function add() { const t = newTodo.trim(); if (!t) return; saveTodos([...todos, { id: `t${Date.now()}`, text: t, done: false }]); setNewTodo('') }
+  if (loading) return <div className="flex justify-center py-20"><Loader2 className="h-6 w-6 animate-spin text-slate-300" /></div>
+  const open = todos.filter(t => !t.done); const done = todos.filter(t => t.done)
+  return (
+    <div className="max-w-2xl">
+      <h2 className="text-lg font-bold text-white mb-1">To-Do Lists</h2>
+      <p className="text-xs text-slate-400 mb-4">Pending work, ideas and future plans. Tick when done, or ask to build any of these.</p>
+
+      <div className="flex items-center gap-2 mb-4">
+        <input value={newTodo} onChange={(e) => setNewTodo(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && add()} placeholder="Add a task or idea…" className={inputCls + ' flex-1'} />
+        <button onClick={add} className="flex items-center gap-1 px-3 h-9 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-semibold"><Plus className="h-3.5 w-3.5" />Add</button>
+      </div>
+
+      <div className="space-y-1.5">
+        {open.length === 0 && <p className="text-xs text-slate-500">No open tasks.</p>}
+        {open.map((it) => (
+          <div key={it.id} className="flex items-start gap-2 bg-slate-900 border border-slate-800 rounded-lg px-3 py-2">
+            <input type="checkbox" checked={it.done} onChange={() => saveTodos(todos.map(x => x.id === it.id ? { ...x, done: !x.done } : x))} className="accent-amber-500 mt-0.5" />
+            <span className="flex-1 text-sm text-slate-200">{it.text}</span>
+            <button onClick={() => saveTodos(todos.filter(x => x.id !== it.id))} className="text-slate-500 hover:text-red-400"><Trash2 className="h-3.5 w-3.5" /></button>
+          </div>
+        ))}
+      </div>
+      {done.length > 0 && (
+        <div className="mt-4">
+          <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Done</p>
+          <div className="space-y-1.5">
+            {done.map((it) => (
+              <div key={it.id} className="flex items-start gap-2 bg-slate-800/30 rounded-lg px-3 py-2">
+                <input type="checkbox" checked={it.done} onChange={() => saveTodos(todos.map(x => x.id === it.id ? { ...x, done: !x.done } : x))} className="accent-amber-500 mt-0.5" />
+                <span className="flex-1 text-sm text-slate-500 line-through">{it.text}</span>
+                <button onClick={() => saveTodos(todos.filter(x => x.id !== it.id))} className="text-slate-600 hover:text-red-400"><Trash2 className="h-3.5 w-3.5" /></button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Auto-Fix */}
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 mt-6">
+        <label className="flex items-start gap-2.5 cursor-pointer">
+          <input type="checkbox" checked={autoFix} onChange={toggleAuto} className="accent-amber-500 mt-0.5" />
+          <span>
+            <span className="text-sm font-medium text-white">Auto-Fix (experimental)</span>
+            <span className="block text-[11px] text-slate-400">When on, the system auto-applies safe remediations for known, recurring issues and logs them to the Audit Log. Genuine code bugs are still flagged for the developer — true code fixes can't be applied automatically.</span>
+          </span>
+        </label>
+      </div>
     </div>
   )
 }
@@ -1504,18 +1683,6 @@ function AdminSettingsView({ call, onBack }: { call: <T,>(a: string, p?: Record<
   const [editCo, setEditCo] = useState(false)
   const [co, setCo] = useState<ConsoleSettings>({ company_name: '', office_type: 'head_office', branch_name: '', address: '', tax_id: '', signatory_name: '', signatory_title: '', phone: '', email: '', website: '', promptpay_id: '', promptpay_name: '', support_email: '' })
 
-  // To-Do / suggestions
-  const [todos, setTodos] = useState<TodoItem[]>([])
-  const [newTodo, setNewTodo] = useState('')
-  useEffect(() => { setTodos(company?.todos ?? []) }, [company])
-  async function saveTodos(next: TodoItem[]) {
-    setTodos(next)
-    try { await call('update_settings', { todos: next }) } catch (e) { alert(e instanceof Error ? e.message : 'Failed') }
-  }
-  function addTodo() {
-    const t = newTodo.trim(); if (!t) return
-    saveTodos([...todos, { id: `t${Date.now()}`, text: t, done: false }]); setNewTodo('')
-  }
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -1796,28 +1963,6 @@ function AdminSettingsView({ call, onBack }: { call: <T,>(a: string, p?: Record<
             </div>
           </div>
 
-          {/* To-Do & Suggestions */}
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
-            <div className="flex items-center gap-2 mb-1">
-              <ScrollText className="h-4 w-4 text-slate-400" />
-              <h3 className="text-sm font-semibold text-white">To-Do &amp; Suggestions</h3>
-            </div>
-            <p className="text-[11px] text-slate-500 mb-3">Parked ideas and pending setup. Tick when done, or ask to build any of these later.</p>
-            <div className="space-y-1.5 mb-3">
-              {todos.length === 0 && <p className="text-xs text-slate-500">Nothing here yet.</p>}
-              {todos.map((it) => (
-                <div key={it.id} className="flex items-start gap-2 bg-slate-800/40 rounded-lg px-3 py-2">
-                  <input type="checkbox" checked={it.done} onChange={() => saveTodos(todos.map(x => x.id === it.id ? { ...x, done: !x.done } : x))} className="accent-amber-500 mt-0.5" />
-                  <span className={`flex-1 text-xs ${it.done ? 'text-slate-500 line-through' : 'text-slate-200'}`}>{it.text}</span>
-                  <button onClick={() => saveTodos(todos.filter(x => x.id !== it.id))} className="text-slate-500 hover:text-red-400"><Trash2 className="h-3.5 w-3.5" /></button>
-                </div>
-              ))}
-            </div>
-            <div className="flex items-center gap-2">
-              <input value={newTodo} onChange={(e) => setNewTodo(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addTodo()} placeholder="Add a note or idea…" className={inputCls + ' flex-1'} />
-              <button onClick={addTodo} className="flex items-center gap-1 px-3 h-9 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-semibold"><Plus className="h-3.5 w-3.5" />Add</button>
-            </div>
-          </div>
         </div>
       )}
     </div>
