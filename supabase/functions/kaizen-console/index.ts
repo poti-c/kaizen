@@ -218,7 +218,12 @@ Deno.serve(async (req) => {
     await admin.from("kaizen_console_login_attempts").delete().eq("ip", ip);
     const token = await makeToken();
     await audit("login_success", { ip }, ip, true);
-    return json({ token, expiresAt: Date.now() + TOKEN_TTL_MS });
+    let name = uIn;
+    try {
+      const { data: who } = await admin.from("kaizen_console_admins").select("display_name, username").eq("username", normUser(uIn)).maybeSingle();
+      if (who) name = who.display_name || who.username || uIn;
+    } catch { /* env admin or no row — fall back to the entered username */ }
+    return json({ token, expiresAt: Date.now() + TOKEN_TTL_MS, name });
   }
 
   const token = req.headers.get("x-console-token") || body?.token;
@@ -228,22 +233,46 @@ Deno.serve(async (req) => {
 
   if (action === "get_settings") {
     const [adminsRes, settingsRes] = await Promise.all([
-      admin.from("kaizen_console_admins").select("id, username, email, is_active, created_at").order("created_at", { ascending: true }),
+      admin.from("kaizen_console_admins").select("id, username, display_name, email, is_active, created_at").order("created_at", { ascending: true }),
       admin.from("kaizen_console_settings").select("*").eq("id", true).maybeSingle(),
     ]);
     return json({ admins: adminsRes.data ?? [], company: settingsRes.data ?? null });
+  }
+
+  if (action === "list_errors") {
+    const { data } = await admin.from("kaizen_error_log")
+      .select("id, company_id, user_id, source, message, detail, url, user_agent, resolved, created_at, kaizen_companies(name)")
+      .order("created_at", { ascending: false }).limit(100);
+    const errors = (data ?? []).map((e) => {
+      const co = e.kaizen_companies;
+      const company_name = Array.isArray(co) ? (co[0]?.name ?? null) : (co?.name ?? null);
+      const { kaizen_companies: _omit, ...rest } = e;
+      return { ...rest, company_name };
+    });
+    return json({ errors });
+  }
+
+  if (action === "resolve_error") {
+    const error_id = String(body.error_id ?? "");
+    if (!error_id) return json({ error: "error_id required" }, 400);
+    const { error } = await admin.from("kaizen_error_log").update({ resolved: body.resolved !== false }).eq("id", error_id);
+    if (error) return json({ error: error.message }, 400);
+    await audit("resolve_error", { error_id }, ip, true);
+    return json({ success: true });
   }
 
   if (action === "add_admin") {
     const username = normUser(body.username);
     const password = String(body.password ?? "");
     const email = cleanStr(body.email);
+    const display_name = cleanStr(body.display_name);
     if (!username) return json({ error: "Username is required." }, 400);
     if (password.length < 6) return json({ error: "Password must be at least 6 characters." }, 400);
     const { data: dup } = await admin.from("kaizen_console_admins").select("id").eq("username", username).maybeSingle();
     if (dup) return json({ error: "That username is already in use." }, 400);
     const { error } = await admin.rpc("kaizen_console_create_admin", { p_username: username, p_password: password, p_email: email });
     if (error) return json({ error: error.message }, 400);
+    if (display_name) await admin.from("kaizen_console_admins").update({ display_name }).eq("username", username);
     await audit("add_admin", { username }, ip, true);
     return json({ success: true });
   }
@@ -261,6 +290,7 @@ Deno.serve(async (req) => {
     }
     const { error } = await admin.rpc("kaizen_console_update_admin", { p_id: admin_id, p_username: newUsername, p_password: newPassword, p_email: newEmail });
     if (error) return json({ error: error.message }, 400);
+    if (body.display_name !== undefined) await admin.from("kaizen_console_admins").update({ display_name: cleanStr(body.display_name) ?? null }).eq("id", admin_id);
     await audit("update_admin", { admin_id, username: newUsername, password_changed: !!newPassword }, ip, true);
     return json({ success: true });
   }

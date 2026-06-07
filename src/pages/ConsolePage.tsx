@@ -14,6 +14,7 @@ import { CalendarView } from './console/Calendar'
 const FN_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/kaizen-console`
 const ANON = import.meta.env.VITE_SUPABASE_ANON_KEY as string
 const TOKEN_KEY = 'kaizen-console-token'
+const NAME_KEY = 'kaizen-console-name'
 
 async function callConsole<T = any>(action: string, payload: Record<string, unknown> = {}, token?: string | null): Promise<T> {
   const res = await fetch(FN_URL, {
@@ -128,6 +129,7 @@ function fileToCompressedDataUrl(file: File): Promise<string> {
 // ── Root ─────────────────────────────────────────────────────────────────────
 export function ConsolePage() {
   const [token, setToken] = useState<string | null>(() => sessionStorage.getItem(TOKEN_KEY))
+  const [adminName, setAdminName] = useState<string>(() => sessionStorage.getItem(NAME_KEY) || '')
   const [booting, setBooting] = useState(true)
 
   useEffect(() => {
@@ -151,17 +153,21 @@ export function ConsolePage() {
     return () => { active = false }
   }, [])
 
-  function handleLogin(t: string) { sessionStorage.setItem(TOKEN_KEY, t); setToken(t) }
-  function handleLogout() { sessionStorage.removeItem(TOKEN_KEY); setToken(null) }
+  function handleLogin(t: string, name: string) {
+    sessionStorage.setItem(TOKEN_KEY, t)
+    sessionStorage.setItem(NAME_KEY, name || '')
+    setAdminName(name || ''); setToken(t)
+  }
+  function handleLogout() { sessionStorage.removeItem(TOKEN_KEY); sessionStorage.removeItem(NAME_KEY); setAdminName(''); setToken(null) }
 
   if (booting) {
     return <div className="min-h-screen bg-slate-950 flex items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-slate-400" /></div>
   }
-  return token ? <Dashboard token={token} onLogout={handleLogout} /> : <LoginScreen onLogin={handleLogin} />
+  return token ? <Dashboard token={token} adminName={adminName} onLogout={handleLogout} /> : <LoginScreen onLogin={handleLogin} />
 }
 
 // ── Login screen ─────────────────────────────────────────────────────────────
-function LoginScreen({ onLogin }: { onLogin: (t: string) => void }) {
+function LoginScreen({ onLogin }: { onLogin: (t: string, name: string) => void }) {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [showPw, setShowPw] = useState(false)
@@ -171,8 +177,8 @@ function LoginScreen({ onLogin }: { onLogin: (t: string) => void }) {
   async function submit(e: React.FormEvent) {
     e.preventDefault(); setError(''); setLoading(true)
     try {
-      const { token } = await callConsole<{ token: string }>('login', { username: username.trim(), password })
-      onLogin(token)
+      const { token, name } = await callConsole<{ token: string; name?: string }>('login', { username: username.trim(), password })
+      onLogin(token, name || username.trim())
     } catch (err) { setError(err instanceof Error ? err.message : 'Login failed.') }
     finally { setLoading(false) }
   }
@@ -221,7 +227,7 @@ function LoginScreen({ onLogin }: { onLogin: (t: string) => void }) {
 type View = 'dashboard' | 'notifications' | 'clients' | 'calendar' | 'payments' | 'products' | 'forms' | 'audit' | 'todos' | 'settings'
 interface Metrics { revenue: number; opportunity: number; lost: number }
 
-function Dashboard({ token, onLogout }: { token: string; onLogout: () => void }) {
+function Dashboard({ token, adminName, onLogout }: { token: string; adminName: string; onLogout: () => void }) {
   const [view, setView] = useState<View>('dashboard')
   const [owners, setOwners] = useState<ConsoleOwner[]>([])
   const [companies, setCompanies] = useState<ConsoleCompany[]>([])
@@ -295,7 +301,7 @@ function Dashboard({ token, onLogout }: { token: string; onLogout: () => void })
       <div className="flex-1 min-w-0 flex flex-col h-screen overflow-hidden">
         <header className="border-b border-slate-800 bg-slate-900/60 px-6 py-3 flex items-center justify-between gap-4 flex-shrink-0">
           <div>
-            <p className="text-sm font-semibold text-white">Welcome back 👋</p>
+            <p className="text-sm font-semibold text-white">{adminName ? `Welcome, ${adminName} 👋` : 'Welcome back 👋'}</p>
             <p className="text-[11px] text-slate-400">{todayStr}</p>
           </div>
           <button onClick={() => go('todos')} className="text-right text-[11px] text-slate-400 hover:text-white max-w-[60%] truncate">
@@ -1091,35 +1097,109 @@ function RecordPaymentDialog({ companyId, plan, call, onClose, onSaved }: {
 }
 
 // ── Audit tab ────────────────────────────────────────────────────────────────
+interface AppError {
+  id: string; company_id: string | null; company_name: string | null; user_id: string | null
+  source: string; message: string; detail: Record<string, unknown> | null; url: string | null
+  user_agent: string | null; resolved: boolean; created_at: string
+}
+
 function AuditTab({ call }: { call: <T,>(a: string, p?: Record<string, unknown>) => Promise<T> }) {
   const [entries, setEntries] = useState<AuditEntry[]>([])
+  const [appErrors, setAppErrors] = useState<AppError[]>([])
   const [loading, setLoading] = useState(true)
   const [sub, setSub] = useState<'activity' | 'errors'>('activity')
-  useEffect(() => { call<{ entries: AuditEntry[] }>('audit_log').then(d => setEntries(d.entries)).catch((e) => console.error('Audit log load failed:', e)).finally(() => setLoading(false)) }, [call])
+  const [expanded, setExpanded] = useState<string | null>(null)
+
+  const reload = useCallback(() => {
+    setLoading(true)
+    Promise.all([
+      call<{ entries: AuditEntry[] }>('audit_log').then(d => d.entries).catch(() => [] as AuditEntry[]),
+      call<{ errors: AppError[] }>('list_errors').then(d => d.errors).catch(() => [] as AppError[]),
+    ]).then(([a, e]) => { setEntries(a); setAppErrors(e) }).finally(() => setLoading(false))
+  }, [call])
+  useEffect(() => { reload() }, [reload])
+
+  async function resolve(id: string, resolved: boolean) {
+    setAppErrors(prev => prev.map(e => e.id === id ? { ...e, resolved } : e))
+    try { await call('resolve_error', { error_id: id, resolved }) } catch { reload() }
+  }
+
   if (loading) return <div className="flex justify-center py-20"><Loader2 className="h-6 w-6 animate-spin text-slate-300" /></div>
-  const rows = sub === 'errors' ? entries.filter(e => !e.success) : entries.filter(e => e.success)
-  const errCount = entries.filter(e => !e.success).length
+  const activity = entries.filter(e => e.success)
+  const consoleErrors = entries.filter(e => !e.success)
+  const openAppErrors = appErrors.filter(e => !e.resolved)
+  const errCount = consoleErrors.length + openAppErrors.length
+
   return (
     <div>
       <h2 className="text-base font-semibold text-white mb-1">Audit Logs</h2>
-      <p className="text-xs text-slate-400 mb-3">Last 50 console events</p>
+      <p className="text-xs text-slate-400 mb-3">Console events &amp; client-app errors</p>
       <div className="flex gap-1 border-b border-slate-800 mb-3">
         {([['activity', 'Activity'], ['errors', `Errors${errCount ? ` (${errCount})` : ''}`]] as const).map(([k, label]) => (
           <button key={k} onClick={() => setSub(k)} className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px ${sub === k ? 'border-amber-500 text-amber-400' : 'border-transparent text-slate-400 hover:text-slate-300'}`}>{label}</button>
         ))}
       </div>
-      <div className="bg-slate-900 border border-slate-800 rounded-xl divide-y divide-slate-800 overflow-hidden">
-        {rows.map((e) => (
-          <div key={e.id} className="flex items-center gap-3 px-4 py-2.5 text-xs">
-            <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${e.success ? 'bg-green-400' : 'bg-red-400'}`} />
-            <span className="font-mono text-slate-300 w-40 flex-shrink-0">{e.action}</span>
-            <span className="text-slate-400 flex-1 truncate">{JSON.stringify(e.detail)}</span>
-            <span className="text-slate-300 flex-shrink-0">{e.ip}</span>
-            <span className="text-slate-300 flex-shrink-0 w-32 text-right">{new Date(e.created_at).toLocaleString()}</span>
+
+      {sub === 'activity' ? (
+        <div className="bg-slate-900 border border-slate-800 rounded-xl divide-y divide-slate-800 overflow-hidden">
+          {activity.map((e) => (
+            <div key={e.id} className="flex items-center gap-3 px-4 py-2.5 text-xs">
+              <span className="w-1.5 h-1.5 rounded-full flex-shrink-0 bg-green-400" />
+              <span className="font-mono text-slate-300 w-40 flex-shrink-0">{e.action}</span>
+              <span className="text-slate-400 flex-1 truncate">{JSON.stringify(e.detail)}</span>
+              <span className="text-slate-300 flex-shrink-0">{e.ip}</span>
+              <span className="text-slate-300 flex-shrink-0 w-32 text-right">{new Date(e.created_at).toLocaleString()}</span>
+            </div>
+          ))}
+          {activity.length === 0 && <div className="px-4 py-8 text-center text-sm text-slate-300">No events yet.</div>}
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {/* Client-app errors */}
+          <div>
+            <p className="text-[11px] uppercase tracking-wide text-slate-500 mb-1.5">Client app errors</p>
+            <div className="bg-slate-900 border border-slate-800 rounded-xl divide-y divide-slate-800 overflow-hidden">
+              {appErrors.map((e) => (
+                <div key={e.id} className={`px-4 py-2.5 text-xs ${e.resolved ? 'opacity-50' : ''}`}>
+                  <div className="flex items-center gap-3">
+                    <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${e.resolved ? 'bg-slate-500' : 'bg-red-400'}`} />
+                    <span className="font-mono text-[10px] text-slate-400 w-16 flex-shrink-0 uppercase">{e.source}</span>
+                    <button onClick={() => setExpanded(expanded === e.id ? null : e.id)} className="text-slate-200 flex-1 truncate text-left hover:text-white">{e.message}</button>
+                    <span className="text-slate-400 flex-shrink-0 w-32 truncate text-right">{e.company_name ?? '—'}</span>
+                    <span className="text-slate-400 flex-shrink-0 w-32 text-right">{new Date(e.created_at).toLocaleString()}</span>
+                    <button onClick={() => resolve(e.id, !e.resolved)} className="flex-shrink-0 text-[10px] px-2 py-0.5 rounded-md border border-slate-700 text-slate-300 hover:bg-slate-800">{e.resolved ? 'Reopen' : 'Resolve'}</button>
+                  </div>
+                  {expanded === e.id && (
+                    <div className="mt-2 ml-7 space-y-1 text-[11px] text-slate-400">
+                      {e.url && <div className="truncate"><span className="text-slate-500">URL:</span> {e.url}</div>}
+                      {e.detail && <pre className="whitespace-pre-wrap break-words bg-slate-950 border border-slate-800 rounded-lg p-2 text-[10px] text-slate-400 max-h-48 overflow-y-auto">{JSON.stringify(e.detail, null, 2)}</pre>}
+                      {e.user_agent && <div className="truncate"><span className="text-slate-500">UA:</span> {e.user_agent}</div>}
+                    </div>
+                  )}
+                </div>
+              ))}
+              {appErrors.length === 0 && <div className="px-4 py-8 text-center text-sm text-slate-300">No client-app errors logged. 🎉</div>}
+            </div>
           </div>
-        ))}
-        {rows.length === 0 && <div className="px-4 py-8 text-center text-sm text-slate-300">{sub === 'errors' ? 'No errors logged. 🎉' : 'No events yet.'}</div>}
-      </div>
+
+          {/* Console errors */}
+          <div>
+            <p className="text-[11px] uppercase tracking-wide text-slate-500 mb-1.5">Console errors</p>
+            <div className="bg-slate-900 border border-slate-800 rounded-xl divide-y divide-slate-800 overflow-hidden">
+              {consoleErrors.map((e) => (
+                <div key={e.id} className="flex items-center gap-3 px-4 py-2.5 text-xs">
+                  <span className="w-1.5 h-1.5 rounded-full flex-shrink-0 bg-red-400" />
+                  <span className="font-mono text-slate-300 w-40 flex-shrink-0">{e.action}</span>
+                  <span className="text-slate-400 flex-1 truncate">{JSON.stringify(e.detail)}</span>
+                  <span className="text-slate-300 flex-shrink-0">{e.ip}</span>
+                  <span className="text-slate-300 flex-shrink-0 w-32 text-right">{new Date(e.created_at).toLocaleString()}</span>
+                </div>
+              ))}
+              {consoleErrors.length === 0 && <div className="px-4 py-8 text-center text-sm text-slate-300">No console errors. 🎉</div>}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -1638,7 +1718,7 @@ function CreateOwnerDialog({ preselectCompanyId, call, onClose, onCreated }: {
 
 // ── Shared bits ──────────────────────────────────────────────────────────────
 // ── Admin Settings ─────────────────────────────────────────────────────────
-interface ConsoleAdmin { id: string; username: string; email: string | null; is_active: boolean; created_at: string }
+interface ConsoleAdmin { id: string; username: string; display_name: string | null; email: string | null; is_active: boolean; created_at: string }
 interface TodoItem { id: string; text: string; done: boolean }
 interface ConsoleSettings { company_name: string | null; office_type: string; branch_name: string | null; address: string | null; tax_id: string | null; logo_url?: string | null; signatory_name?: string | null; signatory_title?: string | null; phone?: string | null; email?: string | null; website?: string | null; promptpay_id?: string | null; promptpay_name?: string | null; promptpay_qr?: string | null; support_email?: string | null; todos?: TodoItem[] | null }
 
@@ -1675,9 +1755,9 @@ function AdminSettingsView({ call, onBack }: { call: <T,>(a: string, p?: Record<
 
   // admin editing
   const [editId, setEditId] = useState<string | null>(null)
-  const [eUser, setEUser] = useState(''); const [eEmail, setEEmail] = useState(''); const [ePass, setEPass] = useState('')
+  const [eUser, setEUser] = useState(''); const [eName, setEName] = useState(''); const [eEmail, setEEmail] = useState(''); const [ePass, setEPass] = useState('')
   const [adding, setAdding] = useState(false)
-  const [nUser, setNUser] = useState(''); const [nEmail, setNEmail] = useState(''); const [nPass, setNPass] = useState('')
+  const [nUser, setNUser] = useState(''); const [nName, setNName] = useState(''); const [nEmail, setNEmail] = useState(''); const [nPass, setNPass] = useState('')
 
   // company editing
   const [editCo, setEditCo] = useState(false)
@@ -1693,17 +1773,17 @@ function AdminSettingsView({ call, onBack }: { call: <T,>(a: string, p?: Record<
   }, [call])
   useEffect(() => { load() }, [load])
 
-  function startEdit(a: ConsoleAdmin) { setEditId(a.id); setEUser(a.username); setEEmail(a.email ?? ''); setEPass('') }
+  function startEdit(a: ConsoleAdmin) { setEditId(a.id); setEUser(a.username); setEName(a.display_name ?? ''); setEEmail(a.email ?? ''); setEPass('') }
   async function saveAdmin(id: string) {
     if (ePass && ePass.length < 6) { alert('Password must be at least 6 characters.'); return }
     setBusy('admin')
-    try { await call('update_admin', { admin_id: id, username: eUser.trim(), email: eEmail.trim(), password: ePass || undefined }); setEditId(null); load() }
+    try { await call('update_admin', { admin_id: id, username: eUser.trim(), display_name: eName.trim(), email: eEmail.trim(), password: ePass || undefined }); setEditId(null); load() }
     catch (e) { alert(e instanceof Error ? e.message : 'Failed') } finally { setBusy(null) }
   }
   async function addAdmin() {
     if (!nUser.trim() || nPass.length < 6) { alert('Username and a password of at least 6 characters are required.'); return }
     setBusy('add')
-    try { await call('add_admin', { username: nUser.trim(), email: nEmail.trim(), password: nPass }); setAdding(false); setNUser(''); setNEmail(''); setNPass(''); load() }
+    try { await call('add_admin', { username: nUser.trim(), display_name: nName.trim(), email: nEmail.trim(), password: nPass }); setAdding(false); setNUser(''); setNName(''); setNEmail(''); setNPass(''); load() }
     catch (e) { alert(e instanceof Error ? e.message : 'Failed') } finally { setBusy(null) }
   }
   async function delAdmin(a: ConsoleAdmin) {
@@ -1803,6 +1883,7 @@ function AdminSettingsView({ call, onBack }: { call: <T,>(a: string, p?: Record<
                   {editId === a.id ? (
                     <div className="space-y-2.5">
                       <Field label="Username"><input value={eUser} onChange={(e) => setEUser(e.target.value)} className={inputCls} autoComplete="off" /></Field>
+                      <Field label="Display Name (shown in welcome bar)"><input value={eName} onChange={(e) => setEName(e.target.value)} className={inputCls} placeholder="e.g. Poti" autoComplete="off" /></Field>
                       <Field label="Admin Email (for password reset)"><input type="email" value={eEmail} onChange={(e) => setEEmail(e.target.value)} className={inputCls} placeholder="admin@nnr-solutions.com" autoComplete="off" /></Field>
                       <Field label="New Password (leave blank to keep)"><input type="text" value={ePass} onChange={(e) => setEPass(e.target.value)} className={inputCls} placeholder="••••••••" autoComplete="new-password" /></Field>
                       <div className="flex items-center gap-2 pt-1">
@@ -1816,7 +1897,7 @@ function AdminSettingsView({ call, onBack }: { call: <T,>(a: string, p?: Record<
                     <div className="flex items-center gap-3">
                       <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center shrink-0"><UserCog className="h-4 w-4 text-slate-300" /></div>
                       <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium text-white truncate">{a.username}</p>
+                        <p className="text-sm font-medium text-white truncate">{a.display_name || a.username}{a.display_name && <span className="text-slate-500 font-normal"> · {a.username}</span>}</p>
                         <p className="text-[11px] text-slate-400 truncate flex items-center gap-1"><Mail className="h-3 w-3" />{a.email || 'no email set'}</p>
                       </div>
                       <button onClick={() => startEdit(a)} className="p-1.5 rounded text-slate-400 hover:text-amber-400 hover:bg-slate-800"><Pencil className="h-3.5 w-3.5" /></button>
@@ -1834,6 +1915,7 @@ function AdminSettingsView({ call, onBack }: { call: <T,>(a: string, p?: Record<
                 <div className="bg-slate-800 rounded-lg p-3 border border-amber-500/30 space-y-2.5">
                   <p className="text-xs font-semibold text-amber-400">New Administrator</p>
                   <Field label="Username"><input value={nUser} onChange={(e) => setNUser(e.target.value)} className={inputCls} placeholder="username" autoComplete="off" /></Field>
+                  <Field label="Display Name (shown in welcome bar)"><input value={nName} onChange={(e) => setNName(e.target.value)} className={inputCls} placeholder="e.g. Poti" autoComplete="off" /></Field>
                   <Field label="Admin Email"><input type="email" value={nEmail} onChange={(e) => setNEmail(e.target.value)} className={inputCls} placeholder="admin@nnr-solutions.com" autoComplete="off" /></Field>
                   <Field label="Password (min 6 chars)"><input type="text" value={nPass} onChange={(e) => setNPass(e.target.value)} className={inputCls} placeholder="••••••••" autoComplete="new-password" /></Field>
                   <div className="flex items-center gap-2 pt-1">

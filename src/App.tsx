@@ -25,6 +25,16 @@ import { PackagesExpansions } from '@/components/PackagesExpansions'
 import { PerformancePage } from '@/pages/PerformancePage'
 import { PerformanceDetailPage } from '@/pages/PerformanceDetailPage'
 import { ChangePasswordPage } from '@/pages/ChangePasswordPage'
+import { ErrorBoundary } from '@/components/ErrorBoundary'
+import { installGlobalErrorReporter, setErrorContext } from '@/lib/errorReporter'
+
+// Keeps the error reporter aware of the active company and installs global handlers.
+function ErrorReporterBridge() {
+  const { activeCompany } = useCompany()
+  React.useEffect(() => { installGlobalErrorReporter() }, [])
+  React.useEffect(() => { setErrorContext(activeCompany?.id ?? null) }, [activeCompany])
+  return null
+}
 
 // All roles land on /dashboard; staff with must_change_password go to /change-password
 function RoleRedirect() {
@@ -71,6 +81,8 @@ export default function App() {
             <PresenceProvider>
             <CompanyProvider>
             <ThemeProvider>
+              <ErrorReporterBridge />
+              <ErrorBoundary>
               <BrowserRouter>
                 <Routes>
                   <Route path="/login" element={<LoginPage />} />
@@ -93,6 +105,7 @@ export default function App() {
                   <Route path="*" element={<Navigate to="/dashboard" replace />} />
                 </Routes>
               </BrowserRouter>
+              </ErrorBoundary>
               <Toaster position="top-right" richColors />
             </ThemeProvider>
             </CompanyProvider>
