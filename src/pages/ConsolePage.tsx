@@ -1347,20 +1347,10 @@ function MoneyCard({ icon: Icon, label, value, tone, onClick }: { icon: typeof W
     </C>
   )
 }
-function BigStat({ label, value, tone = 'slate', onClick }: { label: string; value: number; tone?: string; onClick?: () => void }) {
-  const tones: Record<string, string> = { slate: 'text-white', green: 'text-green-400', sky: 'text-sky-400', amber: 'text-amber-400', violet: 'text-violet-400' }
-  const C = onClick ? 'button' : 'div'
-  return (
-    <C onClick={onClick} className={`bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col justify-center text-left h-full min-h-[112px] ${onClick ? 'hover:border-slate-700 transition-colors' : ''}`}>
-      <p className={`text-4xl font-bold leading-none ${tones[tone]}`}>{value}</p>
-      <p className="text-xs text-slate-400 mt-2">{label}</p>
-    </C>
-  )
-}
-
 const MONTHS_LONG = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+const PIE_PALETTE = ['#f59e0b', '#8b5cf6', '#22c55e', '#06b6d4', '#ec4899', '#f97316', '#14b8a6', '#64748b']
 
-interface FinRow { amount: number | null; payment_date?: string; created_at?: string; status?: string }
+interface FinRow { amount: number | null; payment_date?: string; created_at?: string; status?: string; kind?: string; target?: string; target_label?: string | null }
 
 function DashboardHome({ companies, metrics, call, onView, onOpenClient }: { companies: ConsoleCompany[]; metrics: Metrics | null; call: <T,>(a: string, p?: Record<string, unknown>) => Promise<T>; onView: (v: View) => void; onOpenClient: (id: string) => void }) {
   const total = companies.length
@@ -1375,11 +1365,18 @@ function DashboardHome({ companies, metrics, call, onView, onOpenClient }: { com
   const conversionRate = planned > 0 ? Math.round((converted / planned) * 100) : 0
   const conv = metrics?.conversions
   const baht = (n: number) => `฿${(n || 0).toLocaleString()}`
+  // Conversion transition percentages (denominator = the source population).
+  const pct = (n: number, base: number) => base > 0 ? Math.round((n / base) * 100) : 0
+  const goldEver = gold + (conv?.gold_to_premium ?? 0) // clients who ever reached Gold
+  const tgPct = pct(conv?.trial_to_gold ?? 0, planned)
+  const tpPct = pct(conv?.trial_to_premium ?? 0, planned)
+  const gpPct = pct(conv?.gold_to_premium ?? 0, goldEver)
   // Clients whose subscription is expiring soon (≤14 days) or expired.
   const attention = companies.filter(c => c.subscription && (c.subscription.overdue || (c.subscription.days_remaining != null && c.subscription.days_remaining <= 14)))
 
-  // ── Revenue period filter (year dropdown + month navigator) ────────────────
+  // ── Revenue period filter (Month / Year / All-time) ────────────────────────
   const now = new Date()
+  const [mode, setMode] = useState<'month' | 'year' | 'all'>('month')
   const [year, setYear] = useState(now.getFullYear())
   const [month, setMonth] = useState(now.getMonth())
   const [invoices, setInvoices] = useState<FinRow[]>([])
@@ -1397,19 +1394,33 @@ function DashboardHome({ companies, metrics, call, onView, onOpenClient }: { com
     return Array.from(s).sort((a, b) => b - a)
   }, [invoices, submissions, now])
 
-  const inMonth = (iso?: string) => { if (!iso) return false; const d = new Date(iso); return d.getFullYear() === year && d.getMonth() === month }
+  const inPeriod = (iso?: string) => {
+    if (mode === 'all') return true
+    if (!iso) return false
+    const d = new Date(iso)
+    if (d.getFullYear() !== year) return false
+    return mode === 'year' ? true : d.getMonth() === month
+  }
   const sum = (arr: FinRow[], ok: (r: FinRow) => boolean) => arr.reduce((s, r) => s + (ok(r) ? Number(r.amount) || 0 : 0), 0)
-  const pRevenue = sum(invoices, r => inMonth(r.payment_date))
-  const pOpportunity = sum(submissions, r => r.status === 'pending' && inMonth(r.created_at))
-  const pLost = sum(submissions, r => r.status === 'rejected' && inMonth(r.created_at))
-  const pieTotal = pRevenue + pOpportunity + pLost
-  const pieData = [
-    { name: 'Recorded', value: pRevenue, color: '#22c55e' },
-    { name: 'Pending', value: pOpportunity, color: '#f59e0b' },
-    { name: 'Lost', value: pLost, color: '#ef4444' },
-  ]
+  const pRevenue = sum(invoices, r => inPeriod(r.payment_date))
+  const pOpportunity = sum(submissions, r => r.status === 'pending' && inPeriod(r.created_at))
+  const pLost = sum(submissions, r => r.status === 'rejected' && inPeriod(r.created_at))
+
+  // Revenue composition = approved sales grouped by product (Gold, Premium, PMS, add-ons, …).
+  const prodMap: Record<string, number> = {}
+  submissions.forEach(s => {
+    if (s.status !== 'approved' || !inPeriod(s.created_at)) return
+    const name = (s.target_label || s.target || 'Other').toString()
+    prodMap[name] = (prodMap[name] || 0) + (Number(s.amount) || 0)
+  })
+  const pieData = Object.entries(prodMap)
+    .map(([name, value], i) => ({ name, value, color: PIE_PALETTE[i % PIE_PALETTE.length] }))
+    .sort((a, b) => b.value - a.value)
   const pieSlices = pieData.filter(d => d.value > 0)
+  const pieTotal = pieSlices.reduce((s, d) => s + d.value, 0)
+
   const isCurrentMonth = year === now.getFullYear() && month === now.getMonth()
+  const periodLabel = mode === 'all' ? 'All time' : mode === 'year' ? String(year) : `${MONTHS_LONG[month]} ${year}`
   const stepMonth = (delta: number) => {
     let m = month + delta, y = year
     if (m < 0) { m = 11; y -= 1 } else if (m > 11) { m = 0; y += 1 }
@@ -1420,49 +1431,51 @@ function DashboardHome({ companies, metrics, call, onView, onOpenClient }: { com
     <div>
       <h2 className="text-lg font-bold text-white mb-4">Dashboard</h2>
 
-      {/* Clients · plans · conversions */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 lg:grid-rows-3 gap-3 mb-6">
-        <div className="lg:col-start-1 lg:row-start-1 lg:row-span-3"><BigStat label="Total clients" value={total} onClick={() => onView('clients')} /></div>
-        <div className="lg:col-start-2 lg:row-start-1 lg:row-span-3"><BigStat label="Active" value={active} tone="green" /></div>
+      {/* Clients · plans (row 1) · conversion rate · transitions (row 2) */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-6">
+        <StatTile label="Total clients" value={total} onClick={() => onView('clients')} />
+        <StatTile label="Active" value={active} tone="green" />
+        <StatTile label="Starter" value={starter} tone="sky" />
+        <StatTile label="Gold" value={gold} tone="amber" />
+        <StatTile label="Premium" value={premium} tone="violet" />
 
-        <div className="lg:col-start-3 lg:row-start-1"><StatTile label="Starter" value={starter} tone="sky" /></div>
-        <div className="lg:col-start-4 lg:row-start-1"><StatTile label="Gold" value={gold} tone="amber" /></div>
-        <div className="lg:col-start-5 lg:row-start-1"><StatTile label="Premium" value={premium} tone="violet" /></div>
-
-        <div className="lg:col-start-3 lg:row-start-2"><StatTile label="Trial → Gold" value={conv?.trial_to_gold ?? 0} tone="amber" /></div>
-        <div className="lg:col-start-4 lg:row-start-2"><StatTile label="Trial → Premium" value={conv?.trial_to_premium ?? 0} tone="violet" /></div>
-        <div className="lg:col-start-5 lg:row-start-2"><StatTile label="Gold → Premium" value={conv?.gold_to_premium ?? 0} tone="violet" /></div>
-
-        <div className="col-span-2 lg:col-start-3 lg:col-span-3 lg:row-start-3">
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 h-full flex items-center justify-between">
-            <div>
-              <p className="text-2xl font-bold leading-none text-green-400">{conversionRate}%</p>
-              <p className="text-[11px] text-slate-400 mt-1.5">Conversion rate</p>
-            </div>
-            <p className="text-[11px] text-slate-500 text-right">{converted} of {planned}<br />on a paid tier</p>
-          </div>
-        </div>
+        <StatTile label="Conversion rate" value={`${conversionRate}%`} tone="green" hint={`${converted} of ${planned} on a paid tier`} />
+        <StatTile label="Trial → Gold" value={`${tgPct}%`} tone="amber" hint={`${conv?.trial_to_gold ?? 0} of ${planned} clients`} />
+        <StatTile label="Trial → Premium" value={`${tpPct}%`} tone="violet" hint={`${conv?.trial_to_premium ?? 0} of ${planned} clients`} />
+        <StatTile label="Gold → Premium" value={`${gpPct}%`} tone="violet" hint={`${conv?.gold_to_premium ?? 0} of ${goldEver} gold clients`} />
       </div>
 
       {/* Period selector */}
-      <div className="flex items-center gap-2 mb-3">
-        <select value={year} onChange={(e) => setYear(Number(e.target.value))}
-          className="h-8 rounded-lg bg-slate-900 border border-slate-800 text-sm text-white px-2 focus:outline-none focus:ring-2 focus:ring-amber-500/50">
-          {years.map(y => <option key={y} value={y}>{y}</option>)}
-        </select>
-        <div className="flex items-center gap-1 bg-slate-900 border border-slate-800 rounded-lg px-1 h-8">
-          <button onClick={() => stepMonth(-1)} className="p-1 text-slate-400 hover:text-white"><ChevronLeft className="h-4 w-4" /></button>
-          <span className="min-w-[96px] text-center text-sm font-medium text-white">{isCurrentMonth ? 'This Month' : MONTHS_LONG[month]}</span>
-          <button onClick={() => stepMonth(1)} className="p-1 text-slate-400 hover:text-white"><ChevronRight className="h-4 w-4" /></button>
+      <div className="flex flex-wrap items-center gap-2 mb-3">
+        <div className="flex bg-slate-900 border border-slate-800 rounded-lg p-0.5">
+          {(['month', 'year', 'all'] as const).map(m => (
+            <button key={m} onClick={() => setMode(m)}
+              className={`px-2.5 h-7 rounded-md text-xs font-medium transition-colors ${mode === m ? 'bg-amber-500 text-slate-950' : 'text-slate-400 hover:text-white'}`}>
+              {m === 'month' ? 'Month' : m === 'year' ? 'Year' : 'All time'}
+            </button>
+          ))}
         </div>
-        <span className="text-[11px] text-slate-500 ml-1">{MONTHS_LONG[month]} {year}</span>
+        {mode !== 'all' && (
+          <select value={year} onChange={(e) => setYear(Number(e.target.value))}
+            className="h-8 rounded-lg bg-slate-900 border border-slate-800 text-sm text-white px-2 focus:outline-none focus:ring-2 focus:ring-amber-500/50">
+            {years.map(y => <option key={y} value={y}>{y}</option>)}
+          </select>
+        )}
+        {mode === 'month' && (
+          <div className="flex items-center gap-1 bg-slate-900 border border-slate-800 rounded-lg px-1 h-8">
+            <button onClick={() => stepMonth(-1)} className="p-1 text-slate-400 hover:text-white"><ChevronLeft className="h-4 w-4" /></button>
+            <span className="min-w-[96px] text-center text-sm font-medium text-white">{isCurrentMonth ? 'This Month' : MONTHS_LONG[month]}</span>
+            <button onClick={() => stepMonth(1)} className="p-1 text-slate-400 hover:text-white"><ChevronRight className="h-4 w-4" /></button>
+          </div>
+        )}
+        <span className="text-[11px] text-slate-500 ml-1">{periodLabel}</span>
       </div>
 
       {/* Revenue composition + figures */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-6">
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
           <h3 className="text-sm font-semibold text-white mb-0.5">Revenue composition</h3>
-          <p className="text-[11px] text-slate-400 mb-3">Contribution to total opportunity</p>
+          <p className="text-[11px] text-slate-400 mb-3">Approved sales by product · {periodLabel}</p>
           <div className="flex items-center gap-4">
             <div className="relative flex-shrink-0" style={{ width: 130, height: 130 }}>
               {pieTotal === 0 ? (

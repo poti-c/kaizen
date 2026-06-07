@@ -388,7 +388,7 @@ Deno.serve(async (req) => {
     // Raw rows so the dashboard can filter revenue by month/year client-side.
     const [invRes, subRes] = await Promise.all([
       admin.from("kaizen_invoices").select("amount, payment_date"),
-      admin.from("kaizen_payment_submissions").select("amount, status, created_at"),
+      admin.from("kaizen_payment_submissions").select("amount, status, created_at, kind, target, target_label"),
     ]);
     return json({ invoices: invRes.data ?? [], submissions: subRes.data ?? [] });
   }
