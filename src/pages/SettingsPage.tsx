@@ -14,6 +14,7 @@ import type { KaizenCompany } from '@/types'
 import { CATEGORIES, LOCATIONS, getInitials, companyHasFeature, companyHasAddon } from '@/lib/utils'
 import { PMEquipmentTypes } from '@/components/PMEquipmentTypes'
 import { PMSettings } from '@/components/PMSettings'
+import { PackagesExpansions } from '@/components/PackagesExpansions'
 import { toast } from 'sonner'
 import { usePushNotifications } from '@/hooks/usePushNotifications'
 
@@ -932,6 +933,9 @@ export function SettingsPage() {
           ))}
         </div>
       </div>
+
+      {/* ── Packages & Expansions — Top Management only ── */}
+      {profile?.role === 'super_admin' && <PackagesExpansions />}
 
       {/* Support dialogs */}
       <Dialog open={!!supportDialog} onOpenChange={(open) => { if (!open) setSupportDialog(null) }}>

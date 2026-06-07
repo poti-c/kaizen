@@ -33,17 +33,67 @@ export function companyHasFeature(
   return f[key] === true
 }
 
+// ── Subscription / trial status ──────────────────────────────────────────────
+// Starter (plan === 'trial') runs for TRIAL_DAYS from created_at; paid plans use
+// the denormalised subscription_end. End is unknown (null) for paid plans not yet
+// activated — treated as NOT expired (fail-open) so nothing breaks.
+export const TRIAL_DAYS = 30
+
+type CompanyLike = {
+  plan?: string | null
+  created_at?: string | null
+  subscription_end?: string | null
+  addons?: Record<string, boolean | string> | null
+}
+
+function dayDiff(dateStr: string): number {
+  const today = new Date(); today.setHours(0, 0, 0, 0)
+  const end = new Date(dateStr.length <= 10 ? dateStr + 'T00:00:00' : dateStr)
+  return Math.ceil((end.getTime() - today.getTime()) / 86400000)
+}
+
+export interface SubInfo { isTrial: boolean; end: string | null; daysLeft: number | null; expired: boolean }
+
+export function subscriptionInfo(company: CompanyLike | null | undefined): SubInfo {
+  if (!company) return { isTrial: false, end: null, daysLeft: null, expired: false }
+  if (company.subscription_end) {
+    const d = dayDiff(company.subscription_end)
+    return { isTrial: false, end: company.subscription_end, daysLeft: d, expired: d < 0 }
+  }
+  if (company.plan === 'trial' && company.created_at) {
+    const start = new Date(String(company.created_at).slice(0, 10) + 'T00:00:00')
+    const end = new Date(start); end.setDate(start.getDate() + TRIAL_DAYS)
+    const iso = `${end.getFullYear()}-${String(end.getMonth() + 1).padStart(2, '0')}-${String(end.getDate()).padStart(2, '0')}`
+    const d = dayDiff(iso)
+    return { isTrial: true, end: iso, daysLeft: d, expired: d < 0 }
+  }
+  return { isTrial: false, end: null, daysLeft: null, expired: false }
+}
+
 // ── Purchased add-ons (entitlements) ─────────────────────────────────────────
-// Unlike package features, add-ons are opt-in purchases stored in
-// kaizen_companies.addons. Fail-CLOSED: an add-on is only available when
-// explicitly enabled (true), so unpurchased modules stay hidden.
+// Add-ons are opt-in, stored in kaizen_companies.addons. A purchased add-on
+// (key === true) is PAUSED while the subscription is expired. A self-serve trial
+// (key + '_trial_until' >= today) is active independently for its window.
 export type AddonKey = 'pms'
 
-export function companyHasAddon(
-  company: { addons?: Record<string, boolean> | null } | null | undefined,
-  key: AddonKey,
-): boolean {
-  return company?.addons?.[key] === true
+export function companyHasAddon(company: CompanyLike | null | undefined, key: AddonKey): boolean {
+  const a = company?.addons
+  if (!a || typeof a !== 'object') return false
+  if (a[key] === true) return !subscriptionInfo(company).expired // paused if lapsed
+  const until = a[`${key}_trial_until`]
+  if (typeof until === 'string') {
+    const today = new Date(); today.setHours(0, 0, 0, 0)
+    return new Date(until + 'T00:00:00') >= today
+  }
+  return false
+}
+
+// Is the given add-on currently running as a free trial (not purchased)?
+export function addonTrialDaysLeft(company: CompanyLike | null | undefined, key: AddonKey): number | null {
+  const until = company?.addons?.[`${key}_trial_until`]
+  if (company?.addons?.[key] === true || typeof until !== 'string') return null
+  const d = dayDiff(until)
+  return d >= 0 ? d : null
 }
 
 // "Online" = active within the last 5 minutes.

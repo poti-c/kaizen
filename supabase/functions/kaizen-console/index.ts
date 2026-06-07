@@ -628,6 +628,8 @@ Deno.serve(async (req) => {
       company_id, payee, amount, currency, payment_date, period_start: payment_date, period_end, proof_path, notes,
     });
     if (error) return json({ error: error.message }, 400);
+    // Denormalise the latest period end onto the company for the app countdown.
+    await admin.from("kaizen_companies").update({ subscription_end: period_end }).eq("id", company_id);
     await audit("add_invoice", { company_id, payment_date, amount }, ip, true);
     return json({ success: true, period_end });
   }

@@ -40,7 +40,8 @@ export interface KaizenCompany {
   multi_company?: boolean
   features?: Record<string, boolean> | null
   max_super_admins?: number | null
-  addons?: Record<string, boolean> | null
+  addons?: Record<string, boolean | string> | null
+  subscription_end?: string | null
 }
 
 export interface KaizenProfile {
