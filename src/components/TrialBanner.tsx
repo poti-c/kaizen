@@ -1,9 +1,34 @@
-import { AlertTriangle, Clock } from 'lucide-react'
+import { AlertTriangle, Clock, Wrench } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { useCompany } from '@/contexts/CompanyContext'
 import { useAuth } from '@/contexts/AuthContext'
 import { useLanguage } from '@/contexts/LanguageContext'
+import { addonTrialDaysLeft } from '@/lib/utils'
 
 const TRIAL_DAYS = 30
+
+/**
+ * Reminds decision-makers to subscribe to the Preventive Maintenance add-on
+ * in the final 2 days of its 7-day free trial.
+ */
+export function PmsTrialBanner() {
+  const { activeCompany } = useCompany()
+  const { profile } = useAuth()
+  const { lang } = useLanguage()
+  if (!profile || (profile.role !== 'super_admin' && profile.role !== 'manager')) return null
+  const left = addonTrialDaysLeft(activeCompany, 'pms')
+  if (left == null || left > 2) return null
+  const msg = lang === 'th'
+    ? `ทดลองใช้ Preventive Maintenance เหลืออีก ${left} วัน — สมัครสมาชิกเพื่อใช้งานตารางบำรุงรักษาต่อเนื่อง`
+    : `Your Preventive Maintenance trial ends in ${left} day${left === 1 ? '' : 's'} — subscribe to keep your maintenance schedules running.`
+  return (
+    <div className="flex items-center gap-2 px-4 py-2 text-xs sm:text-sm font-medium border-b bg-amber-50 border-amber-300 text-amber-900">
+      <Wrench className="h-4 w-4 flex-shrink-0" />
+      <span className="flex-1">{msg}</span>
+      <Link to="/packages" className="underline font-semibold whitespace-nowrap">{lang === 'th' ? 'สมัครสมาชิก' : 'Subscribe'}</Link>
+    </div>
+  )
+}
 
 /**
  * Shows a free-trial countdown to the hotel's decision-makers (owner/managers)

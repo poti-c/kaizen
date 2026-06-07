@@ -4,7 +4,7 @@ import {
   Trash2, X, Eye, EyeOff, Users, UserCog, ScrollText, AlertTriangle, Check,
   ChevronRight, ChevronLeft, ChevronDown, Pencil, CalendarDays, ArrowLeft, Receipt, Upload, ImageIcon, Clock, Link2, KeyRound,
   Settings, Mail, UserPlus, Building, FileText, Package,
-  LayoutDashboard, Bell, ListChecks, TrendingUp, TrendingDown, Wallet,
+  LayoutDashboard, Bell, ListChecks, TrendingUp, TrendingDown, Wallet, Sparkles,
 } from 'lucide-react'
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts'
 import { FormGeneratorView } from './console/FormGenerator'
@@ -322,7 +322,7 @@ function Dashboard({ token, adminName, onLogout }: { token: string; adminName: s
           ) : view === 'dashboard' ? (
             <DashboardHome companies={companies} metrics={metrics} call={call} onView={go} onOpenClient={setSelectedCompanyId} />
           ) : view === 'notifications' ? (
-            <NotificationsView call={call} onGo={go} />
+            <NotificationsView call={call} onGo={go} onOpenClient={setSelectedCompanyId} />
           ) : view === 'clients' ? (
             <CompaniesListTab companies={companies} owners={owners} onOpen={setSelectedCompanyId} onCreate={() => setShowCreateCompany(true)} />
           ) : view === 'calendar' ? (
@@ -1607,29 +1607,47 @@ function DashboardHome({ companies, metrics, call, onView, onOpenClient }: { com
 }
 
 // ── Notifications ────────────────────────────────────────────────────────────
-function NotificationsView({ call, onGo }: { call: <T,>(a: string, p?: Record<string, unknown>) => Promise<T>; onGo: (v: View) => void }) {
+interface ConsoleNotif { id: string; type: string; company_id: string | null; company_name: string | null; title: string; body: string | null; read: boolean; created_at: string }
+function NotificationsView({ call, onGo, onOpenClient }: { call: <T,>(a: string, p?: Record<string, unknown>) => Promise<T>; onGo: (v: View) => void; onOpenClient: (id: string) => void }) {
   const [pay, setPay] = useState<{ payments: PaymentSub[]; receipt_requests: ReceiptReq[] } | null>(null)
   const [errors, setErrors] = useState<AuditEntry[]>([])
+  const [notifs, setNotifs] = useState<ConsoleNotif[]>([])
   const [loading, setLoading] = useState(true)
   useEffect(() => {
     (async () => {
       try {
-        const [p, a] = await Promise.all([
+        const [p, a, n] = await Promise.all([
           call<{ payments: PaymentSub[]; receipt_requests: ReceiptReq[] }>('list_payments'),
           call<{ entries: AuditEntry[] }>('audit_log'),
+          call<{ notifications: ConsoleNotif[] }>('list_notifications'),
         ])
-        setPay(p); setErrors((a.entries ?? []).filter(e => !e.success).slice(0, 8))
+        setPay(p); setErrors((a.entries ?? []).filter(e => !e.success).slice(0, 8)); setNotifs(n.notifications ?? [])
       } catch (e) { console.error(e) } finally { setLoading(false) }
     })()
   }, [call])
+  async function openNotif(n: ConsoleNotif) {
+    if (!n.read) { setNotifs(prev => prev.map(x => x.id === n.id ? { ...x, read: true } : x)); try { await call('mark_notification_read', { notification_id: n.id }) } catch { /* ignore */ } }
+    if (n.company_id) onOpenClient(n.company_id)
+  }
   if (loading) return <div className="flex justify-center py-20"><Loader2 className="h-6 w-6 animate-spin text-slate-300" /></div>
   const pendingPay = (pay?.payments ?? []).filter(p => p.status === 'pending')
   const pendingRcpt = (pay?.receipt_requests ?? []).filter(r => !r.receipt_issued)
-  const nothing = !pendingPay.length && !pendingRcpt.length && !errors.length
+  const nothing = !pendingPay.length && !pendingRcpt.length && !errors.length && !notifs.length
   return (
     <div>
       <h2 className="text-lg font-bold text-white mb-4">Notifications</h2>
       {nothing && <p className="py-12 text-center text-sm text-slate-400">You're all caught up. 🎉</p>}
+      {notifs.map((n) => (
+        <button key={n.id} onClick={() => openNotif(n)} className="w-full flex items-center gap-3 bg-slate-900 border border-slate-800 rounded-xl p-4 mb-2 text-left hover:border-slate-700">
+          <div className="w-10 h-10 rounded-lg bg-violet-500/10 text-violet-400 flex items-center justify-center flex-shrink-0"><Sparkles className="h-5 w-5" /></div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-white flex items-center gap-2">{n.title}{!n.read && <span className="w-1.5 h-1.5 rounded-full bg-violet-400" />}</p>
+            <p className="text-[11px] text-slate-400 truncate">{n.body}</p>
+            <p className="text-[10px] text-slate-500 mt-0.5">{new Date(n.created_at).toLocaleString()}</p>
+          </div>
+          <ChevronRight className="h-4 w-4 text-slate-500 flex-shrink-0" />
+        </button>
+      ))}
       {pendingPay.length > 0 && (
         <button onClick={() => onGo('payments')} className="w-full flex items-center gap-3 bg-slate-900 border border-slate-800 rounded-xl p-4 mb-2 text-left hover:border-slate-700">
           <div className="w-10 h-10 rounded-lg bg-amber-500/10 text-amber-400 flex items-center justify-center"><Receipt className="h-5 w-5" /></div>

@@ -754,6 +754,25 @@ Deno.serve(async (req) => {
     return json({ payments, receipt_requests });
   }
 
+  if (action === "list_notifications") {
+    const [nRes, coRes] = await Promise.all([
+      admin.from("kaizen_console_notifications").select("*").order("created_at", { ascending: false }).limit(50),
+      admin.from("kaizen_companies").select("id, name"),
+    ]);
+    const names = {};
+    for (const c of (coRes.data ?? [])) names[c.id] = c.name;
+    const notifications = (nRes.data ?? []).map((n) => ({ ...n, company_name: names[n.company_id] ?? null }));
+    return json({ notifications });
+  }
+
+  if (action === "mark_notification_read") {
+    const id = String(body.notification_id ?? "");
+    if (!id) return json({ error: "notification_id required" }, 400);
+    await admin.from("kaizen_console_notifications").update({ read: true }).eq("id", id);
+    await audit("mark_notification_read", { id }, ip, true);
+    return json({ success: true });
+  }
+
   if (action === "issue_receipt") {
     const invoice_id = String(body.invoice_id ?? "");
     if (!invoice_id) return json({ error: "invoice_id required" }, 400);

@@ -15,6 +15,7 @@ const ICON_BY_KEY: Record<string, typeof Crown> = { trial: Sparkles, gold: Crown
 interface ProdRow { key: string | null; kind: string; name: string; price: number | string | null; currency: string | null; duration_label: string | null; sort_order: number | null }
 
 interface Txn { id: string; amount: number | null; currency: string; payment_date: string; period_end: string | null; receipt_requested: boolean; receipt_issued: boolean }
+interface SubRow { id: string; amount: number | null; currency: string; status: string; created_at: string; target_label: string | null; target: string }
 interface PayItem { kind: 'subscription' | 'addon'; target: string; label: string; amount: number }
 interface Vendor { promptpay_id: string | null; promptpay_name: string | null; promptpay_qr: string | null; support_email: string | null }
 
@@ -80,7 +81,11 @@ export function PackagesExpansions() {
   const [vendor, setVendor] = useState<Vendor | null>(null)
   const [payItem, setPayItem] = useState<PayItem | null>(null)
   const [txns, setTxns] = useState<Txn[]>([])
+  const [subs, setSubs] = useState<SubRow[]>([])
   const [products, setProducts] = useState<ProdRow[]>([])
+  const [receiptFor, setReceiptFor] = useState<string | null>(null)  // invoice id awaiting confirmation
+  const [receiptBusy, setReceiptBusy] = useState(false)
+  const [receiptDone, setReceiptDone] = useState(false)
 
   useEffect(() => {
     supabase.from('kaizen_console_settings').select('promptpay_id, promptpay_name, promptpay_qr, support_email').eq('id', true).maybeSingle()
@@ -119,14 +124,28 @@ export function PackagesExpansions() {
     supabase.from('kaizen_invoices').select('id, amount, currency, payment_date, period_end, receipt_requested, receipt_issued')
       .eq('company_id', cid).order('payment_date', { ascending: false })
       .then(({ data }) => setTxns((data as Txn[]) ?? []))
+    supabase.from('kaizen_payment_submissions').select('id, amount, currency, status, created_at, target_label, target')
+      .eq('company_id', cid).neq('status', 'approved').order('created_at', { ascending: false })
+      .then(({ data }) => setSubs((data as SubRow[]) ?? []))
   }
   useEffect(() => { loadTxns() }, [activeCompany?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  async function requestReceipt(id: string) {
-    if (!confirm('Request a Tax Invoice / Receipt for this payment? It will be emailed to your registered company email. This can be done once per payment.')) return
+  // Merged history: confirmed invoices + still-pending / rejected submissions, newest first.
+  const history = useMemo(() => {
+    const inv = txns.map(t => ({ _t: 'inv' as const, id: t.id, date: t.payment_date, amount: t.amount, period_end: t.period_end, receipt_requested: t.receipt_requested, receipt_issued: t.receipt_issued }))
+    const sb = subs.map(s => ({ _t: 'sub' as const, id: s.id, date: (s.created_at || '').slice(0, 10), amount: s.amount, status: s.status, label: s.target_label || s.target }))
+    return [...inv, ...sb].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))
+  }, [txns, subs])
+
+  async function confirmReceipt() {
+    const id = receiptFor
+    if (!id) return
+    setReceiptBusy(true)
     const { error } = await supabase.rpc('kaizen_request_receipt', { p_invoice: id })
+    setReceiptBusy(false)
     if (error) { toast.error(error.message); return }
-    toast.success('Receipt requested — our team will email it to you shortly.')
+    setReceiptFor(null)
+    setReceiptDone(true)
     loadTxns()
   }
 
@@ -293,18 +312,16 @@ export function PackagesExpansions() {
                   <p className="text-[11px] text-gray-600 mt-0.5">{a.desc}</p>
                   {/* Subscription-end counter for a purchased add-on (pauses with the subscription) */}
                   {purchased && sub.end && <p className="text-[11px] text-gray-500 mt-1 flex items-center gap-1"><Calendar className="h-3 w-3" />Active until {fmtDate(sub.end)}{sub.daysLeft != null && !sub.expired ? ` · ${sub.daysLeft} days left` : ''}</p>}
-                  <div className="flex items-center gap-2 mt-2">
-                    {purchased ? null : trialLeft != null || trialUsed ? (
-                      <button onClick={() => openPay({ kind: 'addon', target: a.key, label: a.name, amount: price[a.key] ?? 0 })} className={`h-8 px-3 rounded-lg text-xs font-semibold flex items-center gap-1.5 ${upgradeLocked ? 'bg-gray-100 text-gray-400' : 'bg-[var(--brand-primary)] text-white'}`}>{upgradeLocked && <Lock className="h-3 w-3" />}Subscribe</button>
-                    ) : (
-                      <>
-                        <button onClick={startPmsTrial} disabled={busy} className={`h-8 px-3 rounded-lg text-xs font-semibold disabled:opacity-50 flex items-center gap-1.5 ${upgradeLocked ? 'bg-gray-100 text-gray-400' : 'bg-[var(--brand-primary)] text-white'}`}>
+                  {!purchased && (
+                    <div className="flex items-center gap-2 mt-2">
+                      <button onClick={() => openPay({ kind: 'addon', target: a.key, label: a.name, amount: price[a.key] ?? 0 })} className={`h-8 px-3 rounded-lg text-xs font-semibold flex items-center gap-1.5 ${upgradeLocked ? 'bg-gray-100 text-gray-400' : 'bg-[var(--brand-primary)] text-white hover:opacity-90'}`}>{upgradeLocked && <Lock className="h-3 w-3" />}Subscribe now</button>
+                      {trialLeft == null && !trialUsed && (
+                        <button onClick={startPmsTrial} disabled={busy} className={`h-8 px-3 rounded-lg text-xs font-semibold disabled:opacity-50 flex items-center gap-1.5 border ${upgradeLocked ? 'border-gray-200 text-gray-400' : 'border-[var(--brand-primary)] text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/5'}`}>
                           {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : upgradeLocked ? <Lock className="h-3 w-3" /> : <Sparkles className="h-3.5 w-3.5" />}Try free for 7 days
                         </button>
-                        <button onClick={() => requestQuote(a.name)} className="h-8 px-3 rounded-lg border border-gray-300 text-gray-600 text-xs font-medium flex items-center gap-1.5"><Mail className="h-3.5 w-3.5" />Ask for a quote</button>
-                      </>
-                    )}
-                  </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -317,22 +334,30 @@ export function PackagesExpansions() {
 
       {/* Transaction history */}
       <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mt-6 mb-2">Transaction history</p>
-      {txns.length === 0 ? (
+      {history.length === 0 ? (
         <p className="text-sm text-gray-400 mb-2">No payments recorded yet.</p>
       ) : (
         <div className="rounded-xl border border-gray-200 divide-y divide-gray-100 overflow-hidden">
-          {txns.map((tx) => (
-            <div key={tx.id} className="flex items-center gap-3 px-4 py-3">
+          {history.map((tx) => (
+            <div key={`${tx._t}-${tx.id}`} className="flex items-center gap-3 px-4 py-3">
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-gray-900">{tx.amount != null ? `฿${Number(tx.amount).toLocaleString()}` : '—'}</p>
-                <p className="text-[11px] text-gray-400">{fmtDate(tx.payment_date)}{tx.period_end ? ` · valid to ${fmtDate(tx.period_end)}` : ''}</p>
+                <p className="text-[11px] text-gray-400">
+                  {fmtDate(tx.date)}
+                  {tx._t === 'inv' && tx.period_end ? ` · valid to ${fmtDate(tx.period_end)}` : ''}
+                  {tx._t === 'sub' ? ` · ${tx.label}` : ''}
+                </p>
               </div>
-              {tx.receipt_issued ? (
+              {tx._t === 'sub' ? (
+                tx.status === 'rejected'
+                  ? <span className="text-[11px] font-medium text-gray-400">Not approved</span>
+                  : <span className="text-[11px] font-medium text-amber-600 flex items-center gap-1"><Clock className="h-3.5 w-3.5" />Pending review</span>
+              ) : tx.receipt_issued ? (
                 <span className="text-[11px] font-medium text-green-600 flex items-center gap-1"><Check className="h-3.5 w-3.5" />Receipt sent</span>
               ) : tx.receipt_requested ? (
                 <span className="text-[11px] text-amber-600">Receipt requested</span>
               ) : !upgradeLocked ? (
-                <button onClick={() => requestReceipt(tx.id)} className="text-xs font-medium text-[var(--brand-primary)] hover:opacity-75">Request Tax/Receipt</button>
+                <button onClick={() => setReceiptFor(tx.id)} className="text-xs font-medium text-[var(--brand-primary)] hover:opacity-75">Request Tax/Receipt</button>
               ) : null}
             </div>
           ))}
@@ -347,6 +372,38 @@ export function PackagesExpansions() {
       </div>
 
       {payItem && <PayModal item={payItem} vendor={vendor} companyId={activeCompany?.id ?? ''} supportEmail={vendor?.support_email ?? 'potichao@me.com'} onClose={() => setPayItem(null)} />}
+
+      {/* Receipt request — confirmation prompt */}
+      {receiptFor && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={() => !receiptBusy && setReceiptFor(null)}>
+          <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-base font-bold text-gray-900 mb-2">Request Tax Invoice / Receipt</h3>
+            <div className="text-sm text-gray-600 space-y-2">
+              <p>A Tax Invoice / Receipt can be requested <span className="font-semibold text-gray-900">only once</span> per payment. To prevent duplicate tax documents — which is not permitted under tax regulations — <span className="font-semibold text-gray-900">this request cannot be undone.</span></p>
+              <p>The document will be issued to your <span className="font-semibold text-gray-900">registered company email only</span>.</p>
+              <p>If any company details need to be corrected, please <a href={`mailto:${SALES_EMAIL}?subject=${encodeURIComponent('Update company details — ' + (activeCompany?.name ?? ''))}`} className="text-[var(--brand-primary)] font-medium underline">contact us</a> before requesting.</p>
+            </div>
+            <div className="flex items-center justify-end gap-2 mt-5">
+              <button onClick={() => setReceiptFor(null)} disabled={receiptBusy} className="h-9 px-4 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-100 disabled:opacity-50">Cancel</button>
+              <button onClick={confirmReceipt} disabled={receiptBusy} className="h-9 px-4 rounded-lg text-sm font-semibold bg-[var(--brand-primary)] text-white hover:opacity-90 disabled:opacity-50 flex items-center gap-1.5">
+                {receiptBusy && <Loader2 className="h-4 w-4 animate-spin" />}Request
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Receipt request — success acknowledgement */}
+      {receiptDone && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={() => setReceiptDone(false)}>
+          <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-xl text-center" onClick={(e) => e.stopPropagation()}>
+            <div className="w-12 h-12 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-3"><Check className="h-6 w-6 text-green-600" /></div>
+            <h3 className="text-base font-bold text-gray-900 mb-2">Request received</h3>
+            <p className="text-sm text-gray-600">Thank you. Your request has been received. Please allow <span className="font-semibold text-gray-900">2–3 working days</span> for our team to prepare and deliver your Tax Invoice / Receipt to your registered company email.</p>
+            <button onClick={() => setReceiptDone(false)} className="mt-5 h-9 px-5 rounded-lg text-sm font-semibold bg-[var(--brand-primary)] text-white hover:opacity-90">Done</button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
