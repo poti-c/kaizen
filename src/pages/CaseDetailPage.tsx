@@ -303,16 +303,19 @@ export function CaseDetailPage() {
     if (data) {
       setKcase(data as KaizenCase)
 
-      // Fetch recurring cases — same location + company, excluding this case
+      // Fetch recurring cases — the SAME kind of issue (category) at the SAME
+      // location/company, excluding this case. Matching on category as well as
+      // location ensures "chronic" reflects a genuinely recurring problem, not
+      // just any unrelated reports that happen to share a busy location.
       if (data.location && data.company_id) {
-        const { data: recurring } = await supabase
+        let q = supabase
           .from('kaizen_cases')
           .select('id, case_number, title, status, priority, created_at, category')
           .eq('company_id', data.company_id)
           .eq('location', data.location)
           .neq('id', data.id)
-          .order('created_at', { ascending: false })
-          .limit(20)
+        q = data.category ? q.eq('category', data.category) : q.is('category', null)
+        const { data: recurring } = await q.order('created_at', { ascending: false }).limit(20)
         setRecurringCases((recurring || []) as KaizenCase[])
       } else {
         setRecurringCases([])
