@@ -1326,11 +1326,11 @@ function PaymentsView({ call, onBack, reload }: { call: <T,>(a: string, p?: Reco
 }
 
 // ── Dashboard home ───────────────────────────────────────────────────────────
-function StatTile({ label, value, tone = 'slate', hint, onClick }: { label: string; value: number | string; tone?: string; hint?: string; onClick?: () => void }) {
+function StatTile({ label, value, tone = 'slate', hint, onClick, className = '' }: { label: string; value: number | string; tone?: string; hint?: string; onClick?: () => void; className?: string }) {
   const tones: Record<string, string> = { slate: 'text-white', green: 'text-green-400', sky: 'text-sky-400', amber: 'text-amber-400', violet: 'text-violet-400' }
   const C = onClick ? 'button' : 'div'
   return (
-    <C onClick={onClick} title={hint} className={`bg-slate-900 border border-slate-800 rounded-xl p-4 text-left ${onClick ? 'hover:border-slate-700 transition-colors' : ''}`}>
+    <C onClick={onClick} title={hint} className={`bg-slate-900 border border-slate-800 rounded-xl p-4 text-left ${className} ${onClick ? 'hover:border-slate-700 transition-colors' : ''}`}>
       <p className={`text-2xl font-bold leading-none ${tones[tone]}`}>{value}</p>
       <p className="text-[11px] text-slate-400 mt-1.5">{label}</p>
       {hint && <p className="text-[10px] text-slate-500 mt-0.5 truncate">{hint}</p>}
@@ -1439,7 +1439,7 @@ function DashboardHome({ companies, metrics, call, onView, onOpenClient }: { com
         <StatTile label="Gold" value={gold} tone="amber" />
         <StatTile label="Premium" value={premium} tone="violet" />
 
-        <StatTile label="Conversion rate" value={`${conversionRate}%`} tone="green" hint={`${converted} of ${planned} on a paid tier`} />
+        <StatTile label="Conversion rate" value={`${conversionRate}%`} tone="green" hint={`${converted} of ${planned} on a paid tier`} className="col-span-2" />
         <StatTile label="Trial → Gold" value={`${tgPct}%`} tone="amber" hint={`${conv?.trial_to_gold ?? 0} of ${planned} clients`} />
         <StatTile label="Trial → Premium" value={`${tpPct}%`} tone="violet" hint={`${conv?.trial_to_premium ?? 0} of ${planned} clients`} />
         <StatTile label="Gold → Premium" value={`${gpPct}%`} tone="violet" hint={`${conv?.gold_to_premium ?? 0} of ${goldEver} gold clients`} />
