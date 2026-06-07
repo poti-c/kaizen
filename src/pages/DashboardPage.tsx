@@ -1,11 +1,11 @@
 import { useEffect, useState, useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import { FolderOpen, Clock, AlertTriangle, PlusCircle, CheckCircle2, ChevronDown, ChevronUp, CalendarDays } from 'lucide-react'
+import { FolderOpen, Clock, AlertTriangle, PlusCircle, CheckCircle2, ChevronDown, ChevronUp, CalendarDays, ChevronRight, Wrench, ClipboardList, Building2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useCompany } from '@/contexts/CompanyContext'
 import { useLanguage } from '@/contexts/LanguageContext'
-import { StatusBadge, PriorityBadge } from '@/components/StatusBadge'
+import { StatusBadge } from '@/components/StatusBadge'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { formatRelativeTime, formatDuration, isSLABreached, CATEGORIES, companyHasAddon } from '@/lib/utils'
@@ -13,10 +13,10 @@ import { PMSummaryCard } from '@/components/PMSummaryCard'
 import { DEPARTMENT_LABELS } from '@/types'
 import type { KaizenCase, Department } from '@/types'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, PieChart, Pie } from 'recharts'
-import { differenceInHours } from 'date-fns'
 import { cn } from '@/lib/utils'
 
 const MONTH_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+const PRI_RANK: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 }
 
 function monthKey(year: number, month: number) { return `${year}-${month}` }
 
@@ -117,13 +117,6 @@ export function DashboardPage() {
     critical: filteredCases.filter(c => c.priority === 'critical' && c.status !== 'closed').length,
   }), [filteredCases])
 
-  // KPIs — always from filteredCases
-  const avgResolutionHours = useMemo(() => {
-    const closed = filteredCases.filter(c => c.status === 'closed' && c.closed_at)
-    if (!closed.length) return null
-    return closed.reduce((s, c) => s + differenceInHours(new Date(c.closed_at!), new Date(c.created_at)), 0) / closed.length
-  }, [filteredCases])
-
   const resolutionRate = useMemo(() =>
     filteredCases.length > 0 ? Math.round((stats.closed / filteredCases.length) * 100) : 0,
   [filteredCases, stats])
@@ -192,12 +185,6 @@ export function DashboardPage() {
     }
   }
 
-  function formatResolution(hours: number | null): string {
-    if (hours === null) return '—'
-    if (hours < 24) return `${Math.round(hours)}h`
-    return `${Math.floor(hours / 24)}d ${Math.round(hours % 24)}h`
-  }
-
   const PIE_COLORS = { open: '#f97316', reopened: '#ef4444', inProgress: '#3b82f6', pending: '#f59e0b', resolved: '#22c55e' }
   const CATEGORY_PIE_COLORS: Record<string, string> = {
     maintenance: '#3b82f6', cleanliness: '#14b8a6', safety: '#ef4444',
@@ -231,7 +218,50 @@ export function DashboardPage() {
     { value: 'reopened',    label: t.status.reopened },
   ]
 
-  const recentCases = allCases.slice(0, 5)
+  // ── Operations-style derived data (mockup layout) ──────────────────────────
+  const todayMidnight = new Date(); todayMidnight.setHours(0, 0, 0, 0)
+  const isToday = (d: Date) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x.getTime() === todayMidnight.getTime() }
+
+  const activeCases = useMemo(() => allCases.filter(c => c.status !== 'closed'), [allCases])
+  const dueTodayCount = useMemo(
+    () => activeCases.filter(c => c.due_date && isToday(new Date(c.due_date))).length,
+    [activeCases],
+  )
+  const upcoming = useMemo(() =>
+    [...activeCases].sort((a, b) => {
+      const ad = a.due_date ? new Date(a.due_date).getTime() : Infinity
+      const bd = b.due_date ? new Date(b.due_date).getTime() : Infinity
+      if (ad !== bd) return ad - bd
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    }).slice(0, 6),
+  [activeCases])
+
+  const focusCases = useMemo(() =>
+    [...activeCases].sort((a, b) =>
+      (PRI_RANK[a.priority] ?? 9) - (PRI_RANK[b.priority] ?? 9) ||
+      getCaseProgress(b.status).pct - getCaseProgress(a.status).pct,
+    ).slice(0, 6),
+  [activeCases])
+
+  const attentionCount = useMemo(() => {
+    const s = new Set<string>()
+    overdueCases.forEach(c => s.add(c.id))
+    criticalCases.forEach(c => s.add(c.id))
+    allCases.filter(c => ['pending_manager_approval', 'pending_admin_approval'].includes(c.status)).forEach(c => s.add(c.id))
+    return s.size
+  }, [overdueCases, criticalCases, allCases])
+
+  const deptCards = useMemo(() => {
+    const map: Record<string, KaizenCase[]> = {}
+    activeCases.forEach(c => { const d = c.department || 'other'; (map[d] ||= []).push(c) })
+    return Object.entries(map).sort((a, b) => b[1].length - a[1].length).slice(0, 3)
+  }, [activeCases])
+  const DEPT_ICONS = [Wrench, ClipboardList, Building2]
+
+  function dateChip(c: KaizenCase) {
+    const d = new Date(c.due_date || c.created_at)
+    return { day: d.getDate(), mon: d.toLocaleString('en-GB', { month: 'short' }).toUpperCase() }
+  }
 
   if (loading) return (
     <div className="p-8 flex items-center justify-center">
@@ -242,10 +272,11 @@ export function DashboardPage() {
   return (
     <div className="p-4 md:p-6 max-w-7xl mx-auto animate-fade-in">
       {/* Page header */}
-      <div className="flex items-center justify-between mb-4 md:mb-6">
+      <div className="flex items-end justify-between mb-5 md:mb-6">
         <div>
-          <h1 className="text-xl md:text-2xl font-bold text-gray-900">{t.dashboard.title}</h1>
-          <p className="text-sm text-gray-500 mt-0.5">
+          <p className="text-[11px] font-semibold tracking-widest text-gray-400 uppercase">{t.dashboard.tagline}</p>
+          <h1 className="text-2xl md:text-3xl font-bold text-gray-900 mt-0.5">{t.dashboard.title}</h1>
+          <p className="text-sm text-gray-500 mt-1">
             {t.dashboard.welcome}, {profile?.full_name} · {profile ? DEPARTMENT_LABELS[profile.department] : ''}
           </p>
         </div>
@@ -255,6 +286,124 @@ export function DashboardPage() {
           </Link>
         )}
       </div>
+
+      {/* Stat tiles */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 mb-6">
+        {[
+          { icon: CalendarDays, tint: 'bg-blue-50 text-blue-600', label: t.dashboard.dueToday, value: dueTodayCount, sub: `${stats.open} ${t.dashboard.rightNow}`, to: '/cases?status=open', danger: false },
+          { icon: CheckCircle2, tint: 'bg-green-50 text-green-600', label: t.dashboard.resolvedThisMonth, value: stats.closed, sub: `${resolutionRate}% ${t.dashboard.resolutionRate}`, to: '/cases?group=resolved', danger: false },
+          { icon: Clock, tint: 'bg-amber-50 text-amber-600', label: t.dashboard.inProgress, value: stats.inProgress, sub: `${stats.pending} ${t.dashboard.waitingApproval}`, to: '/cases?group=in_progress', danger: false },
+          { icon: AlertTriangle, tint: 'bg-red-50 text-red-600', label: t.dashboard.needsAttention, value: attentionCount, sub: `${overdueCases.length} ${t.dashboard.overdueSLA}`, to: '/cases?status=open', danger: attentionCount > 0 },
+        ].map(({ icon: Icon, tint, label, value, sub, to, danger }) => (
+          <Link key={label} to={to} className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 hover:shadow-md hover:border-gray-300 transition-all">
+            <div className={`w-9 h-9 rounded-lg flex items-center justify-center mb-3 ${tint}`}><Icon className="h-5 w-5" /></div>
+            <p className="text-xs font-medium text-gray-500">{label}</p>
+            <p className={`text-2xl md:text-[28px] font-bold leading-tight mt-0.5 ${danger ? 'text-red-600' : 'text-gray-900'}`}>{value}</p>
+            <p className="text-[11px] text-gray-400 mt-0.5 truncate">{sub}</p>
+          </Link>
+        ))}
+      </div>
+
+      {/* Operations + focus */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-5 mb-6">
+        {/* Today & upcoming cases */}
+        <div className="lg:col-span-2 bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+            <h2 className="font-semibold text-gray-900">{t.dashboard.upcomingTitle}</h2>
+            <Link to="/cases" className="text-sm text-[var(--brand-primary)] font-medium hover:underline flex items-center gap-1">{t.dashboard.viewAll}<ChevronRight className="h-4 w-4" /></Link>
+          </div>
+          <div className="divide-y divide-gray-50">
+            {upcoming.length === 0 ? (
+              <div className="px-5 py-10 text-center text-gray-400 text-sm">{t.dashboard.noUpcoming}</div>
+            ) : upcoming.map((c) => {
+              const { day, mon } = dateChip(c)
+              return (
+                <Link key={c.id} to={`/cases/${c.id}`} className="flex items-center gap-4 px-5 py-3.5 hover:bg-gray-50 transition-colors group">
+                  <div className="flex-shrink-0 w-10 text-center">
+                    <p className="text-lg font-bold text-gray-800 leading-none">{day}</p>
+                    <p className="text-[10px] text-gray-400 mt-0.5 tracking-wide">{mon}</p>
+                  </div>
+                  <div className="w-px h-9 bg-gray-100 flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-gray-900 truncate">{c.title}</p>
+                    <p className="text-xs text-gray-400 truncate mt-0.5">
+                      <span className="font-mono">{c.case_number}</span>
+                      {c.category ? <> · {t.categories[c.category.toLowerCase().replace(/ /g, '_') as keyof typeof t.categories] || c.category}</> : null}
+                    </p>
+                  </div>
+                  <StatusBadge status={c.status} />
+                  <ChevronRight className="h-4 w-4 text-gray-300 group-hover:text-gray-500 flex-shrink-0" />
+                </Link>
+              )
+            })}
+          </div>
+        </div>
+
+        {/* Active case progress */}
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden flex flex-col">
+          <div className="px-5 py-4 border-b border-gray-100">
+            <h2 className="font-semibold text-gray-900">{t.dashboard.focusTitle}</h2>
+          </div>
+          <div className="p-4 space-y-3">
+            <div className="rounded-xl border border-gray-100 bg-gray-50/60 px-4 py-5 text-center">
+              <div className="w-9 h-9 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center mx-auto mb-2"><FolderOpen className="h-5 w-5" /></div>
+              <p className="text-2xl font-bold text-gray-900">{activeCases.length}</p>
+              <p className="text-xs text-gray-500 mt-0.5">{t.dashboard.activeCases}</p>
+            </div>
+            {focusCases.length === 0 ? (
+              <p className="text-center text-sm text-gray-400 py-4">{t.dashboard.noOpenCases}</p>
+            ) : focusCases.map((c) => {
+              const { pct, color } = getCaseProgress(c.status)
+              return (
+                <Link key={c.id} to={`/cases/${c.id}`} className="block rounded-lg border border-gray-100 px-3 py-2.5 hover:border-gray-300 hover:bg-gray-50 transition-all">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-medium text-gray-900 truncate">{c.title}</p>
+                    <span className="text-xs font-semibold flex-shrink-0" style={{ color }}>{pct}%</span>
+                  </div>
+                  <p className="text-[11px] text-gray-400 mt-0.5 truncate">{t.status[c.status as keyof typeof t.status] || c.status}</p>
+                  <div className="w-full bg-gray-100 rounded-full h-1 mt-1.5">
+                    <div className="h-1 rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: color }} />
+                  </div>
+                </Link>
+              )
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* Department cards */}
+      {deptCards.length > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+          {deptCards.map(([dept, cases], i) => {
+            const Icon = DEPT_ICONS[i % DEPT_ICONS.length]
+            return (
+              <div key={dept} className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <Icon className="h-4 w-4 text-gray-500" />
+                  <h3 className="font-semibold text-gray-900 text-sm flex-1 truncate">{DEPARTMENT_LABELS[dept as Department] || dept}</h3>
+                  <span className="text-xs font-semibold text-gray-400">{cases.length}</span>
+                </div>
+                <ul className="space-y-1.5">
+                  {cases.slice(0, 3).map((c) => (
+                    <li key={c.id}>
+                      <Link to={`/cases/${c.id}`} className="flex items-start gap-2 text-sm text-gray-600 hover:text-[var(--brand-primary)] transition-colors">
+                        <span className="text-gray-300 mt-1.5 leading-none">·</span>
+                        <span className="truncate">{c.title}</span>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Preventive Maintenance summary (PMS add-on only) */}
+      {companyHasAddon(activeCompany, 'pms') && <div className="mb-6"><PMSummaryCard /></div>}
+
+      {/* ── Analytics ──────────────────────────────────────────────────────── */}
+      <h2 className="text-sm font-semibold tracking-wide text-gray-400 uppercase mb-3">{t.dashboard.analytics}</h2>
 
       {/* Two charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
@@ -426,93 +575,6 @@ export function DashboardPage() {
 
       </div>
 
-      {/* Preventive Maintenance summary (PMS add-on only) */}
-      {companyHasAddon(activeCompany, 'pms') && <PMSummaryCard />}
-
-      {/* KPI stat cards */}
-      <div className="grid grid-cols-2 gap-4 mb-6">
-        <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm flex flex-col gap-3">
-          <div>
-            <div className="flex items-center gap-1.5 mb-1">
-              <div className="w-6 h-6 rounded-md bg-purple-50 flex items-center justify-center flex-shrink-0">
-                <Clock className="h-3.5 w-3.5 text-purple-600" />
-              </div>
-              <p className="text-xs font-medium text-gray-500">{t.dashboard.avgResolution}</p>
-            </div>
-            <p className="text-2xl font-bold text-gray-900">{formatResolution(avgResolutionHours)}</p>
-          </div>
-          <div className="h-px bg-gray-100" />
-          <div>
-            <div className="flex items-center gap-1.5 mb-1">
-              <div className="w-6 h-6 rounded-md bg-green-50 flex items-center justify-center flex-shrink-0">
-                <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />
-              </div>
-              <p className="text-xs font-medium text-gray-500">{t.dashboard.resolutionRate}</p>
-            </div>
-            <p className="text-2xl font-bold text-gray-900">{resolutionRate}%</p>
-          </div>
-        </div>
-        <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm flex flex-col gap-3">
-          <div>
-            <div className="flex items-center gap-1.5 mb-1">
-              <div className="w-6 h-6 rounded-md bg-blue-50 flex items-center justify-center flex-shrink-0">
-                <FolderOpen className="h-3.5 w-3.5 text-blue-600" />
-              </div>
-              <p className="text-xs font-medium text-gray-500">{t.dashboard.casesThisMonth}</p>
-            </div>
-            <p className="text-2xl font-bold text-gray-900">{filteredCases.length}</p>
-          </div>
-          <div className="h-px bg-gray-100" />
-          <div>
-            <div className="flex items-center gap-1.5 mb-1">
-              <div className="w-6 h-6 rounded-md bg-red-50 flex items-center justify-center flex-shrink-0">
-                <AlertTriangle className="h-3.5 w-3.5 text-red-600" />
-              </div>
-              <p className="text-xs font-medium text-gray-500">{t.dashboard.overdueSLA}</p>
-            </div>
-            <p className={`text-2xl font-bold ${overdueCases.length > 0 ? 'text-red-600' : 'text-gray-900'}`}>{overdueCases.length}</p>
-          </div>
-        </div>
-      </div>
-
-      {/* Banners */}
-      {criticalCases.length > 0 && (
-        <div className="bg-red-50 border border-red-200 rounded-xl p-4 mb-4">
-          <div className="flex items-center gap-3 mb-2">
-            <AlertTriangle className="h-5 w-5 text-red-600 flex-shrink-0" />
-            <p className="text-sm text-red-800 font-medium">{t.dashboard.criticalBanner(criticalCases.length)}</p>
-          </div>
-          <div className="flex flex-wrap gap-2 pl-8">
-            {criticalCases.map(c => (
-              <Link key={c.id} to={`/cases/${c.id}`}
-                className="inline-flex items-center gap-1.5 text-xs bg-red-100 hover:bg-red-200 text-red-800 font-medium px-2.5 py-1 rounded-full transition-colors">
-                <span className="font-bold">{c.case_number}</span>
-                <span className="text-red-400">·</span>
-                <span className="truncate max-w-[160px]">{c.title}</span>
-              </Link>
-            ))}
-          </div>
-        </div>
-      )}
-      {overdueCases.length > 0 && (
-        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6">
-          <div className="flex items-center gap-3 mb-2">
-            <Clock className="h-5 w-5 text-amber-600 flex-shrink-0" />
-            <p className="text-sm text-amber-800 font-medium">{t.dashboard.slaBanner(overdueCases.length)}</p>
-          </div>
-          <div className="flex flex-wrap gap-2 pl-8">
-            {overdueCases.map(c => (
-              <Link key={c.id} to={`/cases/${c.id}`}
-                className="inline-flex items-center gap-1.5 text-xs bg-amber-100 hover:bg-amber-200 text-amber-800 font-medium px-2.5 py-1 rounded-full transition-colors">
-                <span className="font-bold">{c.case_number}</span>
-                <span className="text-amber-600">·</span>
-                <span className="truncate max-w-[160px]">{c.title}</span>
-              </Link>
-            ))}
-          </div>
-        </div>
-      )}
-
       <div className="flex flex-col gap-6">
         {/* Monthly Cases Trend */}
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
@@ -532,48 +594,6 @@ export function DashboardPage() {
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
-          </div>
-        </div>
-
-        {/* Recent Cases */}
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-          <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-            <h2 className="font-semibold text-gray-900">{t.dashboard.recentCases}</h2>
-            <Link to="/cases" className="text-sm text-[var(--brand-primary)] hover:underline">{t.dashboard.viewAll}</Link>
-          </div>
-          <div className="divide-y divide-gray-50">
-            {recentCases.length === 0 ? (
-              <div className="px-5 py-8 text-center text-gray-400 text-sm">{t.dashboard.noCases}</div>
-            ) : (
-              recentCases.map((c) => (
-                <Link key={c.id} to={`/cases/${c.id}`} className="flex items-center gap-4 px-5 py-4 hover:bg-gray-50 transition-colors">
-                  <div className="flex-shrink-0 w-10 text-center">
-                    <p className="text-sm font-semibold text-gray-800 leading-none">{new Date(c.created_at).getDate()}</p>
-                    <p className="text-xs text-gray-400 mt-0.5">{new Date(c.created_at).toLocaleString('en-GB', { month: 'short' })}</p>
-                  </div>
-                  <div className="w-px h-10 bg-gray-100 flex-shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-                      <span className="text-xs text-gray-400 font-mono whitespace-nowrap">{c.case_number}</span>
-                      <StatusBadge status={c.status} />
-                      <PriorityBadge priority={c.priority} />
-                    </div>
-                    <p className="text-sm font-medium text-gray-900 truncate">{c.title}</p>
-                  </div>
-                  {(() => {
-                    const { pct, color } = getCaseProgress(c.status)
-                    return (
-                      <div className="hidden md:flex flex-shrink-0 w-40 flex-col items-end gap-1">
-                        <span className="text-xs font-medium text-gray-500">{pct}%</span>
-                        <div className="w-full bg-gray-100 rounded-full h-1.5">
-                          <div className="h-1.5 rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: color }} />
-                        </div>
-                      </div>
-                    )
-                  })()}
-                </Link>
-              ))
-            )}
           </div>
         </div>
       </div>
