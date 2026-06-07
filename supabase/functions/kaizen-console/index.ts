@@ -349,18 +349,26 @@ Deno.serve(async (req) => {
       if (!latestEnd[r.company_id] || r.period_end > latestEnd[r.company_id]) latestEnd[r.company_id] = r.period_end;
     }
     const durations = await planDurations();
-    const [{ count: payPending }, { count: rcptPending }, subsRes] = await Promise.all([
+    const [{ count: payPending }, { count: rcptPending }, subsRes, pcRes] = await Promise.all([
       admin.from("kaizen_payment_submissions").select("id", { count: "exact", head: true }).eq("status", "pending"),
       admin.from("kaizen_invoices").select("id", { count: "exact", head: true }).eq("receipt_requested", true).eq("receipt_issued", false),
       admin.from("kaizen_payment_submissions").select("amount, status"),
+      admin.from("kaizen_plan_changes").select("from_plan, to_plan"),
     ]);
     const paymentsPending = (payPending ?? 0) + (rcptPending ?? 0);
     const subs = subsRes.data ?? [];
     const sum = (arr, f) => arr.reduce((s, x) => s + (f(x) ? Number(x.amount) || 0 : 0), 0);
+    const pcRows = pcRes.data ?? [];
+    const tx = (f, t) => pcRows.filter((r) => r.from_plan === f && r.to_plan === t).length;
     const metrics = {
       revenue: invoices.reduce((s, r) => s + (Number(r.amount) || 0), 0),
       opportunity: sum(subs, (x) => x.status === "pending"),
       lost: sum(subs, (x) => x.status === "rejected"),
+      conversions: {
+        trial_to_gold: tx("trial", "gold"),
+        trial_to_premium: tx("trial", "premium"),
+        gold_to_premium: tx("gold", "premium"),
+      },
     };
     const companyStats = companies.map((c) => ({
       ...c,
@@ -614,8 +622,16 @@ Deno.serve(async (req) => {
       }
     }
 
+    let planFrom = null;
+    if (body.plan !== undefined) {
+      const { data: curP } = await admin.from("kaizen_companies").select("plan").eq("id", company_id).maybeSingle();
+      planFrom = curP?.plan ?? null;
+    }
     const { error } = await admin.from("kaizen_companies").update(patch).eq("id", company_id);
     if (error) return json({ error: error.message }, 400);
+    if (body.plan !== undefined && planFrom !== patch.plan) {
+      await admin.from("kaizen_plan_changes").insert({ company_id, from_plan: planFrom, to_plan: patch.plan, source: "console" });
+    }
     await audit("update_company", { company_id, patch, repointed }, ip, true);
     return json({ success: true, repointed });
   }
@@ -728,12 +744,17 @@ Deno.serve(async (req) => {
       const pe = new Date(); pe.setUTCDate(pe.getUTCDate() + term);
       const period_end = pe.toISOString().slice(0, 10);
       const today = new Date().toISOString().slice(0, 10);
+      const { data: curCo } = await admin.from("kaizen_companies").select("plan").eq("id", sub.company_id).maybeSingle();
+      const fromPlan = curCo?.plan ?? null;
       await admin.from("kaizen_companies").update({
         plan: sub.target, subscription_end: period_end,
         max_super_admins: pkg?.max_super_admins ?? null,
         max_managers: pkg?.max_managers ?? null, max_staff: pkg?.max_staff ?? null,
         multi_company: !!pkg?.multi_company, features: pkg?.features ?? {},
       }).eq("id", sub.company_id);
+      if (fromPlan !== sub.target) {
+        await admin.from("kaizen_plan_changes").insert({ company_id: sub.company_id, from_plan: fromPlan, to_plan: sub.target, source: "payment" });
+      }
       await admin.from("kaizen_invoices").insert({
         company_id: sub.company_id, payee: sub.target_label ?? sub.target, amount: sub.amount,
         currency: sub.currency ?? "THB", payment_date: today, period_start: today, period_end,

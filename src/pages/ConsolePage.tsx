@@ -225,7 +225,10 @@ function LoginScreen({ onLogin }: { onLogin: (t: string, name: string) => void }
 
 // ── Dashboard ────────────────────────────────────────────────────────────────
 type View = 'dashboard' | 'notifications' | 'clients' | 'calendar' | 'payments' | 'products' | 'forms' | 'audit' | 'todos' | 'settings'
-interface Metrics { revenue: number; opportunity: number; lost: number }
+interface Metrics {
+  revenue: number; opportunity: number; lost: number
+  conversions?: { trial_to_gold: number; trial_to_premium: number; gold_to_premium: number }
+}
 
 function Dashboard({ token, adminName, onLogout }: { token: string; adminName: string; onLogout: () => void }) {
   const [view, setView] = useState<View>('dashboard')
@@ -1354,6 +1357,8 @@ function DashboardHome({ companies, metrics, onView, onOpenClient }: { companies
   const planned = starter + gold + premium
   const converted = gold + premium
   const conversionRate = planned > 0 ? Math.round((converted / planned) * 100) : 0
+  const conv = metrics?.conversions
+  const totalUpgrades = conv ? conv.trial_to_gold + conv.trial_to_premium + conv.gold_to_premium : 0
   const baht = (n: number) => `฿${(n || 0).toLocaleString()}`
   // Clients whose subscription is expiring soon (≤14 days) or expired.
   const attention = companies.filter(c => c.subscription && (c.subscription.overdue || (c.subscription.days_remaining != null && c.subscription.days_remaining <= 14)))
@@ -1372,6 +1377,26 @@ function DashboardHome({ companies, metrics, onView, onOpenClient }: { companies
         <MoneyCard icon={Wallet} label="Revenue (recorded)" value={baht(metrics?.revenue ?? 0)} tone="green" />
         <MoneyCard icon={TrendingUp} label="Sales opportunity (pending)" value={baht(metrics?.opportunity ?? 0)} tone="amber" onClick={() => onView('payments')} />
         <MoneyCard icon={TrendingDown} label="Opportunity lost" value={baht(metrics?.lost ?? 0)} tone="red" />
+      </div>
+
+      {/* Conversion breakdown */}
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 mb-6">
+        <div className="flex items-baseline justify-between mb-3">
+          <h3 className="text-sm font-semibold text-white">Upgrade conversions</h3>
+          <span className="text-[11px] text-slate-400">{totalUpgrades} upgrade{totalUpgrades === 1 ? '' : 's'} · {conversionRate}% on a paid tier</span>
+        </div>
+        <div className="grid grid-cols-3 gap-3">
+          {[
+            { label: 'Trial → Gold', value: conv?.trial_to_gold ?? 0, tone: 'text-amber-400' },
+            { label: 'Trial → Premium', value: conv?.trial_to_premium ?? 0, tone: 'text-violet-400' },
+            { label: 'Gold → Premium', value: conv?.gold_to_premium ?? 0, tone: 'text-violet-400' },
+          ].map((x) => (
+            <div key={x.label} className="bg-slate-800/60 border border-slate-800 rounded-lg p-3">
+              <p className={`text-xl font-bold leading-none ${x.tone}`}>{x.value}</p>
+              <p className="text-[11px] text-slate-400 mt-1.5">{x.label}</p>
+            </div>
+          ))}
+        </div>
       </div>
       {attention.length > 0 && (
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">

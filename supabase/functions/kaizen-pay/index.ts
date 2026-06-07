@@ -82,11 +82,16 @@ Deno.serve(async (req) => {
       const { data: prod } = await admin.from("kaizen_products").select("max_super_admins, max_managers, max_staff, multi_company, features, duration_days").eq("kind", "package").eq("key", target).maybeSingle();
       const term = Number(prod?.duration_days) || 365;
       const end = addDays(term);
+      const { data: curCo } = await admin.from("kaizen_companies").select("plan").eq("id", company_id).maybeSingle();
+      const fromPlan = curCo?.plan ?? null;
       await admin.from("kaizen_companies").update({
         plan: target, subscription_end: end,
         max_super_admins: prod?.max_super_admins ?? null, max_managers: prod?.max_managers ?? null,
         max_staff: prod?.max_staff ?? null, multi_company: !!prod?.multi_company, features: prod?.features ?? {},
       }).eq("id", company_id);
+      if (fromPlan !== target) {
+        await admin.from("kaizen_plan_changes").insert({ company_id, from_plan: fromPlan, to_plan: target, source: "payment" });
+      }
       await admin.from("kaizen_invoices").insert({
         company_id, payee: target_label ?? target, amount, currency,
         payment_date: new Date().toISOString().slice(0, 10), period_start: new Date().toISOString().slice(0, 10), period_end: end,
