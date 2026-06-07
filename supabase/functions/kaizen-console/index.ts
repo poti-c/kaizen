@@ -134,6 +134,37 @@ function computeSubscription(plan, created_at, latestPaymentEnd, trialDays) {
   }
   return { is_trial: false, has_payment: false, start: null, end: null, period_end: null, days_remaining: null, overdue: false };
 }
+// Send a receipt email via Resend (RESEND_API_KEY secret). Returns {ok,error}.
+async function sendReceiptEmail(to, inv, co, settings) {
+  const key = Deno.env.get("RESEND_API_KEY");
+  if (!key) return { ok: false, error: "Email is not configured yet (set RESEND_API_KEY)." };
+  const from = Deno.env.get("RESEND_FROM") || "Kaizen System <onboarding@resend.dev>";
+  const issuer = settings?.company_name || "NNR-Solutions Co., Ltd.";
+  const amount = inv.amount != null ? `${inv.currency || "THB"} ${Number(inv.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}` : "—";
+  const html = `
+    <div style="font-family:system-ui,Arial,sans-serif;max-width:560px;margin:auto;color:#1f2937">
+      <h2 style="color:#4a3424">${issuer}</h2>
+      <p>Receipt / Tax Invoice</p>
+      <table style="width:100%;border-collapse:collapse;font-size:14px">
+        <tr><td style="padding:6px 0;color:#6b7280">Company</td><td style="text-align:right">${co?.name ?? ""}</td></tr>
+        <tr><td style="padding:6px 0;color:#6b7280">Payment date</td><td style="text-align:right">${inv.payment_date ?? ""}</td></tr>
+        <tr><td style="padding:6px 0;color:#6b7280">Covers</td><td style="text-align:right">${inv.period_start ?? ""} → ${inv.period_end ?? ""}</td></tr>
+        <tr><td style="padding:8px 0;border-top:1px solid #eee;font-weight:bold">Amount</td><td style="text-align:right;border-top:1px solid #eee;font-weight:bold">${amount}</td></tr>
+      </table>
+      ${settings?.tax_id ? `<p style="font-size:12px;color:#6b7280">Tax ID ${settings.tax_id}</p>` : ""}
+      <p style="font-size:12px;color:#9ca3af;margin-top:20px">Thank you for your business. If you have any questions about this receipt, please contact ${settings?.support_email || "support"}.</p>
+    </div>`;
+  try {
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${key}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ from, to, subject: `Receipt — ${co?.name ?? "Kaizen System"}`, html }),
+    });
+    if (!res.ok) { const t = await res.text(); return { ok: false, error: `Email send failed: ${t.slice(0, 200)}` }; }
+    return { ok: true };
+  } catch (e) { return { ok: false, error: `Email send failed: ${e}` }; }
+}
+
 // Map of package key -> duration_days (for trial length & subscription term).
 async function planDurations() {
   const { data } = await admin.from("kaizen_products").select("key, duration_days").eq("kind", "package");
@@ -286,7 +317,11 @@ Deno.serve(async (req) => {
       if (!latestEnd[r.company_id] || r.period_end > latestEnd[r.company_id]) latestEnd[r.company_id] = r.period_end;
     }
     const durations = await planDurations();
-    const { count: paymentsPending } = await admin.from("kaizen_payment_submissions").select("id", { count: "exact", head: true }).eq("status", "pending");
+    const [{ count: payPending }, { count: rcptPending }] = await Promise.all([
+      admin.from("kaizen_payment_submissions").select("id", { count: "exact", head: true }).eq("status", "pending"),
+      admin.from("kaizen_invoices").select("id", { count: "exact", head: true }).eq("receipt_requested", true).eq("receipt_issued", false),
+    ]);
+    const paymentsPending = (payPending ?? 0) + (rcptPending ?? 0);
     const companyStats = companies.map((c) => ({
       ...c,
       live_super_admins: profiles.filter(p => p.company_id === c.id && p.role === "super_admin").length,
@@ -605,14 +640,37 @@ Deno.serve(async (req) => {
 
   // ── Client payment submissions (PromptPay proof) ──────────────────────────
   if (action === "list_payments") {
-    const [pmtRes, coRes] = await Promise.all([
+    const [pmtRes, coRes, recRes] = await Promise.all([
       admin.from("kaizen_payment_submissions").select("*").order("created_at", { ascending: false }),
-      admin.from("kaizen_companies").select("id, name"),
+      admin.from("kaizen_companies").select("id, name, contact_email"),
+      admin.from("kaizen_invoices").select("id, company_id, amount, currency, payment_date, receipt_requested, receipt_requested_at, receipt_issued, receipt_issued_at").eq("receipt_requested", true).order("receipt_requested_at", { ascending: false }),
     ]);
     const names = {};
     for (const c of (coRes.data ?? [])) names[c.id] = c.name;
     const payments = (pmtRes.data ?? []).map((p) => ({ ...p, company_name: names[p.company_id] ?? null }));
-    return json({ payments });
+    const receipt_requests = (recRes.data ?? []).map((r) => ({ ...r, company_name: names[r.company_id] ?? null }));
+    return json({ payments, receipt_requests });
+  }
+
+  if (action === "issue_receipt") {
+    const invoice_id = String(body.invoice_id ?? "");
+    if (!invoice_id) return json({ error: "invoice_id required" }, 400);
+    const { data: inv } = await admin.from("kaizen_invoices").select("*").eq("id", invoice_id).maybeSingle();
+    if (!inv) return json({ error: "Transaction not found" }, 404);
+    // Recipient = company contact email, else the company's owner email.
+    const { data: co } = await admin.from("kaizen_companies").select("name, contact_email").eq("id", inv.company_id).maybeSingle();
+    let to = co?.contact_email ?? null;
+    if (!to) {
+      const { data: owner } = await admin.from("kaizen_profiles").select("email").eq("company_id", inv.company_id).eq("role", "super_admin").order("created_at").limit(1).maybeSingle();
+      to = owner?.email ?? null;
+    }
+    if (!to) return json({ error: "No client email on file. Add a contact email for this company first." }, 400);
+    const { data: settings } = await admin.from("kaizen_console_settings").select("*").eq("id", true).maybeSingle();
+    const sent = await sendReceiptEmail(to, inv, co, settings);
+    if (!sent.ok) return json({ error: sent.error }, 400);
+    await admin.from("kaizen_invoices").update({ receipt_issued: true, receipt_issued_at: new Date().toISOString() }).eq("id", invoice_id);
+    await audit("issue_receipt", { invoice_id, to }, ip, true);
+    return json({ success: true, to });
   }
 
   if (action === "approve_payment") {

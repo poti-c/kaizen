@@ -11,6 +11,7 @@ const SALES_EMAIL = 'info@nnr-solutions.com'
 const RANK: Record<string, number> = { trial: 0, gold: 1, premium: 2 }
 const PRICE: Record<string, number> = { gold: 39000, premium: 0, pms: 10000 } // 0 = quote only
 
+interface Txn { id: string; amount: number | null; currency: string; payment_date: string; period_end: string | null; receipt_requested: boolean; receipt_issued: boolean }
 interface PayItem { kind: 'subscription' | 'addon'; target: string; label: string; amount: number }
 interface Vendor { promptpay_id: string | null; promptpay_name: string | null; promptpay_qr: string | null; support_email: string | null }
 
@@ -75,11 +76,29 @@ export function PackagesExpansions() {
   const [usage, setUsage] = useState<{ managers: number; staff: number } | null>(null)
   const [vendor, setVendor] = useState<Vendor | null>(null)
   const [payItem, setPayItem] = useState<PayItem | null>(null)
+  const [txns, setTxns] = useState<Txn[]>([])
 
   useEffect(() => {
     supabase.from('kaizen_console_settings').select('promptpay_id, promptpay_name, promptpay_qr, support_email').eq('id', true).maybeSingle()
       .then(({ data }) => setVendor(data as Vendor))
   }, [])
+
+  const loadTxns = () => {
+    const cid = activeCompany?.id
+    if (!cid) return
+    supabase.from('kaizen_invoices').select('id, amount, currency, payment_date, period_end, receipt_requested, receipt_issued')
+      .eq('company_id', cid).order('payment_date', { ascending: false })
+      .then(({ data }) => setTxns((data as Txn[]) ?? []))
+  }
+  useEffect(() => { loadTxns() }, [activeCompany?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function requestReceipt(id: string) {
+    if (!confirm('Request a Tax Invoice / Receipt for this payment? It will be emailed to your registered company email. This can be done once per payment.')) return
+    const { error } = await supabase.rpc('kaizen_request_receipt', { p_invoice: id })
+    if (error) { toast.error(error.message); return }
+    toast.success('Receipt requested — our team will email it to you shortly.')
+    loadTxns()
+  }
 
   function openPay(item: PayItem) {
     if (upgradeLocked) { toast.error('Only Top Management have access.'); return }
@@ -266,6 +285,31 @@ export function PackagesExpansions() {
         Note: expansions run alongside your subscription. If your subscription ends before an expansion period, the expansion is <span className="font-medium text-gray-500">paused</span> and resumes automatically once your subscription is renewed.
       </p>
 
+      {/* Transaction history */}
+      <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mt-6 mb-2">Transaction history</p>
+      {txns.length === 0 ? (
+        <p className="text-sm text-gray-400 mb-2">No payments recorded yet.</p>
+      ) : (
+        <div className="rounded-xl border border-gray-200 divide-y divide-gray-100 overflow-hidden">
+          {txns.map((tx) => (
+            <div key={tx.id} className="flex items-center gap-3 px-4 py-3">
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-gray-900">{tx.amount != null ? `฿${Number(tx.amount).toLocaleString()}` : '—'}</p>
+                <p className="text-[11px] text-gray-400">{fmtDate(tx.payment_date)}{tx.period_end ? ` · valid to ${fmtDate(tx.period_end)}` : ''}</p>
+              </div>
+              {tx.receipt_issued ? (
+                <span className="text-[11px] font-medium text-green-600 flex items-center gap-1"><Check className="h-3.5 w-3.5" />Receipt sent</span>
+              ) : tx.receipt_requested ? (
+                <span className="text-[11px] text-amber-600">Receipt requested</span>
+              ) : !upgradeLocked ? (
+                <button onClick={() => requestReceipt(tx.id)} className="text-xs font-medium text-[var(--brand-primary)] hover:opacity-75">Request Tax/Receipt</button>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      )}
+      <p className="text-[11px] text-gray-400 mt-2">Receipts are emailed to your registered company email. Problems with a receipt? Contact us via Help.</p>
+
       <div className="mt-6 flex items-center justify-center">
         <button onClick={() => requestQuote('Book a demo / call')} className="flex items-center gap-1.5 text-sm font-medium text-[var(--brand-primary)] hover:opacity-75">
           <Mail className="h-4 w-4" />Book a demo or call with our team
@@ -283,6 +327,7 @@ function PayModal({ item, vendor, companyId, supportEmail, onClose }: {
   const [proof, setProof] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [submitted, setSubmitted] = useState(false)
+  const [verified, setVerified] = useState(false)
 
   async function pickProof(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]; e.target.value = ''
@@ -293,12 +338,12 @@ function PayModal({ item, vendor, companyId, supportEmail, onClose }: {
   async function submit() {
     if (!proof) { toast.error('Please attach your payment slip.'); return }
     setBusy(true)
-    const { error } = await supabase.from('kaizen_payment_submissions').insert({
-      company_id: companyId, kind: item.kind, target: item.target, target_label: item.label,
-      amount: item.amount, currency: 'THB', proof_url: proof, status: 'pending',
+    const { data, error } = await supabase.functions.invoke('kaizen-pay', {
+      body: { company_id: companyId, kind: item.kind, target: item.target, target_label: item.label, amount: item.amount, currency: 'THB', proof_url: proof },
     })
     setBusy(false)
-    if (error) { toast.error(error.message); return }
+    if (error) { toast.error('Could not submit payment. Please try again or contact support.'); return }
+    setVerified(!!(data as { verified?: boolean })?.verified)
     setSubmitted(true)
   }
 
@@ -314,8 +359,12 @@ function PayModal({ item, vendor, companyId, supportEmail, onClose }: {
         {submitted ? (
           <div className="px-5 py-6 text-center space-y-3">
             <div className="w-12 h-12 rounded-full bg-green-100 flex items-center justify-center mx-auto"><Check className="h-6 w-6 text-green-600" /></div>
-            <p className="text-sm text-gray-700">🎉 Thank you for choosing Kaizen System! We've received your payment confirmation.</p>
-            <p className="text-sm text-gray-600">Your {item.label} will be activated within <span className="font-semibold">24 hours</span>. Once it's active, please <span className="font-semibold">restart the app</span> to see your new features.</p>
+            <p className="text-sm text-gray-700">🎉 Thank you for choosing Kaizen System!</p>
+            {verified ? (
+              <p className="text-sm text-gray-600">Your payment is <span className="font-semibold text-green-600">verified</span> — your {item.label} is now active. Please <span className="font-semibold">restart the app</span> in about <span className="font-semibold">5 minutes</span> to see your new features.</p>
+            ) : (
+              <p className="text-sm text-gray-600">We've received your payment confirmation. Your {item.label} will be activated within <span className="font-semibold">24 hours</span>. Once it's active, please <span className="font-semibold">restart the app</span> to see your new features.</p>
+            )}
             <p className="text-xs text-gray-500">Having trouble? Reach us any time via <span className="font-medium">Help</span>.</p>
             <button onClick={onClose} className="mt-1 w-full h-9 rounded-lg bg-[var(--brand-primary)] text-white text-sm font-semibold">Done</button>
           </div>

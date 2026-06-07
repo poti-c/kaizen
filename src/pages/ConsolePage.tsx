@@ -1131,18 +1131,27 @@ interface PaymentSub {
   target_label: string | null; amount: number | null; currency: string; proof_url: string | null
   note: string | null; status: string; created_at: string
 }
+interface ReceiptReq { id: string; company_id: string; company_name: string | null; amount: number | null; currency: string; payment_date: string; receipt_issued: boolean }
 function PaymentsView({ call, onBack, reload }: { call: <T,>(a: string, p?: Record<string, unknown>) => Promise<T>; onBack: () => void; reload: () => void }) {
   const [items, setItems] = useState<PaymentSub[]>([])
+  const [receipts, setReceipts] = useState<ReceiptReq[]>([])
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState<string | null>(null)
   const [lightbox, setLightbox] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
-    try { const d = await call<{ payments: PaymentSub[] }>('list_payments'); setItems(d.payments) }
+    try { const d = await call<{ payments: PaymentSub[]; receipt_requests: ReceiptReq[] }>('list_payments'); setItems(d.payments); setReceipts(d.receipt_requests ?? []) }
     catch (e) { console.error('Payments load failed:', e) } finally { setLoading(false) }
   }, [call])
   useEffect(() => { load() }, [load])
+
+  async function issueReceipt(r: ReceiptReq) {
+    if (!confirm(`Generate and email the receipt for ${r.company_name} to their registered email?`)) return
+    setBusy(r.id)
+    try { const res = await call<{ to: string }>('issue_receipt', { invoice_id: r.id }); alert(`Receipt emailed to ${res.to}`); await load(); reload() }
+    catch (e) { alert(e instanceof Error ? e.message : 'Failed') } finally { setBusy(null) }
+  }
 
   async function approve(p: PaymentSub) {
     if (!confirm(`Approve this payment and ${p.kind === 'subscription' ? `activate the ${p.target_label ?? p.target}` : `enable ${p.target_label ?? p.target}`} for ${p.company_name}?`)) return
@@ -1166,11 +1175,30 @@ function PaymentsView({ call, onBack, reload }: { call: <T,>(a: string, p?: Reco
       <h2 className="text-lg font-bold text-white mb-1">Payments</h2>
       <p className="text-xs text-slate-400 mb-4">Client PromptPay submissions awaiting review. Approving activates the subscription or add-on instantly.</p>
 
+      {/* Receipt / tax requests */}
+      {receipts.filter(r => !r.receipt_issued).length > 0 && (
+        <div className="mb-5">
+          <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1.5">Receipt / Tax requests</p>
+          <div className="space-y-2">
+            {receipts.filter(r => !r.receipt_issued).map((r) => (
+              <div key={r.id} className="flex items-center gap-3 bg-slate-900 border border-slate-800 rounded-xl p-3">
+                <div className="w-12 h-12 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center flex-shrink-0"><FileText className="h-4 w-4 text-amber-400" /></div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-white truncate">{r.company_name ?? '—'}</p>
+                  <p className="text-[11px] text-slate-400 truncate">{money(r.amount, r.currency)} · {fmtDate(r.payment_date)}</p>
+                </div>
+                <button onClick={() => issueReceipt(r)} disabled={busy === r.id} className="px-2.5 h-8 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-semibold disabled:opacity-50">{busy === r.id ? '…' : 'Issue & send'}</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {loading ? (
         <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-slate-300" /></div>
-      ) : items.length === 0 ? (
+      ) : items.length === 0 && receipts.length === 0 ? (
         <p className="py-12 text-center text-sm text-slate-400">No payment submissions yet.</p>
-      ) : (
+      ) : items.length === 0 ? null : (
         <div className="space-y-4">
           {[{ label: 'Pending', rows: pending }, { label: 'Reviewed', rows: reviewed }].filter(g => g.rows.length).map((g) => (
             <div key={g.label}>
