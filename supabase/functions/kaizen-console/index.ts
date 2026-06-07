@@ -708,7 +708,7 @@ Deno.serve(async (req) => {
     const [pmtRes, coRes, recRes, profRes, prodRes, allInvRes] = await Promise.all([
       admin.from("kaizen_payment_submissions").select("*").order("created_at", { ascending: false }),
       admin.from("kaizen_companies").select("id, name, plan, subscription_end, created_at, contact_person, contact_email, contact_phone"),
-      admin.from("kaizen_invoices").select("id, company_id, amount, currency, payment_date, receipt_requested, receipt_requested_at, receipt_issued, receipt_issued_at").eq("receipt_requested", true).order("receipt_requested_at", { ascending: false }),
+      admin.from("kaizen_invoices").select("id, company_id, amount, currency, payment_date, payee, period_start, period_end, receipt_requested, receipt_requested_at, receipt_issued, receipt_issued_at").eq("receipt_requested", true).order("receipt_requested_at", { ascending: false }),
       admin.from("kaizen_profiles").select("id, full_name, role"),
       admin.from("kaizen_products").select("kind, key, name, price, currency, duration_days, duration_label"),
       admin.from("kaizen_invoices").select("company_id, payment_date"),

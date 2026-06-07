@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import {
   FileText, Loader2, Plus, Trash2, ArrowLeft, Printer, X, Check, Building2, Search,
 } from 'lucide-react'
@@ -104,7 +104,8 @@ function bahtText(amount: number): string {
 }
 
 // ── Main view ────────────────────────────────────────────────────────────────
-export function FormGeneratorView({ call, onBack, initialPreviewId, onPreviewConsumed }: { call: Call; onBack: () => void; initialPreviewId?: string | null; onPreviewConsumed?: () => void }) {
+interface FormDraft { formType: FormType; companyId?: string; items?: LineItem[] }
+export function FormGeneratorView({ call, onBack, initialPreviewId, onPreviewConsumed, initialDraft, onDraftConsumed }: { call: Call; onBack: () => void; initialPreviewId?: string | null; onPreviewConsumed?: () => void; initialDraft?: FormDraft | null; onDraftConsumed?: () => void }) {
   const [loading, setLoading] = useState(true)
   const [forms, setForms] = useState<GeneratedForm[]>([])
   const [companies, setCompanies] = useState<FormCompany[]>([])
@@ -114,6 +115,8 @@ export function FormGeneratorView({ call, onBack, initialPreviewId, onPreviewCon
   const [tab, setTab] = useState<FormType>('quotation')
   const [preview, setPreview] = useState<GeneratedForm | null>(null)
   const [filterType, setFilterType] = useState<'all' | FormType>('all')
+  const [draft, setDraft] = useState<FormDraft | null>(initialDraft ?? null)
+  useEffect(() => { if (initialDraft) { setDraft(initialDraft); setTab(initialDraft.formType) } }, [initialDraft])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -168,6 +171,9 @@ export function FormGeneratorView({ call, onBack, initialPreviewId, onPreviewCon
         companies={companies}
         products={products}
         promos={promos}
+        initialCompanyId={draft && draft.formType === tab ? draft.companyId : undefined}
+        initialItems={draft && draft.formType === tab ? draft.items : undefined}
+        onPrefilled={() => { setDraft(null); onDraftConsumed?.() }}
         onCreated={(f) => { load(); setPreview(f) }}
         call={call}
       />
@@ -272,9 +278,10 @@ function DeleteFormBtn({ form, call, onDeleted }: { form: GeneratedForm; call: C
 }
 
 // ── Editor ───────────────────────────────────────────────────────────────────
-function FormEditor({ formType, companies, products, promos, onCreated, call }: {
+function FormEditor({ formType, companies, products, promos, onCreated, call, initialCompanyId, initialItems, onPrefilled }: {
   formType: FormType; companies: FormCompany[]; products: CatalogProduct[]; promos: CatalogPromo[]
   onCreated: (f: GeneratedForm) => void; call: Call
+  initialCompanyId?: string; initialItems?: LineItem[]; onPrefilled?: () => void
 }) {
   const today = new Date().toISOString().slice(0, 10)
   const [companyId, setCompanyId] = useState<string>('')
@@ -316,6 +323,16 @@ function FormEditor({ formType, companies, products, promos, onCreated, call }: 
   function setItem(i: number, patch: Partial<LineItem>) {
     setItems(items.map((it, idx) => idx === i ? { ...it, ...patch } : it))
   }
+
+  // Prefill once when opened from "Issue" on a receipt request.
+  const prefilled = useRef(false)
+  useEffect(() => {
+    if (prefilled.current || (!initialCompanyId && !initialItems)) return
+    prefilled.current = true
+    if (initialCompanyId) pickCompany(initialCompanyId)
+    if (initialItems && initialItems.length) setItems(initialItems)
+    onPrefilled?.()
+  }, [initialCompanyId, initialItems])  // eslint-disable-line react-hooks/exhaustive-deps
 
   const subtotal = useMemo(() => items.reduce((s, it) => s + (Number(it.qty) || 0) * (Number(it.unit_price) || 0), 0), [items])
   const discount = useMemo(() => subtotal * (promo?.discount_percent || 0) / 100, [subtotal, promo])
@@ -375,10 +392,13 @@ function FormEditor({ formType, companies, products, promos, onCreated, call }: 
       </div>
       <Field label="Address"><textarea value={client.address} onChange={e => setClient({ ...client, address: e.target.value })} rows={2} className={inputCls + ' h-auto py-2 resize-none'} /></Field>
 
-      {/* Dates */}
+      {/* Dates — receipts/tax-receipts are issued on payment, so the Issue Date
+          is the operative date; only bills (Invoice/Quotation) carry a due date. */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <Field label="Issue Date *"><input type="date" value={issueDate} onChange={e => setIssueDate(e.target.value)} className={inputCls} /></Field>
-        <Field label={formType === 'receipt' || formType === 'tax_invoice_receipt' ? 'Payment Date' : 'Due / Valid Until'}><input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} className={inputCls} /></Field>
+        {(formType === 'invoice' || formType === 'quotation') && (
+          <Field label="Due / Valid Until"><input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} className={inputCls} /></Field>
+        )}
         <Field label="Currency"><input value={currency} onChange={e => setCurrency(e.target.value.toUpperCase().slice(0, 4))} className={inputCls} /></Field>
         <Field label="VAT %"><input value={vatRate} onChange={e => setVatRate(e.target.value.replace(/[^0-9.]/g, ''))} className={inputCls} inputMode="decimal" /></Field>
       </div>
