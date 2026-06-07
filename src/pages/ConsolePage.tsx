@@ -1322,13 +1322,14 @@ function PaymentsView({ call, onBack, reload }: { call: <T,>(a: string, p?: Reco
 }
 
 // ── Dashboard home ───────────────────────────────────────────────────────────
-function StatTile({ label, value, tone = 'slate', onClick }: { label: string; value: number; tone?: string; onClick?: () => void }) {
+function StatTile({ label, value, tone = 'slate', hint, onClick }: { label: string; value: number | string; tone?: string; hint?: string; onClick?: () => void }) {
   const tones: Record<string, string> = { slate: 'text-white', green: 'text-green-400', sky: 'text-sky-400', amber: 'text-amber-400', violet: 'text-violet-400' }
   const C = onClick ? 'button' : 'div'
   return (
-    <C onClick={onClick} className={`bg-slate-900 border border-slate-800 rounded-xl p-4 text-left ${onClick ? 'hover:border-slate-700 transition-colors' : ''}`}>
+    <C onClick={onClick} title={hint} className={`bg-slate-900 border border-slate-800 rounded-xl p-4 text-left ${onClick ? 'hover:border-slate-700 transition-colors' : ''}`}>
       <p className={`text-2xl font-bold leading-none ${tones[tone]}`}>{value}</p>
       <p className="text-[11px] text-slate-400 mt-1.5">{label}</p>
+      {hint && <p className="text-[10px] text-slate-500 mt-0.5 truncate">{hint}</p>}
     </C>
   )
 }
@@ -1348,18 +1349,24 @@ function DashboardHome({ companies, metrics, onView, onOpenClient }: { companies
   const starter = companies.filter(c => c.plan === 'trial').length
   const gold = companies.filter(c => c.plan === 'gold').length
   const premium = companies.filter(c => c.plan === 'premium').length
+  // Conversion = clients who upgraded to a paid tier (Trial→Gold, Trial→Premium,
+  // Gold→Premium are all captured by being on Gold or Premium now) ÷ all clients on a plan.
+  const planned = starter + gold + premium
+  const converted = gold + premium
+  const conversionRate = planned > 0 ? Math.round((converted / planned) * 100) : 0
   const baht = (n: number) => `฿${(n || 0).toLocaleString()}`
   // Clients whose subscription is expiring soon (≤14 days) or expired.
   const attention = companies.filter(c => c.subscription && (c.subscription.overdue || (c.subscription.days_remaining != null && c.subscription.days_remaining <= 14)))
   return (
     <div>
       <h2 className="text-lg font-bold text-white mb-4">Dashboard</h2>
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
         <StatTile label="Total clients" value={total} onClick={() => onView('clients')} />
         <StatTile label="Active" value={active} tone="green" />
         <StatTile label="Starter" value={starter} tone="sky" />
         <StatTile label="Gold" value={gold} tone="amber" />
         <StatTile label="Premium" value={premium} tone="violet" />
+        <StatTile label="Conversion rate" value={`${conversionRate}%`} tone="green" hint={`${converted} of ${planned} on a paid tier`} />
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
         <MoneyCard icon={Wallet} label="Revenue (recorded)" value={baht(metrics?.revenue ?? 0)} tone="green" />
