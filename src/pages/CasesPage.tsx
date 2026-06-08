@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { PlusCircle, Search, Clock, ChevronRight, Download, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, RefreshCw, X, AlertCircle, CalendarDays, ChevronDown, ChevronUp, Wrench, MapPin } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
@@ -56,6 +56,7 @@ export function CasesPage() {
   const { profile } = useAuth()
   const { activeCompany } = useCompany()
   const { t } = useLanguage()
+  const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const [cases, setCases] = useState<KaizenCase[]>([])
   const [filtered, setFiltered] = useState<KaizenCase[]>([])
@@ -362,8 +363,7 @@ export function CasesPage() {
   function CaseRow({ c }: { c: KaizenCase }) {
     const breached = isSLABreached(c)
     return (
-      <Link key={c.id} to={`/cases/${c.id}`} className="contents">
-        <tr className="hover:bg-gray-50 transition-colors cursor-pointer">
+        <tr onClick={() => navigate(`/cases/${c.id}`)} className="hover:bg-gray-50 transition-colors cursor-pointer">
           <td className="px-5 py-3.5 whitespace-nowrap">
             <div className="flex items-center gap-1">
               <span className="font-mono text-xs font-medium text-gray-700 block">{c.case_number}</span>
@@ -402,7 +402,6 @@ export function CasesPage() {
             </div>
           </td>
         </tr>
-      </Link>
     )
   }
 
