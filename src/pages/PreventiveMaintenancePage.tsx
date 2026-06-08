@@ -136,8 +136,8 @@ export function PreventiveMaintenancePage() {
         )}
       </div>
 
-      {/* Summary — asset health (filters the list) */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-2">
+      {/* Summary — asset health (filters the list) + task activity (scrolls to its list below) */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 mb-4">
         {STATUS_ORDER.map((s) => (
           <button key={s} onClick={() => setFilter(filter === s ? 'all' : s)}
             className={`rounded-xl border p-3 text-left transition-colors ${filter === s ? 'ring-2 ring-[var(--brand-primary)]/40' : ''} ${STATUS_META[s].pill}`}>
@@ -145,10 +145,6 @@ export function PreventiveMaintenancePage() {
             <p className="text-[11px] mt-1">{statusLabel(s)}</p>
           </button>
         ))}
-      </div>
-
-      {/* Summary — task activity (scrolls to its list below) */}
-      <div className="grid grid-cols-3 gap-2 mb-4">
         <button onClick={() => scrollToPm('pm-duethisweek')} className="rounded-xl border border-gray-200 bg-gray-50 text-gray-700 p-3 text-left hover:brightness-95 transition-all">
           <p className="text-lg font-bold leading-none">{dueThisWeekTasks.length}</p>
           <p className="text-[11px] mt-1">{tr.pm.dueThisWeek}</p>
