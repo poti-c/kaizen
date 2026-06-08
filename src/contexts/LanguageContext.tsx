@@ -51,7 +51,7 @@ const en = {
   },
   cases: {
     title: 'Cases', newCase: 'New Case',
-    search: 'Search by title, case number...', allStatuses: 'All Statuses',
+    search: 'Search by keyword, serial no, case number...', allStatuses: 'All Statuses',
     allPriorities: 'All Priorities', noFound: 'No cases found',
     adjustFilters: 'Try adjusting your filters or create a new case',
     caseNo: 'Case #', titleCol: 'Title', dept: 'Department',
@@ -354,7 +354,7 @@ const th: Translations = {
   },
   cases: {
     title: 'เคส', newCase: 'รายงานใหม่',
-    search: 'ค้นหาด้วยชื่อหรือหมายเลขเคส...', allStatuses: 'ทุกสถานะ',
+    search: 'ค้นหาด้วยคำค้น เลขซีเรียล หรือหมายเลขเคส...', allStatuses: 'ทุกสถานะ',
     allPriorities: 'ทุกระดับ', noFound: 'ไม่พบเคส',
     adjustFilters: 'ลองปรับตัวกรองหรือสร้างเคสใหม่',
     caseNo: 'หมายเลข', titleCol: 'ชื่อ', dept: 'แผนก',

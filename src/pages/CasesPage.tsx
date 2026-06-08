@@ -176,14 +176,20 @@ export function CasesPage() {
   useEffect(() => {
     let result = cases
 
-    // Keyword search
+    // Keyword search — matches title, case number, keywords (description /
+    // solution / notes), category, location, department, and any serial / model
+    // embedded in the description of preventive-maintenance cases.
     if (search) {
       const q = search.toLowerCase()
-      result = result.filter((c) =>
-        c.title.toLowerCase().includes(q) ||
-        c.case_number.toLowerCase().includes(q) ||
-        c.description.toLowerCase().includes(q)
-      )
+      result = result.filter((c) => {
+        const hay = [
+          c.title, c.case_number, c.description,
+          c.category, c.category_other, c.location, c.location_other,
+          c.proposed_solution, c.resolution_note,
+          DEPARTMENT_LABELS[c.department] ?? c.department,
+        ].filter(Boolean).join(' ').toLowerCase()
+        return hay.includes(q)
+      })
     }
 
     // Advanced filters (if enabled)
