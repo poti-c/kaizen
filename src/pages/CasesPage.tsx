@@ -822,6 +822,39 @@ export function CasesPage() {
         )}
       </div>
 
+      {/* ── Matching equipment (cross-entity search into PMS assets) — shown
+            independent of case results so a serial/asset match always appears ── */}
+      {pmsEnabled && search.trim() && matchingAssets.length > 0 && (
+        <div className="mb-4 md:mb-5">
+          <h2 className="text-base font-semibold text-gray-700 mb-3 flex items-center gap-2">
+            <Wrench className="h-4 w-4 text-[var(--brand-primary)]" />Matching equipment
+            <span className="text-sm font-normal text-gray-400">{matchingAssets.length}</span>
+          </h2>
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm divide-y divide-gray-50 overflow-hidden">
+            {matchingAssets.map((a) => (
+              <Link key={a.id} to={`/maintenance?q=${encodeURIComponent(search.trim())}`}
+                className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 transition-colors">
+                <div className="w-8 h-8 rounded-lg bg-[var(--brand-primary)]/10 flex items-center justify-center flex-shrink-0">
+                  <Wrench className="h-4 w-4 text-[var(--brand-primary)]" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm font-medium text-gray-900 truncate">{a.name}</span>
+                    {a.type?.name && <span className="text-[11px] text-gray-500">{a.type.name}</span>}
+                  </div>
+                  <p className="text-[11px] text-gray-400 truncate flex items-center gap-2 mt-0.5">
+                    {a.location && <span className="flex items-center gap-0.5"><MapPin className="h-3 w-3" />{a.location}</span>}
+                    {a.serial_no && <span>S/N: {a.serial_no}</span>}
+                    {a.model && <span>· {a.model}</span>}
+                  </p>
+                </div>
+                <ChevronRight className="h-4 w-4 text-gray-300 flex-shrink-0" />
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
+
       {loading ? (
         <div className="flex items-center justify-center py-16">
           <div className="w-8 h-8 border-2 border-[var(--brand-primary)] border-t-transparent rounded-full animate-spin" />
@@ -868,38 +901,6 @@ export function CasesPage() {
               </button>
             ))}
           </div>
-
-          {/* ── Matching equipment (cross-entity search into PMS assets) ── */}
-          {pmsEnabled && search.trim() && matchingAssets.length > 0 && (
-            <div>
-              <h2 className="text-base font-semibold text-gray-700 mb-3 flex items-center gap-2">
-                <Wrench className="h-4 w-4 text-[var(--brand-primary)]" />Matching equipment
-                <span className="text-sm font-normal text-gray-400">{matchingAssets.length}</span>
-              </h2>
-              <div className="bg-white rounded-xl border border-gray-200 shadow-sm divide-y divide-gray-50 overflow-hidden">
-                {matchingAssets.map((a) => (
-                  <Link key={a.id} to={`/maintenance?q=${encodeURIComponent(search.trim())}`}
-                    className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 transition-colors">
-                    <div className="w-8 h-8 rounded-lg bg-[var(--brand-primary)]/10 flex items-center justify-center flex-shrink-0">
-                      <Wrench className="h-4 w-4 text-[var(--brand-primary)]" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-sm font-medium text-gray-900 truncate">{a.name}</span>
-                        {a.type?.name && <span className="text-[11px] text-gray-500">{a.type.name}</span>}
-                      </div>
-                      <p className="text-[11px] text-gray-400 truncate flex items-center gap-2 mt-0.5">
-                        {a.location && <span className="flex items-center gap-0.5"><MapPin className="h-3 w-3" />{a.location}</span>}
-                        {a.serial_no && <span>S/N: {a.serial_no}</span>}
-                        {a.model && <span>· {a.model}</span>}
-                      </p>
-                    </div>
-                    <ChevronRight className="h-4 w-4 text-gray-300 flex-shrink-0" />
-                  </Link>
-                ))}
-              </div>
-            </div>
-          )}
 
           {/* ── Active Cases ── */}
           {activeTab === 'active' && showActive && (
