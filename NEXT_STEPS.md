@@ -1,37 +1,19 @@
 # Next steps — to pick up later
 
-_Last updated: 2026-06-08. Notes captured before stepping away._
+_Both items below are DONE (2026-06-08). Kept for reference._
 
-## 1. PMS tab — filter row layout & labels
-File: `src/pages/PreventiveMaintenancePage.tsx` (the filter `<div className="flex flex-wrap items-center gap-2 mb-3">`).
+## 1. PMS tab — filter row layout & labels — ✅ DONE
+- Filters on one line at every screen size (flex-1/min-w-0 dropdowns, no wrap).
+- "All Locations" → "All Area".
+- Inactive toggle has a Ban icon (label hides on very small screens).
 
-- [ ] Keep all the filter controls **on the same line**:
-      `[All Equipment] [All Area] [All Departments] [Inactive]`
-      (consider `flex-nowrap` + horizontal scroll on small screens, or smaller controls, so they don't wrap).
-- [ ] Rename the **location** filter placeholder from **"All Locations" → "All Area"**.
-      (Only the dropdown label; the underlying field is still `location`. Decide later if "Location" should be relabelled to "Area" elsewhere too — asset card, asset form `tr.pm` strings.)
-- [ ] Add a **symbol/emoji in front of "Inactive"** on the toggle button to signal it
-      (e.g. `🚫 Inactive` or a `Ban`/`PowerOff` lucide icon).
-
-## 2. Cases — new "PMS" tab (between Active and Pending)
-File: `src/pages/CasesPage.tsx` (status tabs row) + reuse the calendar case popup.
-
-- [ ] Add a **"PMS" tab between Active and Pending**.
-- [ ] It lists **current active, non-overdue PMS cases** — i.e. cases where
-      `case_number LIKE 'PM-%'` (or `category = 'preventive_maintenance'`),
-      `status` not closed, and **not overdue** (per `isSLABreached`).
-- [ ] Next to the **"PMS Active cases" heading**, add a **month selector**
-      (previous / this / next month) to view the active PMS cases for that month
-      — mirror the Month nav already used on the Console dashboard / PM calendar.
-- [ ] Clicking a PMS case should **open a popup** (modal quick-view) like clicking a
-      case in the **Calendar tab** — reuse the modal pattern from
-      `src/pages/CasesCalendarPage.tsx` / `src/components/pm/PMSchedule.tsx`
-      (`PMTaskModal` / case modal) rather than navigating to `/cases/:id`.
+## 2. Cases — "PMS" tab (between Active and Pending) — ✅ DONE
+- New PMS tab listing active, non-overdue PM cases (case PM-… / category
+  preventive_maintenance, not closed, not overdue).
+- Month selector (prev / this / next) beside the "Active PMS Cases" heading,
+  filtering by due date (else created date).
+- Clicking a PMS case opens a quick-view popup (status/priority/dept, location,
+  due, opened-by PMS, details) with an "Open full case" link.
 
 ---
-### Context already shipped (so you don't redo it)
-- PM overdue → auto Case (`PM-…`, category **Preventive Maintenance**, priority High, **Opened by: PMS**); auto-prompt to assign PIC + due date; dept-manager/Top-Mgmt can change priority.
-- PM assets seeded (22) with serial no, model, checklist, last & next maintenance, purchase date.
-- PM page: search matches name/tag/serial/model/notes; filter bar (Equipment/Location/Department/Inactive); Inactive counter tile removed.
-- Resolution rules, chronic detection (location+category+title), overdue logic (due_date + skip approval-waiting), notifications link PM→/maintenance.
-- `/debug` skill (local) + `scripts/run_sql.sh` for DB via Management API.
+Nothing outstanding. Add new tasks here as they come up.

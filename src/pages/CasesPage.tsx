@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
 import { formatRelativeTime, formatDuration, isSLABreached, CATEGORIES, LOCATIONS } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 import type { KaizenCase, CaseStatus, CasePriority, Department } from '@/types'
@@ -435,8 +436,23 @@ export function CasesPage() {
   const showClosed = statusFilter === 'all' || statusFilter === 'closed'
 
   // Tab state
-  const [activeTab, setActiveTab] = useState<'active' | 'pending' | 'closed'>('active')
+  const [activeTab, setActiveTab] = useState<'active' | 'pms' | 'pending' | 'closed'>('active')
   const pendingTotal = pendingMgrCases.length + pendingAdminCases.length
+
+  // ── PMS tab: active, non-overdue preventive-maintenance cases ──────────────
+  const [pmsMonth, setPmsMonth] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1) })
+  const [quickCase, setQuickCase] = useState<KaizenCase | null>(null)
+  const isPmCase = (c: KaizenCase) => (c.case_number?.startsWith('PM-') ?? false) || c.category === 'preventive_maintenance'
+  const pmsAll = sortCases(cases.filter(c =>
+    isPmCase(c) && c.status !== 'closed' && !isSLABreached(c) &&
+    (!search || `${c.case_number} ${c.title}`.toLowerCase().includes(search.toLowerCase()))
+  ))
+  const pmsCases = pmsAll.filter(c => {
+    const d = new Date(c.due_date || c.created_at)
+    return d.getFullYear() === pmsMonth.getFullYear() && d.getMonth() === pmsMonth.getMonth()
+  })
+  const pmsMonthLabel = pmsMonth.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
+  const stepPmsMonth = (delta: number) => setPmsMonth(m => new Date(m.getFullYear(), m.getMonth() + delta, 1))
 
   // Incomplete cases: department, location or category no longer exists in the current custom lists
   const incompleteCases = cases.filter(c => {
@@ -753,6 +769,7 @@ export function CasesPage() {
           <div className="flex gap-1 bg-gray-100 rounded-xl p-1">
             {([
               { key: 'active',  label: 'Active',  count: activeCases.length,  color: 'text-gray-800' },
+              { key: 'pms',     label: 'PMS',     count: pmsAll.length,       color: 'text-sky-700' },
               { key: 'pending', label: 'Pending', count: pendingTotal,         color: 'text-amber-700' },
               { key: 'closed',  label: 'Closed',  count: closedCases.length,  color: 'text-gray-500' },
             ] as const).map(tab => (
@@ -770,7 +787,7 @@ export function CasesPage() {
                 <span className={cn(
                   'text-xs font-semibold px-1.5 py-0.5 rounded-full',
                   activeTab === tab.key
-                    ? tab.key === 'pending' ? 'bg-amber-100 text-amber-700' : tab.key === 'closed' ? 'bg-gray-100 text-gray-500' : 'bg-[var(--brand-primary)]/10 text-[var(--brand-primary)]'
+                    ? tab.key === 'pending' ? 'bg-amber-100 text-amber-700' : tab.key === 'closed' ? 'bg-gray-100 text-gray-500' : tab.key === 'pms' ? 'bg-sky-100 text-sky-700' : 'bg-[var(--brand-primary)]/10 text-[var(--brand-primary)]'
                     : 'bg-gray-200 text-gray-500'
                 )}>
                   {tab.count}
@@ -812,6 +829,48 @@ export function CasesPage() {
                     onPrev={() => setPageActive(p => Math.max(1, p - 1))}
                     onNext={() => setPageActive(p => Math.min(totalActivePages, p + 1))} />
                 </>
+              )}
+            </div>
+          )}
+
+          {/* ── PMS (active, non-overdue preventive-maintenance cases) ── */}
+          {activeTab === 'pms' && (
+            <div>
+              <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+                <h2 className="text-base font-semibold text-sky-700">
+                  Active PMS Cases
+                  <span className="ml-2 text-sm font-normal text-sky-400">{pmsCases.length}</span>
+                </h2>
+                <div className="flex items-center gap-1 bg-white border border-gray-200 rounded-lg px-1 h-8">
+                  <button onClick={() => stepPmsMonth(-1)} title="Previous month" className="p-1 rounded-md hover:bg-gray-100"><ChevronLeft className="h-4 w-4 text-gray-600" /></button>
+                  <span className="min-w-[120px] text-center text-xs font-medium text-gray-700">{pmsMonthLabel}</span>
+                  <button onClick={() => stepPmsMonth(1)} title="Next month" className="p-1 rounded-md hover:bg-gray-100"><ChevronRight className="h-4 w-4 text-gray-600" /></button>
+                </div>
+              </div>
+              {pmsCases.length === 0 ? (
+                <div className="bg-white rounded-xl border border-gray-200 shadow-sm py-10 text-center">
+                  <p className="text-gray-400 text-sm">No active PMS cases in {pmsMonthLabel}</p>
+                </div>
+              ) : (
+                <div className="bg-white rounded-xl border border-gray-200 shadow-sm divide-y divide-gray-50 overflow-hidden">
+                  {pmsCases.map((c) => (
+                    <button key={c.id} onClick={() => setQuickCase(c)} className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 transition-colors">
+                      <span className={cn('w-2 h-2 rounded-full flex-shrink-0', isSLABreached(c) ? 'bg-red-500' : 'bg-sky-500')} />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-xs font-mono text-gray-400">{c.case_number}</span>
+                          <StatusBadge status={c.status} />
+                          <PriorityBadge priority={c.priority} />
+                        </div>
+                        <p className="text-sm font-medium text-gray-900 truncate mt-0.5">{c.title}</p>
+                        <p className="text-[11px] text-gray-400 truncate">
+                          {c.location ?? '—'} · {DEPARTMENT_LABELS[c.department] ?? c.department}{c.due_date ? ` · due ${new Date(c.due_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}` : ''}
+                        </p>
+                      </div>
+                      <ChevronRight className="h-4 w-4 text-gray-300 flex-shrink-0" />
+                    </button>
+                  ))}
+                </div>
               )}
             </div>
           )}
@@ -923,6 +982,36 @@ export function CasesPage() {
           )}
 
         </div>
+      )}
+
+      {/* PMS case quick-view popup */}
+      {quickCase && (
+        <Dialog open onOpenChange={(o) => { if (!o) setQuickCase(null) }}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="pr-6">{quickCase.title}</DialogTitle>
+              <DialogDescription className="font-mono text-xs">{quickCase.case_number}</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3 text-sm">
+              <div className="flex items-center gap-2 flex-wrap">
+                <StatusBadge status={quickCase.status} />
+                <PriorityBadge priority={quickCase.priority} />
+                <DepartmentBadge department={quickCase.department} />
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-[13px]">
+                <div><span className="text-gray-400">Location</span><p className="text-gray-800">{quickCase.location ?? '—'}</p></div>
+                <div><span className="text-gray-400">Due</span><p className="text-gray-800">{quickCase.due_date ? new Date(quickCase.due_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Not set'}</p></div>
+                <div><span className="text-gray-400">Opened by</span><p className="text-gray-800">{!quickCase.created_by ? 'PMS' : '—'}</p></div>
+                <div><span className="text-gray-400">Reported</span><p className="text-gray-800">{new Date(quickCase.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</p></div>
+              </div>
+              {quickCase.description && <div><span className="text-gray-400 text-[13px]">Details</span><p className="text-gray-700 text-[13px] mt-0.5 whitespace-pre-wrap">{quickCase.description}</p></div>}
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setQuickCase(null)}>Close</Button>
+              <Link to={`/cases/${quickCase.id}`}><Button>Open full case</Button></Link>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       )}
     </div>
   )
