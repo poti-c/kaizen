@@ -46,6 +46,10 @@ export function PreventiveMaintenancePage() {
     initialStatus && validStatuses.includes(initialStatus as AssetStatus) ? (initialStatus as AssetStatus) : 'all'
   )
   const [dueSoonDays, setDueSoonDays] = useState(7)
+  const [typeFilter, setTypeFilter] = useState('all')
+  const [locFilter, setLocFilter] = useState('all')
+  const [deptFilter, setDeptFilter] = useState('all')
+  const [inactiveOnly, setInactiveOnly] = useState(false)
 
   const load = useCallback(async () => {
     if (!companyId) return
@@ -69,9 +73,21 @@ export function PreventiveMaintenancePage() {
     return acc
   }, {} as Record<AssetStatus, number>)
 
+  // Distinct option lists for the filter dropdowns.
+  const typeOptions = Array.from(new Set(assets.map(a => a.type?.name).filter(Boolean) as string[])).sort()
+  const locOptions = Array.from(new Set(assets.map(a => a.location).filter(Boolean) as string[])).sort()
+  const deptOptions = Array.from(new Set(assets.map(a => a.department).filter(Boolean) as string[])).sort()
+
   const filtered = assets.filter((a) => {
     if (filter !== 'all' && assetStatus(a.next_maintenance_date, a.is_active, dueSoonDays) !== filter) return false
-    if (q && !`${a.name} ${a.location ?? ''} ${a.type?.name ?? ''}`.toLowerCase().includes(q.toLowerCase())) return false
+    if (inactiveOnly && a.is_active) return false
+    if (typeFilter !== 'all' && a.type?.name !== typeFilter) return false
+    if (locFilter !== 'all' && a.location !== locFilter) return false
+    if (deptFilter !== 'all' && a.department !== deptFilter) return false
+    if (q) {
+      const hay = `${a.name} ${a.serial_no ?? ''} ${a.model ?? ''} ${a.notes ?? ''} ${a.location ?? ''} ${a.type?.name ?? ''} ${DEPARTMENT_LABELS[a.department as Department] ?? a.department ?? ''}`.toLowerCase()
+      if (!hay.includes(q.toLowerCase())) return false
+    }
     return true
   })
 
@@ -105,6 +121,30 @@ export function PreventiveMaintenancePage() {
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={tr.pm.searchAssets}
           className="w-full h-9 rounded-lg border border-gray-300 pl-9 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/40" />
+      </div>
+
+      {/* Filters */}
+      <div className="flex flex-wrap items-center gap-2 mb-3">
+        <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="h-8 rounded-lg border border-gray-300 bg-white px-2 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/40">
+          <option value="all">All equipment types</option>
+          {typeOptions.map(t => <option key={t} value={t}>{t}</option>)}
+        </select>
+        <select value={locFilter} onChange={(e) => setLocFilter(e.target.value)} className="h-8 rounded-lg border border-gray-300 bg-white px-2 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/40">
+          <option value="all">All locations</option>
+          {locOptions.map(l => <option key={l} value={l}>{l}</option>)}
+        </select>
+        <select value={deptFilter} onChange={(e) => setDeptFilter(e.target.value)} className="h-8 rounded-lg border border-gray-300 bg-white px-2 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/40">
+          <option value="all">All departments</option>
+          {deptOptions.map(d => <option key={d} value={d}>{DEPARTMENT_LABELS[d as Department] ?? d}</option>)}
+        </select>
+        <button onClick={() => setInactiveOnly(v => !v)}
+          className={`h-8 px-3 rounded-lg border text-xs font-medium transition-colors ${inactiveOnly ? 'bg-gray-800 text-white border-gray-800' : 'bg-white text-gray-600 border-gray-300 hover:border-gray-400'}`}>
+          Non-active
+        </button>
+        {(typeFilter !== 'all' || locFilter !== 'all' || deptFilter !== 'all' || inactiveOnly) && (
+          <button onClick={() => { setTypeFilter('all'); setLocFilter('all'); setDeptFilter('all'); setInactiveOnly(false) }}
+            className="h-8 px-2 text-xs text-[var(--brand-primary)] hover:underline">Clear</button>
+        )}
       </div>
 
       {loading ? (
