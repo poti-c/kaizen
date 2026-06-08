@@ -7,6 +7,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useLanguage } from '@/contexts/LanguageContext'
 import { DEPARTMENT_LABELS, type Department } from '@/types'
 import { FREQUENCIES, freqLabel, addInterval, assetStatus, STATUS_META, type FreqUnit, type AssetStatus } from '@/lib/pm'
+import { PMTaskModal, taskTone, type PMTask } from '@/components/pm/PMSchedule'
 
 const STATUS_KEY: Record<AssetStatus, 'good' | 'dueSoon' | 'overdue' | 'notScheduled' | 'inactiveStatus'> = {
   good: 'good', due_soon: 'dueSoon', overdue: 'overdue', unscheduled: 'notScheduled', inactive: 'inactiveStatus',
@@ -53,19 +54,29 @@ export function PreventiveMaintenancePage() {
   const [inactiveOnly, setInactiveOnly] = useState(false)
   const [pageSize, setPageSize] = useState<number | 'all'>(10)
   const [page, setPage] = useState(1)
+  const [pmTasks, setPmTasks] = useState<PMTask[]>([])
+  const [pmDoneTasks, setPmDoneTasks] = useState<PMTask[]>([])
+  const [openTask, setOpenTask] = useState<PMTask | null>(null)
 
   const load = useCallback(async () => {
     if (!companyId) return
     setLoading(true)
-    const [a, t, s] = await Promise.all([
+    try { await supabase.rpc('kaizen_pm_sync') } catch { /* materialize tasks; ignore if it fails */ }
+    const taskSel = '*, asset:kaizen_pm_assets(name, location, notes, checklist, department, type:kaizen_pm_equipment_types(name))'
+    const monthStartKey = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10)
+    const [a, t, s, openT, doneT] = await Promise.all([
       supabase.from('kaizen_pm_assets').select('*, type:kaizen_pm_equipment_types(name, category)').eq('company_id', companyId).order('next_maintenance_date', { ascending: true, nullsFirst: false }),
       supabase.from('kaizen_pm_equipment_types').select('id, name, category, is_active').eq('company_id', companyId).eq('is_active', true).order('category').order('name'),
       supabase.from('kaizen_pm_settings').select('due_soon_days').eq('company_id', companyId).maybeSingle(),
+      supabase.from('kaizen_pm_tasks').select(taskSel).eq('company_id', companyId).in('status', ['scheduled', 'in_progress', 'pending_approval']),
+      supabase.from('kaizen_pm_tasks').select(taskSel).eq('company_id', companyId).in('status', ['done', 'approved']).gte('performed_at', monthStartKey),
     ])
     if (a.error) toast.error(a.error.message)
     setAssets((a.data as Asset[]) ?? [])
     setTypes((t.data as EqType[]) ?? [])
     if (s.data?.due_soon_days != null) setDueSoonDays(s.data.due_soon_days)
+    setPmTasks((openT.data as unknown as PMTask[]) ?? [])
+    setPmDoneTasks((doneT.data as unknown as PMTask[]) ?? [])
     setLoading(false)
   }, [companyId])
   useEffect(() => { load() }, [load])
@@ -75,6 +86,16 @@ export function PreventiveMaintenancePage() {
     acc[s] = (acc[s] ?? 0) + 1
     return acc
   }, {} as Record<AssetStatus, number>)
+
+  // Task activity breakdown (search-aware) — mirrors the dashboard PM summary
+  const todayKey = new Date().toISOString().slice(0, 10)
+  const weekKey = new Date(Date.now() + dueSoonDays * 86400000).toISOString().slice(0, 10)
+  const monthPrefix = todayKey.slice(0, 7)
+  const taskMatch = (tk: PMTask) => !q || `${tk.asset?.name ?? ''} ${tk.asset?.location ?? ''} ${tk.asset?.type?.name ?? ''}`.toLowerCase().includes(q.toLowerCase())
+  const dueThisWeekTasks = pmTasks.filter(tk => (tk.status === 'scheduled' || tk.status === 'in_progress') && tk.due_date >= todayKey && tk.due_date <= weekKey && taskMatch(tk))
+  const awaitingTasks = pmTasks.filter(tk => tk.status === 'pending_approval' && taskMatch(tk))
+  const doneThisMonthTasks = pmDoneTasks.filter(tk => tk.performed_at && tk.performed_at.slice(0, 7) === monthPrefix && taskMatch(tk))
+  const scrollToPm = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 
   // Distinct option lists for the filter dropdowns.
   const typeOptions = Array.from(new Set(assets.map(a => a.type?.name).filter(Boolean) as string[])).sort()
@@ -115,8 +136,8 @@ export function PreventiveMaintenancePage() {
         )}
       </div>
 
-      {/* Summary */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
+      {/* Summary — asset health (filters the list) */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-2">
         {STATUS_ORDER.map((s) => (
           <button key={s} onClick={() => setFilter(filter === s ? 'all' : s)}
             className={`rounded-xl border p-3 text-left transition-colors ${filter === s ? 'ring-2 ring-[var(--brand-primary)]/40' : ''} ${STATUS_META[s].pill}`}>
@@ -124,6 +145,22 @@ export function PreventiveMaintenancePage() {
             <p className="text-[11px] mt-1">{statusLabel(s)}</p>
           </button>
         ))}
+      </div>
+
+      {/* Summary — task activity (scrolls to its list below) */}
+      <div className="grid grid-cols-3 gap-2 mb-4">
+        <button onClick={() => scrollToPm('pm-duethisweek')} className="rounded-xl border border-gray-200 bg-gray-50 text-gray-700 p-3 text-left hover:brightness-95 transition-all">
+          <p className="text-lg font-bold leading-none">{dueThisWeekTasks.length}</p>
+          <p className="text-[11px] mt-1">{tr.pm.dueThisWeek}</p>
+        </button>
+        <button onClick={() => scrollToPm('pm-awaiting')} className={`rounded-xl border p-3 text-left hover:brightness-95 transition-all ${awaitingTasks.length > 0 ? 'border-violet-200 bg-violet-50 text-violet-700' : 'border-gray-200 bg-gray-50 text-gray-700'}`}>
+          <p className="text-lg font-bold leading-none">{awaitingTasks.length}</p>
+          <p className="text-[11px] mt-1">{tr.pm.awaitingApproval}</p>
+        </button>
+        <button onClick={() => scrollToPm('pm-done')} className="rounded-xl border border-gray-200 bg-gray-50 text-gray-700 p-3 text-left hover:brightness-95 transition-all">
+          <p className="text-lg font-bold leading-none">{doneThisMonthTasks.length}</p>
+          <p className="text-[11px] mt-1">{tr.pm.doneThisMonth}</p>
+        </button>
       </div>
 
       {/* Search */}
@@ -216,11 +253,66 @@ export function PreventiveMaintenancePage() {
         </div>
       )}
 
+      {/* ── Task activity lists ── */}
+      {!loading && (dueThisWeekTasks.length > 0 || awaitingTasks.length > 0 || doneThisMonthTasks.length > 0) && (
+        <div className="mt-6 space-y-5">
+          {dueThisWeekTasks.length > 0 && (
+            <TaskSection id="pm-duethisweek" title={tr.pm.dueThisWeek} count={dueThisWeekTasks.length} accent="text-amber-700"
+              tasks={dueThisWeekTasks} onOpen={setOpenTask} />
+          )}
+          {awaitingTasks.length > 0 && (
+            <TaskSection id="pm-awaiting" title={tr.pm.awaitingApproval} count={awaitingTasks.length} accent="text-violet-700"
+              tasks={awaitingTasks} onOpen={setOpenTask} />
+          )}
+          {doneThisMonthTasks.length > 0 && (
+            <TaskSection id="pm-done" title={tr.pm.doneThisMonth} count={doneThisMonthTasks.length} accent="text-green-700"
+              tasks={doneThisMonthTasks} onOpen={setOpenTask} />
+          )}
+        </div>
+      )}
+
+      {openTask && <PMTaskModal task={openTask} onClose={() => setOpenTask(null)} onDone={() => { setOpenTask(null); load() }} />}
+
       {editor && companyId && (
         <AssetEditor companyId={companyId} types={types} asset={editor === 'new' ? null : editor}
           onClose={() => setEditor(null)} onSaved={() => { setEditor(null); load() }} />
       )}
     </div>
+  )
+}
+
+function TaskSection({ id, title, count, accent, tasks, onOpen }: {
+  id: string; title: string; count: number; accent: string; tasks: PMTask[]; onOpen: (t: PMTask) => void
+}) {
+  return (
+    <div id={id} className="scroll-mt-4">
+      <h2 className={`text-base font-semibold mb-3 ${accent}`}>{title}<span className="ml-2 text-sm font-normal opacity-60">{count}</span></h2>
+      <div className="space-y-2">
+        {tasks.map((t) => <PmTaskListRow key={t.id} t={t} onOpen={() => onOpen(t)} />)}
+      </div>
+    </div>
+  )
+}
+
+function PmTaskListRow({ t, onOpen }: { t: PMTask; onOpen: () => void }) {
+  const tone = taskTone(t)
+  const due = fmt(t.due_date)
+  return (
+    <button onClick={onOpen} className="w-full flex items-center gap-3 bg-white border border-gray-200 rounded-xl p-3 text-left hover:border-gray-300 transition-colors">
+      <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${tone.dot}`} />
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <p className="text-sm font-semibold text-gray-900 truncate">{t.asset?.name ?? 'Asset'}</p>
+          {t.asset?.type?.name && <span className="text-[11px] text-gray-500">{t.asset.type.name}</span>}
+          <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${tone.chip}`}>{tone.label}</span>
+        </div>
+        <p className="text-[11px] text-gray-500 truncate flex items-center gap-2 mt-0.5">
+          {t.asset?.location && <span className="flex items-center gap-0.5"><MapPin className="h-3 w-3" />{t.asset.location}</span>}
+          <span>· due {due}</span>
+        </p>
+      </div>
+      <Pencil className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
+    </button>
   )
 }
 
