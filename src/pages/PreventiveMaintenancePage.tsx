@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Wrench, Plus, Loader2, X, Check, Trash2, Pencil, MapPin, Search } from 'lucide-react'
+import { Wrench, Plus, Loader2, X, Check, Trash2, Pencil, MapPin, Search, Ban } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useCompany } from '@/contexts/CompanyContext'
 import { useAuth } from '@/contexts/AuthContext'
@@ -124,27 +124,27 @@ export function PreventiveMaintenancePage() {
           className="w-full h-9 rounded-lg border border-gray-300 pl-9 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/40" />
       </div>
 
-      {/* Filters */}
-      <div className="flex flex-wrap items-center gap-2 mb-3">
-        <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="h-8 rounded-lg border border-gray-300 bg-white px-2 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/40">
+      {/* Filters — single line on every screen size; dropdowns flex to fit width */}
+      <div className="flex items-center gap-1.5 sm:gap-2 mb-3">
+        <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="flex-1 min-w-0 h-8 rounded-lg border border-gray-300 bg-white px-1.5 sm:px-2 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/40">
           <option value="all">All Equipment</option>
           {typeOptions.map(t => <option key={t} value={t}>{t}</option>)}
         </select>
-        <select value={locFilter} onChange={(e) => setLocFilter(e.target.value)} className="h-8 rounded-lg border border-gray-300 bg-white px-2 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/40">
-          <option value="all">All Locations</option>
+        <select value={locFilter} onChange={(e) => setLocFilter(e.target.value)} className="flex-1 min-w-0 h-8 rounded-lg border border-gray-300 bg-white px-1.5 sm:px-2 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/40">
+          <option value="all">All Area</option>
           {locOptions.map(l => <option key={l} value={l}>{l}</option>)}
         </select>
-        <select value={deptFilter} onChange={(e) => setDeptFilter(e.target.value)} className="h-8 rounded-lg border border-gray-300 bg-white px-2 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/40">
+        <select value={deptFilter} onChange={(e) => setDeptFilter(e.target.value)} className="flex-1 min-w-0 h-8 rounded-lg border border-gray-300 bg-white px-1.5 sm:px-2 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/40">
           <option value="all">All Departments</option>
           {deptOptions.map(d => <option key={d} value={d}>{DEPARTMENT_LABELS[d as Department] ?? d}</option>)}
         </select>
         <button onClick={() => setInactiveOnly(v => !v)}
-          className={`h-8 px-3 rounded-lg border text-xs font-medium transition-colors ${inactiveOnly ? 'bg-gray-800 text-white border-gray-800' : 'bg-white text-gray-600 border-gray-300 hover:border-gray-400'}`}>
-          Inactive
+          className={`flex-shrink-0 h-8 px-2 rounded-lg border text-xs font-medium transition-colors flex items-center gap-1 ${inactiveOnly ? 'bg-gray-800 text-white border-gray-800' : 'bg-white text-gray-600 border-gray-300 hover:border-gray-400'}`}>
+          <Ban className="h-3.5 w-3.5" /><span className="hidden sm:inline">Inactive</span>
         </button>
         {(typeFilter !== 'all' || locFilter !== 'all' || deptFilter !== 'all' || inactiveOnly) && (
           <button onClick={() => { setTypeFilter('all'); setLocFilter('all'); setDeptFilter('all'); setInactiveOnly(false) }}
-            className="h-8 px-2 text-xs text-[var(--brand-primary)] hover:underline">Clear</button>
+            className="flex-shrink-0 h-8 px-1.5 text-xs text-[var(--brand-primary)] hover:underline" title="Clear filters">Clear</button>
         )}
       </div>
 
