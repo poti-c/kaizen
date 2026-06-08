@@ -1,12 +1,12 @@
 import { useEffect, useState, useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import { Clock, CheckCircle2, AlertTriangle, FolderOpen, Trophy, Building2, ChevronRight } from 'lucide-react'
+import { Clock, CheckCircle2, AlertTriangle, FolderOpen, Trophy, Building2, ChevronRight, Wrench } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useCompany } from '@/contexts/CompanyContext'
 import { useLanguage } from '@/contexts/LanguageContext'
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
-import { getInitials, isSLABreached } from '@/lib/utils'
+import { getInitials, isSLABreached, companyHasAddon } from '@/lib/utils'
 import { DEPARTMENT_LABELS } from '@/types'
 import type { KaizenCase, KaizenProfile, Department } from '@/types'
 import { differenceInHours } from 'date-fns'
@@ -41,7 +41,9 @@ export function PerformancePage() {
   const { t, lang } = useLanguage()
   const [cases, setCases] = useState<KaizenCase[]>([])
   const [people, setPeople] = useState<KaizenProfile[]>([])
+  const [pmTasks, setPmTasks] = useState<{ status: string; due_date: string; performed_at: string | null }[]>([])
   const [loading, setLoading] = useState(true)
+  const pmsEnabled = companyHasAddon(activeCompany, 'pms')
   const [range, setRange] = useState<RangeKey>(() => {
     return (localStorage.getItem('kaizen-perf-range') as RangeKey) || 'month'
   })
@@ -62,6 +64,10 @@ export function PerformancePage() {
     ])
     setCases((casesRes.data || []) as KaizenCase[])
     setPeople((peopleRes.data || []) as KaizenProfile[])
+    if (companyHasAddon(activeCompany, 'pms')) {
+      const { data: pm } = await supabase.from('kaizen_pm_tasks').select('status, due_date, performed_at').eq('company_id', companyFilter!)
+      setPmTasks((pm || []) as { status: string; due_date: string; performed_at: string | null }[])
+    } else { setPmTasks([]) }
     setLoading(false)
   }
 
@@ -214,11 +220,19 @@ export function PerformancePage() {
       </div>
 
       {/* Org summary KPIs */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+      <div className={`grid grid-cols-2 gap-3 mb-6 ${pmsEnabled ? 'lg:grid-cols-5' : 'lg:grid-cols-4'}`}>
         <SummaryCard icon={FolderOpen} color="blue" label={lang === 'th' ? 'เคสทั้งหมด' : 'Total Cases'} value={String(summary.total)} />
         <SummaryCard icon={CheckCircle2} color="green" label={t.dashboard.resolutionRate} value={`${summary.resolutionRate}%`} />
         <SummaryCard icon={Clock} color="purple" label={t.dashboard.avgResolution} value={fmtRes(summary.avgHours)} />
         <SummaryCard icon={AlertTriangle} color="red" label={t.dashboard.overdueSLA} value={String(summary.overdue)} danger={summary.overdue > 0} />
+        {pmsEnabled && (() => {
+          const todayKey = new Date().toISOString().slice(0, 10)
+          const pmOverdue = pmTasks.filter(t => (t.status === 'scheduled' || t.status === 'in_progress') && t.due_date < todayKey).length
+          const pmDone = pmTasks.filter(t => t.status === 'done' || t.status === 'approved').length
+          const pmOpen = pmTasks.filter(t => ['scheduled', 'in_progress', 'pending_approval'].includes(t.status)).length
+          const pmRate = (pmDone + pmOpen) > 0 ? Math.round((pmDone / (pmDone + pmOpen)) * 100) : 100
+          return <SummaryCard icon={Wrench} color={pmOverdue > 0 ? 'red' : 'green'} label={lang === 'th' ? 'PMS (เสร็จ/เกินกำหนด)' : 'PMS done · overdue'} value={`${pmRate}% · ${pmOverdue}`} danger={pmOverdue > 0} />
+        })()}
       </div>
 
       {/* Department comparison */}

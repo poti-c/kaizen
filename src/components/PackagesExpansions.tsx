@@ -311,7 +311,7 @@ export function PackagesExpansions() {
                   </div>
                   <p className="text-[11px] text-gray-600 mt-0.5">{a.desc}</p>
                   {/* Subscription-end counter for a purchased add-on (pauses with the subscription) */}
-                  {purchased && sub.end && <p className="text-[11px] text-gray-500 mt-1 flex items-center gap-1"><Calendar className="h-3 w-3" />Active until {fmtDate(sub.end)}{sub.daysLeft != null && !sub.expired ? ` · ${sub.daysLeft} days left` : ''}</p>}
+                  {purchased && sub.end && <p className="text-[11px] text-gray-500 mt-1 flex items-center gap-1"><Calendar className="h-3 w-3" />Active until {fmtDate(sub.end)}</p>}
                   {!purchased && (
                     <div className="flex items-center gap-2 mt-2">
                       <button onClick={() => openPay({ kind: 'addon', target: a.key, label: a.name, amount: price[a.key] ?? 0 })} className={`h-8 px-3 rounded-lg text-xs font-semibold flex items-center gap-1.5 ${upgradeLocked ? 'bg-gray-100 text-gray-400' : 'bg-[var(--brand-primary)] text-white hover:opacity-90'}`}>{upgradeLocked && <Lock className="h-3 w-3" />}Subscribe now</button>
@@ -323,6 +323,19 @@ export function PackagesExpansions() {
                     </div>
                   )}
                 </div>
+                {/* Days-remaining counter (right) — until the subscription/renewal */}
+                {purchased && sub.daysLeft != null && !sub.expired && (
+                  <div className="text-right flex-shrink-0 pl-2">
+                    <p className="text-xl font-bold text-[var(--brand-primary)] leading-none">{sub.daysLeft}</p>
+                    <p className="text-[10px] text-gray-400 mt-0.5">days left</p>
+                  </div>
+                )}
+                {!purchased && trialLeft != null && (
+                  <div className="text-right flex-shrink-0 pl-2">
+                    <p className="text-xl font-bold text-violet-600 leading-none">{trialLeft}</p>
+                    <p className="text-[10px] text-gray-400 mt-0.5">trial days</p>
+                  </div>
+                )}
               </div>
             </div>
           )
