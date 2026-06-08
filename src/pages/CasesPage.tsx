@@ -629,7 +629,7 @@ export function CasesPage() {
                 localStorage.setItem('kaizen-advanced-search-enabled', JSON.stringify(checked))
               }}
             />
-            <span className="text-gray-600">Advanced</span>
+            <span className="text-gray-600">Filter</span>
           </label>
         </div>
 
