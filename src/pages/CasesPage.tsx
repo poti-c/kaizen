@@ -10,8 +10,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
-import { formatRelativeTime, formatDuration, isSLABreached, CATEGORIES, LOCATIONS } from '@/lib/utils'
+import { PMTaskModal, taskTone, type PMTask } from '@/components/pm/PMSchedule'
+import { formatRelativeTime, formatDuration, isSLABreached, CATEGORIES, LOCATIONS, companyHasAddon } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 import type { KaizenCase, CaseStatus, CasePriority, Department } from '@/types'
 import { STATUS_LABELS, PRIORITY_LABELS, DEPARTMENTS, DEPARTMENT_LABELS } from '@/types'
@@ -31,6 +31,27 @@ const PAGE_SIZE = 20
 const CATEGORY_LABELS_EN: Record<string, string> = {
   maintenance: 'Maintenance', cleanliness: 'Cleanliness', safety: 'Safety',
   guest_complaint: 'Guest Complaint', equipment: 'Equipment', other: 'Other',
+}
+
+// One PM task row in the Cases → PMS tab (opens the run/checklist modal).
+function PmTaskRow({ t, onOpen }: { t: PMTask; onOpen: () => void }) {
+  const tone = taskTone(t)
+  const due = new Date(t.due_date + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+  return (
+    <button onClick={onOpen} className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 transition-colors">
+      <span className={cn('w-2 h-2 rounded-full flex-shrink-0', tone.dot)} />
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-sm font-medium text-gray-900 truncate">{t.asset?.name ?? 'Asset'}</span>
+          <span className={cn('text-[10px] px-1.5 py-0.5 rounded-full border', tone.chip)}>{tone.label}</span>
+        </div>
+        <p className="text-[11px] text-gray-400 truncate">
+          {t.asset?.location ?? '—'}{t.asset?.department ? ` · ${DEPARTMENT_LABELS[t.asset.department as Department] ?? t.asset.department}` : ''} · due {due}
+        </p>
+      </div>
+      <ChevronRight className="h-4 w-4 text-gray-300 flex-shrink-0" />
+    </button>
+  )
 }
 
 export function CasesPage() {
@@ -439,18 +460,33 @@ export function CasesPage() {
   const [activeTab, setActiveTab] = useState<'active' | 'pms' | 'pending' | 'closed'>('active')
   const pendingTotal = pendingMgrCases.length + pendingAdminCases.length
 
-  // ── PMS tab: active, non-overdue preventive-maintenance cases ──────────────
+  // ── PMS tab: preventive-maintenance tasks (active + overdue) ───────────────
+  const pmsEnabled = companyHasAddon(activeCompany, 'pms')
+  const [pmTasks, setPmTasks] = useState<PMTask[]>([])
+  const [openTask, setOpenTask] = useState<PMTask | null>(null)
   const [pmsMonth, setPmsMonth] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1) })
-  const [quickCase, setQuickCase] = useState<KaizenCase | null>(null)
-  const isPmCase = (c: KaizenCase) => (c.case_number?.startsWith('PM-') ?? false) || c.category === 'preventive_maintenance'
-  const pmsAll = sortCases(cases.filter(c =>
-    isPmCase(c) && c.status !== 'closed' && !isSLABreached(c) &&
-    (!search || `${c.case_number} ${c.title}`.toLowerCase().includes(search.toLowerCase()))
-  ))
-  const pmsCases = pmsAll.filter(c => {
-    const d = new Date(c.due_date || c.created_at)
+  const [pmsViewAll, setPmsViewAll] = useState(false)
+  const loadPmTasks = React.useCallback(() => {
+    if (!activeCompany?.id || !pmsEnabled) { setPmTasks([]); return }
+    ;(async () => {
+      try { await supabase.rpc('kaizen_pm_sync') } catch { /* materialize tasks; ignore if it fails */ }
+      const { data } = await supabase.from('kaizen_pm_tasks')
+        .select('*, asset:kaizen_pm_assets(name, location, notes, checklist, department, type:kaizen_pm_equipment_types(name))')
+        .eq('company_id', activeCompany.id).in('status', ['scheduled', 'in_progress', 'pending_approval'])
+      setPmTasks((data as PMTask[]) ?? [])
+    })()
+  }, [activeCompany?.id, pmsEnabled])
+  useEffect(() => { loadPmTasks() }, [loadPmTasks])
+
+  const todayKey = new Date().toISOString().slice(0, 10)
+  const matchTaskSearch = (t: PMTask) => !search || `${t.asset?.name ?? ''} ${t.asset?.location ?? ''} ${t.asset?.type?.name ?? ''}`.toLowerCase().includes(search.toLowerCase())
+  const overdueTasks = pmTasks.filter(t => t.due_date < todayKey && matchTaskSearch(t))
+  const activeTasksAll = pmTasks.filter(t => t.due_date >= todayKey && matchTaskSearch(t))
+  const activeTasks = pmsViewAll ? activeTasksAll : activeTasksAll.filter(t => {
+    const d = new Date(t.due_date + 'T00:00:00')
     return d.getFullYear() === pmsMonth.getFullYear() && d.getMonth() === pmsMonth.getMonth()
   })
+  const pmsOpenCount = overdueTasks.length + activeTasksAll.length
   const pmsMonthLabel = pmsMonth.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
   const stepPmsMonth = (delta: number) => setPmsMonth(m => new Date(m.getFullYear(), m.getMonth() + delta, 1))
 
@@ -769,10 +805,10 @@ export function CasesPage() {
           <div className="flex gap-1 bg-gray-100 rounded-xl p-1">
             {([
               { key: 'active',  label: 'Active',  count: activeCases.length,  color: 'text-gray-800' },
-              { key: 'pms',     label: 'PMS',     count: pmsAll.length,       color: 'text-sky-700' },
+              { key: 'pms',     label: 'PMS',     count: pmsOpenCount,        color: 'text-sky-700' },
               { key: 'pending', label: 'Pending', count: pendingTotal,         color: 'text-amber-700' },
               { key: 'closed',  label: 'Closed',  count: closedCases.length,  color: 'text-gray-500' },
-            ] as const).map(tab => (
+            ] as const).filter(tab => tab.key !== 'pms' || pmsEnabled).map(tab => (
               <button
                 key={tab.key}
                 onClick={() => setActiveTab(tab.key)}
@@ -833,43 +869,51 @@ export function CasesPage() {
             </div>
           )}
 
-          {/* ── PMS (active, non-overdue preventive-maintenance cases) ── */}
+          {/* ── PMS (preventive-maintenance tasks: active + overdue) ── */}
           {activeTab === 'pms' && (
-            <div>
-              <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-                <h2 className="text-base font-semibold text-sky-700">
-                  Active PMS Cases
-                  <span className="ml-2 text-sm font-normal text-sky-400">{pmsCases.length}</span>
-                </h2>
-                <div className="flex items-center gap-1 bg-white border border-gray-200 rounded-lg px-1 h-8">
-                  <button onClick={() => stepPmsMonth(-1)} title="Previous month" className="p-1 rounded-md hover:bg-gray-100"><ChevronLeft className="h-4 w-4 text-gray-600" /></button>
-                  <span className="min-w-[120px] text-center text-xs font-medium text-gray-700">{pmsMonthLabel}</span>
-                  <button onClick={() => stepPmsMonth(1)} title="Next month" className="p-1 rounded-md hover:bg-gray-100"><ChevronRight className="h-4 w-4 text-gray-600" /></button>
-                </div>
-              </div>
-              {pmsCases.length === 0 ? (
-                <div className="bg-white rounded-xl border border-gray-200 shadow-sm py-10 text-center">
-                  <p className="text-gray-400 text-sm">No active PMS cases in {pmsMonthLabel}</p>
-                </div>
-              ) : (
-                <div className="bg-white rounded-xl border border-gray-200 shadow-sm divide-y divide-gray-50 overflow-hidden">
-                  {pmsCases.map((c) => (
-                    <button key={c.id} onClick={() => setQuickCase(c)} className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 transition-colors">
-                      <span className={cn('w-2 h-2 rounded-full flex-shrink-0', isSLABreached(c) ? 'bg-red-500' : 'bg-sky-500')} />
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-xs font-mono text-gray-400">{c.case_number}</span>
-                          <StatusBadge status={c.status} />
-                          <PriorityBadge priority={c.priority} />
-                        </div>
-                        <p className="text-sm font-medium text-gray-900 truncate mt-0.5">{c.title}</p>
-                        <p className="text-[11px] text-gray-400 truncate">
-                          {c.location ?? '—'} · {DEPARTMENT_LABELS[c.department] ?? c.department}{c.due_date ? ` · due ${new Date(c.due_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}` : ''}
-                        </p>
+            <div className="space-y-5">
+              {/* Active PMS tasks (month-scoped) */}
+              <div>
+                <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+                  <h2 className="text-base font-semibold text-sky-700">
+                    Active PMS Cases
+                    <span className="ml-2 text-sm font-normal text-sky-400">{activeTasks.length}</span>
+                  </h2>
+                  <div className="flex items-center gap-2">
+                    {!pmsViewAll && (
+                      <div className="flex items-center gap-1 bg-white border border-gray-200 rounded-lg px-1 h-8">
+                        <button onClick={() => stepPmsMonth(-1)} title="Previous month" className="p-1 rounded-md hover:bg-gray-100"><ChevronLeft className="h-4 w-4 text-gray-600" /></button>
+                        <span className="min-w-[120px] text-center text-xs font-medium text-gray-700">{pmsMonthLabel}</span>
+                        <button onClick={() => stepPmsMonth(1)} title="Next month" className="p-1 rounded-md hover:bg-gray-100"><ChevronRight className="h-4 w-4 text-gray-600" /></button>
                       </div>
-                      <ChevronRight className="h-4 w-4 text-gray-300 flex-shrink-0" />
+                    )}
+                    <button onClick={() => setPmsViewAll(v => !v)}
+                      className={cn('h-8 px-3 rounded-lg border text-xs font-medium transition-colors', pmsViewAll ? 'bg-sky-600 text-white border-sky-600' : 'bg-white text-gray-600 border-gray-300 hover:border-gray-400')}>
+                      {pmsViewAll ? 'By month' : 'View all'}
                     </button>
-                  ))}
+                  </div>
+                </div>
+                {activeTasks.length === 0 ? (
+                  <div className="bg-white rounded-xl border border-gray-200 shadow-sm py-8 text-center">
+                    <p className="text-gray-400 text-sm">No active PMS tasks{pmsViewAll ? '' : ` in ${pmsMonthLabel}`}</p>
+                  </div>
+                ) : (
+                  <div className="bg-white rounded-xl border border-gray-200 shadow-sm divide-y divide-gray-50 overflow-hidden">
+                    {activeTasks.map((t) => <PmTaskRow key={t.id} t={t} onOpen={() => setOpenTask(t)} />)}
+                  </div>
+                )}
+              </div>
+
+              {/* Overdue PMS tasks (always shown) */}
+              {overdueTasks.length > 0 && (
+                <div>
+                  <h2 className="text-base font-semibold text-red-700 mb-3">
+                    Overdue PMS Cases
+                    <span className="ml-2 text-sm font-normal text-red-400">{overdueTasks.length}</span>
+                  </h2>
+                  <div className="bg-white rounded-xl border border-red-200 shadow-sm divide-y divide-gray-50 overflow-hidden">
+                    {overdueTasks.map((t) => <PmTaskRow key={t.id} t={t} onOpen={() => setOpenTask(t)} />)}
+                  </div>
                 </div>
               )}
             </div>
@@ -984,35 +1028,8 @@ export function CasesPage() {
         </div>
       )}
 
-      {/* PMS case quick-view popup */}
-      {quickCase && (
-        <Dialog open onOpenChange={(o) => { if (!o) setQuickCase(null) }}>
-          <DialogContent className="max-w-md">
-            <DialogHeader>
-              <DialogTitle className="pr-6">{quickCase.title}</DialogTitle>
-              <DialogDescription className="font-mono text-xs">{quickCase.case_number}</DialogDescription>
-            </DialogHeader>
-            <div className="space-y-3 text-sm">
-              <div className="flex items-center gap-2 flex-wrap">
-                <StatusBadge status={quickCase.status} />
-                <PriorityBadge priority={quickCase.priority} />
-                <DepartmentBadge department={quickCase.department} />
-              </div>
-              <div className="grid grid-cols-2 gap-2 text-[13px]">
-                <div><span className="text-gray-400">Location</span><p className="text-gray-800">{quickCase.location ?? '—'}</p></div>
-                <div><span className="text-gray-400">Due</span><p className="text-gray-800">{quickCase.due_date ? new Date(quickCase.due_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Not set'}</p></div>
-                <div><span className="text-gray-400">Opened by</span><p className="text-gray-800">{!quickCase.created_by ? 'PMS' : '—'}</p></div>
-                <div><span className="text-gray-400">Reported</span><p className="text-gray-800">{new Date(quickCase.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</p></div>
-              </div>
-              {quickCase.description && <div><span className="text-gray-400 text-[13px]">Details</span><p className="text-gray-700 text-[13px] mt-0.5 whitespace-pre-wrap">{quickCase.description}</p></div>}
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setQuickCase(null)}>Close</Button>
-              <Link to={`/cases/${quickCase.id}`}><Button>Open full case</Button></Link>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      )}
+      {/* PMS task run/checklist popup (same modal as the calendar) */}
+      {openTask && <PMTaskModal task={openTask} onClose={() => setOpenTask(null)} onDone={() => { setOpenTask(null); loadPmTasks() }} />}
     </div>
   )
 }
