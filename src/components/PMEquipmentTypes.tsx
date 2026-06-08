@@ -84,7 +84,8 @@ export function PMEquipmentTypes() {
   const [newCat, setNewCat] = useState<string>(PM_CATEGORIES[0])
   const [editId, setEditId] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
+  // All categories collapsed by default — expand on click.
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set([...PM_CATEGORIES, 'Other']))
   const toggleCat = (c: string) => setCollapsed((prev) => { const n = new Set(prev); n.has(c) ? n.delete(c) : n.add(c); return n })
 
   const load = useCallback(async () => {
