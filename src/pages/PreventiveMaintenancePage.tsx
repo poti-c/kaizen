@@ -7,6 +7,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useLanguage } from '@/contexts/LanguageContext'
 import { DEPARTMENT_LABELS, type Department } from '@/types'
 import { FREQUENCIES, freqLabel, addInterval, assetStatus, STATUS_META, type FreqUnit, type AssetStatus } from '@/lib/pm'
+import { LOCATIONS } from '@/lib/utils'
 import { PMTaskModal, taskTone, type PMTask } from '@/components/pm/PMSchedule'
 
 const STATUS_KEY: Record<AssetStatus, 'good' | 'dueSoon' | 'overdue' | 'notScheduled' | 'inactiveStatus'> = {
@@ -61,6 +62,7 @@ export function PreventiveMaintenancePage() {
   const [pmTasks, setPmTasks] = useState<PMTask[]>([])
   const [pmDoneTasks, setPmDoneTasks] = useState<PMTask[]>([])
   const [openTask, setOpenTask] = useState<PMTask | null>(null)
+  const [locations, setLocations] = useState<string[]>([...LOCATIONS] as string[])
 
   const load = useCallback(async () => {
     if (!companyId) return
@@ -68,17 +70,20 @@ export function PreventiveMaintenancePage() {
     try { await supabase.rpc('kaizen_pm_sync') } catch { /* materialize tasks; ignore if it fails */ }
     const taskSel = '*, asset:kaizen_pm_assets(name, location, notes, checklist, department, type:kaizen_pm_equipment_types(name))'
     const monthStartKey = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10)
-    const [a, t, s, openT, doneT] = await Promise.all([
+    const [a, t, s, openT, doneT, loc] = await Promise.all([
       supabase.from('kaizen_pm_assets').select('*, type:kaizen_pm_equipment_types(name, category)').eq('company_id', companyId).order('next_maintenance_date', { ascending: true, nullsFirst: false }),
       supabase.from('kaizen_pm_equipment_types').select('id, name, category, is_active').eq('company_id', companyId).eq('is_active', true).order('category').order('name'),
       supabase.from('kaizen_pm_settings').select('due_soon_days').eq('company_id', companyId).maybeSingle(),
       supabase.from('kaizen_pm_tasks').select(taskSel).eq('company_id', companyId).in('status', ['scheduled', 'in_progress', 'pending_approval']),
       supabase.from('kaizen_pm_tasks').select(taskSel).eq('company_id', companyId).in('status', ['done', 'approved']).gte('performed_at', monthStartKey),
+      supabase.from('kaizen_settings').select('value').eq('key', 'custom_locations').maybeSingle(),
     ])
     if (a.error) toast.error(a.error.message)
     setAssets((a.data as Asset[]) ?? [])
     setTypes((t.data as EqType[]) ?? [])
     if (s.data?.due_soon_days != null) setDueSoonDays(s.data.due_soon_days)
+    const locList = loc.data?.value as string[] | undefined
+    setLocations(Array.isArray(locList) && locList.length ? locList : [...LOCATIONS] as string[])
     setPmTasks((openT.data as unknown as PMTask[]) ?? [])
     setPmDoneTasks((doneT.data as unknown as PMTask[]) ?? [])
     setLoading(false)
@@ -279,7 +284,7 @@ export function PreventiveMaintenancePage() {
       {openTask && <PMTaskModal task={openTask} onClose={() => setOpenTask(null)} onDone={() => { setOpenTask(null); load() }} />}
 
       {editor && companyId && (
-        <AssetEditor companyId={companyId} types={types} asset={editor === 'new' ? null : editor}
+        <AssetEditor companyId={companyId} types={types} locations={locations} asset={editor === 'new' ? null : editor}
           onClose={() => setEditor(null)} onSaved={() => { setEditor(null); load() }} />
       )}
     </div>
@@ -332,8 +337,8 @@ function fmt(d: string | null) {
 
 const inputCls = 'w-full h-9 rounded-lg border border-gray-300 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/40'
 
-function AssetEditor({ companyId, types, asset, onClose, onSaved }: {
-  companyId: string; types: EqType[]; asset: Asset | null; onClose: () => void; onSaved: () => void
+function AssetEditor({ companyId, types, locations, asset, onClose, onSaved }: {
+  companyId: string; types: EqType[]; locations: string[]; asset: Asset | null; onClose: () => void; onSaved: () => void
 }) {
   const { t: tr } = useLanguage()
   const freqIdx0 = asset ? FREQUENCIES.findIndex((f) => f.unit === asset.freq_unit && f.interval === asset.freq_interval) : 3
@@ -416,7 +421,13 @@ function AssetEditor({ companyId, types, asset, onClose, onSaved }: {
                 ))}
               </select>
             </Field>
-            <Field label={tr.pm.location}><input value={f.location} onChange={(e) => set({ location: e.target.value })} className={inputCls} placeholder={tr.pm.locationPh} /></Field>
+            <Field label={tr.pm.location}>
+              <select value={f.location} onChange={(e) => set({ location: e.target.value })} className={inputCls}>
+                <option value="">{tr.pm.none}</option>
+                {f.location && !locations.includes(f.location) && <option value={f.location}>{f.location}</option>}
+                {locations.map((l) => <option key={l} value={l}>{l}</option>)}
+              </select>
+            </Field>
           </div>
           <div className="grid grid-cols-2 gap-2.5">
             <Field label={tr.pm.serialNo}><input value={f.serial_no} onChange={(e) => set({ serial_no: e.target.value })} className={inputCls} /></Field>
