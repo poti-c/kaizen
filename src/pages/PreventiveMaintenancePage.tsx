@@ -44,8 +44,10 @@ export function PreventiveMaintenancePage() {
   const [searchParams] = useSearchParams()
   const initialStatus = searchParams.get('status')
   const validStatuses: AssetStatus[] = ['good', 'due_soon', 'overdue', 'unscheduled', 'inactive']
+  // One category is always selected (no "show all" — the full list is too crowded).
+  // Defaults to Overdue unless a ?status= is supplied.
   const [filter, setFilter] = useState<AssetStatus | 'all'>(
-    initialStatus && validStatuses.includes(initialStatus as AssetStatus) ? (initialStatus as AssetStatus) : 'all'
+    initialStatus && validStatuses.includes(initialStatus as AssetStatus) ? (initialStatus as AssetStatus) : 'overdue'
   )
   // Which task-activity tile is selected (mutually exclusive with the asset filter).
   const [taskView, setTaskView] = useState<'duethisweek' | 'awaiting' | 'done' | null>(null)
@@ -140,23 +142,23 @@ export function PreventiveMaintenancePage() {
       {/* Summary — asset health (filters the list) + task activity (scrolls to its list below) */}
       <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 mb-4">
         {STATUS_ORDER.map((s) => (
-          <button key={s} onClick={() => { setFilter(filter === s ? 'all' : s); setTaskView(null) }}
+          <button key={s} onClick={() => { setFilter(s); setTaskView(null) }}
             className={`rounded-xl border p-3 text-left transition-colors ${filter === s && taskView === null ? 'ring-2 ring-[var(--brand-primary)]/40' : ''} ${STATUS_META[s].pill}`}>
             <p className="text-lg font-bold leading-none">{counts[s] ?? 0}</p>
             <p className="text-[11px] mt-1">{statusLabel(s)}</p>
           </button>
         ))}
-        <button onClick={() => { setTaskView(taskView === 'duethisweek' ? null : 'duethisweek'); setFilter('all') }}
+        <button onClick={() => { setTaskView('duethisweek'); setFilter('all') }}
           className={`rounded-xl border p-3 text-left hover:brightness-95 transition-all border-gray-200 bg-gray-50 text-gray-700 ${taskView === 'duethisweek' ? 'ring-2 ring-[var(--brand-primary)]/40' : ''}`}>
           <p className="text-lg font-bold leading-none">{dueThisWeekTasks.length}</p>
           <p className="text-[11px] mt-1">{tr.pm.dueThisWeek}</p>
         </button>
-        <button onClick={() => { setTaskView(taskView === 'awaiting' ? null : 'awaiting'); setFilter('all') }}
+        <button onClick={() => { setTaskView('awaiting'); setFilter('all') }}
           className={`rounded-xl border p-3 text-left hover:brightness-95 transition-all ${awaitingTasks.length > 0 ? 'border-violet-200 bg-violet-50 text-violet-700' : 'border-gray-200 bg-gray-50 text-gray-700'} ${taskView === 'awaiting' ? 'ring-2 ring-[var(--brand-primary)]/40' : ''}`}>
           <p className="text-lg font-bold leading-none">{awaitingTasks.length}</p>
           <p className="text-[11px] mt-1">{tr.pm.awaitingApproval}</p>
         </button>
-        <button onClick={() => { setTaskView(taskView === 'done' ? null : 'done'); setFilter('all') }}
+        <button onClick={() => { setTaskView('done'); setFilter('all') }}
           className={`rounded-xl border p-3 text-left hover:brightness-95 transition-all border-gray-200 bg-gray-50 text-gray-700 ${taskView === 'done' ? 'ring-2 ring-[var(--brand-primary)]/40' : ''}`}>
           <p className="text-lg font-bold leading-none">{doneThisMonthTasks.length}</p>
           <p className="text-[11px] mt-1">{tr.pm.doneThisMonth}</p>
@@ -256,32 +258,23 @@ export function PreventiveMaintenancePage() {
 
       </>)}
 
-      {/* ── Task activity lists ──
-           Default (no asset filter, no task tile): show every non-empty section.
-           A task tile selected: show only that section (even if empty).
-           An asset tile selected: hidden (the asset list is shown instead). */}
-      {!loading && (() => {
-        const show = (k: 'duethisweek' | 'awaiting' | 'done', len: number) =>
-          taskView === k ? true : (taskView === null && filter === 'all' && len > 0)
-        const any = show('duethisweek', dueThisWeekTasks.length) || show('awaiting', awaitingTasks.length) || show('done', doneThisMonthTasks.length)
-        if (!any) return null
-        return (
-          <div className={`${taskView === null ? 'mt-6' : 'mt-4'} space-y-5`}>
-            {show('duethisweek', dueThisWeekTasks.length) && (
-              <TaskSection id="pm-duethisweek" title={tr.pm.dueThisWeek} count={dueThisWeekTasks.length} accent="text-amber-700"
-                tasks={dueThisWeekTasks} onOpen={setOpenTask} />
-            )}
-            {show('awaiting', awaitingTasks.length) && (
-              <TaskSection id="pm-awaiting" title={tr.pm.awaitingApproval} count={awaitingTasks.length} accent="text-violet-700"
-                tasks={awaitingTasks} onOpen={setOpenTask} />
-            )}
-            {show('done', doneThisMonthTasks.length) && (
-              <TaskSection id="pm-done" title={tr.pm.doneThisMonth} count={doneThisMonthTasks.length} accent="text-green-700"
-                tasks={doneThisMonthTasks} onOpen={setOpenTask} />
-            )}
-          </div>
-        )
-      })()}
+      {/* ── Task activity lists — only the selected task tile's section is shown ── */}
+      {!loading && taskView !== null && (
+        <div className="mt-4 space-y-5">
+          {taskView === 'duethisweek' && (
+            <TaskSection id="pm-duethisweek" title={tr.pm.dueThisWeek} count={dueThisWeekTasks.length} accent="text-amber-700"
+              tasks={dueThisWeekTasks} onOpen={setOpenTask} />
+          )}
+          {taskView === 'awaiting' && (
+            <TaskSection id="pm-awaiting" title={tr.pm.awaitingApproval} count={awaitingTasks.length} accent="text-violet-700"
+              tasks={awaitingTasks} onOpen={setOpenTask} />
+          )}
+          {taskView === 'done' && (
+            <TaskSection id="pm-done" title={tr.pm.doneThisMonth} count={doneThisMonthTasks.length} accent="text-green-700"
+              tasks={doneThisMonthTasks} onOpen={setOpenTask} />
+          )}
+        </div>
+      )}
 
       {openTask && <PMTaskModal task={openTask} onClose={() => setOpenTask(null)} onDone={() => { setOpenTask(null); load() }} />}
 
