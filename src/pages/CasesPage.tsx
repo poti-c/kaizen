@@ -74,6 +74,8 @@ export function CasesPage() {
   const [sortDir, setSortDir] = useState<SortDir>('asc')
   const [pageActive, setPageActive] = useState(1)
   const [pageClosed, setPageClosed] = useState(1)
+  const [pageActivePms, setPageActivePms] = useState(1)
+  const [pageOverduePms, setPageOverduePms] = useState(1)
   const [pageSize, setPageSize] = useState<number | 'all'>(10)
 
   // Custom lists for incomplete case detection (locations + departments + categories)
@@ -294,7 +296,7 @@ export function CasesPage() {
   // Page size is selectable (10/15/20/All).
   const pages = (n: number) => pageSize === 'all' ? 1 : Math.max(1, Math.ceil(n / pageSize))
   const slicePage = <T,>(arr: T[], page: number) => pageSize === 'all' ? arr : arr.slice((page - 1) * pageSize, page * pageSize)
-  const changePageSize = (v: number | 'all') => { setPageSize(v); setPageActive(1); setPagePendingMgr(1); setPagePendingAdm(1); setPageClosed(1) }
+  const changePageSize = (v: number | 'all') => { setPageSize(v); setPageActive(1); setPagePendingMgr(1); setPagePendingAdm(1); setPageClosed(1); setPageActivePms(1); setPageOverduePms(1) }
   const totalActivePages     = pages(activeCases.length)
   const totalPendingMgrPages = pages(pendingMgrCases.length)
   const totalPendingAdmPages = pages(pendingAdminCases.length)
@@ -505,6 +507,8 @@ export function CasesPage() {
   const pmsOpenCount = overdueTasks.length + activeTasksAll.length
   const pmsMonthLabel = pmsMonth.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
   const stepPmsMonth = (delta: number) => setPmsMonth(m => new Date(m.getFullYear(), m.getMonth() + delta, 1))
+  const paginatedActivePms = slicePage(activeTasks, pageActivePms)
+  const paginatedOverduePms = slicePage(overdueTasks, pageOverduePms)
 
   // Incomplete cases: department, location or category no longer exists in the current custom lists
   const incompleteCases = cases.filter(c => {
@@ -914,9 +918,14 @@ export function CasesPage() {
                     <p className="text-gray-400 text-sm">No active PMS tasks{pmsViewAll ? '' : ` in ${pmsMonthLabel}`}</p>
                   </div>
                 ) : (
-                  <div className="bg-white rounded-xl border border-gray-200 shadow-sm divide-y divide-gray-50 overflow-hidden">
-                    {activeTasks.map((t) => <PmTaskRow key={t.id} t={t} onOpen={() => setOpenTask(t)} />)}
-                  </div>
+                  <>
+                    <div className="bg-white rounded-xl border border-gray-200 shadow-sm divide-y divide-gray-50 overflow-hidden">
+                      {paginatedActivePms.map((t) => <PmTaskRow key={t.id} t={t} onOpen={() => setOpenTask(t)} />)}
+                    </div>
+                    <Pagination page={pageActivePms} totalPages={pages(activeTasks.length)} total={activeTasks.length}
+                      onPrev={() => setPageActivePms(p => Math.max(1, p - 1))}
+                      onNext={() => setPageActivePms(p => Math.min(pages(activeTasks.length), p + 1))} />
+                  </>
                 )}
               </div>
 
@@ -928,8 +937,11 @@ export function CasesPage() {
                     <span className="ml-2 text-sm font-normal text-red-400">{overdueTasks.length}</span>
                   </h2>
                   <div className="bg-white rounded-xl border border-red-200 shadow-sm divide-y divide-gray-50 overflow-hidden">
-                    {overdueTasks.map((t) => <PmTaskRow key={t.id} t={t} onOpen={() => setOpenTask(t)} />)}
+                    {paginatedOverduePms.map((t) => <PmTaskRow key={t.id} t={t} onOpen={() => setOpenTask(t)} />)}
                   </div>
+                  <Pagination page={pageOverduePms} totalPages={pages(overdueTasks.length)} total={overdueTasks.length}
+                    onPrev={() => setPageOverduePms(p => Math.max(1, p - 1))}
+                    onNext={() => setPageOverduePms(p => Math.min(pages(overdueTasks.length), p + 1))} />
                 </div>
               )}
             </div>
