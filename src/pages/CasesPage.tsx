@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { PMTaskModal, taskTone, type PMTask } from '@/components/pm/PMSchedule'
+import { assetStatus } from '@/lib/pm'
 import { formatRelativeTime, formatDuration, isSLABreached, CATEGORIES, LOCATIONS, companyHasAddon } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 import type { KaizenCase, CaseStatus, CasePriority, Department } from '@/types'
@@ -33,6 +34,20 @@ const CATEGORY_LABELS_EN: Record<string, string> = {
 }
 
 // One PM task row in the Cases → PMS tab (opens the run/checklist modal).
+const PM_STAT_TONES: Record<string, string> = {
+  green: 'bg-green-50 text-green-700',
+  amber: 'bg-amber-50 text-amber-700',
+  red: 'bg-red-50 text-red-700',
+  violet: 'bg-violet-50 text-violet-700',
+  slate: 'bg-gray-50 text-gray-700',
+}
+function PmStat({ label, value, tone, to, onClick }: { label: string; value: number; tone: keyof typeof PM_STAT_TONES; to?: string; onClick?: () => void }) {
+  const cls = `flex flex-col justify-center rounded-lg px-3 py-2 text-left hover:brightness-95 transition-all ${PM_STAT_TONES[tone]}`
+  const inner = <><p className="text-lg font-bold leading-none">{value}</p><p className="text-[10px] mt-0.5 opacity-80 leading-tight">{label}</p></>
+  if (to) return <Link to={to} className={cls}>{inner}</Link>
+  return <button type="button" onClick={onClick} className={cls}>{inner}</button>
+}
+
 function PmTaskRow({ t, onOpen }: { t: PMTask; onOpen: () => void }) {
   const tone = taskTone(t)
   const due = new Date(t.due_date + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
@@ -76,6 +91,8 @@ export function CasesPage() {
   const [pageClosed, setPageClosed] = useState(1)
   const [pageActivePms, setPageActivePms] = useState(1)
   const [pageOverduePms, setPageOverduePms] = useState(1)
+  const [pageAwaitingPms, setPageAwaitingPms] = useState(1)
+  const [pageDonePms, setPageDonePms] = useState(1)
   const [pageSize, setPageSize] = useState<number | 'all'>(10)
 
   // Custom lists for incomplete case detection (locations + departments + categories)
@@ -296,7 +313,7 @@ export function CasesPage() {
   // Page size is selectable (10/15/20/All).
   const pages = (n: number) => pageSize === 'all' ? 1 : Math.max(1, Math.ceil(n / pageSize))
   const slicePage = <T,>(arr: T[], page: number) => pageSize === 'all' ? arr : arr.slice((page - 1) * pageSize, page * pageSize)
-  const changePageSize = (v: number | 'all') => { setPageSize(v); setPageActive(1); setPagePendingMgr(1); setPagePendingAdm(1); setPageClosed(1); setPageActivePms(1); setPageOverduePms(1) }
+  const changePageSize = (v: number | 'all') => { setPageSize(v); setPageActive(1); setPagePendingMgr(1); setPagePendingAdm(1); setPageClosed(1); setPageActivePms(1); setPageOverduePms(1); setPageAwaitingPms(1); setPageDonePms(1) }
   const totalActivePages     = pages(activeCases.length)
   const totalPendingMgrPages = pages(pendingMgrCases.length)
   const totalPendingAdmPages = pages(pendingAdminCases.length)
@@ -481,22 +498,35 @@ export function CasesPage() {
   // ── PMS tab: preventive-maintenance tasks (active + overdue) ───────────────
   const pmsEnabled = companyHasAddon(activeCompany, 'pms')
   const [pmTasks, setPmTasks] = useState<PMTask[]>([])
+  const [pmDoneTasks, setPmDoneTasks] = useState<PMTask[]>([])
+  const [pmAssets, setPmAssets] = useState<{ next_maintenance_date: string | null; is_active: boolean }[]>([])
+  const [pmDueSoonDays, setPmDueSoonDays] = useState(7)
   const [openTask, setOpenTask] = useState<PMTask | null>(null)
   const [pmsMonth, setPmsMonth] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1) })
   const [pmsViewAll, setPmsViewAll] = useState(false)
   const loadPmTasks = React.useCallback(() => {
-    if (!activeCompany?.id || !pmsEnabled) { setPmTasks([]); return }
+    if (!activeCompany?.id || !pmsEnabled) { setPmTasks([]); setPmDoneTasks([]); setPmAssets([]); return }
     void (async () => {
       try { await supabase.rpc('kaizen_pm_sync') } catch { /* materialize tasks; ignore if it fails */ }
-      const { data } = await supabase.from('kaizen_pm_tasks')
-        .select('*, asset:kaizen_pm_assets(name, location, notes, checklist, department, type:kaizen_pm_equipment_types(name))')
-        .eq('company_id', activeCompany.id).in('status', ['scheduled', 'in_progress', 'pending_approval'])
-      setPmTasks((data as PMTask[]) ?? [])
+      const sel = '*, asset:kaizen_pm_assets(name, location, notes, checklist, department, type:kaizen_pm_equipment_types(name))'
+      const monthStartKey = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10)
+      const [open, done, assets, settings] = await Promise.all([
+        supabase.from('kaizen_pm_tasks').select(sel).eq('company_id', activeCompany.id).in('status', ['scheduled', 'in_progress', 'pending_approval']),
+        supabase.from('kaizen_pm_tasks').select(sel).eq('company_id', activeCompany.id).in('status', ['done', 'approved']).gte('performed_at', monthStartKey),
+        supabase.from('kaizen_pm_assets').select('next_maintenance_date, is_active').eq('company_id', activeCompany.id),
+        supabase.from('kaizen_pm_settings').select('due_soon_days').eq('company_id', activeCompany.id).maybeSingle(),
+      ])
+      setPmTasks((open.data as PMTask[]) ?? [])
+      setPmDoneTasks((done.data as PMTask[]) ?? [])
+      setPmAssets((assets.data as { next_maintenance_date: string | null; is_active: boolean }[]) ?? [])
+      if (settings.data?.due_soon_days != null) setPmDueSoonDays(settings.data.due_soon_days)
     })()
   }, [activeCompany?.id, pmsEnabled])
   useEffect(() => { loadPmTasks() }, [loadPmTasks])
 
   const todayKey = new Date().toISOString().slice(0, 10)
+  const weekKey = new Date(Date.now() + pmDueSoonDays * 86400000).toISOString().slice(0, 10)
+  const monthPrefix = todayKey.slice(0, 7)
   const matchTaskSearch = (t: PMTask) => !search || `${t.asset?.name ?? ''} ${t.asset?.location ?? ''} ${t.asset?.type?.name ?? ''}`.toLowerCase().includes(search.toLowerCase())
   const overdueTasks = pmTasks.filter(t => t.due_date < todayKey && matchTaskSearch(t))
   const activeTasksAll = pmTasks.filter(t => t.due_date >= todayKey && matchTaskSearch(t))
@@ -504,11 +534,27 @@ export function CasesPage() {
     const d = new Date(t.due_date + 'T00:00:00')
     return d.getFullYear() === pmsMonth.getFullYear() && d.getMonth() === pmsMonth.getMonth()
   })
+  // Extra PMS breakdowns (mirrors the dashboard PM summary)
+  const dueThisWeekTasks = pmTasks.filter(t => (t.status === 'scheduled' || t.status === 'in_progress') && t.due_date >= todayKey && t.due_date <= weekKey && matchTaskSearch(t))
+  const awaitingTasks = pmTasks.filter(t => t.status === 'pending_approval' && matchTaskSearch(t))
+  const doneThisMonthTasks = pmDoneTasks.filter(t => t.performed_at && t.performed_at.slice(0, 7) === monthPrefix && matchTaskSearch(t))
+  // Asset-health counts
+  let pmUpToDate = 0, pmDueSoon = 0, pmOverdueAssets = 0, pmNotScheduled = 0
+  for (const a of pmAssets) {
+    const s = assetStatus(a.next_maintenance_date, a.is_active, pmDueSoonDays)
+    if (s === 'good') pmUpToDate++
+    else if (s === 'due_soon') pmDueSoon++
+    else if (s === 'overdue') pmOverdueAssets++
+    else if (s === 'unscheduled') pmNotScheduled++
+  }
   const pmsOpenCount = overdueTasks.length + activeTasksAll.length
   const pmsMonthLabel = pmsMonth.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
   const stepPmsMonth = (delta: number) => setPmsMonth(m => new Date(m.getFullYear(), m.getMonth() + delta, 1))
   const paginatedActivePms = slicePage(activeTasks, pageActivePms)
   const paginatedOverduePms = slicePage(overdueTasks, pageOverduePms)
+  const paginatedAwaitingPms = slicePage(awaitingTasks, pageAwaitingPms)
+  const paginatedDonePms = slicePage(doneThisMonthTasks, pageDonePms)
+  const scrollToPms = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 
   // Incomplete cases: department, location or category no longer exists in the current custom lists
   const incompleteCases = cases.filter(c => {
@@ -891,8 +937,19 @@ export function CasesPage() {
           {/* ── PMS (preventive-maintenance tasks: active + overdue) ── */}
           {activeTab === 'pms' && (
             <div className="space-y-5">
+              {/* Summary tiles — asset health + task breakdown (mirrors the dashboard) */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
+                <PmStat label="Up to date" value={pmUpToDate} tone="green" to="/maintenance?status=good" />
+                <PmStat label="Due soon" value={pmDueSoon} tone="amber" to="/maintenance?status=due_soon" />
+                <PmStat label="Overdue" value={pmOverdueAssets} tone="red" to="/maintenance?status=overdue" />
+                <PmStat label="Not scheduled" value={pmNotScheduled} tone="slate" to="/maintenance?status=unscheduled" />
+                <PmStat label="Due this week" value={dueThisWeekTasks.length} tone="slate" onClick={() => scrollToPms('pms-active')} />
+                <PmStat label="Awaiting approval" value={awaitingTasks.length} tone={awaitingTasks.length > 0 ? 'violet' : 'slate'} onClick={() => scrollToPms('pms-awaiting')} />
+                <PmStat label="Done this month" value={doneThisMonthTasks.length} tone="slate" onClick={() => scrollToPms('pms-done')} />
+              </div>
+
               {/* Active PMS tasks (month-scoped) */}
-              <div>
+              <div id="pms-active" className="scroll-mt-4">
                 <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
                   <h2 className="text-base font-semibold text-sky-700">
                     Active PMS Cases
@@ -941,6 +998,38 @@ export function CasesPage() {
                   <Pagination page={pageOverduePms} totalPages={pages(overdueTasks.length)} total={overdueTasks.length}
                     onPrev={() => setPageOverduePms(p => Math.max(1, p - 1))}
                     onNext={() => setPageOverduePms(p => Math.min(pages(overdueTasks.length), p + 1))} />
+                </div>
+              )}
+
+              {/* Awaiting approval */}
+              {awaitingTasks.length > 0 && (
+                <div id="pms-awaiting" className="scroll-mt-4">
+                  <h2 className="text-base font-semibold text-violet-700 mb-3">
+                    Awaiting Approval
+                    <span className="ml-2 text-sm font-normal text-violet-400">{awaitingTasks.length}</span>
+                  </h2>
+                  <div className="bg-white rounded-xl border border-violet-200 shadow-sm divide-y divide-gray-50 overflow-hidden">
+                    {paginatedAwaitingPms.map((t) => <PmTaskRow key={t.id} t={t} onOpen={() => setOpenTask(t)} />)}
+                  </div>
+                  <Pagination page={pageAwaitingPms} totalPages={pages(awaitingTasks.length)} total={awaitingTasks.length}
+                    onPrev={() => setPageAwaitingPms(p => Math.max(1, p - 1))}
+                    onNext={() => setPageAwaitingPms(p => Math.min(pages(awaitingTasks.length), p + 1))} />
+                </div>
+              )}
+
+              {/* Done this month */}
+              {doneThisMonthTasks.length > 0 && (
+                <div id="pms-done" className="scroll-mt-4">
+                  <h2 className="text-base font-semibold text-green-700 mb-3">
+                    Done This Month
+                    <span className="ml-2 text-sm font-normal text-green-500">{doneThisMonthTasks.length}</span>
+                  </h2>
+                  <div className="bg-white rounded-xl border border-green-200 shadow-sm divide-y divide-gray-50 overflow-hidden">
+                    {paginatedDonePms.map((t) => <PmTaskRow key={t.id} t={t} onOpen={() => setOpenTask(t)} />)}
+                  </div>
+                  <Pagination page={pageDonePms} totalPages={pages(doneThisMonthTasks.length)} total={doneThisMonthTasks.length}
+                    onPrev={() => setPageDonePms(p => Math.max(1, p - 1))}
+                    onNext={() => setPageDonePms(p => Math.min(pages(doneThisMonthTasks.length), p + 1))} />
                 </div>
               )}
             </div>
