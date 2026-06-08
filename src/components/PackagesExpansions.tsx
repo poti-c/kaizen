@@ -4,7 +4,7 @@ import { Sparkles, Crown, Check, X as XIcon, Wrench, Clock, Loader2, Mail, Arrow
 import { supabase } from '@/lib/supabase'
 import { useCompany } from '@/contexts/CompanyContext'
 import { useAuth } from '@/contexts/AuthContext'
-import { companyHasAddon, addonTrialDaysLeft, subscriptionInfo } from '@/lib/utils'
+import { addonTrialDaysLeft, subscriptionInfo } from '@/lib/utils'
 import { toast } from 'sonner'
 
 const SALES_EMAIL = 'info@nnr-solutions.com'

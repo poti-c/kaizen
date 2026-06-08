@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Eye, EyeOff, Loader2, Palette, Lock, Info, Scale, Pencil, Check, X, Bell, BellOff, BellRing, Plus, Trash2, Building2, Tag, MapPin, AlertTriangle, LifeBuoy, HelpCircle, MessageSquare, Smartphone, Mail, ChevronRight, ChevronDown, UserX, Camera, Sparkles, Wrench } from 'lucide-react'
+import { Eye, EyeOff, Loader2, Palette, Lock, Info, Scale, Pencil, Check, X, Bell, BellOff, BellRing, Plus, Trash2, Building2, AlertTriangle, LifeBuoy, HelpCircle, MessageSquare, Smartphone, Mail, ChevronRight, ChevronDown, UserX, Camera, Sparkles, Wrench } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useCompany } from '@/contexts/CompanyContext'
@@ -41,7 +41,7 @@ export function SettingsPage() {
   const { activeCompany } = useCompany()
   const navigate = useNavigate()
   const companyId = activeCompany?.id ?? profile?.company_id ?? null
-  const { status: pushStatus, supported: pushSupported, isIOS: pushIsIOS, isStandalone: pushIsStandalone, subscribe, unsubscribe } = usePushNotifications(profile?.id)
+  const { status: pushStatus, isIOS: pushIsIOS, isStandalone: pushIsStandalone, subscribe, unsubscribe } = usePushNotifications(profile?.id)
   const { settings, updateSettings } = useTheme()
   const { t, lang, setLang } = useLanguage()
 
@@ -142,7 +142,6 @@ export function SettingsPage() {
   const [showNew, setShowNew] = useState(false)
   const [changingPassword, setChangingPassword] = useState(false)
 
-  const [defaultDept, setDefaultDept] = useState(() => localStorage.getItem('kaizen-default-dept') || 'all')
 
   // ── Editable lists ──────────────────────────────────────────────────────────
   const [deptList, setDeptList] = useState<string[]>(DEFAULT_DEPARTMENTS)

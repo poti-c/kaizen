@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { PlusCircle, Search, Filter, Clock, ChevronRight, Download, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, RefreshCw, X, AlertCircle, CalendarDays, ChevronDown, ChevronUp, Wrench, MapPin } from 'lucide-react'
+import { PlusCircle, Search, Clock, ChevronRight, Download, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, RefreshCw, X, AlertCircle, CalendarDays, ChevronDown, ChevronUp, Wrench, MapPin } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useCompany } from '@/contexts/CompanyContext'
@@ -9,7 +9,6 @@ import { StatusBadge, PriorityBadge, DepartmentBadge } from '@/components/Status
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Checkbox } from '@/components/ui/checkbox'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { PMTaskModal, taskTone, type PMTask } from '@/components/pm/PMSchedule'
 import { formatRelativeTime, formatDuration, isSLABreached, CATEGORIES, LOCATIONS, companyHasAddon } from '@/lib/utils'
 import { cn } from '@/lib/utils'
@@ -62,14 +61,14 @@ export function CasesPage() {
   const [filtered, setFiltered] = useState<KaizenCase[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState(searchParams.get('q') || '')
-  const [statusFilter, setStatusFilter] = useState<CaseStatus | 'all'>(
+  const [statusFilter] = useState<CaseStatus | 'all'>(
     (searchParams.get('status') as CaseStatus) || 'all'
   )
   const [groupFilter] = useState<string>(searchParams.get('group') || '')
-  const [priorityFilter, setPriorityFilter] = useState<CasePriority | 'all'>(
+  const [priorityFilter] = useState<CasePriority | 'all'>(
     (searchParams.get('priority') as CasePriority) || 'all'
   )
-  const [categoryFilter, setCategoryFilter] = useState<string>(searchParams.get('category') || 'all')
+  const [categoryFilter] = useState<string>(searchParams.get('category') || 'all')
   const [sortKey, setSortKey] = useState<SortKey | null>(null)
   const [sortDir, setSortDir] = useState<SortDir>('asc')
   const [pageActive, setPageActive] = useState(1)
@@ -250,7 +249,6 @@ export function CasesPage() {
       .order('created_at', { ascending: false })
 
     if (activeCompany) query = query.eq('company_id', activeCompany.id)
-    const isHRMgr = profile.role === 'manager' && profile.department === 'human_resource'
     if (profile.role === 'staff') {
       query = query.eq('department', profile.department)
     }
