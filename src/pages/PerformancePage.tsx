@@ -131,7 +131,16 @@ export function PerformancePage() {
         overdue: open.filter((c) => isSLABreached(c)).length,
       })
     })
-    return rows.sort((a, b) => b.total - a.total)
+    // Rank by performance (top performer first), mirroring the staff leaderboard:
+    // resolution rate 50% + on-time (non-overdue) rate 50%, then tie-breakers.
+    const deptScore = (r: DeptRow) =>
+      r.resolutionRate * 0.5 + (r.total > 0 ? ((r.total - r.overdue) / r.total) * 100 : 100) * 0.5
+    return rows.sort((a, b) =>
+      deptScore(b) - deptScore(a) ||
+      b.resolutionRate - a.resolutionRate ||
+      a.overdue - b.overdue ||
+      b.total - a.total
+    )
   }, [visibleCases])
 
   // ── Staff leaderboard (by reporter / resolver) ──
