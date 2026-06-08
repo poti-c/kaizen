@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { PlusCircle, Search, Filter, Clock, ChevronRight, Download, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, RefreshCw, X, AlertCircle, CalendarDays, ChevronDown, ChevronUp } from 'lucide-react'
+import { PlusCircle, Search, Filter, Clock, ChevronRight, Download, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, RefreshCw, X, AlertCircle, CalendarDays, ChevronDown, ChevronUp, Wrench, MapPin } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useCompany } from '@/contexts/CompanyContext'
@@ -502,6 +502,18 @@ export function CasesPage() {
   }, [activeCompany?.id, pmsEnabled])
   useEffect(() => { loadPmTasks() }, [loadPmTasks])
 
+  // PM assets for cross-entity search (find equipment by name / serial / model).
+  const [pmAssetsAll, setPmAssetsAll] = useState<{ id: string; name: string; serial_no: string | null; model: string | null; location: string | null; type?: { name: string } | null }[]>([])
+  useEffect(() => {
+    if (!activeCompany?.id || !pmsEnabled) { setPmAssetsAll([]); return }
+    supabase.from('kaizen_pm_assets').select('id, name, serial_no, model, location, type:kaizen_pm_equipment_types(name)')
+      .eq('company_id', activeCompany.id)
+      .then(({ data }) => setPmAssetsAll((data as unknown as typeof pmAssetsAll) ?? []))
+  }, [activeCompany?.id, pmsEnabled])
+  const matchingAssets = search.trim()
+    ? pmAssetsAll.filter(a => `${a.name ?? ''} ${a.serial_no ?? ''} ${a.model ?? ''} ${a.location ?? ''} ${a.type?.name ?? ''}`.toLowerCase().includes(search.toLowerCase()))
+    : []
+
   const todayKey = new Date().toISOString().slice(0, 10)
   const matchTaskSearch = (t: PMTask) => !search || `${t.asset?.name ?? ''} ${t.asset?.location ?? ''} ${t.asset?.type?.name ?? ''}`.toLowerCase().includes(search.toLowerCase())
   const overdueTasks = pmTasks.filter(t => t.due_date < todayKey && matchTaskSearch(t))
@@ -856,6 +868,38 @@ export function CasesPage() {
               </button>
             ))}
           </div>
+
+          {/* ── Matching equipment (cross-entity search into PMS assets) ── */}
+          {pmsEnabled && search.trim() && matchingAssets.length > 0 && (
+            <div>
+              <h2 className="text-base font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                <Wrench className="h-4 w-4 text-[var(--brand-primary)]" />Matching equipment
+                <span className="text-sm font-normal text-gray-400">{matchingAssets.length}</span>
+              </h2>
+              <div className="bg-white rounded-xl border border-gray-200 shadow-sm divide-y divide-gray-50 overflow-hidden">
+                {matchingAssets.map((a) => (
+                  <Link key={a.id} to={`/maintenance?q=${encodeURIComponent(search.trim())}`}
+                    className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 transition-colors">
+                    <div className="w-8 h-8 rounded-lg bg-[var(--brand-primary)]/10 flex items-center justify-center flex-shrink-0">
+                      <Wrench className="h-4 w-4 text-[var(--brand-primary)]" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-medium text-gray-900 truncate">{a.name}</span>
+                        {a.type?.name && <span className="text-[11px] text-gray-500">{a.type.name}</span>}
+                      </div>
+                      <p className="text-[11px] text-gray-400 truncate flex items-center gap-2 mt-0.5">
+                        {a.location && <span className="flex items-center gap-0.5"><MapPin className="h-3 w-3" />{a.location}</span>}
+                        {a.serial_no && <span>S/N: {a.serial_no}</span>}
+                        {a.model && <span>· {a.model}</span>}
+                      </p>
+                    </div>
+                    <ChevronRight className="h-4 w-4 text-gray-300 flex-shrink-0" />
+                  </Link>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* ── Active Cases ── */}
           {activeTab === 'active' && showActive && (

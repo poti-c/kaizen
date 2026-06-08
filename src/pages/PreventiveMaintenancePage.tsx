@@ -41,14 +41,17 @@ export function PreventiveMaintenancePage() {
   const [types, setTypes] = useState<EqType[]>([])
   const [loading, setLoading] = useState(true)
   const [editor, setEditor] = useState<Asset | 'new' | null>(null)
-  const [q, setQ] = useState('')
   const [searchParams] = useSearchParams()
+  const initialQuery = searchParams.get('q') ?? ''
+  const [q, setQ] = useState(initialQuery)
   const initialStatus = searchParams.get('status')
   const validStatuses: AssetStatus[] = ['good', 'due_soon', 'overdue', 'unscheduled', 'inactive']
   // One category is always selected (no "show all" — the full list is too crowded).
-  // Defaults to Overdue unless a ?status= is supplied.
+  // Defaults to Overdue; a ?status= picks that status; arriving via ?q= search
+  // shows all statuses so the matched asset is visible regardless of its status.
   const [filter, setFilter] = useState<AssetStatus | 'all'>(
-    initialStatus && validStatuses.includes(initialStatus as AssetStatus) ? (initialStatus as AssetStatus) : 'overdue'
+    initialStatus && validStatuses.includes(initialStatus as AssetStatus) ? (initialStatus as AssetStatus)
+      : initialQuery ? 'all' : 'overdue'
   )
   // Which task-activity tile is selected (mutually exclusive with the asset filter).
   const [taskView, setTaskView] = useState<'duethisweek' | 'awaiting' | 'done' | null>(null)
