@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Eye, EyeOff, Loader2, Palette, Lock, Info, Scale, Pencil, Check, X, Bell, BellOff, BellRing, Plus, Trash2, Building2, Tag, MapPin, AlertTriangle, LifeBuoy, HelpCircle, MessageSquare, Smartphone, Mail, ChevronRight, ChevronDown, UserX, Camera, Sparkles } from 'lucide-react'
+import { Eye, EyeOff, Loader2, Palette, Lock, Info, Scale, Pencil, Check, X, Bell, BellOff, BellRing, Plus, Trash2, Building2, Tag, MapPin, AlertTriangle, LifeBuoy, HelpCircle, MessageSquare, Smartphone, Mail, ChevronRight, ChevronDown, UserX, Camera, Sparkles, Wrench } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useCompany } from '@/contexts/CompanyContext'
@@ -812,8 +812,13 @@ export function SettingsPage() {
       {profile?.email === 'poti@nanirand.com' && <CompaniesSection />}
 
       {/* ── Preventive Maintenance — Top Management, PMS add-on only ── */}
-      {profile?.role === 'super_admin' && companyHasAddon(activeCompany, 'pms') && <PMSettings />}
-      {profile?.role === 'super_admin' && companyHasAddon(activeCompany, 'pms') && <PMEquipmentTypes />}
+      {profile?.role === 'super_admin' && companyHasAddon(activeCompany, 'pms') && (
+        <CollapsibleCard icon={Wrench} title={lang === 'th' ? 'การบำรุงรักษาเชิงป้องกัน' : 'Preventive Maintenance'}>
+          <PMSettings />
+          <div className="border-t border-gray-100 my-6" />
+          <PMEquipmentTypes />
+        </CollapsibleCard>
+      )}
 
       {/* Theme settings — super admin only, and only if the package includes it */}
       {profile?.role === 'super_admin' && companyHasFeature(activeCompany, 'custom_theme') && (

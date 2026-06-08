@@ -3,7 +3,6 @@ import { SlidersHorizontal, Loader2, Check } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useCompany } from '@/contexts/CompanyContext'
 import { useLanguage } from '@/contexts/LanguageContext'
-import { CollapsibleCard } from '@/components/CollapsibleCard'
 import { toast } from 'sonner'
 
 interface PMSettingsRow {
@@ -13,7 +12,7 @@ const DEFAULTS: PMSettingsRow = { require_approval: true, due_soon_days: 7, esca
 
 export function PMSettings() {
   const { activeCompany } = useCompany()
-  const { t } = useLanguage()
+  const { t, lang } = useLanguage()
   const companyId = activeCompany?.id ?? null
   const [s, setS] = useState<PMSettingsRow>(DEFAULTS)
   const [loading, setLoading] = useState(true)
@@ -38,7 +37,11 @@ export function PMSettings() {
   }
 
   return (
-    <CollapsibleCard icon={SlidersHorizontal} title={t.pm.settingsTitle}>
+    <section>
+      <div className="flex items-center gap-2 mb-1">
+        <SlidersHorizontal className="h-4 w-4 text-gray-400" />
+        <h3 className="font-semibold text-gray-900">{lang === 'th' ? 'การตั้งค่า' : 'Settings'}</h3>
+      </div>
       <p className="text-xs text-gray-500 mb-4">{t.pm.settingsDesc}</p>
 
       {loading ? (
@@ -79,6 +82,6 @@ export function PMSettings() {
           </button>
         </div>
       )}
-    </CollapsibleCard>
+    </section>
   )
 }
