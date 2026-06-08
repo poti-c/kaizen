@@ -108,6 +108,12 @@ export function PreventiveMaintenancePage() {
   const awaitingTasks = pmTasks.filter(tk => tk.status === 'pending_approval' && taskMatch(tk))
   const doneThisMonthTasks = pmDoneTasks.filter(tk => tk.performed_at && tk.performed_at.slice(0, 7) === monthPrefix && taskMatch(tk))
 
+  // Keep "one category always selected": the all-assets view only exists for a
+  // ?q= search landing — once the search is cleared, fall back to the Overdue default.
+  useEffect(() => {
+    if (!q && filter === 'all' && taskView === null) setFilter('overdue')
+  }, [q, filter, taskView])
+
   // Distinct option lists for the filter dropdowns.
   const typeOptions = Array.from(new Set(assets.map(a => a.type?.name).filter(Boolean) as string[])).sort()
   const locOptions = Array.from(new Set(assets.map(a => a.location).filter(Boolean) as string[])).sort()
