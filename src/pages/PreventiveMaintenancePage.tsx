@@ -372,14 +372,18 @@ function AssetEditor({ companyId, types, locations, asset, onClose, onSaved }: {
     if (!f.name.trim()) { toast.error(tr.pm.assetNameRequired); return }
     setBusy(true)
     const { unit, interval } = freqParts()
+    // If "Last maintenance" is left blank, fall back to the purchase date, and
+    // derive the next due date from the frequency when it isn't set explicitly.
+    const effLast = f.last_maintenance_date || f.purchase_date || null
+    const effNext = f.next_maintenance_date || (effLast ? addInterval(effLast, unit, interval) : null)
     const row = {
       company_id: companyId, name: f.name.trim(), type_id: f.type_id || null,
       location: f.location.trim() || null, serial_no: f.serial_no.trim() || null, model: f.model.trim() || null,
       department: f.department || null, freq_unit: unit, freq_interval: interval,
       checklist: f.checklist.split('\n').map((s) => s.trim()).filter(Boolean),
       purchase_date: f.purchase_date || null,
-      last_maintenance_date: f.last_maintenance_date || null,
-      next_maintenance_date: f.next_maintenance_date || null,
+      last_maintenance_date: effLast,
+      next_maintenance_date: effNext,
       est_minutes: f.est_minutes === '' ? null : Number(f.est_minutes),
       notes: f.notes.trim() || null, is_active: f.is_active, updated_at: new Date().toISOString(),
     }
@@ -433,7 +437,7 @@ function AssetEditor({ companyId, types, locations, asset, onClose, onSaved }: {
             <Field label={tr.pm.serialNo}><input value={f.serial_no} onChange={(e) => set({ serial_no: e.target.value })} className={inputCls} /></Field>
             <Field label={tr.pm.model}><input value={f.model} onChange={(e) => set({ model: e.target.value })} className={inputCls} /></Field>
           </div>
-          <Field label={tr.pm.purchaseDate}><input type="date" value={f.purchase_date} onChange={(e) => set({ purchase_date: e.target.value })} className={inputCls} /></Field>
+          <Field label={tr.pm.purchaseDate}><input type="date" value={f.purchase_date} onChange={(e) => { set({ purchase_date: e.target.value }); if (!f.last_maintenance_date) recalcNext(e.target.value, f.freqMode, f.customDays) }} className={inputCls} /></Field>
           <Field label={tr.pm.responsibleDept}>
             <select value={f.department} onChange={(e) => set({ department: e.target.value })} className={inputCls}>
               <option value="">{tr.pm.none}</option>
@@ -442,13 +446,13 @@ function AssetEditor({ companyId, types, locations, asset, onClose, onSaved }: {
           </Field>
           <div className="grid grid-cols-2 gap-2.5">
             <Field label={tr.pm.frequency}>
-              <select value={f.freqMode} onChange={(e) => { set({ freqMode: e.target.value }); recalcNext(f.last_maintenance_date, e.target.value, f.customDays) }} className={inputCls}>
+              <select value={f.freqMode} onChange={(e) => { set({ freqMode: e.target.value }); recalcNext(f.last_maintenance_date || f.purchase_date, e.target.value, f.customDays) }} className={inputCls}>
                 {FREQUENCIES.map((fr, i) => <option key={fr.label} value={String(i)}>{fr.label}</option>)}
                 <option value="custom">{tr.pm.customEvery}</option>
               </select>
             </Field>
             {f.freqMode === 'custom' ? (
-              <Field label={tr.pm.everyNDays}><input value={f.customDays} onChange={(e) => { const v = Number(e.target.value.replace(/[^0-9]/g, '')) || 1; set({ customDays: v }); recalcNext(f.last_maintenance_date, 'custom', v) }} className={inputCls} inputMode="numeric" /></Field>
+              <Field label={tr.pm.everyNDays}><input value={f.customDays} onChange={(e) => { const v = Number(e.target.value.replace(/[^0-9]/g, '')) || 1; set({ customDays: v }); recalcNext(f.last_maintenance_date || f.purchase_date, 'custom', v) }} className={inputCls} inputMode="numeric" /></Field>
             ) : <Field label={tr.pm.estMinutes}><input value={f.est_minutes} onChange={(e) => set({ est_minutes: e.target.value.replace(/[^0-9]/g, '') })} className={inputCls} inputMode="numeric" placeholder={tr.pm.optional} /></Field>}
           </div>
           <div className="grid grid-cols-2 gap-2.5">
