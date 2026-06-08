@@ -913,7 +913,12 @@ export function SettingsPage() {
       </div>
       )}
       {/* ── Support ── */}
-      <CollapsibleCard icon={LifeBuoy} title={lang === 'th' ? 'ฝ่ายสนับสนุน' : 'Support'} bodyClassName="divide-y divide-gray-100 border-t border-gray-100">
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+        <div className="flex items-center gap-2 px-6 pt-6 pb-3">
+          <LifeBuoy className="h-4 w-4 text-gray-400" />
+          <h2 className="font-semibold text-gray-900">{lang === 'th' ? 'ฝ่ายสนับสนุน' : 'Support'}</h2>
+        </div>
+        <div className="divide-y divide-gray-100">
           {/* Packages & Expansions — first; navigates to its own page; hidden for staff */}
           {profile?.role !== 'staff' && (
             <button onClick={() => navigate('/packages')} className="w-full flex items-center gap-3 px-6 py-3.5 hover:bg-gray-50 transition-colors text-left">
@@ -948,7 +953,8 @@ export function SettingsPage() {
               <ChevronRight className="h-4 w-4 text-gray-300 flex-shrink-0" />
             </button>
           ))}
-      </CollapsibleCard>
+        </div>
+      </div>
 
       {/* Support dialogs */}
       <Dialog open={!!supportDialog} onOpenChange={(open) => { if (!open) setSupportDialog(null) }}>
