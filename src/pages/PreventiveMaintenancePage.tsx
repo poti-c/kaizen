@@ -51,6 +51,8 @@ export function PreventiveMaintenancePage() {
   const [locFilter, setLocFilter] = useState('all')
   const [deptFilter, setDeptFilter] = useState('all')
   const [inactiveOnly, setInactiveOnly] = useState(false)
+  const [pageSize, setPageSize] = useState<number | 'all'>(10)
+  const [page, setPage] = useState(1)
 
   const load = useCallback(async () => {
     if (!companyId) return
@@ -91,6 +93,13 @@ export function PreventiveMaintenancePage() {
     }
     return true
   })
+
+  // Pagination (10 / 15 / 20 / All)
+  const totalPages = pageSize === 'all' ? 1 : Math.max(1, Math.ceil(filtered.length / pageSize))
+  const pageClamped = Math.min(page, totalPages)
+  const paginated = pageSize === 'all' ? filtered : filtered.slice((pageClamped - 1) * pageSize, pageClamped * pageSize)
+  const changePageSize = (v: number | 'all') => { setPageSize(v); setPage(1) }
+  useEffect(() => { setPage(1) }, [q, typeFilter, locFilter, deptFilter, inactiveOnly, filter])
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-6">
@@ -158,7 +167,7 @@ export function PreventiveMaintenancePage() {
         </div>
       ) : (
         <div className="space-y-2">
-          {filtered.map((a) => {
+          {paginated.map((a) => {
             const s = assetStatus(a.next_maintenance_date, a.is_active, dueSoonDays)
             const m = STATUS_META[s]
             return (
@@ -180,6 +189,30 @@ export function PreventiveMaintenancePage() {
               </button>
             )
           })}
+
+          {filtered.length > 10 && (
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-2 pt-2">
+              <p className="text-xs text-gray-500">
+                {pageSize === 'all' ? `Showing all ${filtered.length}` : `Showing ${(pageClamped - 1) * pageSize + 1}–${Math.min(pageClamped * pageSize, filtered.length)} of ${filtered.length}`} assets
+              </p>
+              <div className="flex items-center gap-2">
+                <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={pageSize === 'all' || pageClamped === 1}
+                  className="h-7 px-2 rounded-md border border-gray-300 text-xs text-gray-600 disabled:opacity-40 hover:border-gray-400">Previous</button>
+                <span className="text-xs text-gray-600">{pageSize === 'all' ? 'All' : `Page ${pageClamped} of ${totalPages}`}</span>
+                <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={pageSize === 'all' || pageClamped >= totalPages}
+                  className="h-7 px-2 rounded-md border border-gray-300 text-xs text-gray-600 disabled:opacity-40 hover:border-gray-400">{pageSize === 'all' ? 'Next' : `Next ${pageSize}`}</button>
+              </div>
+              <div className="flex items-center gap-1.5 text-xs text-gray-500">
+                <span>Display</span>
+                {([10, 15, 20, 'all'] as const).map(opt => (
+                  <button key={String(opt)} onClick={() => changePageSize(opt)}
+                    className={`h-7 px-2 rounded-md border text-xs font-medium transition-colors ${pageSize === opt ? 'bg-[var(--brand-primary)] text-white border-[var(--brand-primary)]' : 'bg-white text-gray-600 border-gray-300 hover:border-gray-400'}`}>
+                    {opt === 'all' ? 'All' : opt}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
