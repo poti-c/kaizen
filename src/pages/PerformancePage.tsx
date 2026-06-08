@@ -240,7 +240,7 @@ export function PerformancePage() {
           const pmDone = pmTasks.filter(t => t.status === 'done' || t.status === 'approved').length
           const pmOpen = pmTasks.filter(t => ['scheduled', 'in_progress', 'pending_approval'].includes(t.status)).length
           const pmRate = (pmDone + pmOpen) > 0 ? Math.round((pmDone / (pmDone + pmOpen)) * 100) : 100
-          return <SummaryCard icon={Wrench} color={pmOverdue > 0 ? 'red' : 'green'} label={lang === 'th' ? 'PMS (เสร็จ/เกินกำหนด)' : 'PMS done · overdue'} value={`${pmRate}% · ${pmOverdue}`} danger={pmOverdue > 0} />
+          return <SummaryCard icon={Wrench} color={pmOverdue > 0 ? 'red' : 'green'} label={lang === 'th' ? 'PMS (เสร็จ/เกินกำหนด)' : 'PMS done · overdue'} value={`${pmRate}% · ${pmOverdue}`} danger={pmOverdue > 0} className="col-span-2 lg:col-span-1" />
         })()}
       </div>
 
@@ -332,13 +332,13 @@ export function PerformancePage() {
   )
 }
 
-function SummaryCard({ icon: Icon, color, label, value, danger }: {
-  icon: typeof FolderOpen; color: 'blue' | 'green' | 'purple' | 'red'; label: string; value: string; danger?: boolean
+function SummaryCard({ icon: Icon, color, label, value, danger, className }: {
+  icon: typeof FolderOpen; color: 'blue' | 'green' | 'purple' | 'red'; label: string; value: string; danger?: boolean; className?: string
 }) {
   const bg = { blue: 'bg-blue-50', green: 'bg-green-50', purple: 'bg-purple-50', red: 'bg-red-50' }[color]
   const fg = { blue: 'text-blue-600', green: 'text-green-600', purple: 'text-purple-600', red: 'text-red-600' }[color]
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
+    <div className={`bg-white rounded-xl border border-gray-200 p-4 shadow-sm ${className ?? ''}`}>
       <div className="flex items-center gap-1.5 mb-1">
         <div className={`w-6 h-6 rounded-md ${bg} flex items-center justify-center flex-shrink-0`}>
           <Icon className={`h-3.5 w-3.5 ${fg}`} />
