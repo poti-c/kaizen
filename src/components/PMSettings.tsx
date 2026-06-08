@@ -3,6 +3,7 @@ import { SlidersHorizontal, Loader2, Check } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useCompany } from '@/contexts/CompanyContext'
 import { useLanguage } from '@/contexts/LanguageContext'
+import { CollapsibleCard } from '@/components/CollapsibleCard'
 import { toast } from 'sonner'
 
 interface PMSettingsRow {
@@ -37,11 +38,7 @@ export function PMSettings() {
   }
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-      <div className="flex items-center gap-2 mb-1">
-        <SlidersHorizontal className="h-4 w-4 text-gray-400" />
-        <h2 className="font-semibold text-gray-900">{t.pm.settingsTitle}</h2>
-      </div>
+    <CollapsibleCard icon={SlidersHorizontal} title={t.pm.settingsTitle}>
       <p className="text-xs text-gray-500 mb-4">{t.pm.settingsDesc}</p>
 
       {loading ? (
@@ -82,6 +79,6 @@ export function PMSettings() {
           </button>
         </div>
       )}
-    </div>
+    </CollapsibleCard>
   )
 }

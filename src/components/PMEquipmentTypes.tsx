@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Wrench, Plus, Trash2, Check, X, Pencil, Loader2, Sparkles, ChevronDown, ChevronRight } from 'lucide-react'
+import { CollapsibleCard } from '@/components/CollapsibleCard'
 import { supabase } from '@/lib/supabase'
 import { useCompany } from '@/contexts/CompanyContext'
 import { useLanguage } from '@/contexts/LanguageContext'
@@ -143,11 +144,7 @@ export function PMEquipmentTypes() {
   const uncategorized = types.filter((t) => !t.category || !PM_CATEGORIES.includes(t.category as typeof PM_CATEGORIES[number]))
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-      <div className="flex items-center gap-2 mb-1">
-        <Wrench className="h-4 w-4 text-gray-400" />
-        <h2 className="font-semibold text-gray-900">{tr.pm.typesTitle}</h2>
-      </div>
+    <CollapsibleCard icon={Wrench} title={tr.pm.typesTitle}>
       <p className="text-xs text-gray-500 mb-4">{tr.pm.typesDesc}</p>
 
       {/* Add new */}
@@ -214,6 +211,6 @@ export function PMEquipmentTypes() {
           ))}
         </div>
       )}
-    </div>
+    </CollapsibleCard>
   )
 }

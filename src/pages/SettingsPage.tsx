@@ -15,6 +15,7 @@ import type { KaizenCompany } from '@/types'
 import { CATEGORIES, LOCATIONS, getInitials, companyHasFeature, companyHasAddon } from '@/lib/utils'
 import { PMEquipmentTypes } from '@/components/PMEquipmentTypes'
 import { PMSettings } from '@/components/PMSettings'
+import { CollapsibleCard } from '@/components/CollapsibleCard'
 import { toast } from 'sonner'
 import { usePushNotifications } from '@/hooks/usePushNotifications'
 
@@ -506,11 +507,7 @@ export function SettingsPage() {
       </div>
 
       {/* Change password */}
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-        <div className="flex items-center gap-2 mb-4">
-          <Lock className="h-4 w-4 text-gray-400" />
-          <h2 className="font-semibold text-gray-900">{t.settings.changePassword}</h2>
-        </div>
+      <CollapsibleCard icon={Lock} title={t.settings.changePassword}>
         <div className="space-y-4">
           <div className="space-y-1.5">
             <Label>{t.settings.newPassword}</Label>
@@ -540,7 +537,7 @@ export function SettingsPage() {
             {changingPassword ? <Loader2 className="h-4 w-4 animate-spin" /> : t.settings.updatePassword}
           </Button>
         </div>
-      </div>
+      </CollapsibleCard>
 
       {/* Push Notifications */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
@@ -916,12 +913,7 @@ export function SettingsPage() {
       </div>
       )}
       {/* ── Support ── */}
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-        <div className="flex items-center gap-2 px-6 pt-6 pb-3">
-          <LifeBuoy className="h-4 w-4 text-gray-400" />
-          <h2 className="font-semibold text-gray-900">{lang === 'th' ? 'ฝ่ายสนับสนุน' : 'Support'}</h2>
-        </div>
-        <div className="divide-y divide-gray-100">
+      <CollapsibleCard icon={LifeBuoy} title={lang === 'th' ? 'ฝ่ายสนับสนุน' : 'Support'} bodyClassName="divide-y divide-gray-100 border-t border-gray-100">
           {/* Packages & Expansions — first; navigates to its own page; hidden for staff */}
           {profile?.role !== 'staff' && (
             <button onClick={() => navigate('/packages')} className="w-full flex items-center gap-3 px-6 py-3.5 hover:bg-gray-50 transition-colors text-left">
@@ -956,8 +948,7 @@ export function SettingsPage() {
               <ChevronRight className="h-4 w-4 text-gray-300 flex-shrink-0" />
             </button>
           ))}
-        </div>
-      </div>
+      </CollapsibleCard>
 
       {/* Support dialogs */}
       <Dialog open={!!supportDialog} onOpenChange={(open) => { if (!open) setSupportDialog(null) }}>
@@ -1138,16 +1129,7 @@ function CompaniesSection() {
 
   return (
     <>
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center gap-2 px-6 py-5 border-b border-gray-100">
-          <Building2 className="h-4 w-4 text-gray-400" />
-          <h2 className="font-semibold text-gray-900">Companies</h2>
-          <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full font-medium">
-            {companies.length}
-          </span>
-        </div>
-
+      <CollapsibleCard icon={Building2} title="Companies" badge={companies.length} bodyClassName="border-t border-gray-100">
         {loading ? (
           <div className="flex justify-center py-10">
             <Loader2 className="h-5 w-5 animate-spin text-gray-300" />
@@ -1260,7 +1242,7 @@ function CompaniesSection() {
             })}
           </div>
         )}
-      </div>
+      </CollapsibleCard>
     </>
   )
 }
