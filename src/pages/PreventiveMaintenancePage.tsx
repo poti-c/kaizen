@@ -19,12 +19,13 @@ interface Asset {
   location: string | null; serial_no: string | null; model: string | null
   department: string | null; pic_id: string | null
   freq_unit: FreqUnit; freq_interval: number; checklist: string[]
+  purchase_date: string | null
   last_maintenance_date: string | null; next_maintenance_date: string | null
   est_minutes: number | null; notes: string | null; is_active: boolean
   type?: { name: string; category: string | null } | null
 }
 
-const STATUS_ORDER: AssetStatus[] = ['overdue', 'due_soon', 'good', 'unscheduled', 'inactive']
+const STATUS_ORDER: AssetStatus[] = ['overdue', 'due_soon', 'good', 'unscheduled']
 
 export function PreventiveMaintenancePage() {
   const { activeCompany } = useCompany()
@@ -106,7 +107,7 @@ export function PreventiveMaintenancePage() {
       </div>
 
       {/* Summary */}
-      <div className="grid grid-cols-3 sm:grid-cols-5 gap-2 mb-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
         {STATUS_ORDER.map((s) => (
           <button key={s} onClick={() => setFilter(filter === s ? 'all' : s)}
             className={`rounded-xl border p-3 text-left transition-colors ${filter === s ? 'ring-2 ring-[var(--brand-primary)]/40' : ''} ${STATUS_META[s].pill}`}>
@@ -139,7 +140,7 @@ export function PreventiveMaintenancePage() {
         </select>
         <button onClick={() => setInactiveOnly(v => !v)}
           className={`h-8 px-3 rounded-lg border text-xs font-medium transition-colors ${inactiveOnly ? 'bg-gray-800 text-white border-gray-800' : 'bg-white text-gray-600 border-gray-300 hover:border-gray-400'}`}>
-          Non-active
+          Inactive
         </button>
         {(typeFilter !== 'all' || locFilter !== 'all' || deptFilter !== 'all' || inactiveOnly) && (
           <button onClick={() => { setTypeFilter('all'); setLocFilter('all'); setDeptFilter('all'); setInactiveOnly(false) }}
@@ -207,6 +208,7 @@ function AssetEditor({ companyId, types, asset, onClose, onSaved }: {
     serial_no: asset?.serial_no ?? '', model: asset?.model ?? '', department: asset?.department ?? '',
     freqMode: (freqIdx0 >= 0 ? String(freqIdx0) : 'custom') as string,
     customDays: freqIdx0 < 0 && asset ? asset.freq_interval : 30,
+    purchase_date: asset?.purchase_date ?? '',
     last_maintenance_date: asset?.last_maintenance_date ?? '',
     next_maintenance_date: asset?.next_maintenance_date ?? '',
     est_minutes: asset?.est_minutes ?? '', checklist: (asset?.checklist ?? []).join('\n'),
@@ -236,6 +238,7 @@ function AssetEditor({ companyId, types, asset, onClose, onSaved }: {
       location: f.location.trim() || null, serial_no: f.serial_no.trim() || null, model: f.model.trim() || null,
       department: f.department || null, freq_unit: unit, freq_interval: interval,
       checklist: f.checklist.split('\n').map((s) => s.trim()).filter(Boolean),
+      purchase_date: f.purchase_date || null,
       last_maintenance_date: f.last_maintenance_date || null,
       next_maintenance_date: f.next_maintenance_date || null,
       est_minutes: f.est_minutes === '' ? null : Number(f.est_minutes),
@@ -285,6 +288,7 @@ function AssetEditor({ companyId, types, asset, onClose, onSaved }: {
             <Field label={tr.pm.serialNo}><input value={f.serial_no} onChange={(e) => set({ serial_no: e.target.value })} className={inputCls} /></Field>
             <Field label={tr.pm.model}><input value={f.model} onChange={(e) => set({ model: e.target.value })} className={inputCls} /></Field>
           </div>
+          <Field label={tr.pm.purchaseDate}><input type="date" value={f.purchase_date} onChange={(e) => set({ purchase_date: e.target.value })} className={inputCls} /></Field>
           <Field label={tr.pm.responsibleDept}>
             <select value={f.department} onChange={(e) => set({ department: e.target.value })} className={inputCls}>
               <option value="">{tr.pm.none}</option>
