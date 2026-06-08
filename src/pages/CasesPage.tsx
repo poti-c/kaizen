@@ -527,7 +527,6 @@ export function CasesPage() {
       <div className="flex items-center justify-between mb-4 md:mb-6">
         <div>
           <h1 className="text-xl md:text-2xl font-bold text-gray-900">{t.cases.title}</h1>
-          <p className="text-sm text-gray-500 mt-0.5">{t.cases.caseCount(filtered.length)}</p>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={exportCSV} title="Export to CSV">
