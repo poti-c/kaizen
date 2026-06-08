@@ -362,11 +362,21 @@ export function CasesPage() {
 
   function CaseRow({ c }: { c: KaizenCase }) {
     const breached = isSLABreached(c)
+    const to = `/cases/${c.id}`
+    // Whole row is clickable for convenience, but defer to the real <Link> in the
+    // case-number cell (keyboard focus / Enter / cmd-/middle-click new tab) and to
+    // any modifier or non-primary click so native link behavior is never hijacked.
+    const onRowClick = (e: React.MouseEvent) => {
+      if (e.defaultPrevented) return
+      if ((e.target as HTMLElement).closest('a')) return
+      if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
+      navigate(to)
+    }
     return (
-        <tr onClick={() => navigate(`/cases/${c.id}`)} className="hover:bg-gray-50 transition-colors cursor-pointer">
+        <tr onClick={onRowClick} className="hover:bg-gray-50 transition-colors cursor-pointer">
           <td className="px-5 py-3.5 whitespace-nowrap">
             <div className="flex items-center gap-1">
-              <span className="font-mono text-xs font-medium text-gray-700 block">{c.case_number}</span>
+              <Link to={to} className="font-mono text-xs font-medium text-gray-700 block rounded hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-primary)]">{c.case_number}</Link>
               {breached && <span className="animate-pulse text-red-500 text-xs font-bold" title={t.cases.slaBreached}>⚠</span>}
             </div>
             <span className="text-xs text-gray-400 mt-0.5 block">{new Date(c.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
