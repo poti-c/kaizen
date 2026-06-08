@@ -47,6 +47,8 @@ export function PreventiveMaintenancePage() {
   const [filter, setFilter] = useState<AssetStatus | 'all'>(
     initialStatus && validStatuses.includes(initialStatus as AssetStatus) ? (initialStatus as AssetStatus) : 'all'
   )
+  // Which task-activity tile is selected (mutually exclusive with the asset filter).
+  const [taskView, setTaskView] = useState<'duethisweek' | 'awaiting' | 'done' | null>(null)
   const [dueSoonDays, setDueSoonDays] = useState(7)
   const [typeFilter, setTypeFilter] = useState('all')
   const [locFilter, setLocFilter] = useState('all')
@@ -95,7 +97,6 @@ export function PreventiveMaintenancePage() {
   const dueThisWeekTasks = pmTasks.filter(tk => (tk.status === 'scheduled' || tk.status === 'in_progress') && tk.due_date >= todayKey && tk.due_date <= weekKey && taskMatch(tk))
   const awaitingTasks = pmTasks.filter(tk => tk.status === 'pending_approval' && taskMatch(tk))
   const doneThisMonthTasks = pmDoneTasks.filter(tk => tk.performed_at && tk.performed_at.slice(0, 7) === monthPrefix && taskMatch(tk))
-  const scrollToPm = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 
   // Distinct option lists for the filter dropdowns.
   const typeOptions = Array.from(new Set(assets.map(a => a.type?.name).filter(Boolean) as string[])).sort()
@@ -139,26 +140,30 @@ export function PreventiveMaintenancePage() {
       {/* Summary — asset health (filters the list) + task activity (scrolls to its list below) */}
       <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 mb-4">
         {STATUS_ORDER.map((s) => (
-          <button key={s} onClick={() => setFilter(filter === s ? 'all' : s)}
-            className={`rounded-xl border p-3 text-left transition-colors ${filter === s ? 'ring-2 ring-[var(--brand-primary)]/40' : ''} ${STATUS_META[s].pill}`}>
+          <button key={s} onClick={() => { setFilter(filter === s ? 'all' : s); setTaskView(null) }}
+            className={`rounded-xl border p-3 text-left transition-colors ${filter === s && taskView === null ? 'ring-2 ring-[var(--brand-primary)]/40' : ''} ${STATUS_META[s].pill}`}>
             <p className="text-lg font-bold leading-none">{counts[s] ?? 0}</p>
             <p className="text-[11px] mt-1">{statusLabel(s)}</p>
           </button>
         ))}
-        <button onClick={() => scrollToPm('pm-duethisweek')} className="rounded-xl border border-gray-200 bg-gray-50 text-gray-700 p-3 text-left hover:brightness-95 transition-all">
+        <button onClick={() => { setTaskView(taskView === 'duethisweek' ? null : 'duethisweek'); setFilter('all') }}
+          className={`rounded-xl border p-3 text-left hover:brightness-95 transition-all border-gray-200 bg-gray-50 text-gray-700 ${taskView === 'duethisweek' ? 'ring-2 ring-[var(--brand-primary)]/40' : ''}`}>
           <p className="text-lg font-bold leading-none">{dueThisWeekTasks.length}</p>
           <p className="text-[11px] mt-1">{tr.pm.dueThisWeek}</p>
         </button>
-        <button onClick={() => scrollToPm('pm-awaiting')} className={`rounded-xl border p-3 text-left hover:brightness-95 transition-all ${awaitingTasks.length > 0 ? 'border-violet-200 bg-violet-50 text-violet-700' : 'border-gray-200 bg-gray-50 text-gray-700'}`}>
+        <button onClick={() => { setTaskView(taskView === 'awaiting' ? null : 'awaiting'); setFilter('all') }}
+          className={`rounded-xl border p-3 text-left hover:brightness-95 transition-all ${awaitingTasks.length > 0 ? 'border-violet-200 bg-violet-50 text-violet-700' : 'border-gray-200 bg-gray-50 text-gray-700'} ${taskView === 'awaiting' ? 'ring-2 ring-[var(--brand-primary)]/40' : ''}`}>
           <p className="text-lg font-bold leading-none">{awaitingTasks.length}</p>
           <p className="text-[11px] mt-1">{tr.pm.awaitingApproval}</p>
         </button>
-        <button onClick={() => scrollToPm('pm-done')} className="rounded-xl border border-gray-200 bg-gray-50 text-gray-700 p-3 text-left hover:brightness-95 transition-all">
+        <button onClick={() => { setTaskView(taskView === 'done' ? null : 'done'); setFilter('all') }}
+          className={`rounded-xl border p-3 text-left hover:brightness-95 transition-all border-gray-200 bg-gray-50 text-gray-700 ${taskView === 'done' ? 'ring-2 ring-[var(--brand-primary)]/40' : ''}`}>
           <p className="text-lg font-bold leading-none">{doneThisMonthTasks.length}</p>
           <p className="text-[11px] mt-1">{tr.pm.doneThisMonth}</p>
         </button>
       </div>
 
+      {taskView === null && (<>
       {/* Search */}
       <div className="relative mb-3">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
@@ -249,23 +254,34 @@ export function PreventiveMaintenancePage() {
         </div>
       )}
 
-      {/* ── Task activity lists ── */}
-      {!loading && (dueThisWeekTasks.length > 0 || awaitingTasks.length > 0 || doneThisMonthTasks.length > 0) && (
-        <div className="mt-6 space-y-5">
-          {dueThisWeekTasks.length > 0 && (
-            <TaskSection id="pm-duethisweek" title={tr.pm.dueThisWeek} count={dueThisWeekTasks.length} accent="text-amber-700"
-              tasks={dueThisWeekTasks} onOpen={setOpenTask} />
-          )}
-          {awaitingTasks.length > 0 && (
-            <TaskSection id="pm-awaiting" title={tr.pm.awaitingApproval} count={awaitingTasks.length} accent="text-violet-700"
-              tasks={awaitingTasks} onOpen={setOpenTask} />
-          )}
-          {doneThisMonthTasks.length > 0 && (
-            <TaskSection id="pm-done" title={tr.pm.doneThisMonth} count={doneThisMonthTasks.length} accent="text-green-700"
-              tasks={doneThisMonthTasks} onOpen={setOpenTask} />
-          )}
-        </div>
-      )}
+      </>)}
+
+      {/* ── Task activity lists ──
+           Default (no asset filter, no task tile): show every non-empty section.
+           A task tile selected: show only that section (even if empty).
+           An asset tile selected: hidden (the asset list is shown instead). */}
+      {!loading && (() => {
+        const show = (k: 'duethisweek' | 'awaiting' | 'done', len: number) =>
+          taskView === k ? true : (taskView === null && filter === 'all' && len > 0)
+        const any = show('duethisweek', dueThisWeekTasks.length) || show('awaiting', awaitingTasks.length) || show('done', doneThisMonthTasks.length)
+        if (!any) return null
+        return (
+          <div className={`${taskView === null ? 'mt-6' : 'mt-4'} space-y-5`}>
+            {show('duethisweek', dueThisWeekTasks.length) && (
+              <TaskSection id="pm-duethisweek" title={tr.pm.dueThisWeek} count={dueThisWeekTasks.length} accent="text-amber-700"
+                tasks={dueThisWeekTasks} onOpen={setOpenTask} />
+            )}
+            {show('awaiting', awaitingTasks.length) && (
+              <TaskSection id="pm-awaiting" title={tr.pm.awaitingApproval} count={awaitingTasks.length} accent="text-violet-700"
+                tasks={awaitingTasks} onOpen={setOpenTask} />
+            )}
+            {show('done', doneThisMonthTasks.length) && (
+              <TaskSection id="pm-done" title={tr.pm.doneThisMonth} count={doneThisMonthTasks.length} accent="text-green-700"
+                tasks={doneThisMonthTasks} onOpen={setOpenTask} />
+            )}
+          </div>
+        )
+      })()}
 
       {openTask && <PMTaskModal task={openTask} onClose={() => setOpenTask(null)} onDone={() => { setOpenTask(null); load() }} />}
 
@@ -283,9 +299,13 @@ function TaskSection({ id, title, count, accent, tasks, onOpen }: {
   return (
     <div id={id} className="scroll-mt-4">
       <h2 className={`text-base font-semibold mb-3 ${accent}`}>{title}<span className="ml-2 text-sm font-normal opacity-60">{count}</span></h2>
-      <div className="space-y-2">
-        {tasks.map((t) => <PmTaskListRow key={t.id} t={t} onOpen={() => onOpen(t)} />)}
-      </div>
+      {tasks.length === 0 ? (
+        <div className="text-center py-8 bg-white rounded-xl border border-gray-200 text-sm text-gray-400">No tasks in this category.</div>
+      ) : (
+        <div className="space-y-2">
+          {tasks.map((t) => <PmTaskListRow key={t.id} t={t} onOpen={() => onOpen(t)} />)}
+        </div>
+      )}
     </div>
   )
 }
