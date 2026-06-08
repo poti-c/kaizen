@@ -486,7 +486,7 @@ export function CasesPage() {
   const [pmsViewAll, setPmsViewAll] = useState(false)
   const loadPmTasks = React.useCallback(() => {
     if (!activeCompany?.id || !pmsEnabled) { setPmTasks([]); return }
-    ;(async () => {
+    void (async () => {
       try { await supabase.rpc('kaizen_pm_sync') } catch { /* materialize tasks; ignore if it fails */ }
       const { data } = await supabase.from('kaizen_pm_tasks')
         .select('*, asset:kaizen_pm_assets(name, location, notes, checklist, department, type:kaizen_pm_equipment_types(name))')
