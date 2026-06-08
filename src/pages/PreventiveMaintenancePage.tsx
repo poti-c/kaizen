@@ -127,15 +127,15 @@ export function PreventiveMaintenancePage() {
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-2 mb-3">
         <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="h-8 rounded-lg border border-gray-300 bg-white px-2 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/40">
-          <option value="all">All equipment types</option>
+          <option value="all">All Equipment</option>
           {typeOptions.map(t => <option key={t} value={t}>{t}</option>)}
         </select>
         <select value={locFilter} onChange={(e) => setLocFilter(e.target.value)} className="h-8 rounded-lg border border-gray-300 bg-white px-2 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/40">
-          <option value="all">All locations</option>
+          <option value="all">All Locations</option>
           {locOptions.map(l => <option key={l} value={l}>{l}</option>)}
         </select>
         <select value={deptFilter} onChange={(e) => setDeptFilter(e.target.value)} className="h-8 rounded-lg border border-gray-300 bg-white px-2 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/40">
-          <option value="all">All departments</option>
+          <option value="all">All Departments</option>
           {deptOptions.map(d => <option key={d} value={d}>{DEPARTMENT_LABELS[d as Department] ?? d}</option>)}
         </select>
         <button onClick={() => setInactiveOnly(v => !v)}
