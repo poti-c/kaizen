@@ -26,7 +26,6 @@ const STATUS_FILTER_LABELS: Partial<Record<CaseStatus | 'all', string>> = {
 type SortKey = 'priority' | 'status' | 'duration' | 'date' | 'due'
 type SortDir = 'asc' | 'desc'
 
-const PAGE_SIZE = 20
 
 const CATEGORY_LABELS_EN: Record<string, string> = {
   maintenance: 'Maintenance', cleanliness: 'Cleanliness', safety: 'Safety',
@@ -75,6 +74,7 @@ export function CasesPage() {
   const [sortDir, setSortDir] = useState<SortDir>('asc')
   const [pageActive, setPageActive] = useState(1)
   const [pageClosed, setPageClosed] = useState(1)
+  const [pageSize, setPageSize] = useState<number | 'all'>(10)
 
   // Custom lists for incomplete case detection (locations + departments + categories)
   const [customLocations, setCustomLocations] = useState<string[]>([...LOCATIONS] as string[])
@@ -289,16 +289,20 @@ export function CasesPage() {
   const pendingAdminCases = sortCases(filtered.filter(c => c.status === 'pending_admin_approval'))
   const closedCases       = sortCases(filtered.filter(c => c.status === 'closed'))
 
-  const totalActivePages     = Math.ceil(activeCases.length / PAGE_SIZE)
-  const totalPendingMgrPages = Math.ceil(pendingMgrCases.length / PAGE_SIZE)
-  const totalPendingAdmPages = Math.ceil(pendingAdminCases.length / PAGE_SIZE)
-  const totalClosedPages     = Math.ceil(closedCases.length / PAGE_SIZE)
   const [pagePendingMgr, setPagePendingMgr] = React.useState(1)
   const [pagePendingAdm, setPagePendingAdm] = React.useState(1)
-  const paginatedActive     = activeCases.slice((pageActive - 1) * PAGE_SIZE, pageActive * PAGE_SIZE)
-  const paginatedPendingMgr = pendingMgrCases.slice((pagePendingMgr - 1) * PAGE_SIZE, pagePendingMgr * PAGE_SIZE)
-  const paginatedPendingAdm = pendingAdminCases.slice((pagePendingAdm - 1) * PAGE_SIZE, pagePendingAdm * PAGE_SIZE)
-  const paginatedClosed     = closedCases.slice((pageClosed - 1) * PAGE_SIZE, pageClosed * PAGE_SIZE)
+  // Page size is selectable (10/15/20/All).
+  const pages = (n: number) => pageSize === 'all' ? 1 : Math.max(1, Math.ceil(n / pageSize))
+  const slicePage = <T,>(arr: T[], page: number) => pageSize === 'all' ? arr : arr.slice((page - 1) * pageSize, page * pageSize)
+  const changePageSize = (v: number | 'all') => { setPageSize(v); setPageActive(1); setPagePendingMgr(1); setPagePendingAdm(1); setPageClosed(1) }
+  const totalActivePages     = pages(activeCases.length)
+  const totalPendingMgrPages = pages(pendingMgrCases.length)
+  const totalPendingAdmPages = pages(pendingAdminCases.length)
+  const totalClosedPages     = pages(closedCases.length)
+  const paginatedActive     = slicePage(activeCases, pageActive)
+  const paginatedPendingMgr = slicePage(pendingMgrCases, pagePendingMgr)
+  const paginatedPendingAdm = slicePage(pendingAdminCases, pagePendingAdm)
+  const paginatedClosed     = slicePage(closedCases, pageClosed)
 
   function exportCSV() {
     const headers = ['Case #', 'Date', 'Title', 'Description', 'Department', 'Category', 'Priority', 'Status', 'Due Date', 'Duration']
@@ -434,20 +438,32 @@ export function CasesPage() {
   }
 
   function Pagination({ page, totalPages, onPrev, onNext, total }: { page: number; totalPages: number; onPrev: () => void; onNext: () => void; total: number }) {
-    if (total <= PAGE_SIZE) return null
+    if (total <= 10) return null   // nothing to paginate at the smallest page size
+    const allShown = pageSize === 'all'
+    const from = allShown ? 1 : (page - 1) * (pageSize as number) + 1
+    const to = allShown ? total : Math.min(page * (pageSize as number), total)
+    const nextLabel = allShown ? 'Next' : `Next ${pageSize}`
     return (
-      <div className="mt-3 flex flex-col items-center gap-2">
-        <p className="text-xs text-gray-500">
-          Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, total)} of {total} cases
-        </p>
+      <div className="mt-3 flex flex-col sm:flex-row items-center justify-between gap-2">
+        <p className="text-xs text-gray-500">Showing {from}–{to} of {total} cases</p>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={onPrev} disabled={page === 1}>
+          <Button variant="outline" size="sm" onClick={onPrev} disabled={allShown || page === 1}>
             <ChevronLeft className="h-4 w-4" />Previous
           </Button>
-          <span className="text-sm text-gray-600">Page {page} of {totalPages}</span>
-          <Button variant="outline" size="sm" onClick={onNext} disabled={page === totalPages}>
-            Next<ChevronRight className="h-4 w-4" />
+          <span className="text-sm text-gray-600">{allShown ? 'All' : `Page ${page} of ${totalPages}`}</span>
+          <Button variant="outline" size="sm" onClick={onNext} disabled={allShown || page >= totalPages}>
+            {nextLabel}<ChevronRight className="h-4 w-4" />
           </Button>
+        </div>
+        <div className="flex items-center gap-1.5 text-xs text-gray-500">
+          <span>Display</span>
+          {([10, 15, 20, 'all'] as const).map(opt => (
+            <button key={String(opt)} onClick={() => changePageSize(opt)}
+              className={cn('h-7 px-2 rounded-md border text-xs font-medium transition-colors',
+                pageSize === opt ? 'bg-[var(--brand-primary)] text-white border-[var(--brand-primary)]' : 'bg-white text-gray-600 border-gray-300 hover:border-gray-400')}>
+              {opt === 'all' ? 'All' : opt}
+            </button>
+          ))}
         </div>
       </div>
     )
