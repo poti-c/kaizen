@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Bell, Search, X, LayoutDashboard, FolderOpen, PlusCircle, Users, Settings, LogOut, CalendarDays, ChevronDown, Building2, Wrench } from 'lucide-react'
+import { Bell, X, LayoutDashboard, FolderOpen, PlusCircle, Users, Settings, LogOut, CalendarDays, ChevronDown, Building2, Wrench } from 'lucide-react'
 import { useNavigate, Link, NavLink } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
 import { useCompany } from '@/contexts/CompanyContext'
@@ -20,11 +20,8 @@ export function Header() {
   const navigate = useNavigate()
   const [notifications, setNotifications] = useState<KaizenNotification[]>([])
   const [showNotifs, setShowNotifs] = useState(false)
-  const [showSearch, setShowSearch] = useState(false)
   const [showMobileNav, setShowMobileNav] = useState(false)
   const [showCompanySwitcher, setShowCompanySwitcher] = useState(false)
-  const [searchQuery, setSearchQuery] = useState('')
-  const [mobileSearchQuery, setMobileSearchQuery] = useState('')
   const unreadCount = notifications.filter((n) => !n.is_read).length
   const showSwitcher = profile?.role === 'super_admin' && companies.length > 1
 
@@ -159,18 +156,6 @@ export function Header() {
           <span className="text-[11px] font-semibold text-gray-900 leading-tight text-left flex-shrink-0">Kaizen<br />System</span>
         </button>
 
-        {/* Desktop search */}
-        <div className="hidden md:flex relative flex-1 max-w-md">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder={t.cases.search}
-            className="w-full pl-9 pr-4 py-2 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)] focus:border-transparent"
-            onKeyDown={(e) => { if (e.key === 'Enter' && searchQuery.trim()) { navigate(`/cases?q=${encodeURIComponent(searchQuery.trim())}`); setSearchQuery('') } }}
-          />
-        </div>
       </div>
 
       <div className="flex items-center gap-1 md:gap-2 flex-shrink-0">
@@ -209,14 +194,6 @@ export function Header() {
             )}
           </div>
         )}
-
-        {/* Mobile search toggle */}
-        <button
-          className="md:hidden p-2 rounded-lg hover:bg-gray-100 transition-colors"
-          onClick={() => setShowSearch(true)}
-        >
-          <Search className="h-5 w-5 text-gray-500" />
-        </button>
 
         {/* Notification Bell */}
         <div className="relative">
@@ -347,24 +324,6 @@ export function Header() {
         </>
       )}
 
-      {/* Mobile search overlay */}
-      {showSearch && (
-        <div className="absolute inset-x-0 top-0 z-50 h-14 bg-white border-b border-gray-200 flex items-center gap-2 px-4">
-          <Search className="h-4 w-4 text-gray-400 flex-shrink-0" />
-          <input
-            autoFocus
-            type="text"
-            value={mobileSearchQuery}
-            onChange={(e) => setMobileSearchQuery(e.target.value)}
-            placeholder={t.cases.search}
-            className="flex-1 text-sm bg-transparent focus:outline-none"
-            onKeyDown={(e) => { if (e.key === 'Enter') { if (mobileSearchQuery.trim()) { navigate(`/cases?q=${encodeURIComponent(mobileSearchQuery.trim())}`) } setMobileSearchQuery(''); setShowSearch(false) } if (e.key === 'Escape') setShowSearch(false) }}
-          />
-          <button onClick={() => setShowSearch(false)} className="p-1">
-            <X className="h-5 w-5 text-gray-400" />
-          </button>
-        </div>
-      )}
     </header>
   )
 }
