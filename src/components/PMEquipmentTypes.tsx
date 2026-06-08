@@ -151,20 +151,20 @@ export function PMEquipmentTypes() {
       <p className="text-xs text-gray-500 mb-4">{tr.pm.typesDesc}</p>
 
       {/* Add new */}
-      <div className="flex flex-wrap items-end gap-2 mb-4">
-        <div className="flex-1 min-w-[160px]">
-          <label className="text-xs font-medium text-gray-500">{tr.pm.newType}</label>
+      <div className="flex items-end gap-2 mb-4">
+        <div className="flex-1 min-w-[100px]">
+          <label className="block text-xs font-medium text-gray-500 mb-1">{tr.pm.newType}</label>
           <input value={newName} onChange={(e) => setNewName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addType()}
             placeholder={tr.pm.newTypePh} className="w-full h-9 rounded-lg border border-gray-300 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/40" />
         </div>
-        <div>
-          <label className="text-xs font-medium text-gray-500">{tr.pm.category}</label>
-          <select value={newCat} onChange={(e) => setNewCat(e.target.value)} className="h-9 rounded-lg border border-gray-300 px-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/40">
+        <div className="min-w-0">
+          <label className="block text-xs font-medium text-gray-500 mb-1">{tr.pm.category}</label>
+          <select value={newCat} onChange={(e) => setNewCat(e.target.value)} className="w-full h-9 rounded-lg border border-gray-300 px-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/40">
             {PM_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
           </select>
         </div>
         <button onClick={addType} disabled={busy || !newName.trim()}
-          className="flex items-center gap-1.5 h-9 px-3 rounded-lg bg-[var(--brand-primary)] text-white text-sm font-medium disabled:opacity-50">
+          className="flex items-center gap-1.5 h-9 px-3 rounded-lg bg-[var(--brand-primary)] text-white text-sm font-medium disabled:opacity-50 flex-shrink-0">
           <Plus className="h-4 w-4" />{tr.pm.add}
         </button>
       </div>
