@@ -313,10 +313,10 @@ export function PackagesExpansions() {
                   {/* Subscription-end counter for a purchased add-on (pauses with the subscription) */}
                   {purchased && sub.end && <p className="text-[11px] text-gray-500 mt-1 flex items-center gap-1"><Calendar className="h-3 w-3" />Active until {fmtDate(sub.end)}</p>}
                   {!purchased && (
-                    <div className="flex items-center gap-2 mt-2">
-                      <button onClick={() => openPay({ kind: 'addon', target: a.key, label: a.name, amount: price[a.key] ?? 0 })} className={`h-8 px-3 rounded-lg text-xs font-semibold flex items-center gap-1.5 ${upgradeLocked ? 'bg-gray-100 text-gray-400' : 'bg-[var(--brand-primary)] text-white hover:opacity-90'}`}>{upgradeLocked && <Lock className="h-3 w-3" />}Subscribe now</button>
+                    <div className="flex flex-wrap items-center gap-2 mt-2">
+                      <button onClick={() => openPay({ kind: 'addon', target: a.key, label: a.name, amount: price[a.key] ?? 0 })} className={`h-8 px-3 rounded-lg text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap flex-shrink-0 ${upgradeLocked ? 'bg-gray-100 text-gray-400' : 'bg-[var(--brand-primary)] text-white hover:opacity-90'}`}>{upgradeLocked && <Lock className="h-3 w-3" />}Subscribe now</button>
                       {trialLeft == null && !trialUsed && (
-                        <button onClick={startPmsTrial} disabled={busy} className={`h-8 px-3 rounded-lg text-xs font-semibold disabled:opacity-50 flex items-center gap-1.5 border ${upgradeLocked ? 'border-gray-200 text-gray-400' : 'border-[var(--brand-primary)] text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/5'}`}>
+                        <button onClick={startPmsTrial} disabled={busy} className={`h-8 px-3 rounded-lg text-xs font-semibold disabled:opacity-50 flex items-center gap-1.5 whitespace-nowrap flex-shrink-0 border ${upgradeLocked ? 'border-gray-200 text-gray-400' : 'border-[var(--brand-primary)] text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/5'}`}>
                           {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : upgradeLocked ? <Lock className="h-3 w-3" /> : <Sparkles className="h-3.5 w-3.5" />}Try free for 7 days
                         </button>
                       )}

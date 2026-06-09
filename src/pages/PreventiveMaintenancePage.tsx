@@ -32,7 +32,7 @@ const STATUS_ORDER: AssetStatus[] = ['overdue', 'due_soon', 'good', 'unscheduled
 export function PreventiveMaintenancePage() {
   const { activeCompany } = useCompany()
   const { profile } = useAuth()
-  const { t: tr } = useLanguage()
+  const { t: tr, lang } = useLanguage()
   const statusLabel = (s: AssetStatus) => tr.pm[STATUS_KEY[s]]
   const companyId = activeCompany?.id ?? null
   const canManage = profile?.role === 'super_admin' || profile?.role === 'manager'
@@ -65,6 +65,7 @@ export function PreventiveMaintenancePage() {
   const [pmTasks, setPmTasks] = useState<PMTask[]>([])
   const [pmDoneTasks, setPmDoneTasks] = useState<PMTask[]>([])
   const [openTask, setOpenTask] = useState<PMTask | null>(null)
+  const [detailAsset, setDetailAsset] = useState<Asset | null>(null)
   const [locations, setLocations] = useState<string[]>([...LOCATIONS] as string[])
 
   const load = useCallback(async () => {
@@ -108,12 +109,6 @@ export function PreventiveMaintenancePage() {
   const awaitingTasks = pmTasks.filter(tk => tk.status === 'pending_approval' && taskMatch(tk))
   const doneThisMonthTasks = pmDoneTasks.filter(tk => tk.performed_at && tk.performed_at.slice(0, 7) === monthPrefix && taskMatch(tk))
 
-  // Keep "one category always selected": the all-assets view only exists for a
-  // ?q= search landing — once the search is cleared, fall back to the Overdue default.
-  useEffect(() => {
-    if (!q && filter === 'all' && taskView === null) setFilter('overdue')
-  }, [q, filter, taskView])
-
   // Distinct option lists for the filter dropdowns.
   const typeOptions = Array.from(new Set(assets.map(a => a.type?.name).filter(Boolean) as string[])).sort()
   const locOptions = Array.from(new Set(assets.map(a => a.location).filter(Boolean) as string[])).sort()
@@ -154,30 +149,37 @@ export function PreventiveMaintenancePage() {
       </div>
 
       {/* Summary — asset health (filters the list) + task activity (scrolls to its list below) */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 mb-4">
-        {STATUS_ORDER.map((s) => (
-          <button key={s} onClick={() => { setFilter(s); setTaskView(null) }}
-            className={`rounded-xl border p-3 text-left transition-colors ${filter === s && taskView === null ? 'ring-2 ring-[var(--brand-primary)]/40' : ''} ${STATUS_META[s].pill}`}>
-            <p className="text-lg font-bold leading-none">{counts[s] ?? 0}</p>
-            <p className="text-[11px] mt-1">{statusLabel(s)}</p>
-          </button>
-        ))}
-        <button onClick={() => { setTaskView('duethisweek'); setFilter('all') }}
-          className={`rounded-xl border p-3 text-left hover:brightness-95 transition-all border-gray-200 bg-gray-50 text-gray-700 ${taskView === 'duethisweek' ? 'ring-2 ring-[var(--brand-primary)]/40' : ''}`}>
-          <p className="text-lg font-bold leading-none">{dueThisWeekTasks.length}</p>
-          <p className="text-[11px] mt-1">{tr.pm.dueThisWeek}</p>
-        </button>
-        <button onClick={() => { setTaskView('awaiting'); setFilter('all') }}
-          className={`rounded-xl border p-3 text-left hover:brightness-95 transition-all ${awaitingTasks.length > 0 ? 'border-violet-200 bg-violet-50 text-violet-700' : 'border-gray-200 bg-gray-50 text-gray-700'} ${taskView === 'awaiting' ? 'ring-2 ring-[var(--brand-primary)]/40' : ''}`}>
-          <p className="text-lg font-bold leading-none">{awaitingTasks.length}</p>
-          <p className="text-[11px] mt-1">{tr.pm.awaitingApproval}</p>
-        </button>
-        <button onClick={() => { setTaskView('done'); setFilter('all') }}
-          className={`rounded-xl border p-3 text-left hover:brightness-95 transition-all border-gray-200 bg-gray-50 text-gray-700 ${taskView === 'done' ? 'ring-2 ring-[var(--brand-primary)]/40' : ''}`}>
-          <p className="text-lg font-bold leading-none">{doneThisMonthTasks.length}</p>
-          <p className="text-[11px] mt-1">{tr.pm.doneThisMonth}</p>
-        </button>
+      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2 mb-2">
+        {/* All — clears the status filter and shows every asset */}
+        <SummaryTile count={assets.length} label={lang === 'th' ? 'ทั้งหมด' : 'All Assets'}
+          active={filter === 'all' && taskView === null} color="border-gray-200 bg-white text-gray-700"
+          onClick={() => { setFilter('all'); setTaskView(null) }} />
+        {/* Status filters — clicking the active one again clears back to "All". */}
+        {STATUS_ORDER.map((s) => {
+          const active = filter === s && taskView === null
+          return (
+            <SummaryTile key={s} count={counts[s] ?? 0} label={statusLabel(s)} active={active}
+              color={STATUS_META[s].pill} onClick={() => { setTaskView(null); setFilter(active ? 'all' : s) }} />
+          )
+        })}
+        {/* Task-activity tiles switch to a task list view; clicking the active one (× hint) returns to the asset list. */}
+        <SummaryTile count={dueThisWeekTasks.length} label={tr.pm.dueThisWeek} active={taskView === 'duethisweek'}
+          color="border-gray-200 bg-gray-50 text-gray-700"
+          onClick={() => { setTaskView(taskView === 'duethisweek' ? null : 'duethisweek'); setFilter('all') }} />
+        <SummaryTile count={awaitingTasks.length} label={tr.pm.awaitingApproval} active={taskView === 'awaiting'}
+          color={awaitingTasks.length > 0 ? 'border-violet-200 bg-violet-50 text-violet-700' : 'border-gray-200 bg-gray-50 text-gray-700'}
+          onClick={() => { setTaskView(taskView === 'awaiting' ? null : 'awaiting'); setFilter('all') }} />
+        <SummaryTile count={doneThisMonthTasks.length} label={tr.pm.doneThisMonth} active={taskView === 'done'}
+          color="border-gray-200 bg-gray-50 text-gray-700"
+          onClick={() => { setTaskView(taskView === 'done' ? null : 'done'); setFilter('all') }} />
       </div>
+
+      {/* Hint: explains that the status tiles act as toggleable filters */}
+      <p className="text-[11px] text-gray-400 mb-3">
+        {lang === 'th'
+          ? 'แตะสถานะเพื่อกรอง · แตะซ้ำหรือเลือก “ทั้งหมด” เพื่อแสดงทรัพย์สินทั้งหมด'
+          : 'Tap a status to filter · tap it again or “All assets” to show everything'}
+      </p>
 
       {taskView === null && (<>
       {/* Search */}
@@ -224,8 +226,19 @@ export function PreventiveMaintenancePage() {
           {paginated.map((a) => {
             const s = assetStatus(a.next_maintenance_date, a.is_active, dueSoonDays)
             const m = STATUS_META[s]
+            // Card click opens the asset's next open PM task (checklist view);
+            // assets with no open task fall back to a read-only detail modal.
+            const openCard = () => {
+              const task = pmTasks
+                .filter((tk) => tk.asset_id === a.id)
+                .sort((x, y) => x.due_date.localeCompare(y.due_date))[0]
+              if (task) setOpenTask(task)
+              else setDetailAsset(a)
+            }
             return (
-              <button key={a.id} onClick={() => canManage && setEditor(a)} className="w-full flex items-center gap-3 bg-white border border-gray-200 rounded-xl p-3 text-left hover:border-gray-300 transition-colors">
+              <div key={a.id} role="button" tabIndex={0} onClick={openCard}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openCard() } }}
+                className="w-full flex items-center gap-3 bg-white border border-gray-200 rounded-xl p-3 text-left hover:border-gray-300 transition-colors cursor-pointer">
                 <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${m.dot}`} />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
@@ -239,8 +252,13 @@ export function PreventiveMaintenancePage() {
                     {a.next_maintenance_date && <span>· {tr.pm.next} {fmt(a.next_maintenance_date)}</span>}
                   </p>
                 </div>
-                {canManage && <Pencil className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />}
-              </button>
+                {canManage && (
+                  <button onClick={(e) => { e.stopPropagation(); setEditor(a) }} title={tr.pm.editAsset}
+                    className="p-1.5 -m-1 rounded-lg text-gray-400 hover:text-[var(--brand-primary)] hover:bg-gray-100 flex-shrink-0 transition-colors">
+                    <Pencil className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
             )
           })}
 
@@ -292,6 +310,11 @@ export function PreventiveMaintenancePage() {
 
       {openTask && <PMTaskModal task={openTask} onClose={() => setOpenTask(null)} onDone={() => { setOpenTask(null); load() }} />}
 
+      {detailAsset && (
+        <AssetDetailModal asset={detailAsset} dueSoonDays={dueSoonDays} canManage={canManage}
+          onClose={() => setDetailAsset(null)} onEdit={() => { setDetailAsset(null); setEditor(detailAsset) }} />
+      )}
+
       {editor && companyId && (
         <AssetEditor companyId={companyId} types={types} locations={locations} asset={editor === 'new' ? null : editor}
           onClose={() => setEditor(null)} onSaved={() => { setEditor(null); load() }} />
@@ -342,6 +365,80 @@ function PmTaskListRow({ t, onOpen }: { t: PMTask; onOpen: () => void }) {
 function fmt(d: string | null) {
   if (!d) return '—'
   return new Date(d + 'T00:00:00').toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+}
+
+// Summary tile: count + label. Inline on mobile (compact, 2 per row), stacked on sm+.
+// When active it shows an × to signal "tap again to clear this selection".
+function SummaryTile({ count, label, active, color, onClick }: {
+  count: number; label: string; active: boolean; color: string; onClick: () => void
+}) {
+  return (
+    <button onClick={onClick}
+      className={`relative rounded-xl border p-3 transition-all hover:brightness-95 ${color} ${active ? 'ring-2 ring-[var(--brand-primary)]/40' : ''}`}>
+      {active && <X className="absolute top-1.5 right-1.5 h-3 w-3 opacity-50 pointer-events-none" />}
+      <div className="flex items-baseline gap-1.5 sm:block">
+        <p className="text-lg font-bold leading-none">{count}</p>
+        <p className="text-[11px] sm:mt-1 leading-tight">{label}</p>
+      </div>
+    </button>
+  )
+}
+
+// Read-only asset view in the PMTaskModal style — shown when a card is tapped
+// and the asset has no open PM task to perform.
+function AssetDetailModal({ asset, dueSoonDays, canManage, onClose, onEdit }: {
+  asset: Asset; dueSoonDays: number; canManage: boolean; onClose: () => void; onEdit: () => void
+}) {
+  const { t: tr } = useLanguage()
+  const s = assetStatus(asset.next_maintenance_date, asset.is_active, dueSoonDays)
+  const m = STATUS_META[s]
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] flex flex-col">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
+          <div className="flex items-center gap-2"><Wrench className="h-5 w-5 text-[var(--brand-primary)]" /><h3 className="font-semibold text-gray-900">{asset.name}</h3></div>
+          <button onClick={onClose} className="p-1 rounded text-gray-400 hover:bg-gray-100"><X className="h-4 w-4" /></button>
+        </div>
+        <div className="px-5 py-4 space-y-3 overflow-y-auto text-sm">
+          <div className="flex items-center gap-2 flex-wrap text-xs text-gray-500">
+            <span className={`px-1.5 py-0.5 rounded-full border ${m.pill}`}>{tr.pm[STATUS_KEY[s]]}</span>
+            {asset.type?.name && <span>{asset.type.name}</span>}
+            <span>· {freqLabel(asset.freq_unit, asset.freq_interval)}</span>
+          </div>
+          {asset.location && <p className="text-xs text-gray-600 flex items-center gap-1"><MapPin className="h-3 w-3" />{asset.location}</p>}
+          <div className="grid grid-cols-2 gap-2 text-xs text-gray-600">
+            <p><span className="font-medium text-gray-500">{tr.pm.lastMaint}:</span><br />{fmt(asset.last_maintenance_date)}</p>
+            <p><span className="font-medium text-gray-500">{tr.pm.nextMaint}:</span><br />{fmt(asset.next_maintenance_date)}</p>
+            {asset.department && <p><span className="font-medium text-gray-500">{tr.pm.responsibleDept}:</span><br />{DEPARTMENT_LABELS[asset.department as Department] ?? asset.department}</p>}
+            {asset.serial_no && <p><span className="font-medium text-gray-500">{tr.pm.serialNo}:</span><br />{asset.serial_no}</p>}
+            {asset.model && <p><span className="font-medium text-gray-500">{tr.pm.model}:</span><br />{asset.model}</p>}
+          </div>
+          {asset.notes && <p className="text-xs text-gray-600 bg-gray-50 rounded-lg p-2">{asset.notes}</p>}
+          {asset.checklist.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-gray-500 mb-1.5">{tr.pm.checklistTitle}</p>
+              <div className="space-y-1.5">
+                {asset.checklist.map((it) => (
+                  <div key={it} className="flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-gray-300 flex-shrink-0" />
+                    <span className="flex-1 text-sm text-gray-800">{it}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+        {canManage && (
+          <div className="flex items-center gap-2 px-5 py-4 border-t border-gray-200">
+            <button onClick={onEdit} className="ml-auto flex items-center gap-1.5 px-4 h-9 rounded-lg bg-[var(--brand-primary)] text-white text-sm font-semibold">
+              <Pencil className="h-4 w-4" />{tr.pm.editAsset}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
 }
 
 const inputCls = 'w-full h-9 rounded-lg border border-gray-300 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/40'
