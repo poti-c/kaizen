@@ -471,6 +471,7 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
   const [editingBilling, setEditingBilling] = useState(false)
   const [billingOpen, setBillingOpen] = useState(false)
   const [bill, setBill] = useState({
+    name: c.name,
     contact_person: c.contact_person ?? '', contact_phone: c.contact_phone ?? '',
     contact_email: c.contact_email ?? '', tax_id: c.tax_id ?? '',
     office_type: c.office_type ?? 'head_office', branch_code: c.branch_code ?? '',
@@ -513,6 +514,7 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
   }
   function startBillingEdit() {
     setBill({
+      name: c.name,
       contact_person: c.contact_person ?? '', contact_phone: c.contact_phone ?? '',
       contact_email: c.contact_email ?? '', tax_id: c.tax_id ?? '',
       office_type: c.office_type ?? 'head_office', branch_code: c.branch_code ?? '',
@@ -526,6 +528,7 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
     try {
       await call('update_company', {
         company_id: c.id,
+        ...(bill.name.trim() ? { name: bill.name.trim() } : {}),
         contact_person: bill.contact_person, contact_phone: bill.contact_phone,
         contact_email: bill.contact_email, tax_id: bill.tax_id,
         office_type: bill.office_type, branch_code: bill.branch_code,
@@ -682,6 +685,7 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
         <div className="mt-3">
         {editingBilling ? (
           <div className="space-y-2.5">
+            <Field label="Company Name"><input value={bill.name} onChange={(e) => setBill({ ...bill, name: e.target.value })} className={inputCls} placeholder="Legal company name (appears on the tax invoice)" /></Field>
             <Field label="Contact Person"><input value={bill.contact_person} onChange={(e) => setBill({ ...bill, contact_person: e.target.value })} className={inputCls} placeholder="e.g. Khun Somchai" /></Field>
             <div className="grid grid-cols-2 gap-2.5">
               <Field label="Phone Number"><input value={bill.contact_phone} onChange={(e) => setBill({ ...bill, contact_phone: e.target.value })} className={inputCls} placeholder="+66 …" /></Field>
@@ -697,6 +701,7 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-3">
+            <div className="col-span-2"><Detail label="Company Name">{c.name || '—'}</Detail></div>
             <Detail label="Contact Person">{c.contact_person || '—'}</Detail>
             <Detail label="Phone Number">{c.contact_phone || '—'}</Detail>
             <Detail label="Email Address">{c.contact_email || '—'}</Detail>
