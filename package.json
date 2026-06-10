@@ -38,11 +38,11 @@
     "recharts": "^2.12.7",
     "sonner": "^1.5.0",
     "tailwind-merge": "^2.5.2",
-    "thai-address-database": "^0.0.30",
     "zod": "^3.23.8"
   },
   "devDependencies": {
     "@types/react": "^18.3.3",
+    "thai-address-database": "^0.0.30",
     "@types/react-dom": "^18.3.0",
     "@typescript-eslint/eslint-plugin": "^7.18.0",
     "@typescript-eslint/parser": "^7.18.0",
