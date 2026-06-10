@@ -1846,8 +1846,15 @@ function CreateCompanyDialog({ call, onClose, onCreated }: {
   const [name, setName] = useState('')
   const [slug, setSlug] = useState('')
   const [plan, setPlan] = useState('trial')
-  const [maxMgr, setMaxMgr] = useState('')
-  const [maxStaff, setMaxStaff] = useState('')
+  const [addons, setAddons] = useState<Record<string, boolean>>({})
+  // Contact & billing (Thai tax-invoice ready)
+  const [contactPerson, setContactPerson] = useState('')
+  const [contactPhone, setContactPhone] = useState('')
+  const [contactEmail, setContactEmail] = useState('')
+  const [taxId, setTaxId] = useState('')
+  const [officeType, setOfficeType] = useState('head_office')
+  const [branchCode, setBranchCode] = useState('')
+  const [billingAddress, setBillingAddress] = useState<ThaiAddress>({})
   // Owner account
   const [ownerName, setOwnerName] = useState('')
   const [ownerEmail, setOwnerEmail] = useState('')
@@ -1881,8 +1888,15 @@ function CreateCompanyDialog({ call, onClose, onCreated }: {
         company_ids: [],
         new_company: {
           name: name.trim(), slug: slug.trim(), plan,
-          max_managers: maxMgr ? Number(maxMgr) : null,
-          max_staff: maxStaff ? Number(maxStaff) : null,
+          // Max managers/staff are intentionally omitted — the package sets them.
+          addons,
+          contact_person: contactPerson.trim() || null,
+          contact_phone: contactPhone.trim() || null,
+          contact_email: contactEmail.trim() || null,
+          tax_id: taxId.trim() || null,
+          office_type: officeType, branch_code: branchCode || null,
+          billing_address: billingAddress,
+          address: composeThaiAddress(billingAddress) || null,
         },
       })
       if (res.linked_existing) {
@@ -1923,9 +1937,38 @@ function CreateCompanyDialog({ call, onClose, onCreated }: {
             })}
           </div>
         </div>
-        <div className="grid grid-cols-2 gap-2">
-          <Field label="Max Managers"><input value={maxMgr} onChange={(e) => setMaxMgr(e.target.value.replace(/[^0-9]/g, ''))} className={inputCls} placeholder="Unlimited" inputMode="numeric" /></Field>
-          <Field label="Max Staff"><input value={maxStaff} onChange={(e) => setMaxStaff(e.target.value.replace(/[^0-9]/g, ''))} className={inputCls} placeholder="Unlimited" inputMode="numeric" /></Field>
+        <p className="text-[11px] text-slate-500 -mt-1">Manager &amp; staff limits are set by the package; you can customise them after the company is created.</p>
+
+        {/* Expansions (add-ons) — enabled at creation, billed/changed later */}
+        <div>
+          <p className="text-xs font-medium text-slate-400 mb-1.5">Expansions</p>
+          <div className="space-y-1.5">
+            {ADDONS.map((a) => (
+              <label key={a.key} className="flex items-center gap-2.5 rounded-lg border border-slate-700 bg-slate-800/50 px-3 py-2 cursor-pointer hover:border-slate-600">
+                <input type="checkbox" checked={!!addons[a.key]} onChange={(e) => setAddons({ ...addons, [a.key]: e.target.checked })} className="accent-amber-500" />
+                <span className="text-xs text-slate-200 flex-1">{a.label}</span>
+                <span className="text-[10px] text-slate-500">{a.price}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+
+        {/* Contact & Billing — Thai tax-invoice fields (optional at creation) */}
+        <div className="border-t border-slate-800 pt-3">
+          <div className="flex items-center gap-1.5 mb-2">
+            <Receipt className="h-3.5 w-3.5 text-slate-400" />
+            <p className="text-xs font-semibold text-white">Contact &amp; Billing <span className="text-[10px] font-normal text-slate-500">(optional)</span></p>
+          </div>
+          <div className="space-y-2.5">
+            <Field label="Contact Person"><input value={contactPerson} onChange={(e) => setContactPerson(e.target.value)} className={inputCls} placeholder="e.g. Khun Somchai" /></Field>
+            <div className="grid grid-cols-2 gap-2.5">
+              <Field label="Phone Number"><input value={contactPhone} onChange={(e) => setContactPhone(e.target.value)} className={inputCls} placeholder="+66 …" /></Field>
+              <Field label="Email Address"><input type="email" value={contactEmail} onChange={(e) => setContactEmail(e.target.value)} className={inputCls} placeholder="billing@company.com" autoComplete="off" /></Field>
+            </div>
+            <Field label="Thai Tax ID"><input value={taxId} onChange={(e) => setTaxId(e.target.value)} className={inputCls} placeholder="13-digit tax ID" /></Field>
+            <BillingAddressFields officeType={officeType} branchCode={branchCode} address={billingAddress}
+              onChange={({ officeType: ot, branchCode: bc, address }) => { setOfficeType(ot); setBranchCode(bc); setBillingAddress(address) }} />
+          </div>
         </div>
 
         {/* Owner account — becomes the super admin of this company */}

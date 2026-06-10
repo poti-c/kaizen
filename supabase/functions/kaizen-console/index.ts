@@ -468,6 +468,15 @@ Deno.serve(async (req) => {
         multi_company: !!(ncPkg?.multi_company),
         features: ncPkg?.features ?? {},
         plan: ncPlan,
+        // Add-ons selected at creation (entitlements map).
+        addons: (nc.addons && typeof nc.addons === "object") ? nc.addons : {},
+        // Contact & billing (Thai tax-invoice fields).
+        contact_person: cleanStr(nc.contact_person), contact_phone: cleanStr(nc.contact_phone),
+        contact_email: cleanStr(nc.contact_email), tax_id: cleanStr(nc.tax_id),
+        office_type: (nc.office_type === "branch") ? "branch" : "head_office",
+        branch_code: cleanStr(nc.branch_code),
+        billing_address: (nc.billing_address && typeof nc.billing_address === "object") ? nc.billing_address : {},
+        address: cleanStr(nc.address),
       }).select("id").single();
       if (coErr) return json({ error: "Company: " + (coErr.message.includes("duplicate") ? "slug already exists" : coErr.message) }, 400);
       newCompanyId = co.id;
