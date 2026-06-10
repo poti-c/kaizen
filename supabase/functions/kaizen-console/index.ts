@@ -1001,7 +1001,7 @@ Deno.serve(async (req) => {
   }
 
   // ── Form Generator (Quotation / Invoice / Tax Invoice-Receipt / Receipt) ──────
-  const FORM_PREFIX = { quotation: "QT", invoice: "INV", tax_invoice_receipt: "TAX", receipt: "RC" };
+  const FORM_PREFIX = { quotation: "QUO", invoice: "INV", tax_invoice_receipt: "TAX", receipt: "REC" };
 
   if (action === "list_forms") {
     const [formsRes, companiesRes, settingsRes, productsRes, promosRes] = await Promise.all([
@@ -1183,13 +1183,16 @@ Deno.serve(async (req) => {
     const total = Math.round((net + vat_amount + non_vat_amount) * 100) / 100;
 
     const issue_date = String(body.issue_date || new Date().toISOString().slice(0, 10));
+    // Numbering: CODE + year + "-" + month + 3-digit counter that resets each
+    // month, e.g. INV2026-06001 (1st invoice in June 2026).
     const year = issue_date.slice(0, 4);
+    const month = issue_date.slice(5, 7);
     const prefix = FORM_PREFIX[form_type];
     const { count } = await admin.from("kaizen_generated_forms")
       .select("id", { count: "exact", head: true })
       .eq("form_type", form_type)
-      .like("doc_number", `${prefix}-${year}-%`);
-    const doc_number = `${prefix}-${year}-${String((count ?? 0) + 1).padStart(4, "0")}`;
+      .like("doc_number", `${prefix}${year}-${month}%`);
+    const doc_number = `${prefix}${year}-${month}${String((count ?? 0) + 1).padStart(3, "0")}`;
 
     const row = {
       form_type, doc_number,
