@@ -6,6 +6,41 @@ import { cn, buildPhotoPath } from '@/lib/utils'
 // True on any touch-capable device (phones, tablets)
 const isTouchDevice = typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0)
 
+// Downscale + re-encode a photo before upload so Storage doesn't fill up with raw
+// multi-megabyte camera shots. Evidence photos don't need full resolution —
+// max 1600px longest edge at 70% JPEG turns a 3–8 MB photo into ~300–600 KB.
+// Falls back to the original file if it isn't a raster image or anything fails.
+// NOTE: `Image` is shadowed by the lucide-react import in this file, so we build
+// the element via document.createElement('img').
+async function compressImage(file: File, maxEdge = 1600, quality = 0.7): Promise<{ blob: Blob; ext: string }> {
+  const rawExt = (file.name.split('.').pop() ?? 'jpg').toLowerCase()
+  if (!file.type.startsWith('image/')) return { blob: file, ext: rawExt }
+  try {
+    const blob = await new Promise<Blob>((resolve, reject) => {
+      const img = document.createElement('img')
+      const url = URL.createObjectURL(file)
+      img.onload = () => {
+        const scale = Math.min(1, maxEdge / Math.max(img.naturalWidth, img.naturalHeight))
+        const w = Math.round(img.naturalWidth * scale)
+        const h = Math.round(img.naturalHeight * scale)
+        const canvas = document.createElement('canvas')
+        canvas.width = w; canvas.height = h
+        const ctx = canvas.getContext('2d')
+        URL.revokeObjectURL(url)
+        if (!ctx) return reject(new Error('no canvas context'))
+        ctx.drawImage(img, 0, 0, w, h)
+        canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('toBlob failed'))), 'image/jpeg', quality)
+      }
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('image load failed')) }
+      img.src = url
+    })
+    // Only keep the compressed version if it's actually smaller.
+    return blob.size < file.size ? { blob, ext: 'jpg' } : { blob: file, ext: rawExt }
+  } catch {
+    return { blob: file, ext: rawExt }
+  }
+}
+
 interface PhotoUploadProps {
   onUpload: (urls: string[]) => void
   maxFiles?: number
@@ -40,12 +75,12 @@ export function PhotoUpload({ onUpload, maxFiles = 3, label = 'Add Photos', buck
     const uploadedUrls: string[] = []
 
     for (const item of items) {
-      const ext = (item.file.name.split('.').pop() ?? 'jpg').toLowerCase()
+      const { blob, ext } = await compressImage(item.file)
       const path =
         caseNumber && department
           ? buildPhotoPath(caseNumber, department, photoIndexRef.current++, ext)
           : `Na Nirand Kaizen/unsorted/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
-      const { data, error } = await supabase.storage.from(bucket).upload(path, item.file)
+      const { data, error } = await supabase.storage.from(bucket).upload(path, blob, { contentType: blob.type || 'image/jpeg' })
 
       if (!error && data) {
         const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(data.path)
