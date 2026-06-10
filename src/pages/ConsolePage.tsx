@@ -2106,6 +2106,72 @@ interface ConsoleAdmin { id: string; username: string; display_name: string | nu
 interface TodoItem { id: string; text: string; done: boolean }
 interface ConsoleSettings { company_name: string | null; office_type: string; branch_name: string | null; branch_code?: string | null; billing_address?: ThaiAddress | null; address: string | null; tax_id: string | null; logo_url?: string | null; signatory_name?: string | null; signatory_title?: string | null; phone?: string | null; email?: string | null; website?: string | null; promptpay_id?: string | null; promptpay_name?: string | null; promptpay_qr?: string | null; support_email?: string | null; todos?: TodoItem[] | null }
 
+function loadImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => resolve(img)
+    img.onerror = () => reject(new Error('Invalid image'))
+    img.src = src
+  })
+}
+
+// Crop transparent padding around a logo and downscale the result. Returns the
+// trimmed PNG data URL plus whether any padding was actually removed. Logos with
+// transparent borders then align cleanly wherever they're placed.
+function trimAndResizeLogo(img: HTMLImageElement, max = 400): { url: string; trimmed: boolean } {
+  const W = img.naturalWidth || img.width, H = img.naturalHeight || img.height
+  const probe = document.createElement('canvas')
+  probe.width = W; probe.height = H
+  const pctx = probe.getContext('2d')
+  if (!pctx) return { url: '', trimmed: false }
+  pctx.drawImage(img, 0, 0)
+  let minX = W, minY = H, maxX = -1, maxY = -1
+  try {
+    const { data } = pctx.getImageData(0, 0, W, H)
+    const ALPHA = 10 // treat near-transparent pixels as empty
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        if (data[(y * W + x) * 4 + 3] > ALPHA) {
+          if (x < minX) minX = x
+          if (x > maxX) maxX = x
+          if (y < minY) minY = y
+          if (y > maxY) maxY = y
+        }
+      }
+    }
+  } catch {
+    minX = 0; minY = 0; maxX = W - 1; maxY = H - 1 // tainted canvas — keep as-is
+  }
+  if (maxX < minX || maxY < minY) { minX = 0; minY = 0; maxX = W - 1; maxY = H - 1 } // fully transparent
+  const cw = maxX - minX + 1, ch = maxY - minY + 1
+  const trimmed = cw < W || ch < H
+  const scale = Math.min(1, max / Math.max(cw, ch))
+  const ow = Math.max(1, Math.round(cw * scale)), oh = Math.max(1, Math.round(ch * scale))
+  const out = document.createElement('canvas')
+  out.width = ow; out.height = oh
+  out.getContext('2d')!.drawImage(img, minX, minY, cw, ch, 0, 0, ow, oh)
+  return { url: out.toDataURL('image/png'), trimmed }
+}
+
+// Logo upload: trim transparent padding so it aligns wherever placed.
+async function fileToTrimmedLogoDataUrl(file: File, max = 400): Promise<string> {
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onerror = () => reject(new Error('Could not read file'))
+    reader.onload = () => resolve(reader.result as string)
+    reader.readAsDataURL(file)
+  })
+  return trimAndResizeLogo(await loadImage(dataUrl), max).url
+}
+
+// Re-trim an already-stored logo; returns null if it had no padding to remove.
+async function trimStoredLogo(dataUrl: string, max = 400): Promise<string | null> {
+  try {
+    const r = trimAndResizeLogo(await loadImage(dataUrl), max)
+    return r.trimmed ? r.url : null
+  } catch { return null }
+}
+
 // Read an image file and downscale it to a compact data URL (keeps stored logo small).
 function fileToResizedDataUrl(file: File, max = 400): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -2156,6 +2222,17 @@ function AdminSettingsView({ call, onBack }: { call: <T,>(a: string, p?: Record<
     } catch (e) { console.error('Console load failed:', e) } finally { setLoading(false) }
   }, [call])
   useEffect(() => { load() }, [load])
+
+  // One-time self-heal: trim transparent padding from a previously-stored logo
+  // so older uploads align like newly-trimmed ones.
+  const healedLogo = useRef(false)
+  useEffect(() => {
+    if (healedLogo.current || !company?.logo_url) return
+    healedLogo.current = true
+    trimStoredLogo(company.logo_url).then((trimmed) => {
+      if (trimmed) call('update_settings', { logo_url: trimmed }).then(() => load()).catch(() => {})
+    })
+  }, [company?.logo_url, call, load])
 
   function startEdit(a: ConsoleAdmin) { setEditId(a.id); setEUser(a.username); setEName(a.display_name ?? ''); setEEmail(a.email ?? ''); setEPass('') }
   async function saveAdmin(id: string) {
@@ -2211,7 +2288,7 @@ function AdminSettingsView({ call, onBack }: { call: <T,>(a: string, p?: Record<
     if (!file.type.startsWith('image/')) { alert('Please choose an image file.'); return }
     setBusy('logo')
     try {
-      const dataUrl = await fileToResizedDataUrl(file, 400)
+      const dataUrl = await fileToTrimmedLogoDataUrl(file, 400)
       await call('update_settings', { logo_url: dataUrl })
       load()
     } catch (err) { alert(err instanceof Error ? err.message : 'Upload failed') } finally { setBusy(null) }

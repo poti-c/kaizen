@@ -753,7 +753,7 @@ function PrintPreview({ form, issuer, onClose, unconfirmed, confirming, onConfir
             <div className="max-w-[55%]">
               <div className="flex items-center gap-2 mb-2">
                 {issuer?.logo_url
-                  ? <img src={issuer.logo_url} alt={issuerName} className="h-20 w-auto max-w-[280px] object-contain -ml-[18px]" />
+                  ? <img src={issuer.logo_url} alt={issuerName} className="h-20 w-auto max-w-[280px] object-contain" />
                   : <Building2 className="h-6 w-6 text-[#7a5c3e]" />}
                 <span className="text-lg font-bold text-[#4a3424] tracking-tight">{issuerName}</span>
               </div>
