@@ -392,7 +392,9 @@ function FormEditor({ formType, companies, products, promos, onCreated, call, in
     const p = products.find(x => x.id === id)
     if (!p) return
     setItems(its => {
-      const base = its.filter(it => it.description.trim() || it.qty || it.unit_price)
+      // Drop blank rows (the starter row defaults qty:1, so ignore qty here)
+      // so the product fills in cleanly instead of leaving an empty line behind.
+      const base = its.filter(it => it.description.trim() || it.unit_price)
       return [...base, { description: p.name, qty: 1, unit_price: p.price }]
     })
   }
@@ -503,7 +505,12 @@ function FormEditor({ formType, companies, products, promos, onCreated, call, in
       {/* Line items */}
       <div>
         <div className="flex items-center justify-between mb-1.5 gap-2">
-          <label className="text-xs font-medium text-slate-400">Items</label>
+          <label className="text-xs font-medium text-slate-400 flex items-center gap-1.5">
+            Items
+            <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-slate-800 border border-slate-700 text-[10px] font-semibold text-slate-300">
+              {items.filter(it => it.description.trim() || it.unit_price).length}
+            </span>
+          </label>
           <div className="flex items-center gap-2">
             {products.length > 0 && (
               <select value="" onChange={e => { if (e.target.value) { addProduct(e.target.value); e.target.value = '' } }} className={selectCls + ' h-7 text-[11px] text-amber-400 border-dashed'}>
