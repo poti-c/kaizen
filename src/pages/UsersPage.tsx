@@ -15,7 +15,7 @@ import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
 import { getInitials, formatDate, activityLabel } from '@/lib/utils'
 import { usePresence } from '@/contexts/PresenceContext'
 import { cn } from '@/lib/utils'
-import { DEPARTMENTS } from '@/types'
+import { DEPARTMENTS, DEPARTMENT_LABELS } from '@/types'
 import type { KaizenProfile, Role, Department } from '@/types'
 import { toast } from 'sonner'
 import { Navigate, Link } from 'react-router-dom'
@@ -30,6 +30,7 @@ export function UsersPage() {
   const [loading, setLoading] = useState(true)
   const [showCreate, setShowCreate] = useState(false)
   const [creating, setCreating] = useState(false)
+  const [confirmAddMgr, setConfirmAddMgr] = useState(false)  // "department already has a manager" guard
   const [actioning, setActioning] = useState<string | null>(null)
 
   // Create form
@@ -168,11 +169,21 @@ export function UsersPage() {
     setShowEdit(true)
   }
 
-  async function handleCreate() {
+  // Active managers already in the department selected in the create form (Top Management adds managers).
+  const existingDeptManagers = newRole === 'manager'
+    ? users.filter(u => u.role === 'manager' && u.department === newDepartment && u.is_active)
+    : []
+
+  async function handleCreate(skipMgrCheck = false) {
     if (!newFullName.trim() || !newPassword.trim()) { toast.error(t.users.fillRequired); return }
     if (newRole === 'staff' && !newUsername.trim()) { toast.error(t.users.usernameRequired); return }
     if ((newRole === 'manager' || newRole === 'super_admin') && !newEmail.trim()) { toast.error(t.users.emailRequired); return }
     if (newPassword.length < 6) { toast.error(t.users.minPwd); return }
+    // Warn before adding a second manager to a department that already has one.
+    if (!skipMgrCheck && newRole === 'manager'
+        && users.some(u => u.role === 'manager' && u.department === newDepartment && u.is_active)) {
+      setConfirmAddMgr(true); return
+    }
     setCreating(true)
     try {
       const { data: { session } } = await supabase.auth.getSession()
@@ -556,10 +567,41 @@ export function UsersPage() {
                 <span>{limitMsg(creatingRole)}</span>
               </div>
             )}
+            {existingDeptManagers.length > 0 && (
+              <div className="flex items-start gap-2 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-xs px-3 py-2">
+                <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+                <span>{lang === 'th'
+                  ? `แผนก${DEPARTMENT_LABELS[newDepartment]}มีผู้จัดการอยู่แล้ว (${existingDeptManagers.map(m => m.full_name).join(', ')})`
+                  : `${DEPARTMENT_LABELS[newDepartment]} already has a manager (${existingDeptManagers.map(m => m.full_name).join(', ')}).`}</span>
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => { setShowCreate(false); resetForm() }}>{t.users.cancel}</Button>
-            <Button onClick={handleCreate} disabled={creating || selectedRoleFull}>{creating ? <Loader2 className="h-4 w-4 animate-spin" /> : t.users.createAccount}</Button>
+            <Button onClick={() => handleCreate()} disabled={creating || selectedRoleFull}>{creating ? <Loader2 className="h-4 w-4 animate-spin" /> : t.users.createAccount}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Confirm adding a second manager to a department */}
+      <Dialog open={confirmAddMgr} onOpenChange={setConfirmAddMgr}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-amber-500" />
+              {lang === 'th' ? 'มีผู้จัดการอยู่แล้ว' : 'Manager already exists'}
+            </DialogTitle>
+            <DialogDescription className="text-left pt-1">
+              {lang === 'th'
+                ? `แผนก${DEPARTMENT_LABELS[newDepartment]}มีผู้จัดการอยู่แล้ว (${existingDeptManagers.map(m => m.full_name).join(', ')}) คุณแน่ใจหรือไม่ว่าต้องการเพิ่มผู้จัดการอีกคน?`
+                : `${DEPARTMENT_LABELS[newDepartment]} already has a manager (${existingDeptManagers.map(m => m.full_name).join(', ')}). Are you sure you want to add another manager?`}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmAddMgr(false)}>{t.users.cancel}</Button>
+            <Button onClick={() => { setConfirmAddMgr(false); handleCreate(true) }} disabled={creating}>
+              {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : (lang === 'th' ? 'เพิ่มต่อไป' : 'Add Anyway')}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
