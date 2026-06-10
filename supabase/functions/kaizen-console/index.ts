@@ -611,6 +611,9 @@ Deno.serve(async (req) => {
     if (body.contact_email !== undefined) patch.contact_email = cleanStr(body.contact_email);
     if (body.address !== undefined) patch.address = cleanStr(body.address);
     if (body.tax_id !== undefined) patch.tax_id = cleanStr(body.tax_id);
+    if (body.office_type !== undefined) patch.office_type = (body.office_type === "branch") ? "branch" : "head_office";
+    if (body.branch_code !== undefined) patch.branch_code = cleanStr(body.branch_code);
+    if (body.billing_address !== undefined && body.billing_address && typeof body.billing_address === "object") patch.billing_address = body.billing_address;
 
     let repointed = 0;
     if (body.login_code !== undefined) {

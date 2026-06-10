@@ -10,6 +10,7 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts'
 import { FormGeneratorView } from './console/FormGenerator'
 import { ProductsView } from './console/Products'
 import { CalendarView } from './console/Calendar'
+import { BillingAddressFields, composeThaiAddress, type ThaiAddress } from './console/BillingAddressFields'
 
 // ── Console API client ───────────────────────────────────────────────────────
 const FN_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/kaizen-console`
@@ -53,6 +54,7 @@ interface ConsoleCompany {
   login_code: string | null
   contact_person: string | null; contact_phone: string | null; contact_email: string | null
   address: string | null; tax_id: string | null
+  office_type?: string | null; branch_code?: string | null; billing_address?: ThaiAddress | null
   addons?: Record<string, boolean> | null
   subscription?: Subscription
 }
@@ -470,7 +472,9 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
   const [billingOpen, setBillingOpen] = useState(false)
   const [bill, setBill] = useState({
     contact_person: c.contact_person ?? '', contact_phone: c.contact_phone ?? '',
-    contact_email: c.contact_email ?? '', address: c.address ?? '', tax_id: c.tax_id ?? '',
+    contact_email: c.contact_email ?? '', tax_id: c.tax_id ?? '',
+    office_type: c.office_type ?? 'head_office', branch_code: c.branch_code ?? '',
+    billing_address: (c.billing_address ?? {}) as ThaiAddress,
   })
   const [confirmDeleteOwner, setConfirmDeleteOwner] = useState<ConsoleOwner | null>(null)
   // Remove-company flow: 'confirm' (first prompt) → 'password' (admin password)
@@ -510,7 +514,9 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
   function startBillingEdit() {
     setBill({
       contact_person: c.contact_person ?? '', contact_phone: c.contact_phone ?? '',
-      contact_email: c.contact_email ?? '', address: c.address ?? '', tax_id: c.tax_id ?? '',
+      contact_email: c.contact_email ?? '', tax_id: c.tax_id ?? '',
+      office_type: c.office_type ?? 'head_office', branch_code: c.branch_code ?? '',
+      billing_address: (c.billing_address ?? {}) as ThaiAddress,
     })
     setBillingOpen(true)
     setEditingBilling(true)
@@ -521,7 +527,11 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
       await call('update_company', {
         company_id: c.id,
         contact_person: bill.contact_person, contact_phone: bill.contact_phone,
-        contact_email: bill.contact_email, address: bill.address, tax_id: bill.tax_id,
+        contact_email: bill.contact_email, tax_id: bill.tax_id,
+        office_type: bill.office_type, branch_code: bill.branch_code,
+        billing_address: bill.billing_address,
+        // Keep the legacy one-line `address` in sync for existing receipt rendering.
+        address: composeThaiAddress(bill.billing_address),
       })
       setEditingBilling(false); reload()
     } catch (e) { alert(e instanceof Error ? e.message : 'Failed') } finally { setBusy(null) }
@@ -678,7 +688,12 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
               <Field label="Email Address"><input type="email" value={bill.contact_email} onChange={(e) => setBill({ ...bill, contact_email: e.target.value })} className={inputCls} placeholder="billing@company.com" autoComplete="off" /></Field>
             </div>
             <Field label="Thai Tax ID"><input value={bill.tax_id} onChange={(e) => setBill({ ...bill, tax_id: e.target.value })} className={inputCls} placeholder="13-digit tax ID" /></Field>
-            <Field label="Address"><textarea value={bill.address} onChange={(e) => setBill({ ...bill, address: e.target.value })} rows={2} className={inputCls + ' h-auto py-2 resize-none'} placeholder="Billing address" /></Field>
+            <BillingAddressFields
+              officeType={bill.office_type}
+              branchCode={bill.branch_code}
+              address={bill.billing_address}
+              onChange={({ officeType, branchCode, address }) => setBill({ ...bill, office_type: officeType, branch_code: branchCode, billing_address: address })}
+            />
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-3">
@@ -686,7 +701,8 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
             <Detail label="Phone Number">{c.contact_phone || '—'}</Detail>
             <Detail label="Email Address">{c.contact_email || '—'}</Detail>
             <Detail label="Thai Tax ID">{c.tax_id || '—'}</Detail>
-            <div className="col-span-2"><Detail label="Address">{c.address || '—'}</Detail></div>
+            <Detail label="Head Office / Branch">{c.office_type === 'branch' ? `Branch${c.branch_code ? ` #${c.branch_code}` : ''}` : 'Head Office'}</Detail>
+            <div className="col-span-2"><Detail label="Address">{composeThaiAddress(c.billing_address) || c.address || '—'}</Detail></div>
           </div>
         )}
         </div>
