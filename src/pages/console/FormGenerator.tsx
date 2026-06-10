@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import {
-  FileText, Loader2, Plus, Trash2, ArrowLeft, Printer, X, Check, Building2, Search, Languages,
+  FileText, Loader2, Plus, Trash2, ArrowLeft, Printer, X, Check, Building2, Search, Languages, Eye, ChevronLeft, ChevronRight,
 } from 'lucide-react'
 import { composeAddress, type ThaiAddress } from './BillingAddressFields'
 
@@ -36,6 +36,11 @@ interface Issuer {
   phone?: string | null; email?: string | null; website?: string | null
 }
 type Call = <T,>(a: string, p?: Record<string, unknown>) => Promise<T>
+
+// Document-number prefixes — must match the edge function's FORM_PREFIX. Used
+// only to PREDICT the number shown in the preview; the server assigns the
+// authoritative number when the document is confirmed.
+const DOC_PREFIX: Record<FormType, string> = { quotation: 'QUO', invoice: 'INV', tax_invoice_receipt: 'TAX', receipt: 'REC' }
 
 // ── Config ───────────────────────────────────────────────────────────────────
 const FORM_TYPES: { key: FormType; label: string; thai: string }[] = [
@@ -185,22 +190,32 @@ export function FormGeneratorView({ call, onBack, initialPreviewId, onPreviewCon
   const [promos, setPromos] = useState<CatalogPromo[]>([])
   const [tab, setTab] = useState<FormType>('quotation')
   const [preview, setPreview] = useState<GeneratedForm | null>(null)
+  // When set, the open preview is an unconfirmed draft not yet recorded.
+  const [draftPayload, setDraftPayload] = useState<Record<string, unknown> | null>(null)
+  const [confirming, setConfirming] = useState(false)
+  const [confirmSignal, setConfirmSignal] = useState(0)
   const [filterType, setFilterType] = useState<'all' | FormType>('all')
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(10)
   const [draft, setDraft] = useState<FormDraft | null>(initialDraft ?? null)
   const [linkInvoiceId, setLinkInvoiceId] = useState<string | null>(initialDraft?.invoiceId ?? null)
-  const [pendingApproval, setPendingApproval] = useState(false)
   useEffect(() => { if (initialDraft) { setDraft(initialDraft); setTab(initialDraft.formType); setLinkInvoiceId(initialDraft.invoiceId ?? null) } }, [initialDraft])
 
-  async function approveForm() {
-    if (!preview) return
-    if (linkInvoiceId) { try { await call('link_receipt_form', { invoice_id: linkInvoiceId, form_id: preview.id }) } catch (e) { console.error(e) } }
-    setLinkInvoiceId(null); setPendingApproval(false); setPreview(null); load()
+  // Persist the document only when the admin confirms the preview — nothing is
+  // recorded in History until then. Linking to a receipt request (if any)
+  // happens once the record exists.
+  async function confirmDraft() {
+    if (!draftPayload) return
+    setConfirming(true)
+    try {
+      const { form } = await call<{ form: GeneratedForm }>('create_form', draftPayload)
+      if (linkInvoiceId) { try { await call('link_receipt_form', { invoice_id: linkInvoiceId, form_id: form.id }) } catch (e) { console.error(e) } }
+      setLinkInvoiceId(null); setDraftPayload(null); setPreview(null); setConfirmSignal(s => s + 1); load()
+    } catch (e) { alert(e instanceof Error ? e.message : 'Failed to record the document.') }
+    finally { setConfirming(false) }
   }
-  async function rejectForm() {
-    if (!preview) return
-    try { await call('delete_form', { form_id: preview.id }) } catch (e) { console.error(e) }
-    setLinkInvoiceId(null); setPendingApproval(false); setPreview(null); load()
-  }
+  // Close the preview without recording — returns to the editor with data intact.
+  function discardDraft() { setDraftPayload(null); setPreview(null) }
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -221,6 +236,10 @@ export function FormGeneratorView({ call, onBack, initialPreviewId, onPreviewCon
   }, [initialPreviewId, forms, onPreviewConsumed])
 
   const filtered = filterType === 'all' ? forms : forms.filter(f => f.form_type === filterType)
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize))
+  const pageClamped = Math.min(page, totalPages)
+  const paged = filtered.slice((pageClamped - 1) * pageSize, pageClamped * pageSize)
+  useEffect(() => { setPage(1) }, [filterType, pageSize])
 
   return (
     <div>
@@ -255,10 +274,12 @@ export function FormGeneratorView({ call, onBack, initialPreviewId, onPreviewCon
         companies={companies}
         products={products}
         promos={promos}
+        existingForms={forms}
+        resetSignal={confirmSignal}
         initialCompanyId={draft && draft.formType === tab ? draft.companyId : undefined}
         initialItems={draft && draft.formType === tab ? draft.items : undefined}
         onPrefilled={() => { setDraft(null); onDraftConsumed?.() }}
-        onCreated={(f) => { setPreview(f); if (linkInvoiceId) { setPendingApproval(true) } else { load() } }}
+        onView={(previewForm, payload) => { setPreview(previewForm); setDraftPayload(payload) }}
         call={call}
       />
 
@@ -292,7 +313,7 @@ export function FormGeneratorView({ call, onBack, initialPreviewId, onPreviewCon
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800">
-                {filtered.map(f => (
+                {paged.map(f => (
                   <tr key={f.id} className="hover:bg-slate-800">
                     <td className="px-4 py-2.5 text-slate-300 whitespace-nowrap">{fmtDate(f.issue_date)}</td>
                     <td className="px-3 py-2.5 font-mono text-amber-400 whitespace-nowrap">{f.doc_number}</td>
@@ -314,9 +335,32 @@ export function FormGeneratorView({ call, onBack, initialPreviewId, onPreviewCon
             </table>
           </div>
         )}
+        {filtered.length > 10 && (
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-2 px-4 py-3 border-t border-slate-800">
+            <p className="text-xs text-slate-400">
+              Showing {(pageClamped - 1) * pageSize + 1}–{Math.min(pageClamped * pageSize, filtered.length)} of {filtered.length}
+            </p>
+            <div className="flex items-center gap-2">
+              <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={pageClamped === 1}
+                className="h-7 px-2 inline-flex items-center gap-1 rounded-md border border-slate-700 text-xs text-slate-300 disabled:opacity-40 hover:border-slate-600"><ChevronLeft className="h-3.5 w-3.5" />Prev</button>
+              <span className="text-xs text-slate-400">Page {pageClamped} of {totalPages}</span>
+              <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={pageClamped >= totalPages}
+                className="h-7 px-2 inline-flex items-center gap-1 rounded-md border border-slate-700 text-xs text-slate-300 disabled:opacity-40 hover:border-slate-600">Next {pageSize}<ChevronRight className="h-3.5 w-3.5" /></button>
+            </div>
+            <div className="flex items-center gap-1.5 text-xs text-slate-400">
+              <span>Display</span>
+              {[10, 20, 30].map(opt => (
+                <button key={opt} onClick={() => setPageSize(opt)}
+                  className={`h-7 w-8 rounded-md border text-xs font-medium transition-colors ${pageSize === opt ? 'bg-amber-500 text-slate-950 border-amber-500' : 'bg-slate-800 text-slate-300 border-slate-700 hover:border-slate-600'}`}>{opt}</button>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
-      {preview && <PrintPreview form={preview} issuer={issuer} onClose={() => { if (!pendingApproval) setPreview(null) }} pendingApproval={pendingApproval} onApprove={approveForm} onReject={rejectForm} />}
+      {preview && <PrintPreview form={preview} issuer={issuer}
+        unconfirmed={!!draftPayload} confirming={confirming} onConfirm={confirmDraft}
+        onClose={() => { if (draftPayload) discardDraft(); else setPreview(null) }} />}
     </div>
   )
 }
@@ -362,9 +406,10 @@ function DeleteFormBtn({ form, call, onDeleted }: { form: GeneratedForm; call: C
 }
 
 // ── Editor ───────────────────────────────────────────────────────────────────
-function FormEditor({ formType, companies, products, promos, onCreated, call, initialCompanyId, initialItems, onPrefilled }: {
+function FormEditor({ formType, companies, products, promos, existingForms, resetSignal, onView, call, initialCompanyId, initialItems, onPrefilled }: {
   formType: FormType; companies: FormCompany[]; products: CatalogProduct[]; promos: CatalogPromo[]
-  onCreated: (f: GeneratedForm) => void; call: Call
+  existingForms: GeneratedForm[]; resetSignal?: number
+  onView: (previewForm: GeneratedForm, payload: Record<string, unknown>) => void; call: Call
   initialCompanyId?: string; initialItems?: LineItem[]; onPrefilled?: () => void
 }) {
   const today = new Date().toISOString().slice(0, 10)
@@ -379,7 +424,6 @@ function FormEditor({ formType, companies, products, promos, onCreated, call, in
   const [promoId, setPromoId] = useState('')
   const [notes, setNotes] = useState('')
   const [status, setStatus] = useState(STATUSES[formType][0])
-  const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
   // Promo codes valid on the issue date
@@ -438,29 +482,47 @@ function FormEditor({ formType, companies, products, promos, onCreated, call, in
   const vat = useMemo(() => net * (Number(vatRate) || 0) / 100, [net, vatRate])
   const total = net + vat
 
-  async function generate() {
+  // After a document is confirmed & recorded, clear the line items (keep the
+  // client selected for convenience).
+  useEffect(() => { if (resetSignal) { setItems([{ description: '', qty: 1, unit_price: 0 }]); setNotes('') } }, [resetSignal])
+
+  // Build a preview (nothing is saved yet) and hand it to the parent. The form
+  // is only recorded once the admin confirms the preview.
+  function openPreview() {
     setError('')
     const valid = items.filter(it => it.description.trim() || it.qty || it.unit_price)
     if (valid.length === 0) { setError('Add at least one line item.'); return }
     if (!client.name.trim()) { setError('Select a company or enter a client name.'); return }
-    setSaving(true)
-    try {
-      const { form } = await call<{ form: GeneratedForm }>('create_form', {
-        form_type: formType,
-        company_id: companyId || undefined,
-        client_name: client.name, client_address: client.address, client_tax_id: client.tax_id,
-        client_billing: clientBilling ?? undefined,
-        client_contact: client.contact, client_phone: client.phone, client_email: client.email,
-        issue_date: issueDate, due_date: dueDate || undefined,
-        line_items: valid, currency, vat_rate: Number(vatRate) || 0,
-        discount_code: promo?.code, discount_percent: promo?.discount_percent || 0,
-        notes: notes.trim() || undefined, status,
-      })
-      // reset items, keep client for convenience
-      setItems([{ description: '', qty: 1, unit_price: 0 }]); setNotes('')
-      onCreated(form)
-    } catch (e) { setError(e instanceof Error ? e.message : 'Failed to generate.') }
-    finally { setSaving(false) }
+    const vatNum = Number(vatRate) || 0
+    const payload: Record<string, unknown> = {
+      form_type: formType,
+      company_id: companyId || undefined,
+      client_name: client.name, client_address: client.address, client_tax_id: client.tax_id,
+      client_billing: clientBilling ?? undefined,
+      client_contact: client.contact, client_phone: client.phone, client_email: client.email,
+      issue_date: issueDate, due_date: dueDate || undefined,
+      line_items: valid, currency, vat_rate: vatNum,
+      discount_code: promo?.code, discount_percent: promo?.discount_percent || 0,
+      notes: notes.trim() || undefined, status,
+    }
+    // Predicted document number for display only — the server assigns the
+    // authoritative one when the document is confirmed.
+    const y = issueDate.slice(0, 4), mo = issueDate.slice(5, 7)
+    const prefix = DOC_PREFIX[formType]
+    const used = existingForms.filter(f => f.form_type === formType && (f.doc_number || '').startsWith(`${prefix}${y}-${mo}`)).length
+    const previewForm: GeneratedForm = {
+      id: 'preview', form_type: formType, doc_number: `${prefix}${y}-${mo}${String(used + 1).padStart(3, '0')}`,
+      company_id: companyId || null,
+      client_name: client.name, client_address: client.address || null, client_tax_id: client.tax_id || null,
+      client_billing: clientBilling ?? null,
+      client_contact: client.contact || null, client_phone: client.phone || null, client_email: client.email || null,
+      issue_date: issueDate, due_date: dueDate || null,
+      line_items: valid, currency,
+      non_vat_amount: 0, subtotal, vat_rate: vatNum, vat_amount: vat, total,
+      discount_code: promo?.code || null, discount_percent: promo?.discount_percent || 0, discount_amount: discount,
+      notes: notes.trim() || null, status, created_at: issueDate,
+    }
+    onView(previewForm, payload)
   }
 
   return (
@@ -574,8 +636,8 @@ function FormEditor({ formType, companies, products, promos, onCreated, call, in
           </select>
         </div>
         {error && <span className="text-xs text-red-400">{error}</span>}
-        <button onClick={generate} disabled={saving} className="ml-auto flex items-center gap-1.5 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-slate-950 text-sm font-semibold px-4 py-2 rounded-lg">
-          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}Generate {typeLabel(formType)}
+        <button onClick={openPreview} className="ml-auto flex items-center gap-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 text-sm font-semibold px-4 py-2 rounded-lg">
+          <Eye className="h-4 w-4" />View {typeLabel(formType)}
         </button>
       </div>
     </div>
@@ -587,7 +649,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 
 // ── Printable document ───────────────────────────────────────────────────────
-function PrintPreview({ form, issuer, onClose, pendingApproval, onApprove, onReject }: { form: GeneratedForm; issuer: Issuer | null; onClose: () => void; pendingApproval?: boolean; onApprove?: () => void; onReject?: () => void }) {
+function PrintPreview({ form, issuer, onClose, unconfirmed, confirming, onConfirm }: { form: GeneratedForm; issuer: Issuer | null; onClose: () => void; unconfirmed?: boolean; confirming?: boolean; onConfirm?: () => void }) {
   // Document language — defaults to English; switch to Thai on client request.
   const [lang, setLang] = useState<DocLang>('en')
   const t = DOC_T[lang]
@@ -621,19 +683,12 @@ function PrintPreview({ form, issuer, onClose, pendingApproval, onApprove, onRej
         .no-print { display: none !important; }
       }`}</style>
 
-      {/* Approve / reject gate (shown right after generating from a receipt request) */}
-      {pendingApproval && (
-        <div className="no-print sticky top-0 z-10 flex items-center gap-3 px-4 py-3 bg-amber-50 border-b border-amber-200">
-          <span className="text-sm font-medium text-amber-900 flex-1">Review this document. Approve to record &amp; issue it, or reject to discard.</span>
-          <button onClick={() => window.print()} className="flex items-center gap-1.5 border border-amber-300 text-amber-800 hover:bg-amber-100 text-sm font-medium px-3 py-1.5 rounded-lg"><Printer className="h-4 w-4" />Preview / Save PDF</button>
-          <button onClick={onReject} className="text-sm font-medium text-slate-600 hover:text-red-600 px-3 py-1.5 rounded-lg">Reject</button>
-          <button onClick={onApprove} className="flex items-center gap-1.5 bg-green-600 hover:bg-green-500 text-white text-sm font-semibold px-3 py-1.5 rounded-lg"><Check className="h-4 w-4" />Approve &amp; issue</button>
-        </div>
-      )}
-
       {/* toolbar */}
-      <div className="no-print sticky top-0 flex items-center justify-between px-4 py-3 bg-white border-b border-slate-200">
-        <div className="flex items-center gap-2 text-slate-900 text-sm font-semibold"><FileText className="h-4 w-4 text-amber-600" />{typeLabel(form.form_type)} · {form.doc_number}</div>
+      <div className="no-print sticky top-0 flex items-center justify-between gap-2 px-4 py-3 bg-white border-b border-slate-200">
+        <div className="flex items-center gap-2 text-slate-900 text-sm font-semibold min-w-0">
+          <FileText className="h-4 w-4 text-amber-600 shrink-0" />
+          <span className="truncate">{typeLabel(form.form_type)} · {form.doc_number}{unconfirmed ? ' (preview)' : ''}</span>
+        </div>
         <div className="flex items-center gap-2">
           {/* Document language — English by default, Thai on request */}
           <div className="flex items-center rounded-lg border border-slate-300 overflow-hidden" title="Document language">
@@ -645,8 +700,14 @@ function PrintPreview({ form, issuer, onClose, pendingApproval, onApprove, onRej
               </button>
             ))}
           </div>
+          {unconfirmed && onConfirm && (
+            <button onClick={onConfirm} disabled={confirming} title="Record this document in History"
+              className="flex items-center gap-1.5 bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white text-sm font-semibold px-3 py-1.5 rounded-lg">
+              {confirming ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}Confirm
+            </button>
+          )}
           <button onClick={() => window.print()} className="flex items-center gap-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 text-sm font-semibold px-3 py-1.5 rounded-lg"><Printer className="h-4 w-4" />Print / Save PDF</button>
-          {!pendingApproval && <button onClick={onClose} className="p-1.5 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100"><X className="h-5 w-5" /></button>}
+          <button onClick={onClose} title={unconfirmed ? 'Discard — back to editing' : 'Close'} className="p-1.5 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100"><X className="h-5 w-5" /></button>
         </div>
       </div>
 
