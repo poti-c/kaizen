@@ -1161,6 +1161,8 @@ function AuditTab({ call }: { call: <T,>(a: string, p?: Record<string, unknown>)
   const [loading, setLoading] = useState(true)
   const [sub, setSub] = useState<'activity' | 'errors'>('activity')
   const [expanded, setExpanded] = useState<string | null>(null)
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(10)
 
   const reload = useCallback(() => {
     setLoading(true)
@@ -1177,12 +1179,17 @@ function AuditTab({ call }: { call: <T,>(a: string, p?: Record<string, unknown>)
   }
 
   const { node: periodNode, inPeriod } = usePeriodFilter([...entries.map(e => e.created_at), ...appErrors.map(e => e.created_at)])
-  if (loading) return <div className="flex justify-center py-20"><Loader2 className="h-6 w-6 animate-spin text-slate-300" /></div>
   const activity = entries.filter(e => e.success && inPeriod(e.created_at))
   const consoleErrors = entries.filter(e => !e.success && inPeriod(e.created_at))
   const shownAppErrors = appErrors.filter(e => inPeriod(e.created_at))
   const openAppErrors = shownAppErrors.filter(e => !e.resolved)
   const errCount = consoleErrors.length + openAppErrors.length
+  // Paginate the activity feed (max per page selectable).
+  const totalPages = Math.max(1, Math.ceil(activity.length / pageSize))
+  const pageClamped = Math.min(page, totalPages)
+  const pagedActivity = activity.slice((pageClamped - 1) * pageSize, pageClamped * pageSize)
+  useEffect(() => { setPage(1) }, [sub, pageSize, activity.length])
+  if (loading) return <div className="flex justify-center py-20"><Loader2 className="h-6 w-6 animate-spin text-slate-300" /></div>
 
   return (
     <div>
@@ -1197,8 +1204,9 @@ function AuditTab({ call }: { call: <T,>(a: string, p?: Record<string, unknown>)
       {periodNode}
 
       {sub === 'activity' ? (
+        <>
         <div className="bg-slate-900 border border-slate-800 rounded-xl divide-y divide-slate-800 overflow-hidden">
-          {activity.map((e) => (
+          {pagedActivity.map((e) => (
             <div key={e.id} className="flex items-center gap-3 px-4 py-2.5 text-xs">
               <span className="w-1.5 h-1.5 rounded-full flex-shrink-0 bg-green-400" />
               <span className="font-mono text-slate-300 w-40 flex-shrink-0">{e.action}</span>
@@ -1209,6 +1217,25 @@ function AuditTab({ call }: { call: <T,>(a: string, p?: Record<string, unknown>)
           ))}
           {activity.length === 0 && <div className="px-4 py-8 text-center text-sm text-slate-300">No events yet.</div>}
         </div>
+        {activity.length > 10 && (
+          <div className="flex flex-wrap items-center justify-between gap-2 mt-3">
+            <div className="flex items-center gap-1">
+              <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={pageClamped === 1}
+                className="h-8 w-8 flex items-center justify-center rounded-lg border border-slate-800 bg-slate-900 text-slate-300 disabled:opacity-40 hover:border-slate-700"><ChevronLeft className="h-4 w-4" /></button>
+              <span className="min-w-[88px] h-8 px-2 inline-flex items-center justify-center rounded-lg border border-slate-800 bg-slate-900 text-sm text-white">Page {pageClamped} of {totalPages}</span>
+              <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={pageClamped >= totalPages}
+                className="h-8 w-8 flex items-center justify-center rounded-lg border border-slate-800 bg-slate-900 text-slate-300 disabled:opacity-40 hover:border-slate-700"><ChevronRight className="h-4 w-4" /></button>
+            </div>
+            <div className="flex items-center gap-1.5 text-xs text-slate-400">
+              <span>Display</span>
+              {[10, 15, 20].map(opt => (
+                <button key={opt} onClick={() => setPageSize(opt)}
+                  className={`h-8 w-9 rounded-lg border text-xs font-medium transition-colors ${pageSize === opt ? 'bg-amber-500 text-slate-950 border-amber-500' : 'bg-slate-900 text-slate-300 border-slate-800 hover:border-slate-700'}`}>{opt}</button>
+              ))}
+            </div>
+          </div>
+        )}
+        </>
       ) : (
         <div className="space-y-4">
           {/* Client-app errors */}
