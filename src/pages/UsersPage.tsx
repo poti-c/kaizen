@@ -229,7 +229,7 @@ export function UsersPage() {
 
       await logActivity(editUser, 'edit_profile', changes.join(', ') || 'No changes')
 
-      toast.success('User updated.')
+      toast.success(lang === 'th' ? 'อัปเดตผู้ใช้แล้ว' : 'User updated.')
       setShowEdit(false); fetchUsers()
     } catch (err: unknown) {
       const msg = (err as { message?: string })?.message ?? 'Failed to save changes.'
@@ -253,7 +253,7 @@ export function UsersPage() {
   }
 
   async function handleDelete() {
-    if (!deleteUser || !deletePw) { setDeleteErr('Enter your password to confirm.'); return }
+    if (!deleteUser || !deletePw) { setDeleteErr(lang === 'th' ? 'กรอกรหัสผ่านของคุณเพื่อยืนยัน' : 'Enter your password to confirm.'); return }
     setActioning(deleteUser.id)
     setDeleteErr('')
     try {
@@ -268,7 +268,7 @@ export function UsersPage() {
         email: profile?.email ?? '',
         password: deletePw,
       })
-      if (authErr) { setDeleteErr('Incorrect password.'); setActioning(null); return }
+      if (authErr) { setDeleteErr(lang === 'th' ? 'รหัสผ่านไม่ถูกต้อง' : 'Incorrect password.'); setActioning(null); return }
 
       const { data: { session } } = await supabase.auth.getSession()
       const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/kaizen-manage-users`, {
@@ -311,10 +311,20 @@ export function UsersPage() {
   // Managers only add staff, so their header button can hard-disable at the cap
   const managerAddBlocked = profile?.role === 'manager' && staffFull
   const limitMsg = (role: Role) => role === 'manager'
-    ? `Manager limit reached (${usage.managers}/${maxManagers}). Upgrade the package to add more.`
-    : `Staff limit reached (${usage.staff}/${maxStaff}). Upgrade the package to add more.`
+    ? (lang === 'th'
+      ? `ถึงขีดจำกัดผู้จัดการแล้ว (${usage.managers}/${maxManagers}) อัปเกรดแพ็กเกจเพื่อเพิ่มจำนวน`
+      : `Manager limit reached (${usage.managers}/${maxManagers}). Upgrade the package to add more.`)
+    : (lang === 'th'
+      ? `ถึงขีดจำกัดพนักงานแล้ว (${usage.staff}/${maxStaff}) อัปเกรดแพ็กเกจเพื่อเพิ่มจำนวน`
+      : `Staff limit reached (${usage.staff}/${maxStaff}). Upgrade the package to add more.`)
 
-  const ACTION_LABELS: Record<string, string> = {
+  const ACTION_LABELS: Record<string, string> = lang === 'th' ? {
+    edit_profile: 'แก้ไขโปรไฟล์',
+    reset_password: 'รีเซ็ตรหัสผ่าน',
+    suspended: 'ระงับผู้ใช้',
+    reactivated: 'เปิดใช้งานผู้ใช้อีกครั้ง',
+    deleted: 'ลบผู้ใช้',
+  } : {
     edit_profile: 'Edited profile',
     reset_password: 'Reset password',
     suspended: 'Suspended user',
@@ -333,14 +343,14 @@ export function UsersPage() {
           {profile?.role === 'super_admin' && (
             <Button variant="outline" size="sm" onClick={() => { setShowLog(true); fetchLog() }}>
               <History className="h-4 w-4" />
-              <span className="hidden sm:inline">Activity Log</span>
+              <span className="hidden sm:inline">{lang === 'th' ? 'บันทึกกิจกรรม' : 'Activity Log'}</span>
             </Button>
           )}
           {(profile?.role === 'super_admin' || profile?.role === 'manager') && (
             <div className="flex flex-col items-end gap-1">
               <Button onClick={() => setShowCreate(true)} disabled={managerAddBlocked}
                 title={managerAddBlocked ? limitMsg('staff') : undefined}>
-                <Plus className="h-4 w-4" />{profile?.role === 'manager' ? 'Add Staff' : t.users.addUser}
+                <Plus className="h-4 w-4" />{profile?.role === 'manager' ? (lang === 'th' ? 'เพิ่มพนักงาน' : 'Add Staff') : t.users.addUser}
               </Button>
               {(maxManagers != null || maxStaff != null) && (
                 <p className="text-[11px] text-gray-400">
@@ -390,7 +400,7 @@ export function UsersPage() {
                       <Select value={staffDeptFilter} onValueChange={(v) => setStaffDeptFilter(v as Department | 'all')}>
                         <SelectTrigger className="h-7 text-xs border-gray-200 bg-white px-2 w-auto min-w-[110px]"><SelectValue /></SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="all">All Depts ({users.filter(u => u.role === 'staff').length})</SelectItem>
+                          <SelectItem value="all">{lang === 'th' ? 'ทุกแผนก' : 'All Depts'} ({users.filter(u => u.role === 'staff').length})</SelectItem>
                           {staffDepts.map(d => <SelectItem key={d.value} value={d.value}>{d.label} ({users.filter(u => u.role === 'staff' && u.department === d.value).length})</SelectItem>)}
                         </SelectContent>
                       </Select>
@@ -431,7 +441,7 @@ export function UsersPage() {
                             <div className="flex-1 min-w-0 cursor-pointer">
                               <div className="flex items-center gap-2 flex-wrap">
                                 <p className="text-sm font-medium truncate text-[var(--brand-primary)]">{user.full_name}</p>
-                                {!user.is_active && <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-red-700 bg-red-100 border border-red-200 px-2 py-0.5 rounded-full"><PowerOff className="h-3 w-3" />Suspended</span>}
+                                {!user.is_active && <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-red-700 bg-red-100 border border-red-200 px-2 py-0.5 rounded-full"><PowerOff className="h-3 w-3" />{lang === 'th' ? 'ระงับ' : 'Suspended'}</span>}
                                 {user.must_change_password && <span className="text-xs text-amber-600 font-medium">· change pwd</span>}
                               </div>
                               {user.position && <p className="text-xs font-medium text-gray-600 mt-0.5">{user.position}</p>}
@@ -455,7 +465,7 @@ export function UsersPage() {
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2 flex-wrap">
                                 <p className="text-sm font-medium truncate text-gray-900">{user.full_name}</p>
-                                {!user.is_active && <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-red-700 bg-red-100 border border-red-200 px-2 py-0.5 rounded-full"><PowerOff className="h-3 w-3" />Suspended</span>}
+                                {!user.is_active && <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-red-700 bg-red-100 border border-red-200 px-2 py-0.5 rounded-full"><PowerOff className="h-3 w-3" />{lang === 'th' ? 'ระงับ' : 'Suspended'}</span>}
                               </div>
                               {user.position && <p className="text-xs font-medium text-gray-600 mt-0.5">{user.position}</p>}
                               <div className="mt-0.5 flex items-center gap-2 flex-wrap">
@@ -472,10 +482,10 @@ export function UsersPage() {
                         <div className="hidden sm:block text-xs text-gray-400 flex-shrink-0">{formatDate(user.created_at)}</div>
                         {canManage && (
                           <div className="flex items-center gap-1">
-                            <Button variant="ghost" size="icon-sm" onClick={() => openEdit(user)} title="Edit" className="text-gray-400 hover:text-blue-600">
+                            <Button variant="ghost" size="icon-sm" onClick={() => openEdit(user)} title={lang === 'th' ? 'แก้ไข' : 'Edit'} className="text-gray-400 hover:text-blue-600">
                               <Pencil className="h-4 w-4" />
                             </Button>
-                            <Button variant="ghost" size="icon-sm" onClick={() => setSuspendUser(user)} disabled={actioning === user.id} title={user.is_active ? 'Suspend' : 'Reactivate'} className="text-gray-400 hover:text-gray-700">
+                            <Button variant="ghost" size="icon-sm" onClick={() => setSuspendUser(user)} disabled={actioning === user.id} title={user.is_active ? (lang === 'th' ? 'ระงับ' : 'Suspend') : (lang === 'th' ? 'เปิดใช้งานอีกครั้ง' : 'Reactivate')} className="text-gray-400 hover:text-gray-700">
                               {actioning === user.id ? <Loader2 className="h-4 w-4 animate-spin" /> : user.is_active ? <PowerOff className="h-4 w-4" /> : <Power className="h-4 w-4 text-green-600" />}
                             </Button>
                             {canDelete && (
@@ -514,9 +524,9 @@ export function UsersPage() {
               </div>
             )}
             <div className="space-y-1.5"><Label>{t.users.fullName} *</Label><Input value={newFullName} onChange={(e) => setNewFullName(e.target.value)} placeholder={t.users.fullNamePlaceholder} /></div>
-            <div className="space-y-1.5"><Label>Position / Job Title</Label><Input value={newPosition} onChange={(e) => setNewPosition(e.target.value)} placeholder="e.g. Front Office Supervisor" /></div>
+            <div className="space-y-1.5"><Label>{lang === 'th' ? 'ตำแหน่ง / ชื่อตำแหน่งงาน' : 'Position / Job Title'}</Label><Input value={newPosition} onChange={(e) => setNewPosition(e.target.value)} placeholder={lang === 'th' ? 'เช่น หัวหน้าแผนกต้อนรับ' : 'e.g. Front Office Supervisor'} /></div>
             {(profile?.role === 'manager' || newRole === 'staff') ? (
-              <div className="space-y-1.5"><Label>{t.users.username} *</Label><Input value={newUsername} onChange={(e) => setNewUsername(e.target.value)} placeholder="e.g. somchai.k" /></div>
+              <div className="space-y-1.5"><Label>{t.users.username} *</Label><Input value={newUsername} onChange={(e) => setNewUsername(e.target.value)} placeholder={lang === 'th' ? 'เช่น somchai.k' : 'e.g. somchai.k'} /></div>
             ) : (
               <div className="space-y-1.5"><Label>{t.users.emailAddress} *</Label><Input type="email" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} placeholder={t.users.emailPlaceholder} /></div>
             )}
@@ -562,16 +572,16 @@ export function UsersPage() {
             <DialogDescription>{editUser?.full_name}</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
-            <div className="space-y-1.5"><Label>Full Name *</Label><Input value={editFullName} onChange={(e) => setEditFullName(e.target.value)} /></div>
+            <div className="space-y-1.5"><Label>{lang === 'th' ? 'ชื่อ-นามสกุล *' : 'Full Name *'}</Label><Input value={editFullName} onChange={(e) => setEditFullName(e.target.value)} /></div>
             <div className="space-y-1.5">
-              <Label>Position</Label>
-              <Input value={editPosition} onChange={(e) => setEditPosition(e.target.value)} placeholder="e.g. Front Office Supervisor" />
+              <Label>{lang === 'th' ? 'ตำแหน่ง' : 'Position'}</Label>
+              <Input value={editPosition} onChange={(e) => setEditPosition(e.target.value)} placeholder={lang === 'th' ? 'เช่น หัวหน้าแผนกต้อนรับ' : 'e.g. Front Office Supervisor'} />
             </div>
             <div className="space-y-1.5">
-              <Label>Username</Label>
+              <Label>{lang === 'th' ? 'ชื่อผู้ใช้' : 'Username'}</Label>
               <div className="relative">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">@</span>
-                <Input value={editUsername} onChange={(e) => setEditUsername(e.target.value)} placeholder="username" className="pl-7" />
+                <Input value={editUsername} onChange={(e) => setEditUsername(e.target.value)} placeholder={lang === 'th' ? 'ชื่อผู้ใช้' : 'username'} className="pl-7" />
               </div>
             </div>
             {profile?.role === 'super_admin' && (
@@ -597,9 +607,9 @@ export function UsersPage() {
               </>
             )}
             <div className="space-y-1.5 border-t pt-4">
-              <Label className="flex items-center gap-2"><KeyRound className="h-3.5 w-3.5 text-gray-400" /> Reset Password <span className="text-gray-400 text-xs font-normal">(staff will be prompted to change on next login)</span></Label>
+              <Label className="flex items-center gap-2"><KeyRound className="h-3.5 w-3.5 text-gray-400" /> {lang === 'th' ? 'รีเซ็ตรหัสผ่าน' : 'Reset Password'} <span className="text-gray-400 text-xs font-normal">{lang === 'th' ? '(พนักงานจะถูกขอให้เปลี่ยนเมื่อเข้าสู่ระบบครั้งถัดไป)' : '(staff will be prompted to change on next login)'}</span></Label>
               <div className="relative">
-                <Input type={showEditPassword ? 'text' : 'password'} value={editNewPassword} onChange={(e) => setEditNewPassword(e.target.value)} placeholder="New password (min 6 chars)" className="pr-10" />
+                <Input type={showEditPassword ? 'text' : 'password'} value={editNewPassword} onChange={(e) => setEditNewPassword(e.target.value)} placeholder={lang === 'th' ? 'รหัสผ่านใหม่ (อย่างน้อย 6 ตัวอักษร)' : 'New password (min 6 chars)'} className="pr-10" />
                 <button type="button" onClick={() => setShowEditPassword(!showEditPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">{showEditPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}</button>
               </div>
             </div>
@@ -617,22 +627,26 @@ export function UsersPage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               {suspendUser?.is_active ? <PowerOff className="h-5 w-5 text-orange-500" /> : <Power className="h-5 w-5 text-green-500" />}
-              {suspendUser?.is_active ? 'Suspend User' : 'Reactivate User'}
+              {suspendUser?.is_active ? (lang === 'th' ? 'ระงับผู้ใช้' : 'Suspend User') : (lang === 'th' ? 'เปิดใช้งานผู้ใช้อีกครั้ง' : 'Reactivate User')}
             </DialogTitle>
             <DialogDescription>
               {suspendUser?.is_active
-                ? `Suspending ${suspendUser?.full_name} will disable their login and stop all notifications to them.`
-                : `Reactivating ${suspendUser?.full_name} will restore their access.`}
+                ? (lang === 'th'
+                  ? `การระงับ ${suspendUser?.full_name} จะปิดการเข้าสู่ระบบและหยุดการแจ้งเตือนทั้งหมดของผู้ใช้รายนี้`
+                  : `Suspending ${suspendUser?.full_name} will disable their login and stop all notifications to them.`)
+                : (lang === 'th'
+                  ? `การเปิดใช้งาน ${suspendUser?.full_name} อีกครั้งจะคืนสิทธิ์การเข้าถึงให้ผู้ใช้รายนี้`
+                  : `Reactivating ${suspendUser?.full_name} will restore their access.`)}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setSuspendUser(null)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setSuspendUser(null)}>{lang === 'th' ? 'ยกเลิก' : 'Cancel'}</Button>
             <Button
               onClick={handleSuspend}
               disabled={!!actioning}
               className={suspendUser?.is_active ? 'bg-orange-600 hover:bg-orange-700 text-white' : 'bg-green-600 hover:bg-green-700 text-white'}
             >
-              {actioning ? <Loader2 className="h-4 w-4 animate-spin" /> : suspendUser?.is_active ? 'Suspend' : 'Reactivate'}
+              {actioning ? <Loader2 className="h-4 w-4 animate-spin" /> : suspendUser?.is_active ? (lang === 'th' ? 'ระงับ' : 'Suspend') : (lang === 'th' ? 'เปิดใช้งานอีกครั้ง' : 'Reactivate')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -643,10 +657,10 @@ export function UsersPage() {
         <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-red-600">
-              <Trash2 className="h-5 w-5" /> Delete User
+              <Trash2 className="h-5 w-5" /> {lang === 'th' ? 'ลบผู้ใช้' : 'Delete User'}
             </DialogTitle>
             <DialogDescription>
-              Permanently delete <strong>{deleteUser?.full_name}</strong>? This cannot be undone. Enter your password to confirm.
+              {lang === 'th' ? <>ลบ <strong>{deleteUser?.full_name}</strong> อย่างถาวร? การดำเนินการนี้ไม่สามารถย้อนกลับได้ กรอกรหัสผ่านของคุณเพื่อยืนยัน</> : <>Permanently delete <strong>{deleteUser?.full_name}</strong>? This cannot be undone. Enter your password to confirm.</>}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2 py-1">
@@ -655,7 +669,7 @@ export function UsersPage() {
                 type={showDeletePw ? 'text' : 'password'}
                 value={deletePw}
                 onChange={(e) => { setDeletePw(e.target.value); setDeleteErr('') }}
-                placeholder="Your password"
+                placeholder={lang === 'th' ? 'รหัสผ่านของคุณ' : 'Your password'}
                 className={cn('pr-10', deleteErr && 'border-red-400')}
               />
               <button type="button" onClick={() => setShowDeletePw(v => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">{showDeletePw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}</button>
@@ -663,9 +677,9 @@ export function UsersPage() {
             {deleteErr && <p className="text-xs text-red-500">{deleteErr}</p>}
           </div>
           <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => { setDeleteUser(null); setDeletePw(''); setDeleteErr('') }}>Cancel</Button>
+            <Button variant="outline" onClick={() => { setDeleteUser(null); setDeletePw(''); setDeleteErr('') }}>{lang === 'th' ? 'ยกเลิก' : 'Cancel'}</Button>
             <Button onClick={handleDelete} disabled={!!actioning || !deletePw} className="bg-red-600 hover:bg-red-700 text-white">
-              {actioning ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Delete Permanently'}
+              {actioning ? <Loader2 className="h-4 w-4 animate-spin" /> : (lang === 'th' ? 'ลบอย่างถาวร' : 'Delete Permanently')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -675,13 +689,13 @@ export function UsersPage() {
       <Dialog open={showLog} onOpenChange={setShowLog}>
         <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2"><History className="h-5 w-5" /> User Management Activity Log</DialogTitle>
-            <DialogDescription>All user management actions by managers and admins.</DialogDescription>
+            <DialogTitle className="flex items-center gap-2"><History className="h-5 w-5" /> {lang === 'th' ? 'บันทึกกิจกรรมการจัดการผู้ใช้' : 'User Management Activity Log'}</DialogTitle>
+            <DialogDescription>{lang === 'th' ? 'การดำเนินการจัดการผู้ใช้ทั้งหมดโดยผู้จัดการและผู้ดูแลระบบ' : 'All user management actions by managers and admins.'}</DialogDescription>
           </DialogHeader>
           {loadingLog ? (
             <div className="flex items-center justify-center py-10"><div className="w-6 h-6 border-2 border-[var(--brand-primary)] border-t-transparent rounded-full animate-spin" /></div>
           ) : activityLog.length === 0 ? (
-            <p className="text-sm text-gray-400 text-center py-8">No activity recorded yet.</p>
+            <p className="text-sm text-gray-400 text-center py-8">{lang === 'th' ? 'ยังไม่มีบันทึกกิจกรรม' : 'No activity recorded yet.'}</p>
           ) : (
             <div className="overflow-y-auto divide-y divide-gray-50 flex-1">
               {activityLog.map(entry => (
