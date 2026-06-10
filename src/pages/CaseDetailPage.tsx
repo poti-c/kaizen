@@ -47,7 +47,7 @@ export function CaseDetailPage() {
   const navigate = useNavigate()
   const { profile } = useAuth()
   const { activeCompany } = useCompany()
-  const { t } = useLanguage()
+  const { t, lang } = useLanguage()
 
   const [kcase, setKcase] = useState<KaizenCase | null>(null)
   const [timeline, setTimeline] = useState<KaizenCaseTimeline[]>([])
@@ -122,7 +122,9 @@ export function CaseDetailPage() {
   const [savingFix, setSavingFix] = useState(false)
 
   useEffect(() => {
+    if (!activeCompany) return
     supabase.from('kaizen_settings').select('key, value')
+      .eq('company_id', activeCompany.id)
       .in('key', ['custom_departments', 'custom_locations', 'custom_categories'])
       .then(({ data }) => {
         if (!data) return
@@ -144,7 +146,7 @@ export function CaseDetailPage() {
           }
         })
       })
-  }, [])
+  }, [activeCompany])
 
   async function saveFixedInfo() {
     if (!kcase || !id) return
@@ -168,9 +170,9 @@ export function CaseDetailPage() {
     if (Object.keys(updates).length === 0) { setSavingFix(false); return }
 
     const { error: fixErr } = await supabase.from('kaizen_cases').update(updates).eq('id', id)
-    if (fixErr) { toast.error('Failed to update case information.'); setSavingFix(false); return }
+    if (fixErr) { toast.error(lang === 'th' ? 'อัปเดตข้อมูลเคสไม่สำเร็จ' : 'Failed to update case information.'); setSavingFix(false); return }
     await addTimeline('info_corrected', `Registration info updated: ${changes.join(', ')}`)
-    toast.success('Case information updated.')
+    toast.success(lang === 'th' ? 'อัปเดตข้อมูลเคสแล้ว' : 'Case information updated.')
     setSavingFix(false)
     fetchCase()
   }
@@ -196,7 +198,7 @@ export function CaseDetailPage() {
     // Only keep ids that resolve to a real, selectable person (drops any
     // removed/deleted user so we never write a dead person_in_charge).
     const validPics = selectedPics.filter(id => picCandidates.some(c => c.id === id))
-    if (validPics.length === 0) { toast.error('Please select at least one person who is still with the company.'); return }
+    if (validPics.length === 0) { toast.error(lang === 'th' ? 'กรุณาเลือกอย่างน้อยหนึ่งคนที่ยังทำงานอยู่กับบริษัท' : 'Please select at least one person who is still with the company.'); return }
     setSavingPic(true)
     try {
       // If case is open/reopened, move to assigned when PIC is set
@@ -208,7 +210,7 @@ export function CaseDetailPage() {
         ...(promptDue ? { due_date: promptDue } : {}),
         ...statusUpdate,
       }).eq('id', id!)
-      if (picErr) { toast.error('Failed to update In Charge.'); return }
+      if (picErr) { toast.error(lang === 'th' ? 'อัปเดตผู้รับผิดชอบไม่สำเร็จ' : 'Failed to update In Charge.'); return }
 
       // Create/update assignment record for the case's primary department
       if (['open', 'reopened'].includes(kcase.status)) {
@@ -256,7 +258,7 @@ export function CaseDetailPage() {
 
       if (notifRows.length) {
         await supabase.from('kaizen_notifications').insert(notifRows)
-        toast.success(`Notified ${notifRows.length} ${notifRows.length === 1 ? 'person' : 'people'}`)
+        toast.success(lang === 'th' ? `แจ้งเตือนแล้ว ${notifRows.length} คน` : `Notified ${notifRows.length} ${notifRows.length === 1 ? 'person' : 'people'}`)
       }
 
       // Auto-add departments of selected PICs + notified depts to assigned_departments
@@ -270,7 +272,7 @@ export function CaseDetailPage() {
       if (toAdd.length > 0) {
         const merged = [...existingDepts, ...toAdd]
         const { error: deptErr } = await supabase.from('kaizen_cases').update({ assigned_departments: merged }).eq('id', id!)
-        if (deptErr) { toast.error('Failed to update assigned departments.'); return }
+        if (deptErr) { toast.error(lang === 'th' ? 'อัปเดตแผนกที่มอบหมายไม่สำเร็จ' : 'Failed to update assigned departments.'); return }
         // Also create assignment records so the added departments show as badges
         await supabase.from('kaizen_case_assignments').upsert(
           toAdd.map(dept => ({ case_id: id!, department: dept, assigned_by: profile?.id, status: 'pending' })),
@@ -291,7 +293,7 @@ export function CaseDetailPage() {
     setSavingDueDate(true)
     try {
       const { error: dueErr } = await supabase.from('kaizen_cases').update({ due_date: newDueDate, updated_at: new Date().toISOString() }).eq('id', id!)
-      if (dueErr) { toast.error('Failed to set due date.'); return }
+      if (dueErr) { toast.error(lang === 'th' ? 'กำหนดวันครบกำหนดไม่สำเร็จ' : 'Failed to set due date.'); return }
       await addTimeline('due_date_set', `Due date set to ${new Date(newDueDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`)
       setShowDueDateEditor(false)
       setNewDueDate('')
@@ -482,11 +484,18 @@ export function CaseDetailPage() {
   // Staff: resolve case
   async function handleResolve() {
     if (!resolutionNote.trim()) {
-      toast.error('Please provide a resolution description.')
+      toast.error(lang === 'th' ? 'กรุณาระบุรายละเอียดการแก้ไข' : 'Please provide a resolution description.')
       return
     }
     if (resolutionPhotos.length === 0) {
-      toast.error('Please upload at least one photo as proof of resolution.')
+      toast.error(lang === 'th' ? 'กรุณาอัปโหลดรูปอย่างน้อยหนึ่งรูปเพื่อยืนยันการแก้ไข' : 'Please upload at least one photo as proof of resolution.')
+      return
+    }
+    // Guard: if this case has assigned people but their profiles haven't loaded yet,
+    // approval routing would mis-fall-back to the case's own department. Wait for the data.
+    const expectsPics = (kcase?.pic_ids?.length ?? 0) > 0 || !!kcase?.person_in_charge
+    if (expectsPics && picProfiles.length === 0) {
+      toast.error(lang === 'th' ? 'กำลังโหลดข้อมูลเคส กรุณาลองอีกครั้งในอีกสักครู่' : 'Still loading case details — please try again in a moment.')
       return
     }
     setSubmitting(true)
@@ -541,10 +550,10 @@ export function CaseDetailPage() {
           `${profile?.full_name} resolved case ${kcase?.case_number} — awaiting closure by Top Management.`)
       }
 
-      toast.success(goesToManager ? 'Case marked as resolved. Awaiting manager approval.' : 'Resolution submitted. Awaiting Top Management closure.')
+      toast.success(goesToManager ? (lang === 'th' ? 'บันทึกการแก้ไขแล้ว รอผู้จัดการอนุมัติ' : 'Case marked as resolved. Awaiting manager approval.') : (lang === 'th' ? 'ส่งการแก้ไขแล้ว รอผู้บริหารระดับสูงปิดเคส' : 'Resolution submitted. Awaiting Top Management closure.'))
       fetchCase()
     } catch {
-      toast.error('Failed to submit resolution.')
+      toast.error(lang === 'th' ? 'ส่งการแก้ไขไม่สำเร็จ' : 'Failed to submit resolution.')
     } finally {
       setSubmitting(false)
     }
@@ -578,7 +587,7 @@ export function CaseDetailPage() {
           `Case ${kcase?.case_number} has been reviewed and officially closed by Top Management.`,
         )
 
-        toast.success('Case approved and closed.')
+        toast.success(lang === 'th' ? 'อนุมัติและปิดเคสแล้ว' : 'Case approved and closed.')
       } else {
         // Regular manager: move to pending_admin_approval for Top Management to close
         const { error: mgrErr } = await supabase.from('kaizen_cases').update({
@@ -597,12 +606,12 @@ export function CaseDetailPage() {
           `Case ${kcase?.case_number} approved by ${profile?.full_name} — ready for Top Management review and closure.`,
         )
 
-        toast.success('Approved. Top Management has been notified for final closure.')
+        toast.success(lang === 'th' ? 'อนุมัติแล้ว แจ้งผู้บริหารระดับสูงเพื่อปิดเคสขั้นสุดท้ายแล้ว' : 'Approved. Top Management has been notified for final closure.')
       }
 
       fetchCase()
     } catch {
-      toast.error('Failed to approve.')
+      toast.error(lang === 'th' ? 'อนุมัติไม่สำเร็จ' : 'Failed to approve.')
     } finally {
       setSubmitting(false)
     }
@@ -631,10 +640,10 @@ export function CaseDetailPage() {
         `Case ${kcase?.case_number} has been reviewed and officially closed by Top Management.`,
       )
 
-      toast.success('Case officially closed.')
+      toast.success(lang === 'th' ? 'ปิดเคสอย่างเป็นทางการแล้ว' : 'Case officially closed.')
       fetchCase()
     } catch {
-      toast.error('Failed to close case.')
+      toast.error(lang === 'th' ? 'ปิดเคสไม่สำเร็จ' : 'Failed to close case.')
     } finally {
       setSubmitting(false)
     }
@@ -673,10 +682,10 @@ export function CaseDetailPage() {
         `Case ${kcase!.case_number} has been reopened by ${profile?.full_name} and requires further action.`,
       )
 
-      toast.success('Case reopened.')
+      toast.success(lang === 'th' ? 'เปิดเคสใหม่แล้ว' : 'Case reopened.')
       fetchCase()
     } catch {
-      toast.error('Failed to reopen case.')
+      toast.error(lang === 'th' ? 'เปิดเคสใหม่ไม่สำเร็จ' : 'Failed to reopen case.')
     } finally {
       setSubmitting(false)
     }
@@ -714,7 +723,7 @@ export function CaseDetailPage() {
       setNewComment('')
       setShowMentions(false)
       fetchCase()
-    } catch { toast.error('Failed to add comment.') }
+    } catch { toast.error(lang === 'th' ? 'เพิ่มความคิดเห็นไม่สำเร็จ' : 'Failed to add comment.') }
     finally { setSubmitting(false) }
   }
 
@@ -747,11 +756,11 @@ export function CaseDetailPage() {
         `Case ${kcase?.case_number} has been additionally assigned to your department by Super Admin.`,
       )
 
-      toast.success(`${DEPARTMENT_LABELS[addDeptValue]} added to the case.`)
+      toast.success(lang === 'th' ? `เพิ่ม ${DEPARTMENT_LABELS[addDeptValue]} เข้าเคสแล้ว` : `${DEPARTMENT_LABELS[addDeptValue]} added to the case.`)
       setAddDeptValue('')
       fetchCase()
     } catch {
-      toast.error('Failed to add department.')
+      toast.error(lang === 'th' ? 'เพิ่มแผนกไม่สำเร็จ' : 'Failed to add department.')
     } finally {
       setAddingDept(false)
     }
@@ -771,7 +780,7 @@ export function CaseDetailPage() {
   // Admin: save case edits
   async function handleSaveEditCase() {
     if (!editTitle.trim() || !editDescription.trim() || !editDepartment) {
-      toast.error('Title, description and department are required.')
+      toast.error(lang === 'th' ? 'ต้องระบุหัวข้อ รายละเอียด และแผนก' : 'Title, description and department are required.')
       return
     }
     setSubmitting(true)
@@ -794,11 +803,11 @@ export function CaseDetailPage() {
 
       await addTimeline('case_edited', `Case edited by ${profile?.full_name}${changes.length ? ': ' + changes.join('; ') : ''}`)
 
-      toast.success('Case updated successfully.')
+      toast.success(lang === 'th' ? 'อัปเดตเคสสำเร็จแล้ว' : 'Case updated successfully.')
       setShowEditCase(false)
       fetchCase()
     } catch {
-      toast.error('Failed to update case.')
+      toast.error(lang === 'th' ? 'อัปเดตเคสไม่สำเร็จ' : 'Failed to update case.')
     } finally {
       setSubmitting(false)
     }
@@ -806,14 +815,14 @@ export function CaseDetailPage() {
 
   // Admin: delete case
   async function handleDelete() {
-    if (!confirm(`Are you sure you want to permanently delete case ${kcase?.case_number}? This cannot be undone.`)) return
+    if (!confirm(lang === 'th' ? `คุณแน่ใจหรือไม่ว่าต้องการลบเคส ${kcase?.case_number} อย่างถาวร? การกระทำนี้ไม่สามารถยกเลิกได้` : `Are you sure you want to permanently delete case ${kcase?.case_number}? This cannot be undone.`)) return
     setSubmitting(true)
     try {
       await supabase.from('kaizen_cases').delete().eq('id', id!)
-      toast.success('Case deleted.')
+      toast.success(lang === 'th' ? 'ลบเคสแล้ว' : 'Case deleted.')
       navigate('/cases')
     } catch {
-      toast.error('Failed to delete case.')
+      toast.error(lang === 'th' ? 'ลบเคสไม่สำเร็จ' : 'Failed to delete case.')
     } finally {
       setSubmitting(false)
     }
@@ -846,7 +855,7 @@ export function CaseDetailPage() {
       setSelectedPriority('')
       fetchCase()
     } catch {
-      toast.error('Failed to update priority.')
+      toast.error(lang === 'th' ? 'อัปเดตระดับความสำคัญไม่สำเร็จ' : 'Failed to update priority.')
     } finally {
       setSubmitting(false)
     }
@@ -920,16 +929,16 @@ export function CaseDetailPage() {
         <Dialog open onOpenChange={(o) => { if (!o) setPmPromptDismissed(true) }}>
           <DialogContent className="max-w-md">
             <DialogHeader>
-              <DialogTitle>Assign this maintenance case</DialogTitle>
+              <DialogTitle>{lang === 'th' ? 'มอบหมายเคสบำรุงรักษานี้' : 'Assign this maintenance case'}</DialogTitle>
               <DialogDescription>
-                PMS auto-created this case from an overdue preventive-maintenance task. Choose who will handle it, and optionally set a new due date.
+                {lang === 'th' ? 'ระบบ PMS สร้างเคสนี้โดยอัตโนมัติจากงานบำรุงรักษาเชิงป้องกันที่เกินกำหนด เลือกผู้ที่จะรับผิดชอบ และกำหนดวันครบกำหนดใหม่ได้หากต้องการ' : 'PMS auto-created this case from an overdue preventive-maintenance task. Choose who will handle it, and optionally set a new due date.'}
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-3">
               <div>
-                <Label className="mb-1.5 block">Person in charge</Label>
+                <Label className="mb-1.5 block">{lang === 'th' ? 'ผู้รับผิดชอบ' : 'Person in charge'}</Label>
                 <div className="max-h-52 overflow-y-auto rounded-lg border border-gray-200 divide-y divide-gray-50">
-                  {picCandidates.length === 0 && <p className="px-3 py-3 text-sm text-gray-400">No assignable people found.</p>}
+                  {picCandidates.length === 0 && <p className="px-3 py-3 text-sm text-gray-400">{lang === 'th' ? 'ไม่พบบุคคลที่สามารถมอบหมายได้' : 'No assignable people found.'}</p>}
                   {picCandidates.map(p => (
                     <label key={p.id} className="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-gray-50">
                       <input type="checkbox" className="accent-[var(--brand-primary)]" checked={selectedPics.includes(p.id)}
@@ -941,14 +950,14 @@ export function CaseDetailPage() {
                 </div>
               </div>
               <div>
-                <Label className="mb-1.5 block">New due date <span className="text-gray-400 font-normal">(optional)</span></Label>
+                <Label className="mb-1.5 block">{lang === 'th' ? 'วันครบกำหนดใหม่' : 'New due date'} <span className="text-gray-400 font-normal">{lang === 'th' ? '(ไม่บังคับ)' : '(optional)'}</span></Label>
                 <Input type="date" value={promptDue} onChange={(e) => setPromptDue(e.target.value)} />
               </div>
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setPmPromptDismissed(true)}>Later</Button>
+              <Button variant="outline" onClick={() => setPmPromptDismissed(true)}>{lang === 'th' ? 'ภายหลัง' : 'Later'}</Button>
               <Button onClick={async () => { await savePic(); setPmPromptDismissed(true) }} disabled={savingPic || selectedPics.length === 0}>
-                {savingPic ? 'Assigning…' : 'Assign'}
+                {savingPic ? (lang === 'th' ? 'กำลังมอบหมาย…' : 'Assigning…') : (lang === 'th' ? 'มอบหมาย' : 'Assign')}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -1027,17 +1036,17 @@ export function CaseDetailPage() {
             <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-4">
               <div className="flex items-center gap-2 mb-3">
                 <AlertTriangle className="h-4 w-4 text-amber-600 flex-shrink-0" />
-                <p className="text-sm font-semibold text-amber-800">This case has outdated registration info — please update it</p>
+                <p className="text-sm font-semibold text-amber-800">{lang === 'th' ? 'เคสนี้มีข้อมูลการลงทะเบียนที่ล้าสมัย — กรุณาอัปเดต' : 'This case has outdated registration info — please update it'}</p>
               </div>
               <div className="space-y-3">
                 {badDept && (
                   <div>
                     <label className="text-xs font-medium text-amber-700 block mb-1">
-                      Department <span className="font-normal text-amber-600">(current: "{DEPARTMENT_LABELS[kcase.department] ?? kcase.department}" — removed)</span>
+                      {lang === 'th' ? 'แผนก' : 'Department'} <span className="font-normal text-amber-600">{lang === 'th' ? `(ปัจจุบัน: "${DEPARTMENT_LABELS[kcase.department] ?? kcase.department}" — ถูกลบแล้ว)` : `(current: "${DEPARTMENT_LABELS[kcase.department] ?? kcase.department}" — removed)`}</span>
                     </label>
                     <Select value={fixDept} onValueChange={setFixDept}>
                       <SelectTrigger className="h-9 text-sm bg-white border-amber-300">
-                        <SelectValue placeholder="Select new department…" />
+                        <SelectValue placeholder={lang === 'th' ? 'เลือกแผนกใหม่…' : 'Select new department…'} />
                       </SelectTrigger>
                       <SelectContent>
                         {customDeptLabels.map(label => {
@@ -1051,11 +1060,11 @@ export function CaseDetailPage() {
                 {badLocation && (
                   <div>
                     <label className="text-xs font-medium text-amber-700 block mb-1">
-                      Location <span className="font-normal text-amber-600">(current: "{kcase.location}" — removed)</span>
+                      {lang === 'th' ? 'สถานที่' : 'Location'} <span className="font-normal text-amber-600">{lang === 'th' ? `(ปัจจุบัน: "${kcase.location}" — ถูกลบแล้ว)` : `(current: "${kcase.location}" — removed)`}</span>
                     </label>
                     <Select value={fixLocation} onValueChange={setFixLocation}>
                       <SelectTrigger className="h-9 text-sm bg-white border-amber-300">
-                        <SelectValue placeholder="Select new location…" />
+                        <SelectValue placeholder={lang === 'th' ? 'เลือกสถานที่ใหม่…' : 'Select new location…'} />
                       </SelectTrigger>
                       <SelectContent>
                         {customLocList.map(l => <SelectItem key={l} value={l}>{l}</SelectItem>)}
@@ -1066,11 +1075,11 @@ export function CaseDetailPage() {
                 {badCategory && (
                   <div>
                     <label className="text-xs font-medium text-amber-700 block mb-1">
-                      Category <span className="font-normal text-amber-600">(current: "{kcase.category}" — removed)</span>
+                      {lang === 'th' ? 'หมวดหมู่' : 'Category'} <span className="font-normal text-amber-600">{lang === 'th' ? `(ปัจจุบัน: "${kcase.category}" — ถูกลบแล้ว)` : `(current: "${kcase.category}" — removed)`}</span>
                     </label>
                     <Select value={fixCategory} onValueChange={setFixCategory}>
                       <SelectTrigger className="h-9 text-sm bg-white border-amber-300">
-                        <SelectValue placeholder="Select new category…" />
+                        <SelectValue placeholder={lang === 'th' ? 'เลือกหมวดหมู่ใหม่…' : 'Select new category…'} />
                       </SelectTrigger>
                       <SelectContent>
                         {customCatList.map(c => <SelectItem key={c} value={c.toLowerCase().replace(/ /g,'_')}>{c}</SelectItem>)}
@@ -1084,7 +1093,7 @@ export function CaseDetailPage() {
                   disabled={savingFix || (!fixDept && !fixLocation && !fixCategory)}
                   className="w-full mt-1"
                 >
-                  {savingFix ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Save Updated Information'}
+                  {savingFix ? <Loader2 className="h-4 w-4 animate-spin" /> : (lang === 'th' ? 'บันทึกข้อมูลที่อัปเดต' : 'Save Updated Information')}
                 </Button>
               </div>
             </div>
@@ -1159,14 +1168,14 @@ export function CaseDetailPage() {
                           <>
                             {topMgmt.length > 0 && (
                               <div>
-                                <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide px-2 mb-0.5">Top Management</p>
+                                <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide px-2 mb-0.5">{lang === 'th' ? 'ผู้บริหารระดับสูง' : 'Top Management'}</p>
                                 {topMgmt.map(p => <Row key={p.id} p={p} />)}
                               </div>
                             )}
                             {managers.length > 0 && (
                               <div>
                                 {topMgmt.length > 0 && <div className="my-1 border-t border-gray-100" />}
-                                <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide px-2 mb-0.5">Managers</p>
+                                <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide px-2 mb-0.5">{lang === 'th' ? 'ผู้จัดการ' : 'Managers'}</p>
                                 {managers.map(p => <Row key={p.id} p={p} />)}
                               </div>
                             )}
@@ -1199,15 +1208,15 @@ export function CaseDetailPage() {
                     </div>
                     {/* Actions */}
                     <div className="border-t border-gray-100 px-3 py-2 flex items-center justify-between">
-                      <span className="text-[10px] text-gray-400">{selectedPics.length} selected</span>
+                      <span className="text-[10px] text-gray-400">{lang === 'th' ? `เลือกแล้ว ${selectedPics.length} รายการ` : `${selectedPics.length} selected`}</span>
                       <div className="flex items-center gap-2">
-                        <button onClick={() => { setShowPicEditor(false); setNotifyDepts([]) }} className="text-xs text-gray-400 hover:text-gray-600">Cancel</button>
+                        <button onClick={() => { setShowPicEditor(false); setNotifyDepts([]) }} className="text-xs text-gray-400 hover:text-gray-600">{lang === 'th' ? 'ยกเลิก' : 'Cancel'}</button>
                         <button
                           onClick={savePic}
                           disabled={savingPic || selectedPics.length === 0}
                           className="text-xs font-semibold text-white bg-[var(--brand-primary)] px-2.5 py-1 rounded hover:opacity-90 disabled:opacity-50 flex items-center gap-1"
                         >
-                          {savingPic ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Save'}
+                          {savingPic ? <Loader2 className="h-3 w-3 animate-spin" /> : (lang === 'th' ? 'บันทึก' : 'Save')}
                         </button>
                       </div>
                     </div>
@@ -1229,7 +1238,7 @@ export function CaseDetailPage() {
                       <button
                         onClick={() => { loadPicCandidates(); setShowPicEditor(true) }}
                         className="text-gray-400 hover:text-[var(--brand-primary)] flex-shrink-0"
-                        title="Edit In Charge"
+                        title={lang === 'th' ? 'แก้ไขผู้รับผิดชอบ' : 'Edit In Charge'}
                       >
                         <Pencil className="h-3 w-3" />
                       </button>
@@ -1254,7 +1263,7 @@ export function CaseDetailPage() {
                     className="h-6 text-xs w-32 px-1.5" />
                   <button onClick={saveManagerDueDate} disabled={savingDueDate || !newDueDate}
                     className="text-[var(--brand-primary)] font-semibold hover:opacity-75 flex-shrink-0 text-xs">
-                    {savingDueDate ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Save'}
+                    {savingDueDate ? <Loader2 className="h-3 w-3 animate-spin" /> : (lang === 'th' ? 'บันทึก' : 'Save')}
                   </button>
                   <button onClick={() => { setShowDueDateEditor(false); setNewDueDate('') }} className="text-gray-400 hover:text-gray-600">
                     <X className="h-3 w-3" />
@@ -1268,7 +1277,7 @@ export function CaseDetailPage() {
                   </span>
                   {canEditDueDate && (
                     <button onClick={() => { setNewDueDate(kcase.due_date!.split('T')[0]); setShowDueDateEditor(true) }}
-                      className="text-gray-400 hover:text-[var(--brand-primary)] transition-colors" title="Edit due date">
+                      className="text-gray-400 hover:text-[var(--brand-primary)] transition-colors" title={lang === 'th' ? 'แก้ไขวันครบกำหนด' : 'Edit due date'}>
                       <Pencil className="h-3 w-3" />
                     </button>
                   )}
@@ -1482,7 +1491,7 @@ export function CaseDetailPage() {
                   <PhotoUpload
                     onUpload={(urls) => setResolutionPhotos((prev) => [...prev, ...urls])}
                     maxFiles={3}
-                    label="Upload Resolution Photos"
+                    label={lang === 'th' ? 'อัปโหลดรูปภาพการแก้ไข' : 'Upload Resolution Photos'}
                   />
                 </div>
                 <Button onClick={handleResolve} disabled={submitting} className="w-full bg-green-600 hover:bg-green-700">
@@ -1615,22 +1624,22 @@ export function CaseDetailPage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <AlertTriangle className="h-5 w-5 text-orange-500" />
-              Confirm Approval
+              {lang === 'th' ? 'ยืนยันการอนุมัติ' : 'Confirm Approval'}
             </DialogTitle>
             <DialogDescription>
               {profile?.role === 'super_admin'
-                ? 'Are you sure you want to approve this case for final closure?'
-                : 'Are you sure you want to approve this resolution? It will be forwarded to Top Management for final closure.'}
+                ? (lang === 'th' ? 'คุณแน่ใจหรือไม่ว่าต้องการอนุมัติเคสนี้เพื่อปิดขั้นสุดท้าย?' : 'Are you sure you want to approve this case for final closure?')
+                : (lang === 'th' ? 'คุณแน่ใจหรือไม่ว่าต้องการอนุมัติการแก้ไขนี้? เคสจะถูกส่งต่อไปยังผู้บริหารระดับสูงเพื่อปิดขั้นสุดท้าย' : 'Are you sure you want to approve this resolution? It will be forwarded to Top Management for final closure.')}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setShowApproveConfirm(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setShowApproveConfirm(false)}>{lang === 'th' ? 'ยกเลิก' : 'Cancel'}</Button>
             <Button
               className="bg-orange-600 hover:bg-orange-700 text-white"
               disabled={submitting}
               onClick={() => { setShowApproveConfirm(false); handleManagerApprove() }}
             >
-              {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Approve Resolution'}
+              {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : (lang === 'th' ? 'อนุมัติการแก้ไข' : 'Approve Resolution')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1642,20 +1651,20 @@ export function CaseDetailPage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <CheckCircle2 className="h-5 w-5 text-violet-500" />
-              Confirm Final Closure
+              {lang === 'th' ? 'ยืนยันการปิดเคสขั้นสุดท้าย' : 'Confirm Final Closure'}
             </DialogTitle>
             <DialogDescription>
-              Are you sure you want to approve and close this case? This action cannot be undone.
+              {lang === 'th' ? 'คุณแน่ใจหรือไม่ว่าต้องการอนุมัติและปิดเคสนี้? การกระทำนี้ไม่สามารถยกเลิกได้' : 'Are you sure you want to approve and close this case? This action cannot be undone.'}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setShowAdminApproveConfirm(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setShowAdminApproveConfirm(false)}>{lang === 'th' ? 'ยกเลิก' : 'Cancel'}</Button>
             <Button
               className="bg-violet-600 hover:bg-violet-700 text-white"
               disabled={submitting}
               onClick={() => { setShowAdminApproveConfirm(false); handleAdminApprove() }}
             >
-              {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Close Case'}
+              {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : (lang === 'th' ? 'ปิดเคส' : 'Close Case')}
             </Button>
           </DialogFooter>
         </DialogContent>

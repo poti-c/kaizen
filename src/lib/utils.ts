@@ -263,6 +263,7 @@ export function getSLAHours(priority: CasePriority): number {
     case 'high': return 24
     case 'medium': return 72
     case 'low': return 168
+    default: return 72  // runtime safety: unknown/legacy priority falls back to the medium SLA
   }
 }
 

@@ -154,7 +154,8 @@ export function PerformancePage() {
     })
     const rows: StaffRow[] = eligible.map((p) => {
       const reported = visibleCases.filter((c) => c.created_by === p.id)
-      const resolved = visibleCases.filter((c) => c.resolved_by === p.id || (c.created_by === p.id && c.status === 'closed'))
+      // "Resolved" = cases this person actually resolved (not merely reported-and-later-closed).
+      const resolved = visibleCases.filter((c) => c.resolved_by === p.id)
       const closedReported = reported.filter((c) => c.status === 'closed')
       const overdue = reported.filter((c) => isSLABreached(c)).length
       const resolutionRate = reported.length > 0 ? Math.round((closedReported.length / reported.length) * 100) : 0
@@ -260,8 +261,8 @@ export function PerformancePage() {
                   <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">{t.cases.dept}</th>
                   <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">{t.dashboard.openCases}</th>
                   <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">{t.dashboard.avgDays}</th>
-                  <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Due</th>
-                  <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Rate</th>
+                  <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">{lang === 'th' ? 'เกิน' : 'Due'}</th>
+                  <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">{lang === 'th' ? 'อัตรา' : 'Rate'}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">

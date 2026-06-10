@@ -3,6 +3,7 @@ import { useNavigate, Navigate } from 'react-router-dom'
 import { KeyRound, Eye, EyeOff, Loader2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
+import { useLanguage } from '@/contexts/LanguageContext'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -10,6 +11,7 @@ import { toast } from 'sonner'
 
 export function ChangePasswordPage() {
   const { user, profile, loading, refreshProfile } = useAuth()
+  const { lang } = useLanguage()
   const navigate = useNavigate()
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -22,9 +24,9 @@ export function ChangePasswordPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (newPassword.length < 6) { toast.error('Password must be at least 6 characters.'); return }
-    if (newPassword !== confirmPassword) { toast.error('Passwords do not match.'); return }
-    if (!profile?.id) { toast.error('Your profile is still loading — please wait a moment and try again.'); return }
+    if (newPassword.length < 6) { toast.error(lang === 'th' ? 'รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร' : 'Password must be at least 6 characters.'); return }
+    if (newPassword !== confirmPassword) { toast.error(lang === 'th' ? 'รหัสผ่านไม่ตรงกัน' : 'Passwords do not match.'); return }
+    if (!profile?.id) { toast.error(lang === 'th' ? 'กำลังโหลดข้อมูลโปรไฟล์ กรุณารอสักครู่แล้วลองอีกครั้ง' : 'Your profile is still loading — please wait a moment and try again.'); return }
     setSaving(true)
     try {
       const { error: pwErr } = await supabase.auth.updateUser({ password: newPassword })
@@ -33,10 +35,10 @@ export function ChangePasswordPage() {
       const { error: flagErr } = await supabase.from('kaizen_profiles').update({ must_change_password: false }).eq('id', profile.id)
       if (flagErr) throw flagErr
       await refreshProfile?.()
-      toast.success('Password changed successfully.')
+      toast.success(lang === 'th' ? 'เปลี่ยนรหัสผ่านสำเร็จ' : 'Password changed successfully.')
       navigate('/dashboard', { replace: true })
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to change password.')
+      toast.error(err instanceof Error ? err.message : (lang === 'th' ? 'เปลี่ยนรหัสผ่านไม่สำเร็จ' : 'Failed to change password.'))
     } finally {
       setSaving(false)
     }
@@ -49,20 +51,22 @@ export function ChangePasswordPage() {
           <div className="w-12 h-12 bg-[var(--brand-primary)]/10 rounded-full flex items-center justify-center mb-3">
             <KeyRound className="h-6 w-6 text-[var(--brand-primary)]" />
           </div>
-          <h1 className="text-xl font-bold text-gray-900">Change Your Password</h1>
+          <h1 className="text-xl font-bold text-gray-900">{lang === 'th' ? 'เปลี่ยนรหัสผ่านของคุณ' : 'Change Your Password'}</h1>
           <p className="text-sm text-gray-500 text-center mt-1">
-            Your manager has set a temporary password. Please set a new password before continuing.
+            {lang === 'th'
+              ? 'ผู้จัดการของคุณตั้งรหัสผ่านชั่วคราวไว้ กรุณาตั้งรหัสผ่านใหม่ก่อนดำเนินการต่อ'
+              : 'Your manager has set a temporary password. Please set a new password before continuing.'}
           </p>
         </div>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-1.5">
-            <Label>New Password</Label>
+            <Label>{lang === 'th' ? 'รหัสผ่านใหม่' : 'New Password'}</Label>
             <div className="relative">
               <Input
                 type={showPw ? 'text' : 'password'}
                 value={newPassword}
                 onChange={e => setNewPassword(e.target.value)}
-                placeholder="Min 6 characters"
+                placeholder={lang === 'th' ? 'อย่างน้อย 6 ตัวอักษร' : 'Min 6 characters'}
                 className="pr-10"
                 required
               />
@@ -72,17 +76,17 @@ export function ChangePasswordPage() {
             </div>
           </div>
           <div className="space-y-1.5">
-            <Label>Confirm Password</Label>
+            <Label>{lang === 'th' ? 'ยืนยันรหัสผ่าน' : 'Confirm Password'}</Label>
             <Input
               type="password"
               value={confirmPassword}
               onChange={e => setConfirmPassword(e.target.value)}
-              placeholder="Repeat password"
+              placeholder={lang === 'th' ? 'กรอกรหัสผ่านอีกครั้ง' : 'Repeat password'}
               required
             />
           </div>
           <Button type="submit" className="w-full" disabled={saving}>
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Set New Password'}
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : (lang === 'th' ? 'ตั้งรหัสผ่านใหม่' : 'Set New Password')}
           </Button>
         </form>
       </div>

@@ -31,6 +31,7 @@ export function PerformanceDetailPage() {
   const [user, setUser] = useState<KaizenProfile | null>(null)
   const [cases, setCases] = useState<KaizenCase[]>([])            // their reported cases (KPI cards + list)
   const [scoreCases, setScoreCases] = useState<KaizenCase[]>([])  // scoring caseload (staff: own; manager: dept)
+  const [reopenedEver, setReopenedEver] = useState(0)             // distinct scoring-caseload cases that were EVER reopened (durable, from timeline)
   const [activity, setActivity] = useState<(KaizenCaseTimeline & { case_number?: string; case_title?: string })[]>([])
   const [activeDays, setActiveDays] = useState(0)                 // distinct active days in last 30
   const [loading, setLoading] = useState(true)
@@ -67,7 +68,20 @@ export function PerformanceDetailPage() {
     setCases((ownCasesRes.data || []) as KaizenCase[])
     setActivity((activityRes.data || []).map((a: any) => ({ ...a, case_number: a.case?.case_number, case_title: a.case?.title })))
     setActiveDays((activeDaysRes.data || []).length)
-    setScoreCases((scoreCasesRes.data || []) as KaizenCase[])
+    const scList = (scoreCasesRes.data || []) as KaizenCase[]
+    setScoreCases(scList)
+
+    // Durable "ever reopened" signal: count distinct scoring-caseload cases with a 'reopened'
+    // timeline event. A case reopened then re-closed reverts to status 'closed', so current
+    // status alone undercounts quality issues — the timeline is the source of truth.
+    const scIds = scList.map(c => c.id)
+    if (scIds.length) {
+      const { data: ro } = await supabase
+        .from('kaizen_case_timeline').select('case_id').eq('action', 'reopened').in('case_id', scIds)
+      setReopenedEver(new Set((ro || []).map((r: any) => r.case_id)).size)
+    } else {
+      setReopenedEver(0)
+    }
     setLoading(false)
   }
 
@@ -210,7 +224,8 @@ export function PerformanceDetailPage() {
         const sc = scoreCases
         const scClosed = sc.filter(c => c.status === 'closed')
         const scOverdue = sc.filter(c => isSLABreached(c))
-        const scReopened = sc.filter(c => c.status === 'reopened')
+        const scCompleted = sc.filter(c => c.resolved_at != null)  // cases that ever reached a resolution
+        const reopenedCount = reopenedEver                          // distinct cases ever reopened (durable)
 
         // Shared engagement: 50% active-days regularity (15 days = full), 50% in-system actions (20 = full)
         const activeDaysScore = Math.min(100, Math.round((activeDays / 15) * 100))
@@ -230,14 +245,14 @@ export function PerformanceDetailPage() {
           const teamTotal = sc.length
           const teamResRate = teamTotal ? Math.round((scClosed.length / teamTotal) * 100) : null
           const teamSlaScore = teamTotal ? Math.round(((teamTotal - scOverdue.length) / teamTotal) * 100) : null
-          const reopenRate = teamTotal ? (scReopened.length / teamTotal) * 100 : 0
+          const reopenRate = teamTotal ? (reopenedCount / teamTotal) * 100 : 0
           const overdueRate = teamTotal ? (scOverdue.length / teamTotal) * 100 : 0
           const leadershipScore = teamTotal ? Math.round(((100 - reopenRate) + (100 - overdueRate)) / 2) : null
           criteria = [
             { key: 'approval', label: t.perf.approval, value: approvalScore, weight: 25, color: '#3b82f6', note: approved.length ? `~${formatRes(avgApprovalH)} ${t.perf.avg}` : t.perf.noApprovals, info: t.perf.approvalInfo },
             { key: 'teamres', label: t.perf.teamRes, value: teamResRate, weight: 20, color: '#22c55e', note: `${scClosed.length}/${teamTotal} ${t.perf.closed}`, info: t.perf.teamResInfo },
             { key: 'teamsla', label: t.perf.teamSla, value: teamSlaScore, weight: 20, color: '#0ea5e9', note: `${scOverdue.length} ${t.perf.overdue}`, info: t.perf.teamSlaInfo },
-            { key: 'leadership', label: t.perf.leadership, value: leadershipScore, weight: 20, color: '#a855f7', note: `${scReopened.length} ${t.perf.reopened}`, info: t.perf.leadershipInfo },
+            { key: 'leadership', label: t.perf.leadership, value: leadershipScore, weight: 20, color: '#a855f7', note: `${reopenedCount} ${t.perf.reopened}`, info: t.perf.leadershipInfo },
             { key: 'engagement', label: t.perf.oversight, value: engagementScore, weight: 15, color: '#f59e0b', note: engagementNote, info: t.perf.oversightInfo },
           ]
         } else {
@@ -248,13 +263,13 @@ export function PerformanceDetailPage() {
             ? scClosed.reduce((s, c) => s + differenceInHours(new Date(c.closed_at!), new Date(c.created_at)), 0) / scClosed.length
             : null
           const speedScore = avgResH == null ? null : avgResH <= 48 ? 100 : Math.max(0, Math.round((48 / avgResH) * 100))
-          const closedOrReopened = scClosed.length + scReopened.length
-          const qualityScore = closedOrReopened ? Math.round(100 - (scReopened.length / closedOrReopened) * 100) : null
+          // Quality = share of completed work that did NOT bounce back (ever reopened).
+          const qualityScore = scCompleted.length ? Math.max(0, Math.round(100 - (reopenedCount / scCompleted.length) * 100)) : null
           criteria = [
             { key: 'resolution', label: t.perf.resolutionRate, value: resRate, weight: 30, color: '#22c55e', note: `${scClosed.length}/${total} ${t.perf.closed}`, info: t.perf.resolutionRateInfo },
             { key: 'ontime', label: t.perf.onTime, value: onTime, weight: 25, color: '#3b82f6', note: `${scOverdue.length} ${t.perf.overdue}`, info: t.perf.onTimeInfo },
             { key: 'speed', label: t.perf.speed, value: speedScore, weight: 15, color: '#0ea5e9', note: avgResH != null ? `${formatRes(avgResH)} ${t.perf.avg}` : t.perf.noClosed, info: t.perf.speedInfo },
-            { key: 'quality', label: t.perf.quality, value: qualityScore, weight: 10, color: '#a855f7', note: `${scReopened.length} ${t.perf.reopened}`, info: t.perf.qualityInfo },
+            { key: 'quality', label: t.perf.quality, value: qualityScore, weight: 10, color: '#a855f7', note: `${reopenedCount} ${t.perf.reopened}`, info: t.perf.qualityInfo },
             { key: 'engagement', label: t.perf.engagement, value: engagementScore, weight: 20, color: '#f59e0b', note: engagementNote, info: t.perf.engagementInfo },
           ]
         }

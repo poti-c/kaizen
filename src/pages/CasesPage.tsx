@@ -22,6 +22,11 @@ const STATUS_FILTER_LABELS: Partial<Record<CaseStatus | 'all', string>> = {
   pending_admin_approval: 'GM/MD Pending',
 }
 
+const STATUS_FILTER_LABELS_TH: Partial<Record<CaseStatus | 'all', string>> = {
+  pending_manager_approval: 'รอผู้จัดการอนุมัติ',
+  pending_admin_approval: 'รอผู้บริหารอนุมัติ',
+}
+
 type SortKey = 'priority' | 'status' | 'duration' | 'date' | 'due'
 type SortDir = 'asc' | 'desc'
 
@@ -55,7 +60,7 @@ function PmTaskRow({ t, onOpen }: { t: PMTask; onOpen: () => void }) {
 export function CasesPage() {
   const { profile } = useAuth()
   const { activeCompany } = useCompany()
-  const { t } = useLanguage()
+  const { t, lang } = useLanguage()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const [cases, setCases] = useState<KaizenCase[]>([])
@@ -85,7 +90,9 @@ export function CasesPage() {
   const [validCategorySlugs, setValidCategorySlugs] = useState<string[]>([...CATEGORIES] as string[])
 
   useEffect(() => {
+    if (!activeCompany) return
     supabase.from('kaizen_settings').select('key, value')
+      .eq('company_id', activeCompany.id)
       .in('key', ['custom_locations', 'custom_departments', 'custom_categories'])
       .then(({ data }) => {
         if (!data) return
@@ -107,7 +114,7 @@ export function CasesPage() {
           }
         })
       })
-  }, [])
+  }, [activeCompany])
 
   // Advanced search state
   const [advancedSearchEnabled, setAdvancedSearchEnabled] = useState<boolean>(() => {
@@ -457,26 +464,26 @@ export function CasesPage() {
     const allShown = pageSize === 'all'
     const from = allShown ? 1 : (page - 1) * (pageSize as number) + 1
     const to = allShown ? total : Math.min(page * (pageSize as number), total)
-    const nextLabel = allShown ? 'Next' : `Next ${pageSize}`
+    const nextLabel = allShown ? (lang === 'th' ? 'ถัดไป' : 'Next') : (lang === 'th' ? `ถัดไป ${pageSize}` : `Next ${pageSize}`)
     return (
       <div className="mt-3 flex flex-col sm:flex-row items-center justify-between gap-2">
-        <p className="text-xs text-gray-500">Showing {from}–{to} of {total} cases</p>
+        <p className="text-xs text-gray-500">{allShown ? (lang === 'th' ? `แสดงทั้งหมด ${total}` : `Showing all ${total}`) : (lang === 'th' ? `แสดง ${from}–${to} จาก ${total} เคส` : `Showing ${from}–${to} of ${total} cases`)}</p>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={onPrev} disabled={allShown || page === 1}>
-            <ChevronLeft className="h-4 w-4" />Previous
+            <ChevronLeft className="h-4 w-4" />{lang === 'th' ? 'ก่อนหน้า' : 'Previous'}
           </Button>
-          <span className="text-sm text-gray-600">{allShown ? 'All' : `Page ${page} of ${totalPages}`}</span>
+          <span className="text-sm text-gray-600">{allShown ? (lang === 'th' ? 'ทั้งหมด' : 'All') : (lang === 'th' ? `หน้า ${page} จาก ${totalPages}` : `Page ${page} of ${totalPages}`)}</span>
           <Button variant="outline" size="sm" onClick={onNext} disabled={allShown || page >= totalPages}>
             {nextLabel}<ChevronRight className="h-4 w-4" />
           </Button>
         </div>
         <div className="flex items-center gap-1.5 text-xs text-gray-500">
-          <span>Display</span>
+          <span>{lang === 'th' ? 'แสดง' : 'Display'}</span>
           {([10, 15, 20, 'all'] as const).map(opt => (
             <button key={String(opt)} onClick={() => changePageSize(opt)}
               className={cn('h-7 px-2 rounded-md border text-xs font-medium transition-colors',
                 pageSize === opt ? 'bg-[var(--brand-primary)] text-white border-[var(--brand-primary)]' : 'bg-white text-gray-600 border-gray-300 hover:border-gray-400')}>
-              {opt === 'all' ? 'All' : opt}
+              {opt === 'all' ? (lang === 'th' ? 'ทั้งหมด' : 'All') : opt}
             </button>
           ))}
         </div>
@@ -554,7 +561,7 @@ export function CasesPage() {
           <h1 className="text-xl md:text-2xl font-bold text-gray-900">{t.cases.title}</h1>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={exportCSV} title="Export to CSV">
+          <Button variant="outline" size="sm" onClick={exportCSV} title={lang === 'th' ? 'ส่งออกเป็น CSV' : 'Export to CSV'}>
             <Download className="h-4 w-4" />
             <span className="hidden sm:inline">{t.cases.export}</span>
           </Button>
@@ -573,8 +580,8 @@ export function CasesPage() {
           <div className="flex items-center gap-2 px-4 py-3 border-b border-amber-200">
             <AlertCircle className="h-4 w-4 text-amber-600 flex-shrink-0" />
             <h2 className="text-sm font-semibold text-amber-800">
-              Incomplete Case Registration
-              <span className="ml-2 text-xs font-normal text-amber-600">{incompleteCases.length} case{incompleteCases.length > 1 ? 's' : ''} need{incompleteCases.length === 1 ? 's' : ''} updating</span>
+              {lang === 'th' ? 'การลงทะเบียนเคสไม่สมบูรณ์' : 'Incomplete Case Registration'}
+              <span className="ml-2 text-xs font-normal text-amber-600">{lang === 'th' ? `${incompleteCases.length} เคสต้องอัปเดต` : `${incompleteCases.length} case${incompleteCases.length > 1 ? 's' : ''} need${incompleteCases.length === 1 ? 's' : ''} updating`}</span>
             </h2>
           </div>
           <div className="divide-y divide-amber-100">
@@ -594,17 +601,17 @@ export function CasesPage() {
                   <div className="flex flex-wrap gap-1 mt-0.5">
                     {!validDeptValues.includes(c.department) && (
                       <span className="text-xs text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded">
-                        Dept &ldquo;{DEPARTMENT_LABELS[c.department] ?? c.department}&rdquo; removed
+                        {lang === 'th' ? `ลบแผนก “${DEPARTMENT_LABELS[c.department] ?? c.department}” แล้ว` : <>Dept &ldquo;{DEPARTMENT_LABELS[c.department] ?? c.department}&rdquo; removed</>}
                       </span>
                     )}
                     {c.location && c.location !== 'Others' && !customLocations.some(l => l.toLowerCase() === c.location!.toLowerCase()) && (
                       <span className="text-xs text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded">
-                        Location &ldquo;{c.location}&rdquo; removed
+                        {lang === 'th' ? `ลบสถานที่ “${c.location}” แล้ว` : <>Location &ldquo;{c.location}&rdquo; removed</>}
                       </span>
                     )}
                     {c.category && c.category !== 'other' && (c.category || '').toLowerCase().replace(/ /g, '_') !== 'preventive_maintenance' && !validCategorySlugs.some(s => s.toLowerCase() === (c.category || '').toLowerCase().replace(/ /g, '_')) && (
                       <span className="text-xs text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded">
-                        Category &ldquo;{c.category}&rdquo; removed
+                        {lang === 'th' ? `ลบหมวดหมู่ “${c.category}” แล้ว` : <>Category &ldquo;{c.category}&rdquo; removed</>}
                       </span>
                     )}
                   </div>
@@ -648,7 +655,7 @@ export function CasesPage() {
               <div className="absolute right-0 top-full mt-1 z-30 w-64 bg-white border border-gray-200 rounded-xl shadow-lg p-3 space-y-3 max-h-72 overflow-y-auto">
                 {/* Clear */}
                 <div className="flex items-center justify-between pb-1.5 border-b border-gray-100">
-                  <span className="text-xs font-semibold text-gray-500">Filter by month</span>
+                  <span className="text-xs font-semibold text-gray-500">{lang === 'th' ? 'กรองตามเดือน' : 'Filter by month'}</span>
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => {
@@ -657,10 +664,10 @@ export function CasesPage() {
                       }}
                       className="text-xs text-[var(--brand-primary)] font-medium hover:underline"
                     >
-                      This Month
+                      {lang === 'th' ? 'เดือนนี้' : 'This Month'}
                     </button>
                     {selectedMonths.size > 0 && (
-                      <button onClick={() => setSelectedMonths(new Set())} className="text-xs text-gray-400 hover:underline">Clear</button>
+                      <button onClick={() => setSelectedMonths(new Set())} className="text-xs text-gray-400 hover:underline">{lang === 'th' ? 'ล้าง' : 'Clear'}</button>
                     )}
                   </div>
                 </div>
@@ -709,7 +716,7 @@ export function CasesPage() {
                 localStorage.setItem('kaizen-advanced-search-enabled', JSON.stringify(checked))
               }}
             />
-            <span className="text-gray-600">Filter</span>
+            <span className="text-gray-600">{lang === 'th' ? 'ตัวกรอง' : 'Filter'}</span>
           </label>
         </div>
 
@@ -718,7 +725,7 @@ export function CasesPage() {
           <div className="p-3 space-y-2.5">
             {/* Status Checkboxes */}
             <div>
-              <p className="text-xs font-semibold text-gray-700 uppercase mb-1.5">Status</p>
+              <p className="text-xs font-semibold text-gray-700 uppercase mb-1.5">{lang === 'th' ? 'สถานะ' : 'Status'}</p>
               <div className="flex flex-wrap gap-x-3 gap-y-1.5">
                 {STATUS_FILTERS.filter(s => s !== 'all').map((s) => (
                   <label key={s} className="flex items-center gap-1.5 cursor-pointer text-xs">
@@ -733,7 +740,7 @@ export function CasesPage() {
                         localStorage.setItem('kaizen-adv-filters', JSON.stringify(newFilters))
                       }}
                     />
-                    <span className="text-gray-600">{STATUS_FILTER_LABELS[s as CaseStatus] ?? STATUS_LABELS[s as CaseStatus]}</span>
+                    <span className="text-gray-600">{(lang === 'th' ? STATUS_FILTER_LABELS_TH[s as CaseStatus] : STATUS_FILTER_LABELS[s as CaseStatus]) ?? STATUS_LABELS[s as CaseStatus]}</span>
                   </label>
                 ))}
               </div>
@@ -741,7 +748,7 @@ export function CasesPage() {
 
             {/* Department Checkboxes */}
             <div>
-              <p className="text-xs font-semibold text-gray-700 uppercase mb-1.5">Department</p>
+              <p className="text-xs font-semibold text-gray-700 uppercase mb-1.5">{lang === 'th' ? 'แผนก' : 'Department'}</p>
               <div className="flex flex-wrap gap-x-3 gap-y-1.5">
                 {DEPARTMENTS.filter(d => d.value !== 'top_management').map((d) => (
                   <label key={d.value} className="flex items-center gap-1.5 cursor-pointer text-xs">
@@ -764,7 +771,7 @@ export function CasesPage() {
 
             {/* Priority Checkboxes */}
             <div>
-              <p className="text-xs font-semibold text-gray-700 uppercase mb-1.5">Priority</p>
+              <p className="text-xs font-semibold text-gray-700 uppercase mb-1.5">{lang === 'th' ? 'ความสำคัญ' : 'Priority'}</p>
               <div className="flex flex-wrap gap-x-3 gap-y-1.5">
                 {(['critical', 'high', 'medium', 'low'] as CasePriority[]).map((p) => (
                   <label key={p} className="flex items-center gap-1.5 cursor-pointer text-xs">
@@ -787,7 +794,7 @@ export function CasesPage() {
 
             {/* Category Checkboxes */}
             <div>
-              <p className="text-xs font-semibold text-gray-700 uppercase mb-1.5">Category</p>
+              <p className="text-xs font-semibold text-gray-700 uppercase mb-1.5">{lang === 'th' ? 'หมวดหมู่' : 'Category'}</p>
               <div className="flex flex-wrap gap-x-3 gap-y-1.5">
                 {CATEGORIES.map((c) => (
                   <label key={c} className="flex items-center gap-1.5 cursor-pointer text-xs">
@@ -821,7 +828,7 @@ export function CasesPage() {
                   className="gap-1"
                 >
                   <X className="h-3.5 w-3.5" />
-                  Clear Filters
+                  {lang === 'th' ? 'ล้างตัวกรอง' : 'Clear Filters'}
                 </Button>
               </div>
             )}
@@ -834,7 +841,7 @@ export function CasesPage() {
       {pmsEnabled && search.trim() && matchingAssets.length > 0 && (
         <div className="mb-4 md:mb-5">
           <h2 className="text-base font-semibold text-gray-700 mb-3 flex items-center gap-2">
-            <Wrench className="h-4 w-4 text-[var(--brand-primary)]" />Matching equipment
+            <Wrench className="h-4 w-4 text-[var(--brand-primary)]" />{lang === 'th' ? 'อุปกรณ์ที่ตรงกัน' : 'Matching equipment'}
             <span className="text-sm font-normal text-gray-400">{matchingAssets.length}</span>
           </h2>
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm divide-y divide-gray-50 overflow-hidden">
@@ -881,10 +888,10 @@ export function CasesPage() {
           {/* ── Tabs ── */}
           <div className="flex gap-1 bg-gray-100 rounded-xl p-1">
             {([
-              { key: 'active',  label: 'Active',  count: activeCases.length,  color: 'text-gray-800' },
-              { key: 'pms',     label: 'PMS',     count: pmsOpenCount,        color: 'text-sky-700' },
-              { key: 'pending', label: 'Pending', count: pendingTotal,         color: 'text-amber-700' },
-              { key: 'closed',  label: 'Closed',  count: closedCases.length,  color: 'text-gray-500' },
+              { key: 'active',  label: lang === 'th' ? 'ดำเนินการ' : 'Active',  count: activeCases.length,  color: 'text-gray-800' },
+              { key: 'pms',     label: lang === 'th' ? 'PMS' : 'PMS',     count: pmsOpenCount,        color: 'text-sky-700' },
+              { key: 'pending', label: lang === 'th' ? 'รออนุมัติ' : 'Pending', count: pendingTotal,         color: 'text-amber-700' },
+              { key: 'closed',  label: lang === 'th' ? 'ปิดแล้ว' : 'Closed',  count: closedCases.length,  color: 'text-gray-500' },
             ] as const).filter(tab => tab.key !== 'pms' || pmsEnabled).map(tab => (
               <button
                 key={tab.key}
@@ -914,14 +921,14 @@ export function CasesPage() {
             <div>
               <div className="flex items-center justify-between mb-3">
                 <h2 className="text-base font-semibold text-gray-800">
-                  Active Cases
+                  {lang === 'th' ? 'เคสที่ดำเนินการ' : 'Active Cases'}
                   <span className="ml-2 text-sm font-normal text-gray-400">{activeCases.length}</span>
                 </h2>
               </div>
 
               {activeCases.length === 0 ? (
                 <div className="bg-white rounded-xl border border-gray-200 shadow-sm py-10 text-center">
-                  <p className="text-gray-400 text-sm">No active cases</p>
+                  <p className="text-gray-400 text-sm">{lang === 'th' ? 'ไม่มีเคสที่ดำเนินการ' : 'No active cases'}</p>
                 </div>
               ) : (
                 <>
@@ -953,7 +960,7 @@ export function CasesPage() {
               <div>
                 <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
                   <h2 className="text-base font-semibold text-sky-700">
-                    Active PMS Cases
+                    {lang === 'th' ? 'งาน PMS ที่ดำเนินการ' : 'Active PMS Cases'}
                     <span className="ml-2 text-sm font-normal text-sky-400">{activeTasks.length}</span>
                   </h2>
                   <div className="flex items-center gap-2">
@@ -966,13 +973,13 @@ export function CasesPage() {
                     )}
                     <button onClick={() => setPmsViewAll(v => !v)}
                       className={cn('h-8 px-3 rounded-lg border text-xs font-medium transition-colors', pmsViewAll ? 'bg-sky-600 text-white border-sky-600' : 'bg-white text-gray-600 border-gray-300 hover:border-gray-400')}>
-                      {pmsViewAll ? 'By month' : 'View all'}
+                      {pmsViewAll ? (lang === 'th' ? 'ตามเดือน' : 'By month') : (lang === 'th' ? 'ดูทั้งหมด' : 'View all')}
                     </button>
                   </div>
                 </div>
                 {activeTasks.length === 0 ? (
                   <div className="bg-white rounded-xl border border-gray-200 shadow-sm py-8 text-center">
-                    <p className="text-gray-400 text-sm">No active PMS tasks{pmsViewAll ? '' : ` in ${pmsMonthLabel}`}</p>
+                    <p className="text-gray-400 text-sm">{lang === 'th' ? 'ไม่มีงาน PMS ที่ดำเนินการ' : 'No active PMS tasks'}{pmsViewAll ? '' : (lang === 'th' ? ` ใน ${pmsMonthLabel}` : ` in ${pmsMonthLabel}`)}</p>
                   </div>
                 ) : (
                   <>
@@ -990,7 +997,7 @@ export function CasesPage() {
               {overdueTasks.length > 0 && (
                 <div>
                   <h2 className="text-base font-semibold text-red-700 mb-3">
-                    Overdue PMS Cases
+                    {lang === 'th' ? 'งาน PMS ที่เกินกำหนด' : 'Overdue PMS Cases'}
                     <span className="ml-2 text-sm font-normal text-red-400">{overdueTasks.length}</span>
                   </h2>
                   <div className="bg-white rounded-xl border border-red-200 shadow-sm divide-y divide-gray-50 overflow-hidden">
@@ -1009,7 +1016,7 @@ export function CasesPage() {
             <div>
               <div className="flex items-center justify-between mb-3">
                 <h2 className="text-base font-semibold text-amber-700">
-                  Pending Manager Approval
+                  {lang === 'th' ? 'รอผู้จัดการอนุมัติ' : 'Pending Manager Approval'}
                   <span className="ml-2 text-sm font-normal text-amber-400">{pendingMgrCases.length}</span>
                 </h2>
               </div>
@@ -1037,7 +1044,7 @@ export function CasesPage() {
             <div>
               <div className="flex items-center justify-between mb-3">
                 <h2 className="text-base font-semibold text-violet-700">
-                  Pending Top Management Approval
+                  {lang === 'th' ? 'รอผู้บริหารระดับสูงอนุมัติ' : 'Pending Top Management Approval'}
                   <span className="ml-2 text-sm font-normal text-violet-400">{pendingAdminCases.length}</span>
                 </h2>
               </div>
@@ -1063,7 +1070,7 @@ export function CasesPage() {
           {/* ── Pending: empty state ── */}
           {activeTab === 'pending' && pendingTotal === 0 && (
             <div className="bg-white rounded-xl border border-gray-200 shadow-sm py-10 text-center">
-              <p className="text-gray-400 text-sm">No cases pending approval</p>
+              <p className="text-gray-400 text-sm">{lang === 'th' ? 'ไม่มีเคสที่รออนุมัติ' : 'No cases pending approval'}</p>
             </div>
           )}
 
@@ -1072,7 +1079,7 @@ export function CasesPage() {
             <div>
               <div className="flex items-center justify-between mb-3">
                 <h2 className="text-base font-semibold text-gray-500">
-                  Closed Cases
+                  {lang === 'th' ? 'เคสที่ปิดแล้ว' : 'Closed Cases'}
                   <span className="ml-2 text-sm font-normal text-gray-400">{closedCases.length}</span>
                 </h2>
               </div>
@@ -1106,7 +1113,7 @@ export function CasesPage() {
 
           {activeTab === 'closed' && closedCases.length === 0 && (
             <div className="bg-white rounded-xl border border-gray-200 shadow-sm py-10 text-center">
-              <p className="text-gray-400 text-sm">No closed cases</p>
+              <p className="text-gray-400 text-sm">{lang === 'th' ? 'ไม่มีเคสที่ปิดแล้ว' : 'No closed cases'}</p>
             </div>
           )}
 

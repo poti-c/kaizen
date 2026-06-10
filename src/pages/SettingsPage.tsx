@@ -91,9 +91,9 @@ export function SettingsPage() {
       if (updateErr) throw updateErr
       setAvatarUrl(url)
       await refreshProfile()
-      toast.success('Profile photo updated.')
+      toast.success(lang === 'th' ? 'อัปเดตรูปโปรไฟล์แล้ว' : 'Profile photo updated.')
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Upload failed.')
+      toast.error(err instanceof Error ? err.message : (lang === 'th' ? 'อัปโหลดไม่สำเร็จ' : 'Upload failed.'))
     } finally {
       setUploadingAvatar(false)
     }
@@ -120,7 +120,7 @@ export function SettingsPage() {
   async function saveProfile() {
     if (!profile) return
     const trimmedName = editName.trim()
-    if (!trimmedName) { toast.error('Name cannot be empty.'); return }
+    if (!trimmedName) { toast.error(lang === 'th' ? 'กรุณากรอกชื่อ' : 'Name cannot be empty.'); return }
     setSavingProfile(true)
     try {
       const updates: { full_name: string; username?: string } = { full_name: trimmedName }
@@ -128,10 +128,10 @@ export function SettingsPage() {
       const { error } = await supabase.from('kaizen_profiles').update(updates).eq('id', profile.id)
       if (error) throw error
       await refreshProfile()
-      toast.success('Profile updated.')
+      toast.success(lang === 'th' ? 'อัปเดตโปรไฟล์แล้ว' : 'Profile updated.')
       setEditingProfile(false)
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to update profile.')
+      toast.error(err instanceof Error ? err.message : (lang === 'th' ? 'อัปเดตโปรไฟล์ไม่สำเร็จ' : 'Failed to update profile.'))
     } finally {
       setSavingProfile(false)
     }
@@ -198,21 +198,21 @@ export function SettingsPage() {
     const trimmed = value.trim()
     if (!trimmed) return
     if (list.some(i => i.toLowerCase() === trimmed.toLowerCase())) {
-      toast.error('Item already exists.')
+      toast.error(lang === 'th' ? 'มีรายการนี้อยู่แล้ว' : 'Item already exists.')
       return
     }
     const updated = [...list, trimmed]
     setList(updated)
     setNew('')
     saveList(key, updated)
-    toast.success('Added.')
+    toast.success(lang === 'th' ? 'เพิ่มแล้ว' : 'Added.')
   }
 
   function removeItem(key: string, index: number, list: string[], setList: (l: string[]) => void) {
     const updated = list.filter((_, i) => i !== index)
     setList(updated)
     saveList(key, updated)
-    toast.success('Removed.')
+    toast.success(lang === 'th' ? 'ลบแล้ว' : 'Removed.')
   }
 
   function startEdit(key: string, index: number, value: string) {
@@ -227,7 +227,7 @@ export function SettingsPage() {
     setList(updated)
     saveList(key, updated)
     setEditingItem(null)
-    toast.success('Updated.')
+    toast.success(lang === 'th' ? 'อัปเดตแล้ว' : 'Updated.')
   }
 
   // ── Bulk delete ──────────────────────────────────────────────────────────
@@ -321,7 +321,7 @@ export function SettingsPage() {
       }
     }
 
-    toast.success(`Removed ${items.length} item${items.length > 1 ? 's' : ''}.`)
+    toast.success(lang === 'th' ? `ลบ ${items.length} รายการแล้ว` : `Removed ${items.length} item${items.length > 1 ? 's' : ''}.`)
     setBulkConfirm(null)
   }
   // ────────────────────────────────────────────────────────────────────────
@@ -341,7 +341,7 @@ export function SettingsPage() {
       return
     }
     if (newPassword.length < 8) {
-      toast.error('Password must be at least 8 characters.')
+      toast.error(lang === 'th' ? 'รหัสผ่านต้องมีอย่างน้อย 8 ตัวอักษร' : 'Password must be at least 8 characters.')
       return
     }
     setChangingPassword(true)
@@ -374,7 +374,7 @@ export function SettingsPage() {
     setCustomAccent(preset.accent)
     setCustomSidebar(preset.sidebar)
     updateSettings({ primary_color: preset.primary, accent_color: preset.accent, sidebar_color: preset.sidebar })
-    toast.success(`Applied "${preset.label}" theme.`)
+    toast.success(lang === 'th' ? `ใช้ธีม "${preset.label}" แล้ว` : `Applied "${preset.label}" theme.`)
   }
 
   return (
@@ -392,7 +392,7 @@ export function SettingsPage() {
             <button
               onClick={openProfileEdit}
               className="ml-auto p-1.5 rounded-lg hover:bg-gray-100 transition-colors text-gray-400 hover:text-[var(--brand-primary)]"
-              title="Edit profile"
+              title={lang === 'th' ? 'แก้ไขโปรไฟล์' : 'Edit profile'}
             >
               <Pencil className="h-4 w-4" />
             </button>
@@ -402,14 +402,14 @@ export function SettingsPage() {
                 onClick={saveProfile}
                 disabled={savingProfile}
                 className="p-1.5 rounded-lg hover:bg-green-50 transition-colors text-green-600"
-                title="Save"
+                title={lang === 'th' ? 'บันทึก' : 'Save'}
               >
                 {savingProfile ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
               </button>
               <button
                 onClick={cancelProfileEdit}
                 className="p-1.5 rounded-lg hover:bg-red-50 transition-colors text-gray-400 hover:text-red-500"
-                title="Cancel"
+                title={lang === 'th' ? 'ยกเลิก' : 'Cancel'}
               >
                 <X className="h-4 w-4" />
               </button>
@@ -439,7 +439,7 @@ export function SettingsPage() {
             </div>
           </div>
           <p className="text-xs text-gray-400 mt-2">
-            {uploadingAvatar ? 'Uploading…' : 'Tap to change photo'}
+            {uploadingAvatar ? (lang === 'th' ? 'กำลังอัปโหลด…' : 'Uploading…') : (lang === 'th' ? 'แตะเพื่อเปลี่ยนรูป' : 'Tap to change photo')}
           </p>
           <input
             ref={avatarInputRef}
@@ -487,7 +487,7 @@ export function SettingsPage() {
                   value={editUsername}
                   onChange={(e) => setEditUsername(e.target.value)}
                   className="h-8 text-sm"
-                  placeholder="username"
+                  placeholder={lang === 'th' ? 'ชื่อผู้ใช้' : 'username'}
                 />
               ) : (
                 <p className="font-medium text-gray-900">@{profile?.username}</p>
@@ -498,7 +498,7 @@ export function SettingsPage() {
           {/* Email — read only */}
           {profile?.email && (
             <div>
-              <p className="text-gray-500 text-xs mb-1">Email</p>
+              <p className="text-gray-500 text-xs mb-1">{lang === 'th' ? 'อีเมล' : 'Email'}</p>
               <p className="font-medium text-gray-900 truncate">{profile.email}</p>
             </div>
           )}
@@ -515,7 +515,7 @@ export function SettingsPage() {
                 type={showNew ? 'text' : 'password'}
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
-                placeholder="Min. 8 characters"
+                placeholder={lang === 'th' ? 'อย่างน้อย 8 ตัวอักษร' : 'Min. 8 characters'}
                 className="pr-10"
               />
               <button type="button" onClick={() => setShowNew(!showNew)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">
@@ -529,7 +529,7 @@ export function SettingsPage() {
               type="password"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
-              placeholder="Repeat your new password"
+              placeholder={lang === 'th' ? 'กรอกรหัสผ่านใหม่อีกครั้ง' : 'Repeat your new password'}
             />
           </div>
           <Button onClick={handleChangePassword} disabled={changingPassword}>
@@ -768,40 +768,44 @@ export function SettingsPage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <AlertTriangle className="h-5 w-5 text-red-500" />
-              Confirm Removal
+              {lang === 'th' ? 'ยืนยันการลบ' : 'Confirm Removal'}
             </DialogTitle>
             <DialogDescription className="text-left space-y-2 pt-1">
               {bulkConfirm?.checking ? (
                 <span className="flex items-center gap-2 text-gray-500">
-                  <Loader2 className="h-4 w-4 animate-spin" />Checking for affected cases…
+                  <Loader2 className="h-4 w-4 animate-spin" />{lang === 'th' ? 'กำลังตรวจสอบเคสที่ได้รับผลกระทบ…' : 'Checking for affected cases…'}
                 </span>
               ) : (
                 <>
-                  <p>You are about to remove <strong>{bulkConfirm?.items.length} item{(bulkConfirm?.items.length ?? 0) > 1 ? 's' : ''}</strong>:</p>
+                  <p>{lang === 'th' ? <>คุณกำลังจะลบ <strong>{bulkConfirm?.items.length} รายการ</strong>:</> : <>You are about to remove <strong>{bulkConfirm?.items.length} item{(bulkConfirm?.items.length ?? 0) > 1 ? 's' : ''}</strong>:</>}</p>
                   <ul className="text-sm text-gray-600 list-disc pl-4 max-h-32 overflow-y-auto">
                     {bulkConfirm?.items.map(item => <li key={item}>{item}</li>)}
                   </ul>
                   {(bulkConfirm?.affectedCases ?? 0) > 0 && (
                     <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mt-2">
                       <p className="text-amber-800 text-sm font-medium">
-                        ⚠️ {bulkConfirm?.affectedCases} open case{(bulkConfirm?.affectedCases ?? 0) > 1 ? 's' : ''} use{(bulkConfirm?.affectedCases ?? 0) === 1 ? 's' : ''} this value.
+                        {lang === 'th'
+                          ? `⚠️ มี ${bulkConfirm?.affectedCases} เคสที่เปิดอยู่ใช้ค่านี้`
+                          : `⚠️ ${bulkConfirm?.affectedCases} open case${(bulkConfirm?.affectedCases ?? 0) > 1 ? 's' : ''} use${(bulkConfirm?.affectedCases ?? 0) === 1 ? 's' : ''} this value.`}
                       </p>
                       <p className="text-amber-700 text-xs mt-1">
-                        A notification will be sent to all Super Admins to update the affected cases.
+                        {lang === 'th'
+                          ? 'ระบบจะส่งการแจ้งเตือนไปยัง Super Admin ทุกคนเพื่ออัปเดตเคสที่ได้รับผลกระทบ'
+                          : 'A notification will be sent to all Super Admins to update the affected cases.'}
                       </p>
                     </div>
                   )}
                   {(bulkConfirm?.affectedCases ?? 0) === 0 && (
-                    <p className="text-gray-500 text-sm">No open cases are affected.</p>
+                    <p className="text-gray-500 text-sm">{lang === 'th' ? 'ไม่มีเคสที่เปิดอยู่ได้รับผลกระทบ' : 'No open cases are affected.'}</p>
                   )}
                 </>
               )}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setBulkConfirm(null)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setBulkConfirm(null)}>{lang === 'th' ? 'ยกเลิก' : 'Cancel'}</Button>
             <Button variant="destructive" onClick={confirmBulkDelete} disabled={bulkConfirm?.checking}>
-              {bulkConfirm?.checking ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Remove'}
+              {bulkConfirm?.checking ? <Loader2 className="h-4 w-4 animate-spin" /> : (lang === 'th' ? 'ลบ' : 'Remove')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -851,7 +855,7 @@ export function SettingsPage() {
 
         {/* Custom colors */}
         <div className="space-y-4">
-          <p className="text-xs text-gray-500 font-medium">Custom Colors</p>
+          <p className="text-xs text-gray-500 font-medium">{lang === 'th' ? 'สีที่กำหนดเอง' : 'Custom Colors'}</p>
           <div className="grid grid-cols-3 gap-4">
             <div className="space-y-1.5">
               <Label className="text-xs">{t.settings.primaryColor}</Label>
@@ -1096,6 +1100,7 @@ type AdminLink    = { super_admin_id: string; company_id: string }
 
 function CompaniesSection() {
   const { profile } = useAuth()
+  const { lang } = useLanguage()
   const [companies, setCompanies]   = React.useState<KaizenCompany[]>([])
   const [admins, setAdmins]         = React.useState<AdminProfile[]>([])
   const [links, setLinks]           = React.useState<AdminLink[]>([])
@@ -1139,7 +1144,7 @@ function CompaniesSection() {
 
   return (
     <>
-      <CollapsibleCard icon={Building2} title="Companies" badge={companies.length} bodyClassName="border-t border-gray-100">
+      <CollapsibleCard icon={Building2} title={lang === 'th' ? 'บริษัท' : 'Companies'} badge={companies.length} bodyClassName="border-t border-gray-100">
         {loading ? (
           <div className="flex justify-center py-10">
             <Loader2 className="h-5 w-5 animate-spin text-gray-300" />
@@ -1158,7 +1163,7 @@ function CompaniesSection() {
                 profile?.company_id === co.id ||
                 links.some(l => l.super_admin_id === profile?.id && l.company_id === co.id)
               )
-              const companyName = (id: string | null) => companies.find(c => c.id === id)?.name ?? 'another company'
+              const companyName = (id: string | null) => companies.find(c => c.id === id)?.name ?? (lang === 'th' ? 'บริษัทอื่น' : 'another company')
               return (
                 <div key={co.id}>
                   {/* Company row */}
@@ -1172,13 +1177,13 @@ function CompaniesSection() {
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-semibold text-gray-900">{co.name}</p>
                       <p className="text-xs text-gray-400">
-                        /{co.slug} · {accessList.length} with access
+                        /{co.slug} · {lang === 'th' ? `${accessList.length} คนเข้าถึงได้` : `${accessList.length} with access`}
                       </p>
                     </div>
                     <span className={`text-xs px-2 py-0.5 rounded-full font-medium mr-2 ${
                       co.is_active ? 'bg-green-50 text-green-600' : 'bg-gray-100 text-gray-400'
                     }`}>
-                      {co.is_active ? 'Active' : 'Inactive'}
+                      {co.is_active ? (lang === 'th' ? 'ใช้งานอยู่' : 'Active') : (lang === 'th' ? 'ปิดใช้งาน' : 'Inactive')}
                     </span>
                     {isExpanded
                       ? <ChevronDown className="h-4 w-4 text-gray-300 flex-shrink-0" />
@@ -1189,7 +1194,7 @@ function CompaniesSection() {
                   {isExpanded && (
                     <div className="px-6 pb-5 bg-gray-50/60">
                       <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3 pt-3">
-                        Super Admin Access
+                        {lang === 'th' ? 'สิทธิ์การเข้าถึงของ Super Admin' : 'Super Admin Access'}
                       </p>
                       <div className="space-y-2">
                         {accessList.map(admin => {
@@ -1208,40 +1213,40 @@ function CompaniesSection() {
                               <div className="flex-1 min-w-0">
                                 <p className="text-sm font-medium text-gray-900 truncate">
                                   {admin.full_name}
-                                  {isMe && <span className="ml-1.5 text-[10px] text-[var(--brand-primary)] font-semibold">You</span>}
+                                  {isMe && <span className="ml-1.5 text-[10px] text-[var(--brand-primary)] font-semibold">{lang === 'th' ? 'คุณ' : 'You'}</span>}
                                 </p>
                                 <p className="text-xs text-gray-400 truncate">{admin.email}</p>
                                 {!isOwner && (
                                   <p className="text-[11px] text-gray-400 mt-0.5 flex items-center gap-1">
-                                    <Building2 className="h-3 w-3" />from {companyName(admin.company_id)}
+                                    <Building2 className="h-3 w-3" />{lang === 'th' ? `จาก ${companyName(admin.company_id)}` : `from ${companyName(admin.company_id)}`}
                                   </p>
                                 )}
                               </div>
                               {isOwner ? (
                                 <span className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border border-amber-200 text-amber-600 bg-amber-50 flex-shrink-0">
-                                  Owner
+                                  {lang === 'th' ? 'เจ้าของ' : 'Owner'}
                                 </span>
                               ) : (iAmOwner && !isMe) ? (
                                 <button
                                   onClick={() => toggleLink(admin.id, co.id, true)}
                                   className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border border-red-200 text-red-500 hover:bg-red-50 transition-all flex-shrink-0"
                                 >
-                                  <UserX className="h-3 w-3" />Remove
+                                  <UserX className="h-3 w-3" />{lang === 'th' ? 'ลบ' : 'Remove'}
                                 </button>
                               ) : (
                                 <span className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border border-gray-200 text-gray-500 bg-gray-50 flex-shrink-0">
-                                  Guest
+                                  {lang === 'th' ? 'ผู้รับเชิญ' : 'Guest'}
                                 </span>
                               )}
                             </div>
                           )
                         })}
                         {accessList.length === 0 && (
-                          <p className="text-xs text-gray-400 py-2">No owner assigned yet. Owners are managed in the System Console.</p>
+                          <p className="text-xs text-gray-400 py-2">{lang === 'th' ? 'ยังไม่มีการกำหนดเจ้าของ เจ้าของจะถูกจัดการใน System Console' : 'No owner assigned yet. Owners are managed in the System Console.'}</p>
                         )}
                         {iAmOwner && guestList.length === 0 && ownerList.length > 0 && (
                           <p className="text-[11px] text-gray-400 pt-1">
-                            No cross-company users have been granted access to this company.
+                            {lang === 'th' ? 'ยังไม่มีผู้ใช้จากบริษัทอื่นได้รับสิทธิ์เข้าถึงบริษัทนี้' : 'No cross-company users have been granted access to this company.'}
                           </p>
                         )}
                       </div>
@@ -1281,7 +1286,7 @@ interface EditableListCardProps {
 
 function EditableListCard({
   icon, title, subtitle, items, newValue, onNewChange, onAdd, onRemove, onBulkRemove,
-  editingItem, onStartEdit, onEditChange, onConfirmEdit, onCancelEdit, placeholder, maxVisible,
+  editingItem, onStartEdit, onEditChange, onConfirmEdit, onCancelEdit, placeholder, maxVisible, lang,
 }: EditableListCardProps) {
   const [selected, setSelected] = React.useState<Set<number>>(new Set())
   const [showAll, setShowAll] = React.useState(false)
@@ -1332,7 +1337,7 @@ function EditableListCard({
               onChange={toggleAll}
               className="h-3.5 w-3.5 rounded border-gray-300 accent-[var(--brand-primary)]"
             />
-            Select all
+            {lang === 'th' ? 'เลือกทั้งหมด' : 'Select all'}
           </label>
           {selected.size > 0 && (
             <button
@@ -1340,7 +1345,7 @@ function EditableListCard({
               className="flex items-center gap-1 text-xs font-medium text-red-600 hover:text-red-700 transition-colors"
             >
               <Trash2 className="h-3.5 w-3.5" />
-              Remove {selected.size} selected
+              {lang === 'th' ? `ลบ ${selected.size} รายการที่เลือก` : `Remove ${selected.size} selected`}
             </button>
           )}
         </div>
@@ -1395,7 +1400,7 @@ function EditableListCard({
           onClick={() => setShowAll(v => !v)}
           className="w-full text-xs text-[var(--brand-primary)] hover:underline py-1.5 text-center"
         >
-          {showAll ? 'Show less ↑' : `Show all ${items.length} ↓`}
+          {showAll ? (lang === 'th' ? 'แสดงน้อยลง ↑' : 'Show less ↑') : (lang === 'th' ? `แสดงทั้งหมด ${items.length} ↓` : `Show all ${items.length} ↓`)}
         </button>
       )}
 

@@ -80,7 +80,7 @@ export function PreventiveMaintenancePage() {
       supabase.from('kaizen_pm_settings').select('due_soon_days').eq('company_id', companyId).maybeSingle(),
       supabase.from('kaizen_pm_tasks').select(taskSel).eq('company_id', companyId).in('status', ['scheduled', 'in_progress', 'pending_approval']),
       supabase.from('kaizen_pm_tasks').select(taskSel).eq('company_id', companyId).in('status', ['done', 'approved']).gte('performed_at', monthStartKey),
-      supabase.from('kaizen_settings').select('value').eq('key', 'custom_locations').maybeSingle(),
+      supabase.from('kaizen_settings').select('value').eq('company_id', companyId).eq('key', 'custom_locations').maybeSingle(),
     ])
     if (a.error) toast.error(a.error.message)
     setAssets((a.data as Asset[]) ?? [])
@@ -192,24 +192,24 @@ export function PreventiveMaintenancePage() {
       {/* Filters — single line on every screen size; dropdowns flex to fit width */}
       <div className="flex items-center gap-1.5 sm:gap-2 mb-3">
         <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="flex-1 min-w-0 h-8 rounded-lg border border-gray-300 bg-white px-1.5 sm:px-2 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/40">
-          <option value="all">All Equipment</option>
+          <option value="all">{lang === 'th' ? 'อุปกรณ์ทั้งหมด' : 'All Equipment'}</option>
           {typeOptions.map(t => <option key={t} value={t}>{t}</option>)}
         </select>
         <select value={locFilter} onChange={(e) => setLocFilter(e.target.value)} className="flex-1 min-w-0 h-8 rounded-lg border border-gray-300 bg-white px-1.5 sm:px-2 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/40">
-          <option value="all">All Area</option>
+          <option value="all">{lang === 'th' ? 'ทุกพื้นที่' : 'All Area'}</option>
           {locOptions.map(l => <option key={l} value={l}>{l}</option>)}
         </select>
         <select value={deptFilter} onChange={(e) => setDeptFilter(e.target.value)} className="flex-1 min-w-0 h-8 rounded-lg border border-gray-300 bg-white px-1.5 sm:px-2 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/40">
-          <option value="all">All Departments</option>
+          <option value="all">{lang === 'th' ? 'ทุกแผนก' : 'All Departments'}</option>
           {deptOptions.map(d => <option key={d} value={d}>{DEPARTMENT_LABELS[d as Department] ?? d}</option>)}
         </select>
         <button onClick={() => setInactiveOnly(v => !v)}
           className={`flex-shrink-0 h-8 px-2 rounded-lg border text-xs font-medium transition-colors flex items-center gap-1 ${inactiveOnly ? 'bg-gray-800 text-white border-gray-800' : 'bg-white text-gray-600 border-gray-300 hover:border-gray-400'}`}>
-          <Ban className="h-3.5 w-3.5" /><span className="hidden sm:inline">Inactive</span>
+          <Ban className="h-3.5 w-3.5" /><span className="hidden sm:inline">{lang === 'th' ? 'ปิดใช้งาน' : 'Inactive'}</span>
         </button>
         {(typeFilter !== 'all' || locFilter !== 'all' || deptFilter !== 'all' || inactiveOnly) && (
           <button onClick={() => { setTypeFilter('all'); setLocFilter('all'); setDeptFilter('all'); setInactiveOnly(false) }}
-            className="flex-shrink-0 h-8 px-1.5 text-xs text-[var(--brand-primary)] hover:underline" title="Clear filters">Clear</button>
+            className="flex-shrink-0 h-8 px-1.5 text-xs text-[var(--brand-primary)] hover:underline" title={lang === 'th' ? 'ล้างตัวกรอง' : 'Clear filters'}>{lang === 'th' ? 'ล้าง' : 'Clear'}</button>
         )}
       </div>
 
