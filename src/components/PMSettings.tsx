@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { SlidersHorizontal, Loader2, Check, Search, X } from 'lucide-react'
+import { SlidersHorizontal, Loader2, Check, Search, X, ChevronDown } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useCompany } from '@/contexts/CompanyContext'
 import { useLanguage } from '@/contexts/LanguageContext'
@@ -22,6 +22,7 @@ export function PMSettings() {
   const [s, setS] = useState<PMSettingsRow>(DEFAULTS)
   const [assets, setAssets] = useState<AssetRow[]>([])
   const [assetSearch, setAssetSearch] = useState('')
+  const [excludeOpen, setExcludeOpen] = useState(false)  // collapsed by default
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
 
@@ -123,21 +124,24 @@ export function PMSettings() {
             {/* Equipment exclusion picker — only relevant when the toggle is on */}
             {s.notify_engineering && (
               <div className="mt-3 ml-7 rounded-lg border border-gray-200 bg-gray-50/60 p-3">
-                <div className="flex items-center justify-between mb-2">
+                <button onClick={() => setExcludeOpen(o => !o)} className="w-full flex items-center justify-between text-left">
                   <p className="text-xs font-medium text-gray-600">
                     {lang === 'th' ? 'ยกเว้นอุปกรณ์ (ไม่แจ้งเตือนแผนกวิศวกรรม)' : 'Exclude equipment (don’t notify Engineering)'}
                   </p>
-                  {excluded.size > 0 && (
-                    <span className="text-[11px] text-gray-500">
-                      {excluded.size} {lang === 'th' ? 'รายการที่ยกเว้น' : 'excluded'}
-                    </span>
-                  )}
-                </div>
+                  <span className="flex items-center gap-2 flex-shrink-0">
+                    {excluded.size > 0 && (
+                      <span className="text-[11px] text-gray-500">
+                        {excluded.size} {lang === 'th' ? 'รายการที่ยกเว้น' : 'excluded'}
+                      </span>
+                    )}
+                    <ChevronDown className={`h-4 w-4 text-gray-400 transition-transform ${excludeOpen ? 'rotate-180' : ''}`} />
+                  </span>
+                </button>
 
-                {assets.length === 0 ? (
-                  <p className="text-[11px] text-gray-400 py-2">{lang === 'th' ? 'ยังไม่มีอุปกรณ์' : 'No equipment registered yet.'}</p>
+                {excludeOpen && (assets.length === 0 ? (
+                  <p className="text-[11px] text-gray-400 py-2 mt-2">{lang === 'th' ? 'ยังไม่มีอุปกรณ์' : 'No equipment registered yet.'}</p>
                 ) : (
-                  <>
+                  <div className="mt-2">
                     <div className="relative mb-2">
                       <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
                       <input value={assetSearch} onChange={(e) => setAssetSearch(e.target.value)}
@@ -160,8 +164,8 @@ export function PMSettings() {
                         </label>
                       ))}
                     </div>
-                  </>
-                )}
+                  </div>
+                ))}
               </div>
             )}
           </div>
