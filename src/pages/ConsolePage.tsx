@@ -85,10 +85,16 @@ const FORM_TYPE_LABEL: Record<string, string> = {
 }
 
 // Purchasable add-ons (entitlements stored in kaizen_companies.addons).
-const ADDONS: { key: string; label: string; price: string }[] = [
+// `plans` (optional) limits which package tiers the add-on is offered to.
+const ADDONS: { key: string; label: string; price: string; plans?: string[] }[] = [
   { key: 'pms', label: 'Preventive Maintenance Scheduler', price: '฿10,000 / year' },
-  { key: 'extra_users', label: 'Extra User Pack', price: '฿15,000 / year' },
+  // Premium already includes unlimited managers/staff, so the extra-user pack is Gold-only.
+  { key: 'extra_users', label: 'Extra User Pack', price: '฿15,000 / year', plans: ['gold'] },
 ]
+// Add-ons offered for a plan (an already-active add-on stays visible so it can be turned off).
+function addonsForPlan(plan: string, active?: Record<string, boolean> | null) {
+  return ADDONS.filter((a) => !a.plans || a.plans.includes(plan) || !!active?.[a.key])
+}
 
 function packageBadgeCls(plan: string) {
   if (plan === 'premium') return 'bg-amber-500/15 text-amber-400 border-amber-500/30'
@@ -788,7 +794,7 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
         <div className="mt-4 pt-3 border-t border-slate-800">
           <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-2">Add-ons</p>
           <div className="space-y-2">
-            {ADDONS.map((a) => {
+            {addonsForPlan(c.plan, c.addons).map((a) => {
               const on = !!c.addons?.[a.key]
               const ad = c.addons as Record<string, unknown> | null
               const trialUntilRaw = ad ? ad[`${a.key}_trial_until`] : null
@@ -1922,7 +1928,8 @@ function CreateCompanyDialog({ call, onClose, onCreated }: {
         new_company: {
           name: name.trim(), slug: slug.trim(), plan,
           // Max managers/staff are intentionally omitted — the package sets them.
-          addons,
+          // Only keep add-ons that are valid for the chosen plan.
+          addons: Object.fromEntries(addonsForPlan(plan).filter((a) => addons[a.key]).map((a) => [a.key, true])),
           contact_person: contactPerson.trim() || null,
           contact_phone: contactPhone.trim() || null,
           contact_email: contactEmail.trim() || null,
@@ -1976,13 +1983,14 @@ function CreateCompanyDialog({ call, onClose, onCreated }: {
         <div>
           <p className="text-xs font-medium text-slate-400 mb-1.5">Expansions</p>
           <div className="space-y-1.5">
-            {ADDONS.map((a) => (
+            {addonsForPlan(plan).map((a) => (
               <label key={a.key} className="flex items-center gap-2.5 rounded-lg border border-slate-700 bg-slate-800/50 px-3 py-2 cursor-pointer hover:border-slate-600">
                 <input type="checkbox" checked={!!addons[a.key]} onChange={(e) => setAddons({ ...addons, [a.key]: e.target.checked })} className="accent-amber-500" />
                 <span className="text-xs text-slate-200 flex-1">{a.label}</span>
                 <span className="text-[10px] text-slate-500">{a.price}</span>
               </label>
             ))}
+            {addonsForPlan(plan).length === 0 && <p className="text-[11px] text-slate-500">No expansions available for this package.</p>}
           </div>
         </div>
 

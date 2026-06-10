@@ -49,6 +49,7 @@ export function UsersPage() {
   const [editFullName, setEditFullName] = useState('')
   const [editPosition, setEditPosition] = useState('')
   const [editUsername, setEditUsername] = useState('')
+  const [editEmail, setEditEmail] = useState('')
   const [editDepartment, setEditDepartment] = useState<Department>('front_office')
   const [editRole, setEditRole] = useState<Role>('staff')
   const [editNewPassword, setEditNewPassword] = useState('')
@@ -162,6 +163,7 @@ export function UsersPage() {
     setEditFullName(user.full_name)
     setEditPosition(user.position || '')
     setEditUsername(user.username || '')
+    setEditEmail(user.email || '')
     setEditDepartment(user.department)
     setEditRole(user.role)
     setEditNewPassword('')
@@ -212,6 +214,8 @@ export function UsersPage() {
 
   async function handleSaveEdit() {
     if (!editUser || !editFullName.trim()) { toast.error(t.users.fillRequired); return }
+    const emailLogin = editRole === 'manager' || editRole === 'super_admin'
+    if (emailLogin && !editEmail.trim()) { toast.error(t.users.emailRequired); return }
     setSaving(true)
     try {
       const updates: Record<string, unknown> = {
@@ -219,6 +223,8 @@ export function UsersPage() {
         position: editPosition.trim() || null,
         username: editUsername.trim() || null,
       }
+      // Managers/admins log in by email; send it so the login stays in sync.
+      if (emailLogin) updates.email = editEmail.trim()
       // Only super admins can change role/department (the edge function also re-validates this)
       if (profile?.role === 'super_admin') {
         updates.department = editDepartment
@@ -236,6 +242,7 @@ export function UsersPage() {
       if (editFullName.trim() !== editUser.full_name) changes.push(`Name → ${editFullName.trim()}`)
       if (editPosition.trim() !== (editUser.position || '')) changes.push(`Position → ${editPosition.trim() || '(cleared)'}`)
       if (editUsername.trim() !== (editUser.username || '')) changes.push(`Username → @${editUsername.trim()}`)
+      if (emailLogin && editEmail.trim() !== (editUser.email || '')) changes.push(`Login email → ${editEmail.trim()}`)
       if (editNewPassword.trim().length >= 6) changes.push('Password reset (must change on login)')
 
       await logActivity(editUser, 'edit_profile', changes.join(', ') || 'No changes')
@@ -619,13 +626,20 @@ export function UsersPage() {
               <Label>{lang === 'th' ? 'ตำแหน่ง' : 'Position'}</Label>
               <Input value={editPosition} onChange={(e) => setEditPosition(e.target.value)} placeholder={lang === 'th' ? 'เช่น หัวหน้าแผนกต้อนรับ' : 'e.g. Front Office Supervisor'} />
             </div>
-            <div className="space-y-1.5">
-              <Label>{lang === 'th' ? 'ชื่อผู้ใช้' : 'Username'}</Label>
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">@</span>
-                <Input value={editUsername} onChange={(e) => setEditUsername(e.target.value)} placeholder={lang === 'th' ? 'ชื่อผู้ใช้' : 'username'} className="pl-7" />
+            {(editRole === 'manager' || editRole === 'super_admin') ? (
+              <div className="space-y-1.5">
+                <Label>{t.users.emailAddress} * <span className="text-gray-400 text-xs font-normal">{lang === 'th' ? '(ใช้เข้าสู่ระบบ)' : '(used to log in)'}</span></Label>
+                <Input type="email" value={editEmail} onChange={(e) => setEditEmail(e.target.value)} placeholder={t.users.emailPlaceholder} autoComplete="off" />
               </div>
-            </div>
+            ) : (
+              <div className="space-y-1.5">
+                <Label>{lang === 'th' ? 'ชื่อผู้ใช้' : 'Username'}</Label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">@</span>
+                  <Input value={editUsername} onChange={(e) => setEditUsername(e.target.value)} placeholder={lang === 'th' ? 'ชื่อผู้ใช้' : 'username'} className="pl-7" />
+                </div>
+              </div>
+            )}
             {profile?.role === 'super_admin' && (
               <>
                 <div className="space-y-1.5">

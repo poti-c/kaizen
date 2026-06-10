@@ -205,6 +205,11 @@ serve(async (req) => {
     if (!check.ok) return json({ error: check.error }, 403);
     const target = check.target;
 
+    // The role after this update (super admins may change it; otherwise unchanged).
+    const finalRole = (callerRole === "super_admin" && updates.role !== undefined) ? updates.role : target.role;
+    // Managers & admins log in with their email; staff log in with a username.
+    const emailIn = typeof updates.email === "string" ? updates.email.trim().toLowerCase() : "";
+
     const allowed: Record<string, unknown> = {
       full_name: updates.full_name,
       position: updates.position,
@@ -215,22 +220,29 @@ serve(async (req) => {
       if (updates.department !== undefined) allowed.department = updates.department;
       if (updates.role !== undefined) allowed.role = updates.role;
     }
+    // Store the login email on the profile for managers/admins.
+    if (finalRole !== "staff" && emailIn) allowed.email = emailIn;
     Object.keys(allowed).forEach((k) => allowed[k] === undefined && delete allowed[k]);
     const { error: updErr } = await supabaseAdmin.from("kaizen_profiles").update(allowed).eq("id", userId);
     if (updErr) return json({ error: updErr.message }, 400);
 
-    // Keep a staff member's LOGIN email in sync with their username so the two
-    // never drift apart (a staff member logs in with username + company code).
-    // Compare against the ACTUAL current auth email so this also repairs any
-    // account whose email already drifted from its username, and skips no-ops.
+    // Keep the LOGIN (auth) email in sync. Staff: derived from their username +
+    // company code. Manager/admin: the email entered by Top Management. Compared
+    // against the ACTUAL current auth email so it repairs drift and skips no-ops.
     const newUsername = (updates.username ?? "").trim();
-    if (target.role === "staff" && newUsername) {
-      const newEmail = await staffLoginEmail(newUsername, target.company_id);
-      if (newEmail) {
-        const { data: authU } = await supabaseAdmin.auth.admin.getUserById(userId);
-        if (authU?.user?.email !== newEmail) {
-          const { error: emailErr } = await supabaseAdmin.auth.admin.updateUserById(userId, { email: newEmail, email_confirm: true });
-          if (emailErr) return json({ error: "Profile saved, but failed to update login: " + emailErr.message }, 400);
+    let targetAuthEmail: string | null = null;
+    if (finalRole === "staff" && newUsername) {
+      targetAuthEmail = await staffLoginEmail(newUsername, target.company_id);
+    } else if (finalRole !== "staff" && emailIn) {
+      targetAuthEmail = emailIn;
+    }
+    if (targetAuthEmail) {
+      const { data: authU } = await supabaseAdmin.auth.admin.getUserById(userId);
+      if (authU?.user?.email !== targetAuthEmail) {
+        const { error: emailErr } = await supabaseAdmin.auth.admin.updateUserById(userId, { email: targetAuthEmail, email_confirm: true });
+        if (emailErr) {
+          const taken = /already.*registered|already.*exists|email.*taken|duplicate/i.test(emailErr.message);
+          return json({ error: taken ? "That email is already registered to another account." : "Profile saved, but failed to update login: " + emailErr.message }, 400);
         }
       }
     }
