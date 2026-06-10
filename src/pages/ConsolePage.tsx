@@ -10,7 +10,7 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts'
 import { FormGeneratorView } from './console/FormGenerator'
 import { ProductsView } from './console/Products'
 import { CalendarView } from './console/Calendar'
-import { BillingAddressFields, composeThaiAddress, type ThaiAddress } from './console/BillingAddressFields'
+import { BillingAddressFields, composeThaiAddress, composeAddress, type ThaiAddress } from './console/BillingAddressFields'
 
 // ── Console API client ───────────────────────────────────────────────────────
 const FN_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/kaizen-console`
@@ -702,7 +702,7 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
             <Detail label="Email Address">{c.contact_email || '—'}</Detail>
             <Detail label="Thai Tax ID">{c.tax_id || '—'}</Detail>
             <Detail label="Head Office / Branch">{c.office_type === 'branch' ? `Branch${c.branch_code ? ` #${c.branch_code}` : ''}` : 'Head Office'}</Detail>
-            <div className="col-span-2"><Detail label="Address">{composeThaiAddress(c.billing_address) || c.address || '—'}</Detail></div>
+            <div className="col-span-2"><Detail label="Address">{composeAddress(c.billing_address, 'en') || c.address || '—'}</Detail></div>
           </div>
         )}
         </div>
@@ -2382,7 +2382,7 @@ function AdminSettingsView({ call, onBack }: { call: <T,>(a: string, p?: Record<
                 <div className="col-span-2"><Detail label="Company Name">{company?.company_name || '—'}</Detail></div>
                 <Detail label="Office Type">{company?.office_type === 'branch' ? `Branch${company?.branch_code ? ` #${company.branch_code}` : (company?.branch_name ? ` · ${company.branch_name}` : '')}` : 'Head Office'}</Detail>
                 <Detail label="Tax ID">{company?.tax_id || '—'}</Detail>
-                <div className="col-span-2"><Detail label="Address">{composeThaiAddress(company?.billing_address) || company?.address || '—'}</Detail></div>
+                <div className="col-span-2"><Detail label="Address">{composeAddress(company?.billing_address, 'en') || company?.address || '—'}</Detail></div>
                 <Detail label="Telephone">{company?.phone || '—'}</Detail>
                 <Detail label="Email">{company?.email || '—'}</Detail>
                 <div className="col-span-2"><Detail label="Website">{company?.website || '—'}</Detail></div>

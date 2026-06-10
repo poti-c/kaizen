@@ -1,15 +1,21 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import {
-  FileText, Loader2, Plus, Trash2, ArrowLeft, Printer, X, Check, Building2, Search,
+  FileText, Loader2, Plus, Trash2, ArrowLeft, Printer, X, Check, Building2, Search, Languages,
 } from 'lucide-react'
+import { composeAddress, type ThaiAddress } from './BillingAddressFields'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 export type FormType = 'quotation' | 'invoice' | 'tax_invoice_receipt' | 'receipt'
+export type DocLang = 'en' | 'th'
 
 interface LineItem { description: string; qty: number; unit_price: number }
+// Structured (bilingual) buyer address snapshotted on the form so the document
+// can be printed in either language regardless of later edits.
+interface ClientBilling extends ThaiAddress { office_type?: string; branch_code?: string }
 interface GeneratedForm {
   id: string; form_type: FormType; doc_number: string; company_id: string | null
   client_name: string | null; client_address: string | null; client_tax_id: string | null
+  client_billing?: ClientBilling | null
   client_contact: string | null; client_phone: string | null; client_email: string | null
   issue_date: string; due_date: string | null; line_items: LineItem[]; currency: string
   non_vat_amount: number; subtotal: number; vat_rate: number; vat_amount: number; total: number
@@ -21,11 +27,11 @@ interface CatalogPromo { id: string; code: string; discount_percent: number; val
 interface FormCompany {
   id: string; name: string; address: string | null; tax_id: string | null
   contact_person: string | null; contact_phone: string | null; contact_email: string | null
-  office_type?: string | null; branch_code?: string | null
+  office_type?: string | null; branch_code?: string | null; billing_address?: ThaiAddress | null
 }
 interface Issuer {
   company_name: string | null; office_type: string; branch_name: string | null; branch_code?: string | null
-  address: string | null; tax_id: string | null; logo_url?: string | null
+  address: string | null; billing_address?: ThaiAddress | null; tax_id: string | null; logo_url?: string | null
   signatory_name?: string | null; signatory_title?: string | null
   phone?: string | null; email?: string | null; website?: string | null
 }
@@ -102,6 +108,70 @@ function bahtText(amount: number): string {
   let s = intToWords(baht) + (baht === 1 ? ' baht' : ' baht')
   if (satang > 0) s += ' and ' + intToWords(satang) + ' satang'
   return s
+}
+
+// Thai amount-in-words (อ่านจำนวนเงินเป็นตัวอักษร)
+const TH_NUM = ['', 'หนึ่ง', 'สอง', 'สาม', 'สี่', 'ห้า', 'หก', 'เจ็ด', 'แปด', 'เก้า']
+const TH_POS = ['', 'สิบ', 'ร้อย', 'พัน', 'หมื่น', 'แสน']
+function thaiReadGroup(n: number): string {
+  const str = String(n)
+  const len = str.length
+  let s = ''
+  for (let i = 0; i < len; i++) {
+    const d = +str[i]
+    const pos = len - 1 - i
+    if (d === 0) continue
+    if (pos === 1 && d === 1) s += 'สิบ'
+    else if (pos === 1 && d === 2) s += 'ยี่สิบ'
+    else if (pos === 0 && d === 1 && len > 1) s += 'เอ็ด'
+    else s += TH_NUM[d] + TH_POS[pos]
+  }
+  return s
+}
+function thaiReadNumber(n: number): string {
+  if (n === 0) return 'ศูนย์'
+  const million = Math.floor(n / 1000000)
+  const rest = n % 1000000
+  let s = ''
+  if (million > 0) s += thaiReadNumber(million) + 'ล้าน'
+  if (rest > 0) s += thaiReadGroup(rest)
+  return s
+}
+function bahtTextTh(amount: number): string {
+  const n = Math.round(amount * 100) / 100
+  const baht = Math.floor(n)
+  const satang = Math.round((n - baht) * 100)
+  let s = baht > 0 ? thaiReadNumber(baht) + 'บาท' : 'ศูนย์บาท'
+  s += satang > 0 ? thaiReadNumber(satang) + 'สตางค์' : 'ถ้วน'
+  return s
+}
+
+// Bilingual document labels — the generated document can be rendered EN or TH.
+const DOC_T = {
+  en: {
+    original: 'Original', docNo: 'Document No.', date: 'Date', dueDate: 'Due Date', paymentDate: 'Payment Date',
+    headOffice: 'Head Office', branch: (c?: string | null) => `Branch${c ? ` #${c}` : ''}`, taxId: 'Tax ID',
+    client: 'Bill To', attn: 'Attn:', tel: 'Tel', no: '#', description: 'Description', qty: 'Qty', unitPrice: 'Unit Price', amount: 'Amount',
+    subtotal: 'Subtotal (excl. VAT)', discount: 'Discount', nonVat: 'Non-VAT / exempt', vat: 'VAT', grandTotal: 'Grand Total',
+    validity: 'Validity:', notes: 'Notes:', authSig: 'Authorised Signature / Date', clientLabel: 'Client',
+    thankyou: 'Thank you for your business. We look forward to serving you.',
+    validityText: (days: number, until: string) => `This quotation is valid for ${days} day${days === 1 ? '' : 's'} from the issue date — until ${until}.`,
+  },
+  th: {
+    original: 'ต้นฉบับ', docNo: 'เลขที่เอกสาร', date: 'วันที่', dueDate: 'ครบกำหนด', paymentDate: 'วันที่ชำระเงิน',
+    headOffice: 'สำนักงานใหญ่', branch: (c?: string | null) => `สาขาที่ ${c || '—'}`, taxId: 'เลขประจำตัวผู้เสียภาษี',
+    client: 'ลูกค้า', attn: 'เรียน', tel: 'โทร', no: 'ลำดับ', description: 'รายการ', qty: 'จำนวน', unitPrice: 'ราคาต่อหน่วย', amount: 'จำนวนเงิน',
+    subtotal: 'ยอดรวม (ก่อน VAT)', discount: 'ส่วนลด', nonVat: 'รายการยกเว้น VAT', vat: 'ภาษีมูลค่าเพิ่ม', grandTotal: 'ยอดรวมทั้งสิ้น',
+    validity: 'ระยะเวลายืนราคา:', notes: 'หมายเหตุ:', authSig: 'ลายมือชื่อผู้มีอำนาจ / วันที่', clientLabel: 'ลูกค้า',
+    thankyou: 'ขอบคุณที่ใช้บริการ เราหวังเป็นอย่างยิ่งที่จะได้ให้บริการท่าน',
+    validityText: (days: number, until: string) => `ใบเสนอราคานี้มีอายุ ${days} วันนับจากวันที่ออก — ถึงวันที่ ${until}`,
+  },
+} as const
+
+function fmtDateLang(d: string | null, lang: DocLang) {
+  if (!d) return '—'
+  const date = new Date(d.length <= 10 ? d + 'T00:00:00Z' : d)
+  return date.toLocaleDateString(lang === 'th' ? 'th-TH' : 'en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
 }
 
 // ── Main view ────────────────────────────────────────────────────────────────
@@ -300,6 +370,7 @@ function FormEditor({ formType, companies, products, promos, onCreated, call, in
   const today = new Date().toISOString().slice(0, 10)
   const [companyId, setCompanyId] = useState<string>('')
   const [client, setClient] = useState({ name: '', address: '', tax_id: '', contact: '', phone: '', email: '' })
+  const [clientBilling, setClientBilling] = useState<ClientBilling | null>(null)
   const [issueDate, setIssueDate] = useState(today)
   const [dueDate, setDueDate] = useState('')
   const [currency, setCurrency] = useState('THB')
@@ -330,13 +401,16 @@ function FormEditor({ formType, companies, products, promos, onCreated, call, in
     setCompanyId(id)
     const c = companies.find(x => x.id === id)
     if (c) {
-      // Lead the address with the buyer's branch identity, required on a Thai tax invoice.
-      const branch = c.office_type === 'branch' ? `(สาขาที่ ${c.branch_code || '—'})` : '(สำนักงานใหญ่)'
-      const addr = c.address ? `${branch}\n${c.address}` : branch
+      // Snapshot the structured bilingual address so the document can switch
+      // languages; the editor textarea shows the English one-liner.
+      const billing = c.billing_address ?? null
+      setClientBilling(billing ? { ...billing, office_type: c.office_type ?? 'head_office', branch_code: c.branch_code ?? '' } : null)
       setClient({
-        name: c.name, address: addr, tax_id: c.tax_id ?? '',
+        name: c.name, address: composeAddress(billing, 'en') || c.address || '', tax_id: c.tax_id ?? '',
         contact: c.contact_person ?? '', phone: c.contact_phone ?? '', email: c.contact_email ?? '',
       })
+    } else {
+      setClientBilling(null)
     }
   }
   function setItem(i: number, patch: Partial<LineItem>) {
@@ -373,6 +447,7 @@ function FormEditor({ formType, companies, products, promos, onCreated, call, in
         form_type: formType,
         company_id: companyId || undefined,
         client_name: client.name, client_address: client.address, client_tax_id: client.tax_id,
+        client_billing: clientBilling ?? undefined,
         client_contact: client.contact, client_phone: client.phone, client_email: client.email,
         issue_date: issueDate, due_date: dueDate || undefined,
         line_items: valid, currency, vat_rate: Number(vatRate) || 0,
@@ -495,13 +570,26 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 // ── Printable document ───────────────────────────────────────────────────────
 function PrintPreview({ form, issuer, onClose, pendingApproval, onApprove, onReject }: { form: GeneratedForm; issuer: Issuer | null; onClose: () => void; pendingApproval?: boolean; onApprove?: () => void; onReject?: () => void }) {
+  // Document language — defaults to English; switch to Thai on client request.
+  const [lang, setLang] = useState<DocLang>('en')
+  const t = DOC_T[lang]
   const issuerName = issuer?.company_name || 'NNR-Solutions Co., Ltd.'
   const issuerLine2 = issuer?.office_type === 'branch'
-    ? (issuer?.branch_code ? `Branch #${issuer.branch_code} · สาขาที่ ${issuer.branch_code}` : (issuer?.branch_name || 'Branch'))
-    : 'Head Office · สำนักงานใหญ่'
+    ? (issuer?.branch_code ? t.branch(issuer.branch_code) : (issuer?.branch_name || t.branch('')))
+    : t.headOffice
+  const issuerAddr = composeAddress(issuer?.billing_address, lang) || issuer?.address || ''
   const showVat = form.form_type !== 'receipt'
   const signatoryName = issuer?.signatory_name || 'Dr. Poti Chaopaisarn'
   const signatoryTitle = issuer?.signatory_title || 'Managing Director'
+  const docTitle = lang === 'th' ? typeThai(form.form_type) : typeLabel(form.form_type)
+  const docSubtitle = lang === 'th' ? typeLabel(form.form_type) : typeThai(form.form_type)
+  // Buyer branch line + address, rendered from the structured snapshot when present.
+  const cb = form.client_billing
+  const clientBranchLine = cb ? (cb.office_type === 'branch' ? t.branch(cb.branch_code) : t.headOffice) : ''
+  const clientAddr = lang === 'th'
+    ? (composeAddress(cb, 'th') || form.client_address || '')
+    : (form.client_address || composeAddress(cb, 'en') || '')
+  const words = lang === 'th' ? bahtTextTh(form.total) : bahtText(form.total)
   // Validity window for quotations (issue → due date).
   const validityDays = form.form_type === 'quotation' && form.due_date
     ? Math.max(0, Math.round((new Date(form.due_date + 'T00:00:00Z').getTime() - new Date(form.issue_date + 'T00:00:00Z').getTime()) / 86400000))
@@ -529,6 +617,16 @@ function PrintPreview({ form, issuer, onClose, pendingApproval, onApprove, onRej
       <div className="no-print sticky top-0 flex items-center justify-between px-4 py-3 bg-white border-b border-slate-200">
         <div className="flex items-center gap-2 text-slate-900 text-sm font-semibold"><FileText className="h-4 w-4 text-amber-600" />{typeLabel(form.form_type)} · {form.doc_number}</div>
         <div className="flex items-center gap-2">
+          {/* Document language — English by default, Thai on request */}
+          <div className="flex items-center rounded-lg border border-slate-300 overflow-hidden" title="Document language">
+            <Languages className="h-4 w-4 text-slate-400 ml-2" />
+            {(['en', 'th'] as const).map((l) => (
+              <button key={l} onClick={() => setLang(l)}
+                className={`px-2.5 py-1.5 text-xs font-semibold transition-colors ${lang === l ? 'bg-amber-500 text-slate-950' : 'text-slate-600 hover:bg-slate-100'}`}>
+                {l === 'en' ? 'EN' : 'ไทย'}
+              </button>
+            ))}
+          </div>
           <button onClick={() => window.print()} className="flex items-center gap-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 text-sm font-semibold px-3 py-1.5 rounded-lg"><Printer className="h-4 w-4" />Print / Save PDF</button>
           {!pendingApproval && <button onClick={onClose} className="p-1.5 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100"><X className="h-5 w-5" /></button>}
         </div>
@@ -547,29 +645,29 @@ function PrintPreview({ form, issuer, onClose, pendingApproval, onApprove, onRej
                 <span className="text-lg font-bold text-[#4a3424] tracking-tight">{issuerName}</span>
               </div>
               <p className="text-[11px] text-slate-700">{issuerLine2}</p>
-              {issuer?.address && <p className="text-[11px] text-slate-700 whitespace-pre-line">{issuer.address}</p>}
-              {issuer?.tax_id && <p className="text-[11px] text-slate-700">Tax ID {issuer.tax_id}</p>}
+              {issuerAddr && <p className="text-[11px] text-slate-700 whitespace-pre-line">{issuerAddr}</p>}
+              {issuer?.tax_id && <p className="text-[11px] text-slate-700">{t.taxId} {issuer.tax_id}</p>}
             </div>
             <div className="text-right">
-              <h1 className="text-3xl font-bold text-[#4a3424]">{typeLabel(form.form_type)}</h1>
-              <p className="text-[11px] text-slate-500">{typeThai(form.form_type)} · Original</p>
+              <h1 className="text-3xl font-bold text-[#4a3424]">{docTitle}</h1>
+              <p className="text-[11px] text-slate-500">{docSubtitle} · {t.original}</p>
               <div className="mt-3 text-[11px] grid grid-cols-[auto_auto] gap-x-3 gap-y-0.5 justify-end">
-                <span className="text-[#7a5c3e] text-right">Document No.</span><span className="text-right font-medium">{form.doc_number}</span>
-                <span className="text-[#7a5c3e] text-right">Date</span><span className="text-right">{fmtDate(form.issue_date)}</span>
-                {form.due_date && (<><span className="text-[#7a5c3e] text-right">{showVat ? 'Due Date' : 'Payment Date'}</span><span className="text-right">{fmtDate(form.due_date)}</span></>)}
+                <span className="text-[#7a5c3e] text-right">{t.docNo}</span><span className="text-right font-medium">{form.doc_number}</span>
+                <span className="text-[#7a5c3e] text-right">{t.date}</span><span className="text-right">{fmtDateLang(form.issue_date, lang)}</span>
+                {form.due_date && (<><span className="text-[#7a5c3e] text-right">{showVat ? t.dueDate : t.paymentDate}</span><span className="text-right">{fmtDateLang(form.due_date, lang)}</span></>)}
               </div>
             </div>
           </div>
 
           {/* client */}
           <div className="mt-6 border-t border-slate-200 pt-3">
-            <p className="text-[#7a5c3e] text-[11px] font-semibold mb-0.5">Client</p>
-            <p className="font-semibold">{form.client_name}</p>
-            {form.client_address && <p className="text-[11px] text-slate-700 whitespace-pre-line">{form.client_address}</p>}
+            <p className="text-[#7a5c3e] text-[11px] font-semibold mb-0.5">{t.client}</p>
+            <p className="font-semibold">{form.client_name}{clientBranchLine && <span className="font-normal text-slate-600"> · {clientBranchLine}</span>}</p>
+            {clientAddr && <p className="text-[11px] text-slate-700 whitespace-pre-line">{clientAddr}</p>}
             <div className="flex gap-4 text-[11px] text-slate-700 mt-0.5">
-              {form.client_tax_id && <span>Tax ID {form.client_tax_id}</span>}
-              {form.client_contact && <span>Attn: {form.client_contact}</span>}
-              {form.client_phone && <span>Tel {form.client_phone}</span>}
+              {form.client_tax_id && <span>{t.taxId} {form.client_tax_id}</span>}
+              {form.client_contact && <span>{t.attn} {form.client_contact}</span>}
+              {form.client_phone && <span>{t.tel} {form.client_phone}</span>}
             </div>
           </div>
 
@@ -577,11 +675,11 @@ function PrintPreview({ form, issuer, onClose, pendingApproval, onApprove, onRej
           <table className="w-full mt-5 text-[11px]">
             <thead>
               <tr className="border-y border-slate-300 text-slate-600">
-                <th className="text-left py-1.5 w-8">#</th>
-                <th className="text-left py-1.5">Description</th>
-                <th className="text-right py-1.5 w-16">Qty</th>
-                <th className="text-right py-1.5 w-28">Unit Price</th>
-                <th className="text-right py-1.5 w-28">Amount</th>
+                <th className="text-left py-1.5 w-8">{t.no}</th>
+                <th className="text-left py-1.5">{t.description}</th>
+                <th className="text-right py-1.5 w-16">{t.qty}</th>
+                <th className="text-right py-1.5 w-28">{t.unitPrice}</th>
+                <th className="text-right py-1.5 w-28">{t.amount}</th>
               </tr>
             </thead>
             <tbody>
@@ -600,27 +698,26 @@ function PrintPreview({ form, issuer, onClose, pendingApproval, onApprove, onRej
           {/* totals */}
           <div className="flex justify-end mt-4">
             <div className="w-72 text-[11px] space-y-1">
-              <Row label="Subtotal (excl. VAT)" val={`${form.currency} ${money(form.subtotal)}`} />
-              {form.discount_amount > 0 && <Row label={`Discount${form.discount_code ? ` (${form.discount_code}, ${form.discount_percent}%)` : ''}`} val={`− ${form.currency} ${money(form.discount_amount)}`} />}
-              {form.non_vat_amount > 0 && <Row label="Non-VAT / exempt" val={`${form.currency} ${money(form.non_vat_amount)}`} />}
-              {showVat && <Row label={`VAT ${form.vat_rate}%`} val={`${form.currency} ${money(form.vat_amount)}`} />}
+              <Row label={t.subtotal} val={`${form.currency} ${money(form.subtotal)}`} />
+              {form.discount_amount > 0 && <Row label={`${t.discount}${form.discount_code ? ` (${form.discount_code}, ${form.discount_percent}%)` : ''}`} val={`− ${form.currency} ${money(form.discount_amount)}`} />}
+              {form.non_vat_amount > 0 && <Row label={t.nonVat} val={`${form.currency} ${money(form.non_vat_amount)}`} />}
+              {showVat && <Row label={`${t.vat} ${form.vat_rate}%`} val={`${form.currency} ${money(form.vat_amount)}`} />}
               <div className="flex justify-between border-t border-slate-300 pt-1.5 font-bold text-[#4a3424] text-sm">
-                <span>Grand Total</span><span>{form.currency} {money(form.total)}</span>
+                <span>{t.grandTotal}</span><span>{form.currency} {money(form.total)}</span>
               </div>
             </div>
           </div>
-          <p className="text-[11px] text-slate-600 italic mt-2">( {bahtText(form.total)} )</p>
+          <p className="text-[11px] text-slate-600 italic mt-2">( {words} )</p>
 
           {/* validity & notes */}
           <div className="mt-4 border-t border-slate-200 pt-2 space-y-1">
             {validityDays !== null && (
               <p className="text-[11px] text-slate-700">
-                <span className="font-semibold">Validity: </span>
-                This quotation is valid for {validityDays} day{validityDays === 1 ? '' : 's'} from the issue date
-                {form.due_date && <> — until <span className="font-medium">{fmtDate(form.due_date)}</span></>}.
+                <span className="font-semibold">{t.validity} </span>
+                {t.validityText(validityDays, fmtDateLang(form.due_date, lang))}
               </p>
             )}
-            {form.notes && <p className="text-[11px] text-slate-700"><span className="font-semibold">Notes: </span>{form.notes}</p>}
+            {form.notes && <p className="text-[11px] text-slate-700"><span className="font-semibold">{t.notes} </span>{form.notes}</p>}
           </div>
 
           {/* signatures — pinned toward the bottom of the page */}
@@ -630,15 +727,15 @@ function PrintPreview({ form, issuer, onClose, pendingApproval, onApprove, onRej
                 <p className="font-semibold text-slate-900">{issuerName}</p>
                 <p className="text-slate-900">{signatoryName}</p>
                 <p className="text-slate-600">{signatoryTitle}</p>
-                <p className="text-slate-500 mt-1">Authorised Signature / Date</p>
+                <p className="text-slate-500 mt-1">{t.authSig}</p>
               </div>
             </div>
             <div className="text-center">
               <div className="border-t border-slate-400 pt-1.5">
-                <p className="font-semibold text-slate-900">{form.client_name || 'Client'}</p>
+                <p className="font-semibold text-slate-900">{form.client_name || t.clientLabel}</p>
                 <p className="text-slate-600">&nbsp;</p>
                 <p className="text-slate-600">&nbsp;</p>
-                <p className="text-slate-500 mt-1">Authorised Signature / Date</p>
+                <p className="text-slate-500 mt-1">{t.authSig}</p>
               </div>
             </div>
           </div>
@@ -646,15 +743,15 @@ function PrintPreview({ form, issuer, onClose, pendingApproval, onApprove, onRej
           {/* footer */}
           <div className="mt-8 text-center text-[9px] text-slate-500 leading-relaxed">
             <div className="h-0.5 rounded-full bg-[#7a5c3e] mb-2" />
-            <p className="font-medium text-[#7a5c3e] text-[10px]">Thank you for your business. We look forward to serving you.</p>
+            <p className="font-medium text-[#7a5c3e] text-[10px]">{t.thankyou}</p>
             <p className="mt-0.5">
-              {issuerName}{issuer?.tax_id ? ` · Tax ID ${issuer.tax_id}` : ''}
-              {issuer?.address ? ` · ${issuer.address.replace(/\s*\n\s*/g, ', ')}` : ''}
+              {issuerName}{issuer?.tax_id ? ` · ${t.taxId} ${issuer.tax_id}` : ''}
+              {issuerAddr ? ` · ${issuerAddr.replace(/\s*\n\s*/g, ', ')}` : ''}
             </p>
             {(issuer?.phone || issuer?.email || issuer?.website) && (
               <p className="mt-0.5">
                 {[
-                  issuer?.phone ? `Tel ${issuer.phone}` : null,
+                  issuer?.phone ? `${t.tel} ${issuer.phone}` : null,
                   issuer?.email || null,
                   issuer?.website || null,
                 ].filter(Boolean).join('  ·  ')}

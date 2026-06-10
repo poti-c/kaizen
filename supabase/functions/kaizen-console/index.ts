@@ -1006,7 +1006,7 @@ Deno.serve(async (req) => {
   if (action === "list_forms") {
     const [formsRes, companiesRes, settingsRes, productsRes, promosRes] = await Promise.all([
       admin.from("kaizen_generated_forms").select("*").order("created_at", { ascending: false }),
-      admin.from("kaizen_companies").select("id, name, address, tax_id, contact_person, contact_phone, contact_email, office_type, branch_code").order("name"),
+      admin.from("kaizen_companies").select("id, name, address, tax_id, contact_person, contact_phone, contact_email, office_type, branch_code, billing_address").order("name"),
       admin.from("kaizen_console_settings").select("*").eq("id", true).maybeSingle(),
       admin.from("kaizen_products").select("*").eq("is_active", true).order("sort_order"),
       admin.from("kaizen_promo_codes").select("*").eq("is_active", true).order("created_at", { ascending: false }),
@@ -1196,6 +1196,7 @@ Deno.serve(async (req) => {
       company_id: cleanStr(body.company_id),
       client_name: cleanStr(body.client_name),
       client_address: cleanStr(body.client_address),
+      client_billing: (body.client_billing && typeof body.client_billing === "object") ? body.client_billing : null,
       client_tax_id: cleanStr(body.client_tax_id),
       client_contact: cleanStr(body.client_contact),
       client_phone: cleanStr(body.client_phone),
