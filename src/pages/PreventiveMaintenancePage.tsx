@@ -8,7 +8,7 @@ import { useLanguage } from '@/contexts/LanguageContext'
 import { DEPARTMENT_LABELS, type Department } from '@/types'
 import { FREQUENCIES, freqLabel, addInterval, assetStatus, STATUS_META, type FreqUnit, type AssetStatus } from '@/lib/pm'
 import { LOCATIONS } from '@/lib/utils'
-import { PMTaskModal, taskTone, type PMTask } from '@/components/pm/PMSchedule'
+import { PMTaskModal, taskTone, taskStatusKey, type PMTask } from '@/components/pm/PMSchedule'
 
 const STATUS_KEY: Record<AssetStatus, 'good' | 'dueSoon' | 'overdue' | 'notScheduled' | 'inactiveStatus'> = {
   good: 'good', due_soon: 'dueSoon', overdue: 'overdue', unscheduled: 'notScheduled', inactive: 'inactiveStatus',
@@ -265,21 +265,23 @@ export function PreventiveMaintenancePage() {
           {filtered.length > 10 && (
             <div className="flex flex-col sm:flex-row items-center justify-between gap-2 pt-2">
               <p className="text-xs text-gray-500">
-                {pageSize === 'all' ? `Showing all ${filtered.length}` : `Showing ${(pageClamped - 1) * pageSize + 1}–${Math.min(pageClamped * pageSize, filtered.length)} of ${filtered.length}`} assets
+                {pageSize === 'all'
+                  ? (lang === 'th' ? `กำลังแสดงทั้งหมด ${filtered.length}` : `Showing all ${filtered.length}`)
+                  : (lang === 'th' ? `กำลังแสดง ${(pageClamped - 1) * pageSize + 1}–${Math.min(pageClamped * pageSize, filtered.length)} จาก ${filtered.length}` : `Showing ${(pageClamped - 1) * pageSize + 1}–${Math.min(pageClamped * pageSize, filtered.length)} of ${filtered.length}`)} {lang === 'th' ? 'รายการ' : 'assets'}
               </p>
               <div className="flex items-center gap-2">
                 <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={pageSize === 'all' || pageClamped === 1}
-                  className="h-7 px-2 rounded-md border border-gray-300 text-xs text-gray-600 disabled:opacity-40 hover:border-gray-400">Previous</button>
-                <span className="text-xs text-gray-600">{pageSize === 'all' ? 'All' : `Page ${pageClamped} of ${totalPages}`}</span>
+                  className="h-7 px-2 rounded-md border border-gray-300 text-xs text-gray-600 disabled:opacity-40 hover:border-gray-400">{lang === 'th' ? 'ก่อนหน้า' : 'Previous'}</button>
+                <span className="text-xs text-gray-600">{pageSize === 'all' ? (lang === 'th' ? 'ทั้งหมด' : 'All') : (lang === 'th' ? `หน้า ${pageClamped} จาก ${totalPages}` : `Page ${pageClamped} of ${totalPages}`)}</span>
                 <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={pageSize === 'all' || pageClamped >= totalPages}
-                  className="h-7 px-2 rounded-md border border-gray-300 text-xs text-gray-600 disabled:opacity-40 hover:border-gray-400">{pageSize === 'all' ? 'Next' : `Next ${pageSize}`}</button>
+                  className="h-7 px-2 rounded-md border border-gray-300 text-xs text-gray-600 disabled:opacity-40 hover:border-gray-400">{pageSize === 'all' ? (lang === 'th' ? 'ถัดไป' : 'Next') : (lang === 'th' ? `ถัดไป ${pageSize}` : `Next ${pageSize}`)}</button>
               </div>
               <div className="flex items-center gap-1.5 text-xs text-gray-500">
-                <span>Display</span>
+                <span>{lang === 'th' ? 'แสดง' : 'Display'}</span>
                 {([10, 15, 20, 'all'] as const).map(opt => (
                   <button key={String(opt)} onClick={() => changePageSize(opt)}
                     className={`h-7 px-2 rounded-md border text-xs font-medium transition-colors ${pageSize === opt ? 'bg-[var(--brand-primary)] text-white border-[var(--brand-primary)]' : 'bg-white text-gray-600 border-gray-300 hover:border-gray-400'}`}>
-                    {opt === 'all' ? 'All' : opt}
+                    {opt === 'all' ? (lang === 'th' ? 'ทั้งหมด' : 'All') : opt}
                   </button>
                 ))}
               </div>
@@ -326,11 +328,12 @@ export function PreventiveMaintenancePage() {
 function TaskSection({ id, title, count, accent, tasks, onOpen }: {
   id: string; title: string; count: number; accent: string; tasks: PMTask[]; onOpen: (t: PMTask) => void
 }) {
+  const { lang } = useLanguage()
   return (
     <div id={id} className="scroll-mt-4">
       <h2 className={`text-base font-semibold mb-3 ${accent}`}>{title}<span className="ml-2 text-sm font-normal opacity-60">{count}</span></h2>
       {tasks.length === 0 ? (
-        <div className="text-center py-8 bg-white rounded-xl border border-gray-200 text-sm text-gray-400">No tasks in this category.</div>
+        <div className="text-center py-8 bg-white rounded-xl border border-gray-200 text-sm text-gray-400">{lang === 'th' ? 'ไม่มีงานในหมวดนี้' : 'No tasks in this category.'}</div>
       ) : (
         <div className="space-y-2">
           {tasks.map((t) => <PmTaskListRow key={t.id} t={t} onOpen={() => onOpen(t)} />)}
@@ -341,6 +344,7 @@ function TaskSection({ id, title, count, accent, tasks, onOpen }: {
 }
 
 function PmTaskListRow({ t, onOpen }: { t: PMTask; onOpen: () => void }) {
+  const { t: tr, lang } = useLanguage()
   const tone = taskTone(t)
   const due = fmt(t.due_date)
   return (
@@ -350,11 +354,11 @@ function PmTaskListRow({ t, onOpen }: { t: PMTask; onOpen: () => void }) {
         <div className="flex items-center gap-2 flex-wrap">
           <p className="text-sm font-semibold text-gray-900 truncate">{t.asset?.name ?? 'Asset'}</p>
           {t.asset?.type?.name && <span className="text-[11px] text-gray-500">{t.asset.type.name}</span>}
-          <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${tone.chip}`}>{tone.label}</span>
+          <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${tone.chip}`}>{tr.pm[taskStatusKey(t)]}</span>
         </div>
         <p className="text-[11px] text-gray-500 truncate flex items-center gap-2 mt-0.5">
           {t.asset?.location && <span className="flex items-center gap-0.5"><MapPin className="h-3 w-3" />{t.asset.location}</span>}
-          <span>· due {due}</span>
+          <span>· {lang === 'th' ? `ครบกำหนด ${due}` : `due ${due}`}</span>
         </p>
       </div>
       <Pencil className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />

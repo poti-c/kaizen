@@ -365,9 +365,9 @@ export function UsersPage() {
               </Button>
               {(maxManagers != null || maxStaff != null) && (
                 <p className="text-[11px] text-gray-400">
-                  {maxManagers != null && <span className={managersFull ? 'text-amber-600 font-medium' : ''}>Managers {usage.managers}/{maxManagers}</span>}
+                  {maxManagers != null && <span className={managersFull ? 'text-amber-600 font-medium' : ''}>{lang === 'th' ? 'ผู้จัดการ' : 'Managers'} {usage.managers}/{maxManagers}</span>}
                   {maxManagers != null && maxStaff != null && ' · '}
-                  {maxStaff != null && <span className={staffFull ? 'text-amber-600 font-medium' : ''}>Staff {usage.staff}/{maxStaff}</span>}
+                  {maxStaff != null && <span className={staffFull ? 'text-amber-600 font-medium' : ''}>{lang === 'th' ? 'พนักงาน' : 'Staff'} {usage.staff}/{maxStaff}</span>}
                 </p>
               )}
             </div>
@@ -453,7 +453,7 @@ export function UsersPage() {
                               <div className="flex items-center gap-2 flex-wrap">
                                 <p className="text-sm font-medium truncate text-[var(--brand-primary)]">{user.full_name}</p>
                                 {!user.is_active && <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-red-700 bg-red-100 border border-red-200 px-2 py-0.5 rounded-full"><PowerOff className="h-3 w-3" />{lang === 'th' ? 'ระงับ' : 'Suspended'}</span>}
-                                {user.must_change_password && <span className="text-xs text-amber-600 font-medium">· change pwd</span>}
+                                {user.must_change_password && <span className="text-xs text-amber-600 font-medium">{lang === 'th' ? '· เปลี่ยนรหัสผ่าน' : '· change pwd'}</span>}
                               </div>
                               {user.position && <p className="text-xs font-medium text-gray-600 mt-0.5">{user.position}</p>}
                               <div className="mt-0.5 flex items-center gap-2 flex-wrap">

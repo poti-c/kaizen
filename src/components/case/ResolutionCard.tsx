@@ -1,5 +1,6 @@
 import { CheckCircle2, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react'
 import { PhotoGallery } from '@/components/PhotoUpload'
+import { useLanguage } from '@/contexts/LanguageContext'
 import type { KaizenCase, KaizenCaseTimeline, KaizenCasePhoto } from '@/types'
 
 interface ResolutionCardProps {
@@ -25,6 +26,7 @@ export function ResolutionCard({
   onToggleCollapsed,
   resolutionPhotosLabel,
 }: ResolutionCardProps) {
+  const { lang } = useLanguage()
   // resolution_note column (new cases) OR fall back to timeline entry for older cases
   const resolutionDesc =
     kcase.resolution_note ||
@@ -52,8 +54,8 @@ export function ResolutionCard({
         >
           <RefreshCw className="h-4 w-4 text-amber-500 flex-shrink-0" />
           <div className="flex-1 min-w-0">
-            <span className="font-semibold text-amber-900 text-sm">Previous Resolution</span>
-            {resolutionDate && <span className="ml-2 text-xs text-amber-600">· Resolved {resolutionDate}</span>}
+            <span className="font-semibold text-amber-900 text-sm">{lang === 'th' ? 'การแก้ไขครั้งก่อน' : 'Previous Resolution'}</span>
+            {resolutionDate && <span className="ml-2 text-xs text-amber-600">{lang === 'th' ? `· แก้ไขเมื่อ ${resolutionDate}` : `· Resolved ${resolutionDate}`}</span>}
           </div>
           {collapsed
             ? <ChevronDown className="h-4 w-4 text-amber-500 flex-shrink-0" />
@@ -64,7 +66,7 @@ export function ResolutionCard({
           <div className="bg-amber-50/40 px-5 pb-5 pt-4 space-y-4 border-t border-amber-100">
             {resolutionDesc && (
               <div className="bg-white border border-amber-200 rounded-lg px-4 py-3">
-                <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide mb-1">Resolution Description</p>
+                <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide mb-1">{lang === 'th' ? 'รายละเอียดการแก้ไข' : 'Resolution Description'}</p>
                 <p className="text-sm text-gray-800 whitespace-pre-wrap">{resolutionDesc}</p>
               </div>
             )}
@@ -85,7 +87,7 @@ export function ResolutionCard({
 
       {resolutionDesc && (
         <div className="bg-white border border-green-200 rounded-lg px-4 py-3">
-          <p className="text-xs font-semibold text-green-700 uppercase tracking-wide mb-1">Resolution Description</p>
+          <p className="text-xs font-semibold text-green-700 uppercase tracking-wide mb-1">{lang === 'th' ? 'รายละเอียดการแก้ไข' : 'Resolution Description'}</p>
           <p className="text-sm text-gray-800 whitespace-pre-wrap">{resolutionDesc}</p>
         </div>
       )}

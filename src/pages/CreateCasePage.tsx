@@ -26,7 +26,7 @@ export function CreateCasePage() {
   const navigate = useNavigate()
   const { profile } = useAuth()
   const { activeCompany } = useCompany()
-  const { t } = useLanguage()
+  const { t, lang } = useLanguage()
 
   const [caseNumber] = useState(() => generateCaseNumber())
   const [title, setTitle] = useState('')
@@ -250,10 +250,10 @@ export function CreateCasePage() {
             </div>
 
             <div className="space-y-1.5">
-              <Label>Location <span className="text-red-500">*</span></Label>
+              <Label>{lang === 'th' ? 'สถานที่' : 'Location'} <span className="text-red-500">*</span></Label>
               <Select value={location} onValueChange={(v) => { setLocation(v); if (v !== 'Others') setLocationOther('') }}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Select location" />
+                  <SelectValue placeholder={lang === 'th' ? 'เลือกสถานที่' : 'Select location'} />
                 </SelectTrigger>
                 <SelectContent className="max-h-72">
                   {customLocations.map((l) => (
@@ -267,9 +267,9 @@ export function CreateCasePage() {
           {/* Category Other text input */}
           {category === 'other' && (
             <div className="space-y-1.5">
-              <Label>Specify Category <span className="text-red-500">*</span></Label>
+              <Label>{lang === 'th' ? 'ระบุหมวดหมู่' : 'Specify Category'} <span className="text-red-500">*</span></Label>
               <Input
-                placeholder="Please describe the category..."
+                placeholder={lang === 'th' ? 'กรุณาระบุหมวดหมู่...' : 'Please describe the category...'}
                 value={categoryOther}
                 onChange={(e) => setCategoryOther(e.target.value)}
               />
@@ -279,9 +279,9 @@ export function CreateCasePage() {
           {/* Location Other text input */}
           {location === 'Others' && (
             <div className="space-y-1.5">
-              <Label>Specify Location <span className="text-red-500">*</span></Label>
+              <Label>{lang === 'th' ? 'ระบุสถานที่' : 'Specify Location'} <span className="text-red-500">*</span></Label>
               <Input
-                placeholder="Please describe the location..."
+                placeholder={lang === 'th' ? 'กรุณาระบุสถานที่...' : 'Please describe the location...'}
                 value={locationOther}
                 onChange={(e) => setLocationOther(e.target.value)}
               />

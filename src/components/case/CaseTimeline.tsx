@@ -1,4 +1,5 @@
 import { formatDateTime } from '@/lib/utils'
+import { useLanguage } from '@/contexts/LanguageContext'
 import type { KaizenCaseTimeline } from '@/types'
 
 interface CaseTimelineProps {
@@ -8,6 +9,7 @@ interface CaseTimelineProps {
 }
 
 export function CaseTimeline({ timeline, title, emptyLabel }: CaseTimelineProps) {
+  const { lang } = useLanguage()
   return (
     <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5 sticky top-4">
       <h3 className="font-semibold text-gray-900 mb-4">{title}</h3>
@@ -27,7 +29,7 @@ export function CaseTimeline({ timeline, title, emptyLabel }: CaseTimelineProps)
                 <p className="text-xs text-gray-400 mt-1">
                   {formatDateTime(entry.created_at)}
                   {entry.performer?.full_name && (
-                    <span> · by <span className="font-medium text-gray-500">{entry.performer.full_name}</span></span>
+                    <span>{lang === 'th' ? ' · โดย ' : ' · by '}<span className="font-medium text-gray-500">{entry.performer.full_name}</span></span>
                   )}
                 </p>
               </div>

@@ -14,6 +14,7 @@ export interface PMTask {
 }
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const WEEKDAYS_TH = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส']
 function dayKey(d: Date) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` }
 function fmt(d: string) { return new Date(d + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }) }
 
@@ -37,6 +38,7 @@ export function taskStatusKey(t: PMTask): 'done' | 'awaitingApproval' | 'overdue
 
 export function PMSchedule() {
   const { activeCompany } = useCompany()
+  const { lang } = useLanguage()
   const companyId = activeCompany?.id ?? null
   const [cursor, setCursor] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1) })
   const [tasks, setTasks] = useState<PMTask[]>([])
@@ -80,7 +82,7 @@ export function PMSchedule() {
         <h3 className="text-base font-bold text-gray-900">{monthTitle}</h3>
         <div className="flex items-center gap-1 bg-white border border-gray-200 rounded-lg p-0.5">
           <button onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1))} className="p-1.5 rounded-md text-gray-500 hover:bg-gray-100"><ChevronLeft className="h-4 w-4" /></button>
-          <button onClick={() => { const d = new Date(); setCursor(new Date(d.getFullYear(), d.getMonth(), 1)) }} className="px-2.5 h-7 text-xs font-medium text-gray-600 hover:bg-gray-100 rounded-md">Today</button>
+          <button onClick={() => { const d = new Date(); setCursor(new Date(d.getFullYear(), d.getMonth(), 1)) }} className="px-2.5 h-7 text-xs font-medium text-gray-600 hover:bg-gray-100 rounded-md">{lang === 'th' ? 'วันนี้' : 'Today'}</button>
           <button onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1))} className="p-1.5 rounded-md text-gray-500 hover:bg-gray-100"><ChevronRight className="h-4 w-4" /></button>
         </div>
       </div>
@@ -90,7 +92,7 @@ export function PMSchedule() {
       ) : (
         <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
           <div className="grid grid-cols-7 border-b border-gray-100 bg-gray-50">
-            {WEEKDAYS.map((w) => <div key={w} className="py-2 text-center text-[11px] font-semibold text-gray-400">{w}</div>)}
+            {(lang === 'th' ? WEEKDAYS_TH : WEEKDAYS).map((w) => <div key={w} className="py-2 text-center text-[11px] font-semibold text-gray-400">{w}</div>)}
           </div>
           <div className="grid grid-cols-7">
             {cells.map((d, i) => {
@@ -114,7 +116,7 @@ export function PMSchedule() {
                         </button>
                       )
                     })}
-                    {items.length > 3 && <button onClick={() => setOpen(items[3])} className="text-[10px] text-gray-400 hover:text-gray-700 px-1.5">+{items.length - 3} more</button>}
+                    {items.length > 3 && <button onClick={() => setOpen(items[3])} className="text-[10px] text-gray-400 hover:text-gray-700 px-1.5">{lang === 'th' ? `อีก ${items.length - 3} รายการ` : `+${items.length - 3} more`}</button>}
                   </div>
                 </div>
               )

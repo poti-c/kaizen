@@ -15,7 +15,7 @@ import type { KaizenNotification } from '@/types'
 export function Header() {
   const { profile, signOut } = useAuth()
   const { activeCompany, companies, setActiveCompany } = useCompany()
-  const { t } = useLanguage()
+  const { t, lang } = useLanguage()
   const { showSidebar } = useViewMode()
   const navigate = useNavigate()
   const [notifications, setNotifications] = useState<KaizenNotification[]>([])
@@ -174,7 +174,7 @@ export function Header() {
               <>
                 <div className="fixed inset-0 z-20" onClick={() => setShowCompanySwitcher(false)} />
                 <div className="absolute right-0 top-full mt-1.5 w-52 bg-white rounded-xl shadow-xl border border-gray-200 z-30 overflow-hidden py-1">
-                  <p className="px-3 py-1.5 text-xs font-semibold text-gray-400 uppercase tracking-wider">Switch Company</p>
+                  <p className="px-3 py-1.5 text-xs font-semibold text-gray-400 uppercase tracking-wider">{lang === 'th' ? 'สลับบริษัท' : 'Switch Company'}</p>
                   {companies.map(c => (
                     <button
                       key={c.id}

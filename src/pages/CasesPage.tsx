@@ -9,7 +9,7 @@ import { StatusBadge, PriorityBadge, DepartmentBadge } from '@/components/Status
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Checkbox } from '@/components/ui/checkbox'
-import { PMTaskModal, taskTone, type PMTask } from '@/components/pm/PMSchedule'
+import { PMTaskModal, taskTone, taskStatusKey, type PMTask } from '@/components/pm/PMSchedule'
 import { formatRelativeTime, formatDuration, isSLABreached, CATEGORIES, LOCATIONS, companyHasAddon } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 import type { KaizenCase, CaseStatus, CasePriority, Department } from '@/types'
@@ -37,7 +37,7 @@ const CATEGORY_LABELS_EN: Record<string, string> = {
 }
 
 // One PM task row in the Cases → PMS tab (opens the run/checklist modal).
-function PmTaskRow({ t, onOpen }: { t: PMTask; onOpen: () => void }) {
+function PmTaskRow({ t, onOpen, tr, lang }: { t: PMTask; onOpen: () => void; tr: ReturnType<typeof useLanguage>['t']; lang: string }) {
   const tone = taskTone(t)
   const due = new Date(t.due_date + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
   return (
@@ -46,10 +46,10 @@ function PmTaskRow({ t, onOpen }: { t: PMTask; onOpen: () => void }) {
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-sm font-medium text-gray-900 truncate">{t.asset?.name ?? 'Asset'}</span>
-          <span className={cn('text-[10px] px-1.5 py-0.5 rounded-full border', tone.chip)}>{tone.label}</span>
+          <span className={cn('text-[10px] px-1.5 py-0.5 rounded-full border', tone.chip)}>{tr.pm[taskStatusKey(t)]}</span>
         </div>
         <p className="text-[11px] text-gray-400 truncate">
-          {t.asset?.location ?? '—'}{t.asset?.department ? ` · ${DEPARTMENT_LABELS[t.asset.department as Department] ?? t.asset.department}` : ''} · due {due}
+          {t.asset?.location ?? '—'}{t.asset?.department ? ` · ${DEPARTMENT_LABELS[t.asset.department as Department] ?? t.asset.department}` : ''} · {lang === 'th' ? 'ครบกำหนด' : 'due'} {due}
         </p>
       </div>
       <ChevronRight className="h-4 w-4 text-gray-300 flex-shrink-0" />
@@ -170,10 +170,10 @@ export function CasesPage() {
   }
 
   const dateLabel = selectedMonths.size === 0
-    ? 'All time'
+    ? (lang === 'th' ? 'ทุกช่วงเวลา' : 'All time')
     : selectedMonths.size === 1
       ? (() => { const [k] = selectedMonths; const m = caseMonthList.find(x => x.key === k); return m ? `${m.label} ${m.year}` : '' })()
-      : `${selectedMonths.size} months`
+      : (lang === 'th' ? `เลือกแล้ว ${selectedMonths.size} เดือน` : `${selectedMonths.size} months`)
   // ──────────────────────────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -286,7 +286,11 @@ export function CasesPage() {
       const dir = sortDir === 'asc' ? 1 : -1
       if (sortKey === 'priority') return dir * ((priorityOrder[a.priority] ?? 4) - (priorityOrder[b.priority] ?? 4))
       if (sortKey === 'status') return dir * a.status.localeCompare(b.status)
-      if (sortKey === 'duration') return dir * (new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+      if (sortKey === 'duration') {
+        // Actual open-duration: closed cases use closed_at − created_at, open cases use now − created_at.
+        const dur = (c: KaizenCase) => (c.status === 'closed' && c.closed_at ? new Date(c.closed_at).getTime() : Date.now()) - new Date(c.created_at).getTime()
+        return dir * (dur(a) - dur(b))
+      }
       if (sortKey === 'date') return dir * (new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
       if (sortKey === 'due') {
         const aTime = a.due_date ? new Date(a.due_date).getTime() : Infinity
@@ -966,9 +970,9 @@ export function CasesPage() {
                   <div className="flex items-center gap-2">
                     {!pmsViewAll && (
                       <div className="flex items-center gap-1 bg-white border border-gray-200 rounded-lg px-1 h-8">
-                        <button onClick={() => stepPmsMonth(-1)} title="Previous month" className="p-1 rounded-md hover:bg-gray-100"><ChevronLeft className="h-4 w-4 text-gray-600" /></button>
+                        <button onClick={() => stepPmsMonth(-1)} title={lang === 'th' ? 'เดือนก่อนหน้า' : 'Previous month'} className="p-1 rounded-md hover:bg-gray-100"><ChevronLeft className="h-4 w-4 text-gray-600" /></button>
                         <span className="min-w-[120px] text-center text-xs font-medium text-gray-700">{pmsMonthLabel}</span>
-                        <button onClick={() => stepPmsMonth(1)} title="Next month" className="p-1 rounded-md hover:bg-gray-100"><ChevronRight className="h-4 w-4 text-gray-600" /></button>
+                        <button onClick={() => stepPmsMonth(1)} title={lang === 'th' ? 'เดือนถัดไป' : 'Next month'} className="p-1 rounded-md hover:bg-gray-100"><ChevronRight className="h-4 w-4 text-gray-600" /></button>
                       </div>
                     )}
                     <button onClick={() => setPmsViewAll(v => !v)}
@@ -984,7 +988,7 @@ export function CasesPage() {
                 ) : (
                   <>
                     <div className="bg-white rounded-xl border border-gray-200 shadow-sm divide-y divide-gray-50 overflow-hidden">
-                      {paginatedActivePms.map((t) => <PmTaskRow key={t.id} t={t} onOpen={() => setOpenTask(t)} />)}
+                      {paginatedActivePms.map((task) => <PmTaskRow key={task.id} t={task} tr={t} lang={lang} onOpen={() => setOpenTask(task)} />)}
                     </div>
                     <Pagination page={pageActivePms} totalPages={pages(activeTasks.length)} total={activeTasks.length}
                       onPrev={() => setPageActivePms(p => Math.max(1, p - 1))}
@@ -1001,7 +1005,7 @@ export function CasesPage() {
                     <span className="ml-2 text-sm font-normal text-red-400">{overdueTasks.length}</span>
                   </h2>
                   <div className="bg-white rounded-xl border border-red-200 shadow-sm divide-y divide-gray-50 overflow-hidden">
-                    {paginatedOverduePms.map((t) => <PmTaskRow key={t.id} t={t} onOpen={() => setOpenTask(t)} />)}
+                    {paginatedOverduePms.map((task) => <PmTaskRow key={task.id} t={task} tr={t} lang={lang} onOpen={() => setOpenTask(task)} />)}
                   </div>
                   <Pagination page={pageOverduePms} totalPages={pages(overdueTasks.length)} total={overdueTasks.length}
                     onPrev={() => setPageOverduePms(p => Math.max(1, p - 1))}

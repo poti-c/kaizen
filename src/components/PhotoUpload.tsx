@@ -2,6 +2,7 @@ import { useState, useRef } from 'react'
 import { Upload, X, Image, Camera, ImageIcon } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { cn, buildPhotoPath } from '@/lib/utils'
+import { useLanguage } from '@/contexts/LanguageContext'
 
 // True on any touch-capable device (phones, tablets)
 const isTouchDevice = typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0)
@@ -51,6 +52,7 @@ interface PhotoUploadProps {
 }
 
 export function PhotoUpload({ onUpload, maxFiles = 3, label = 'Add Photos', bucket = 'kaizen-photos', caseNumber, department }: PhotoUploadProps) {
+  const { lang } = useLanguage()
   const [previews, setPreviews] = useState<{ file: File; preview: string; uploading: boolean; url?: string }[]>([])
   const [dragOver, setDragOver] = useState(false)
   const desktopInputRef = useRef<HTMLInputElement>(null)
@@ -120,7 +122,7 @@ export function PhotoUpload({ onUpload, maxFiles = 3, label = 'Add Photos', buck
               className="flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-gray-300 py-5 active:bg-gray-50 transition-colors"
             >
               <Camera className="h-7 w-7 text-gray-400" />
-              <span className="text-xs font-medium text-gray-500">Take Photo</span>
+              <span className="text-xs font-medium text-gray-500">{lang === 'th' ? 'ถ่ายรูป' : 'Take Photo'}</span>
             </button>
             {/* Choose from Library button */}
             <button
@@ -129,7 +131,7 @@ export function PhotoUpload({ onUpload, maxFiles = 3, label = 'Add Photos', buck
               className="flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-gray-300 py-5 active:bg-gray-50 transition-colors"
             >
               <ImageIcon className="h-7 w-7 text-gray-400" />
-              <span className="text-xs font-medium text-gray-500">Choose from Library</span>
+              <span className="text-xs font-medium text-gray-500">{lang === 'th' ? 'เลือกจากคลังภาพ' : 'Choose from Library'}</span>
             </button>
             {/* Hidden camera input — opens rear camera directly */}
             <input
@@ -164,7 +166,7 @@ export function PhotoUpload({ onUpload, maxFiles = 3, label = 'Add Photos', buck
           >
             <Upload className="mx-auto h-8 w-8 text-gray-400 mb-2" />
             <p className="text-sm text-gray-600 font-medium">{label}</p>
-            <p className="text-xs text-gray-400 mt-1">Click or drag & drop — JPG, PNG, WEBP (max {maxFiles} photos)</p>
+            <p className="text-xs text-gray-400 mt-1">{lang === 'th' ? `คลิกหรือลากวาง — JPG, PNG, WEBP (สูงสุด ${maxFiles} รูป)` : `Click or drag & drop — JPG, PNG, WEBP (max ${maxFiles} photos)`}</p>
             <input
               ref={desktopInputRef}
               type="file"
@@ -210,6 +212,7 @@ interface PhotoGalleryProps {
 }
 
 export function PhotoGallery({ urls, className }: PhotoGalleryProps) {
+  const { lang } = useLanguage()
   const [selected, setSelected] = useState<string | null>(null)
 
   if (urls.length === 0) {
@@ -217,7 +220,7 @@ export function PhotoGallery({ urls, className }: PhotoGalleryProps) {
       <div className={cn('flex items-center justify-center h-24 bg-gray-50 rounded-lg border border-dashed border-gray-200', className)}>
         <div className="text-center text-gray-400">
           <Image className="h-6 w-6 mx-auto mb-1" />
-          <p className="text-xs">No photos</p>
+          <p className="text-xs">{lang === 'th' ? 'ไม่มีรูปภาพ' : 'No photos'}</p>
         </div>
       </div>
     )

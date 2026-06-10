@@ -53,7 +53,7 @@ export function LoginPage() {
       if (error) throw error
       setResetSent(true)
     } catch (err: unknown) {
-      if (!resetError) setResetError(err instanceof Error ? err.message : 'Failed to send reset email.')
+      if (!resetError) setResetError(err instanceof Error ? err.message : (lang === 'th' ? 'ส่งอีเมลรีเซ็ตไม่สำเร็จ' : 'Failed to send reset email.'))
     } finally {
       setResetLoading(false)
     }
@@ -86,7 +86,7 @@ export function LoginPage() {
       }
       navigate('/dashboard')
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Login failed. Please try again.')
+      setError(err instanceof Error ? err.message : (lang === 'th' ? 'เข้าสู่ระบบไม่สำเร็จ กรุณาลองอีกครั้ง' : 'Login failed. Please try again.'))
     } finally {
       setLoading(false)
     }

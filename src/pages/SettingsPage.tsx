@@ -1129,7 +1129,7 @@ function CompaniesSection() {
       const { error } = await supabase.from('kaizen_super_admin_companies')
         .delete().eq('super_admin_id', adminId).eq('company_id', companyId)
       if (error) { toast.error(error.message); return }
-      toast.success('Access removed.')
+      toast.success(lang === 'th' ? 'ลบสิทธิ์การเข้าถึงแล้ว' : 'Access removed.')
     } else {
       const { error } = await supabase.from('kaizen_super_admin_companies')
         .insert({ super_admin_id: adminId, company_id: companyId })
@@ -1137,7 +1137,7 @@ function CompaniesSection() {
       // Also update the admin's company_id if they don't have one
       await supabase.from('kaizen_profiles').update({ company_id: companyId })
         .eq('id', adminId).is('company_id', null)
-      toast.success('Admin linked.')
+      toast.success(lang === 'th' ? 'เชื่อมโยงผู้ดูแลแล้ว' : 'Admin linked.')
     }
     await fetchAll()
   }

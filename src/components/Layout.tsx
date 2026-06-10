@@ -5,10 +5,12 @@ import { BottomNav } from './BottomNav'
 import { TrialBanner, PmsTrialBanner } from './TrialBanner'
 import { useAuth } from '@/contexts/AuthContext'
 import { useViewMode } from '@/contexts/ViewModeContext'
+import { useLanguage } from '@/contexts/LanguageContext'
 
 export function Layout() {
   const { user, profile, loading } = useAuth()
   const { showSidebar, showBottomNav } = useViewMode()
+  const { lang } = useLanguage()
   const location = useLocation()
 
   if (loading) {
@@ -16,7 +18,7 @@ export function Layout() {
       <div className="flex items-center justify-center bg-gray-50" style={{ height: '100dvh' }}>
         <div className="flex flex-col items-center gap-3">
           <div className="w-10 h-10 border-2 border-[var(--brand-primary)] border-t-transparent rounded-full animate-spin" />
-          <p className="text-sm text-gray-500">Loading...</p>
+          <p className="text-sm text-gray-500">{lang === 'th' ? 'กำลังโหลด...' : 'Loading...'}</p>
         </div>
       </div>
     )

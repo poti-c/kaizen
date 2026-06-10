@@ -31,7 +31,7 @@ export function PerformanceDetailPage() {
   const [user, setUser] = useState<KaizenProfile | null>(null)
   const [cases, setCases] = useState<KaizenCase[]>([])            // their reported cases (KPI cards + list)
   const [scoreCases, setScoreCases] = useState<KaizenCase[]>([])  // scoring caseload (staff: own; manager: dept)
-  const [reopenedEver, setReopenedEver] = useState(0)             // distinct scoring-caseload cases that were EVER reopened (durable, from timeline)
+  const [reopenedIds, setReopenedIds] = useState<Set<string>>(new Set())  // scoring-caseload case ids EVER reopened (durable, from timeline)
   const [activity, setActivity] = useState<(KaizenCaseTimeline & { case_number?: string; case_title?: string })[]>([])
   const [activeDays, setActiveDays] = useState(0)                 // distinct active days in last 30
   const [loading, setLoading] = useState(true)
@@ -39,7 +39,8 @@ export function PerformanceDetailPage() {
 
   useEffect(() => {
     if (userId && !isStaffViewer) load()
-  }, [userId, isStaffViewer])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId, isStaffViewer, activeCompany?.id])  // re-load if the active company changes
 
   // Staff: no access (returned after hooks so hook order stays stable)
   if (isStaffViewer) return <Navigate to="/dashboard" replace />
@@ -78,9 +79,9 @@ export function PerformanceDetailPage() {
     if (scIds.length) {
       const { data: ro } = await supabase
         .from('kaizen_case_timeline').select('case_id').eq('action', 'reopened').in('case_id', scIds)
-      setReopenedEver(new Set((ro || []).map((r: any) => r.case_id)).size)
+      setReopenedIds(new Set((ro || []).map((r: any) => r.case_id as string)))
     } else {
-      setReopenedEver(0)
+      setReopenedIds(new Set())
     }
     setLoading(false)
   }
@@ -224,8 +225,11 @@ export function PerformanceDetailPage() {
         const sc = scoreCases
         const scClosed = sc.filter(c => c.status === 'closed')
         const scOverdue = sc.filter(c => isSLABreached(c))
-        const scCompleted = sc.filter(c => c.resolved_at != null)  // cases that ever reached a resolution
-        const reopenedCount = reopenedEver                          // distinct cases ever reopened (durable)
+        const reopenedCount = sc.filter(c => reopenedIds.has(c.id)).length  // distinct cases ever reopened (durable)
+        // Cases that ever reached a resolution. A reopened case has resolved_at cleared, so
+        // include it via the durable reopen set — otherwise the quality denominator can be
+        // smaller than reopenedCount and the score breaks.
+        const completedEver = sc.filter(c => c.resolved_at != null || reopenedIds.has(c.id)).length
 
         // Shared engagement: 50% active-days regularity (15 days = full), 50% in-system actions (20 = full)
         const activeDaysScore = Math.min(100, Math.round((activeDays / 15) * 100))
@@ -264,7 +268,7 @@ export function PerformanceDetailPage() {
             : null
           const speedScore = avgResH == null ? null : avgResH <= 48 ? 100 : Math.max(0, Math.round((48 / avgResH) * 100))
           // Quality = share of completed work that did NOT bounce back (ever reopened).
-          const qualityScore = scCompleted.length ? Math.max(0, Math.round(100 - (reopenedCount / scCompleted.length) * 100)) : null
+          const qualityScore = completedEver ? Math.max(0, Math.round(100 - (reopenedCount / completedEver) * 100)) : null
           criteria = [
             { key: 'resolution', label: t.perf.resolutionRate, value: resRate, weight: 30, color: '#22c55e', note: `${scClosed.length}/${total} ${t.perf.closed}`, info: t.perf.resolutionRateInfo },
             { key: 'ontime', label: t.perf.onTime, value: onTime, weight: 25, color: '#3b82f6', note: `${scOverdue.length} ${t.perf.overdue}`, info: t.perf.onTimeInfo },

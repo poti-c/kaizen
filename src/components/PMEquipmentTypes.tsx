@@ -204,7 +204,7 @@ export function PMEquipmentTypes() {
                         {!t.is_active && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-200 text-gray-500">{tr.pm.inactiveStatus}</span>}
                         <button onClick={() => { setEditId(t.id); setEditName(t.name) }} title={tr.pm.rename} className="p-1.5 rounded text-gray-400 hover:text-[var(--brand-primary)] hover:bg-gray-100"><Pencil className="h-3.5 w-3.5" /></button>
                         <button onClick={() => toggleActive(t)} title={t.is_active ? tr.pm.deactivate : tr.pm.activate} className="px-2 h-7 rounded text-[11px] font-medium text-gray-500 hover:bg-gray-100">{t.is_active ? tr.pm.on : tr.pm.off}</button>
-                        <button onClick={() => remove(t)} title="Delete" className="p-1.5 rounded text-gray-400 hover:text-red-500 hover:bg-red-50"><Trash2 className="h-3.5 w-3.5" /></button>
+                        <button onClick={() => remove(t)} title={lang === 'th' ? 'ลบ' : 'Delete'} className="p-1.5 rounded text-gray-400 hover:text-red-500 hover:bg-red-50"><Trash2 className="h-3.5 w-3.5" /></button>
                       </>
                     )}
                   </div>

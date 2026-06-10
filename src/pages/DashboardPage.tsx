@@ -85,8 +85,8 @@ export function DashboardPage() {
       const m = monthList.find(x => x.key === key)
       return m ? `${m.label} ${m.year}` : ''
     }
-    return `${selectedMonths.size} months selected`
-  }, [selectedMonths, monthList])
+    return lang === 'th' ? `เลือกแล้ว ${selectedMonths.size} เดือน` : `${selectedMonths.size} months selected`
+  }, [selectedMonths, monthList, lang])
 
   // ── Category status filter ─────────────────────────────────────────────────
   const [catStatus, setCatStatus] = useState<'all' | 'open' | 'in_progress' | 'pending' | 'closed' | 'reopened'>('all')
