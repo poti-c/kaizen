@@ -1174,10 +1174,15 @@ Deno.serve(async (req) => {
     const vat_rate = (body.vat_rate !== undefined && body.vat_rate !== null && body.vat_rate !== "") ? Number(body.vat_rate) : 7;
     const non_vat_amount = Number(body.non_vat_amount) || 0;
     const subtotal = Math.round(cleanItems.reduce((s, it) => s + it.qty * it.unit_price, 0) * 100) / 100;
-    // Promo discount applies to the subtotal BEFORE VAT.
+    // Discount applies to the subtotal BEFORE VAT. By promo code or manual
+    // percentage → derive the amount; by fixed value → use discount_amount
+    // directly (capped at the subtotal).
     const discount_percent = Math.max(0, Math.min(100, Number(body.discount_percent) || 0));
     const discount_code = cleanStr(body.discount_code);
-    const discount_amount = Math.round(subtotal * (discount_percent / 100) * 100) / 100;
+    const hasFixed = body.discount_amount !== undefined && body.discount_amount !== null && body.discount_amount !== "";
+    const discount_amount = hasFixed
+      ? Math.max(0, Math.min(subtotal, Math.round((Number(body.discount_amount) || 0) * 100) / 100))
+      : Math.round(subtotal * (discount_percent / 100) * 100) / 100;
     const net = Math.round((subtotal - discount_amount) * 100) / 100;
     const vat_amount = Math.round(net * (vat_rate / 100) * 100) / 100;
     const total = Math.round((net + vat_amount + non_vat_amount) * 100) / 100;

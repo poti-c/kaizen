@@ -422,6 +422,9 @@ function FormEditor({ formType, companies, products, promos, existingForms, rese
   const [vatRate, setVatRate] = useState('7')
   const [items, setItems] = useState<LineItem[]>([{ description: '', qty: 1, unit_price: 0 }])
   const [promoId, setPromoId] = useState('')
+  const [discountMode, setDiscountMode] = useState<'promo' | 'percent' | 'value'>('promo')
+  const [discountPctInput, setDiscountPctInput] = useState('')
+  const [discountValInput, setDiscountValInput] = useState('')
   const [notes, setNotes] = useState('')
   const [status, setStatus] = useState(STATUSES[formType][0])
   const [error, setError] = useState('')
@@ -477,7 +480,12 @@ function FormEditor({ formType, companies, products, promos, existingForms, rese
   }, [initialCompanyId, initialItems])  // eslint-disable-line react-hooks/exhaustive-deps
 
   const subtotal = useMemo(() => items.reduce((s, it) => s + (Number(it.qty) || 0) * (Number(it.unit_price) || 0), 0), [items])
-  const discount = useMemo(() => subtotal * (promo?.discount_percent || 0) / 100, [subtotal, promo])
+  // Discount by promo code, a manual percentage, or a fixed value (capped at subtotal).
+  const discount = useMemo(() => {
+    if (discountMode === 'promo') return subtotal * (promo?.discount_percent || 0) / 100
+    if (discountMode === 'percent') return subtotal * Math.min(100, Math.max(0, Number(discountPctInput) || 0)) / 100
+    return Math.min(Math.max(0, Number(discountValInput) || 0), subtotal)
+  }, [discountMode, promo, discountPctInput, discountValInput, subtotal])
   const net = subtotal - discount
   const vat = useMemo(() => net * (Number(vatRate) || 0) / 100, [net, vatRate])
   const total = net + vat
@@ -494,6 +502,12 @@ function FormEditor({ formType, companies, products, promos, existingForms, rese
     if (valid.length === 0) { setError('Add at least one line item.'); return }
     if (!client.name.trim()) { setError('Select a company or enter a client name.'); return }
     const vatNum = Number(vatRate) || 0
+    // Resolve the discount fields for the chosen method. A fixed value is sent
+    // as discount_amount (server uses it directly); promo/percent send a percent.
+    const discCode = discountMode === 'promo' ? promo?.code : undefined
+    const discPct = discountMode === 'promo' ? (promo?.discount_percent || 0)
+      : discountMode === 'percent' ? Math.min(100, Math.max(0, Number(discountPctInput) || 0)) : 0
+    const discAmount = discountMode === 'value' ? Math.min(Math.max(0, Number(discountValInput) || 0), subtotal) : undefined
     const payload: Record<string, unknown> = {
       form_type: formType,
       company_id: companyId || undefined,
@@ -502,7 +516,7 @@ function FormEditor({ formType, companies, products, promos, existingForms, rese
       client_contact: client.contact, client_phone: client.phone, client_email: client.email,
       issue_date: issueDate, due_date: dueDate || undefined,
       line_items: valid, currency, vat_rate: vatNum,
-      discount_code: promo?.code, discount_percent: promo?.discount_percent || 0,
+      discount_code: discCode, discount_percent: discPct, discount_amount: discAmount,
       notes: notes.trim() || undefined, status,
     }
     // Predicted document number for display only — the server assigns the
@@ -519,7 +533,7 @@ function FormEditor({ formType, companies, products, promos, existingForms, rese
       issue_date: issueDate, due_date: dueDate || null,
       line_items: valid, currency,
       non_vat_amount: 0, subtotal, vat_rate: vatNum, vat_amount: vat, total,
-      discount_code: promo?.code || null, discount_percent: promo?.discount_percent || 0, discount_amount: discount,
+      discount_code: discCode || null, discount_percent: discPct, discount_amount: discount,
       notes: notes.trim() || null, status, created_at: issueDate,
     }
     onView(previewForm, payload)
@@ -607,20 +621,40 @@ function FormEditor({ formType, companies, products, promos, existingForms, rese
         </div>
       </div>
 
-      {/* Promo + Totals */}
-      <div className="border-t border-slate-800 pt-3 flex flex-col sm:flex-row sm:items-start justify-between gap-3">
-        {validPromos.length > 0 ? (
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium text-slate-400">Promo Code</label>
-            <select value={promoId} onChange={e => setPromoId(e.target.value)} className={selectCls + ' w-full sm:w-56'}>
-              <option value="">— None —</option>
-              {validPromos.map(p => <option key={p.id} value={p.id}>{p.code} ({p.discount_percent}% off)</option>)}
-            </select>
+      {/* Discount + Totals */}
+      <div className="border-t border-slate-800 pt-3 flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+        <div className="space-y-2">
+          <label className="text-xs font-medium text-slate-400">Discount</label>
+          <div className="flex gap-1">
+            {([['promo', 'Promo Code'], ['percent', 'Percentage'], ['value', 'Value']] as const).map(([m, label]) => (
+              <button key={m} type="button" onClick={() => setDiscountMode(m)}
+                className={`h-7 px-2.5 rounded-md border text-[11px] font-medium transition-colors ${discountMode === m ? 'bg-amber-500/15 border-amber-500/60 text-amber-300' : 'bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-600'}`}>{label}</button>
+            ))}
           </div>
-        ) : <div className="text-[11px] text-slate-300">No active promo codes for this date.</div>}
+          {discountMode === 'promo' && (
+            validPromos.length > 0 ? (
+              <select value={promoId} onChange={e => setPromoId(e.target.value)} className={selectCls + ' w-full sm:w-56'}>
+                <option value="">— None —</option>
+                {validPromos.map(p => <option key={p.id} value={p.id}>{p.code} ({p.discount_percent}% off)</option>)}
+              </select>
+            ) : <div className="text-[11px] text-slate-300 h-9 flex items-center">No active promo codes for this date.</div>
+          )}
+          {discountMode === 'percent' && (
+            <div className="relative w-full sm:w-40">
+              <input value={discountPctInput} onChange={e => setDiscountPctInput(e.target.value.replace(/[^0-9.]/g, ''))} className={inputCls + ' pr-7 text-right'} placeholder="0" inputMode="decimal" />
+              <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 text-sm">%</span>
+            </div>
+          )}
+          {discountMode === 'value' && (
+            <div className="relative w-full sm:w-44">
+              <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500 text-sm">{currency}</span>
+              <input value={discountValInput} onChange={e => setDiscountValInput(e.target.value.replace(/[^0-9.]/g, ''))} className={inputCls + ' pl-12 text-right'} placeholder="0.00" inputMode="decimal" />
+            </div>
+          )}
+        </div>
         <div className="flex flex-col items-end gap-1 text-sm">
           <div className="flex gap-8 text-slate-400"><span>Subtotal (excl. VAT)</span><span className="w-32 text-right text-slate-200">{currency} {money(subtotal)}</span></div>
-          {promo && <div className="flex gap-8 text-emerald-400"><span>Discount {promo.code} ({promo.discount_percent}%)</span><span className="w-32 text-right">− {currency} {money(discount)}</span></div>}
+          {discount > 0 && <div className="flex gap-8 text-emerald-400"><span>Discount{discountMode === 'promo' && promo ? ` ${promo.code} (${promo.discount_percent}%)` : discountMode === 'percent' ? ` (${Number(discountPctInput) || 0}%)` : ''}</span><span className="w-32 text-right">− {currency} {money(discount)}</span></div>}
           <div className="flex gap-8 text-slate-400"><span>VAT {vatRate || 0}%</span><span className="w-32 text-right text-slate-200">{currency} {money(vat)}</span></div>
           <div className="flex gap-8 font-semibold text-white"><span>Grand Total</span><span className="w-32 text-right text-amber-400">{currency} {money(total)}</span></div>
         </div>
