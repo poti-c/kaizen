@@ -21,9 +21,10 @@ interface CatalogPromo { id: string; code: string; discount_percent: number; val
 interface FormCompany {
   id: string; name: string; address: string | null; tax_id: string | null
   contact_person: string | null; contact_phone: string | null; contact_email: string | null
+  office_type?: string | null; branch_code?: string | null
 }
 interface Issuer {
-  company_name: string | null; office_type: string; branch_name: string | null
+  company_name: string | null; office_type: string; branch_name: string | null; branch_code?: string | null
   address: string | null; tax_id: string | null; logo_url?: string | null
   signatory_name?: string | null; signatory_title?: string | null
   phone?: string | null; email?: string | null; website?: string | null
@@ -328,10 +329,15 @@ function FormEditor({ formType, companies, products, promos, onCreated, call, in
   function pickCompany(id: string) {
     setCompanyId(id)
     const c = companies.find(x => x.id === id)
-    if (c) setClient({
-      name: c.name, address: c.address ?? '', tax_id: c.tax_id ?? '',
-      contact: c.contact_person ?? '', phone: c.contact_phone ?? '', email: c.contact_email ?? '',
-    })
+    if (c) {
+      // Lead the address with the buyer's branch identity, required on a Thai tax invoice.
+      const branch = c.office_type === 'branch' ? `(สาขาที่ ${c.branch_code || '—'})` : '(สำนักงานใหญ่)'
+      const addr = c.address ? `${branch}\n${c.address}` : branch
+      setClient({
+        name: c.name, address: addr, tax_id: c.tax_id ?? '',
+        contact: c.contact_person ?? '', phone: c.contact_phone ?? '', email: c.contact_email ?? '',
+      })
+    }
   }
   function setItem(i: number, patch: Partial<LineItem>) {
     setItems(items.map((it, idx) => idx === i ? { ...it, ...patch } : it))
@@ -490,7 +496,9 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 // ── Printable document ───────────────────────────────────────────────────────
 function PrintPreview({ form, issuer, onClose, pendingApproval, onApprove, onReject }: { form: GeneratedForm; issuer: Issuer | null; onClose: () => void; pendingApproval?: boolean; onApprove?: () => void; onReject?: () => void }) {
   const issuerName = issuer?.company_name || 'NNR-Solutions Co., Ltd.'
-  const issuerLine2 = issuer?.office_type === 'branch' && issuer?.branch_name ? issuer.branch_name : 'Head Office'
+  const issuerLine2 = issuer?.office_type === 'branch'
+    ? (issuer?.branch_code ? `Branch #${issuer.branch_code} · สาขาที่ ${issuer.branch_code}` : (issuer?.branch_name || 'Branch'))
+    : 'Head Office · สำนักงานใหญ่'
   const showVat = form.form_type !== 'receipt'
   const signatoryName = issuer?.signatory_name || 'Dr. Poti Chaopaisarn'
   const signatoryTitle = issuer?.signatory_title || 'Managing Director'

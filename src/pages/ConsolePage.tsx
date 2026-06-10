@@ -2099,7 +2099,7 @@ function CreateOwnerDialog({ preselectCompanyId, call, onClose, onCreated }: {
 // ── Admin Settings ─────────────────────────────────────────────────────────
 interface ConsoleAdmin { id: string; username: string; display_name: string | null; email: string | null; is_active: boolean; created_at: string }
 interface TodoItem { id: string; text: string; done: boolean }
-interface ConsoleSettings { company_name: string | null; office_type: string; branch_name: string | null; address: string | null; tax_id: string | null; logo_url?: string | null; signatory_name?: string | null; signatory_title?: string | null; phone?: string | null; email?: string | null; website?: string | null; promptpay_id?: string | null; promptpay_name?: string | null; promptpay_qr?: string | null; support_email?: string | null; todos?: TodoItem[] | null }
+interface ConsoleSettings { company_name: string | null; office_type: string; branch_name: string | null; branch_code?: string | null; billing_address?: ThaiAddress | null; address: string | null; tax_id: string | null; logo_url?: string | null; signatory_name?: string | null; signatory_title?: string | null; phone?: string | null; email?: string | null; website?: string | null; promptpay_id?: string | null; promptpay_name?: string | null; promptpay_qr?: string | null; support_email?: string | null; todos?: TodoItem[] | null }
 
 // Read an image file and downscale it to a compact data URL (keeps stored logo small).
 function fileToResizedDataUrl(file: File, max = 400): Promise<string> {
@@ -2140,7 +2140,7 @@ function AdminSettingsView({ call, onBack }: { call: <T,>(a: string, p?: Record<
 
   // company editing
   const [editCo, setEditCo] = useState(false)
-  const [co, setCo] = useState<ConsoleSettings>({ company_name: '', office_type: 'head_office', branch_name: '', address: '', tax_id: '', signatory_name: '', signatory_title: '', phone: '', email: '', website: '', promptpay_id: '', promptpay_name: '', support_email: '' })
+  const [co, setCo] = useState<ConsoleSettings>({ company_name: '', office_type: 'head_office', branch_name: '', branch_code: '', billing_address: {}, address: '', tax_id: '', signatory_name: '', signatory_title: '', phone: '', email: '', website: '', promptpay_id: '', promptpay_name: '', support_email: '' })
 
 
   const load = useCallback(async () => {
@@ -2174,7 +2174,8 @@ function AdminSettingsView({ call, onBack }: { call: <T,>(a: string, p?: Record<
   function startCoEdit() {
     setCo({
       company_name: company?.company_name ?? '', office_type: company?.office_type ?? 'head_office',
-      branch_name: company?.branch_name ?? '', address: company?.address ?? '', tax_id: company?.tax_id ?? '',
+      branch_name: company?.branch_name ?? '', branch_code: company?.branch_code ?? '',
+      billing_address: company?.billing_address ?? {}, address: company?.address ?? '', tax_id: company?.tax_id ?? '',
       signatory_name: company?.signatory_name ?? '', signatory_title: company?.signatory_title ?? '',
       phone: company?.phone ?? '', email: company?.email ?? '', website: company?.website ?? '',
       promptpay_id: company?.promptpay_id ?? '', promptpay_name: company?.promptpay_name ?? '', support_email: company?.support_email ?? '',
@@ -2186,8 +2187,9 @@ function AdminSettingsView({ call, onBack }: { call: <T,>(a: string, p?: Record<
     try {
       await call('update_settings', {
         company_name: co.company_name, office_type: co.office_type,
-        branch_name: co.office_type === 'branch' ? co.branch_name : null,
-        address: co.address, tax_id: co.tax_id,
+        branch_code: co.office_type === 'branch' ? co.branch_code : null,
+        billing_address: co.billing_address ?? {},
+        address: composeThaiAddress(co.billing_address) || co.address, tax_id: co.tax_id,
         signatory_name: co.signatory_name, signatory_title: co.signatory_title,
         phone: co.phone, email: co.email, website: co.website,
         promptpay_id: co.promptpay_id, promptpay_name: co.promptpay_name, support_email: co.support_email,
@@ -2356,24 +2358,9 @@ function AdminSettingsView({ call, onBack }: { call: <T,>(a: string, p?: Record<
             {editCo ? (
               <div className="space-y-2.5">
                 <Field label="Company Name"><input value={co.company_name ?? ''} onChange={(e) => setCo({ ...co, company_name: e.target.value })} className={inputCls} placeholder="NNR-Solutions Co., LTD" /></Field>
-                <div>
-                  <label className="text-xs font-medium text-slate-400">Office Type</label>
-                  <div className="flex items-center gap-4 mt-1.5">
-                    <label className="flex items-center gap-2 text-sm text-slate-200 cursor-pointer">
-                      <input type="radio" name="office_type" checked={co.office_type === 'head_office'} onChange={() => setCo({ ...co, office_type: 'head_office' })} className="accent-amber-500" />
-                      Head Office
-                    </label>
-                    <label className="flex items-center gap-2 text-sm text-slate-200 cursor-pointer">
-                      <input type="radio" name="office_type" checked={co.office_type === 'branch'} onChange={() => setCo({ ...co, office_type: 'branch' })} className="accent-amber-500" />
-                      Branch
-                    </label>
-                  </div>
-                </div>
-                {co.office_type === 'branch' && (
-                  <Field label="Branch (specify)"><input value={co.branch_name ?? ''} onChange={(e) => setCo({ ...co, branch_name: e.target.value })} className={inputCls} placeholder="e.g. Branch 00001" /></Field>
-                )}
                 <Field label="Company Tax ID"><input value={co.tax_id ?? ''} onChange={(e) => setCo({ ...co, tax_id: e.target.value })} className={inputCls} placeholder="0505557003971" /></Field>
-                <Field label="Company Address"><textarea value={co.address ?? ''} onChange={(e) => setCo({ ...co, address: e.target.value })} rows={3} className={inputCls + ' h-auto py-2 resize-none'} placeholder="Company address" /></Field>
+                <BillingAddressFields officeType={co.office_type} branchCode={co.branch_code ?? ''} address={co.billing_address ?? {}}
+                  onChange={({ officeType, branchCode, address }) => setCo({ ...co, office_type: officeType, branch_code: branchCode, billing_address: address })} />
                 <div className="grid grid-cols-2 gap-2.5">
                   <Field label="Telephone"><input value={co.phone ?? ''} onChange={(e) => setCo({ ...co, phone: e.target.value })} className={inputCls} placeholder="+66 89 813 0699" /></Field>
                   <Field label="Email"><input type="email" value={co.email ?? ''} onChange={(e) => setCo({ ...co, email: e.target.value })} className={inputCls} placeholder="info@nnr-solutions.com" /></Field>
@@ -2393,9 +2380,9 @@ function AdminSettingsView({ call, onBack }: { call: <T,>(a: string, p?: Record<
             ) : (
               <div className="grid grid-cols-2 gap-3">
                 <div className="col-span-2"><Detail label="Company Name">{company?.company_name || '—'}</Detail></div>
-                <Detail label="Office Type">{company?.office_type === 'branch' ? `Branch${company?.branch_name ? ` · ${company.branch_name}` : ''}` : 'Head Office'}</Detail>
+                <Detail label="Office Type">{company?.office_type === 'branch' ? `Branch${company?.branch_code ? ` #${company.branch_code}` : (company?.branch_name ? ` · ${company.branch_name}` : '')}` : 'Head Office'}</Detail>
                 <Detail label="Tax ID">{company?.tax_id || '—'}</Detail>
-                <div className="col-span-2"><Detail label="Address">{company?.address || '—'}</Detail></div>
+                <div className="col-span-2"><Detail label="Address">{composeThaiAddress(company?.billing_address) || company?.address || '—'}</Detail></div>
                 <Detail label="Telephone">{company?.phone || '—'}</Detail>
                 <Detail label="Email">{company?.email || '—'}</Detail>
                 <div className="col-span-2"><Detail label="Website">{company?.website || '—'}</Detail></div>

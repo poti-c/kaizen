@@ -311,6 +311,8 @@ Deno.serve(async (req) => {
     if (body.company_name !== undefined) patch.company_name = cleanStr(body.company_name);
     if (body.office_type !== undefined) patch.office_type = (body.office_type === "branch") ? "branch" : "head_office";
     if (body.branch_name !== undefined) patch.branch_name = cleanStr(body.branch_name);
+    if (body.branch_code !== undefined) patch.branch_code = cleanStr(body.branch_code);
+    if (body.billing_address !== undefined && body.billing_address && typeof body.billing_address === "object") patch.billing_address = body.billing_address;
     if (body.address !== undefined) patch.address = cleanStr(body.address);
     if (body.tax_id !== undefined) patch.tax_id = cleanStr(body.tax_id);
     if (body.logo_url !== undefined) patch.logo_url = body.logo_url ? String(body.logo_url) : null;
@@ -1004,7 +1006,7 @@ Deno.serve(async (req) => {
   if (action === "list_forms") {
     const [formsRes, companiesRes, settingsRes, productsRes, promosRes] = await Promise.all([
       admin.from("kaizen_generated_forms").select("*").order("created_at", { ascending: false }),
-      admin.from("kaizen_companies").select("id, name, address, tax_id, contact_person, contact_phone, contact_email").order("name"),
+      admin.from("kaizen_companies").select("id, name, address, tax_id, contact_person, contact_phone, contact_email, office_type, branch_code").order("name"),
       admin.from("kaizen_console_settings").select("*").eq("id", true).maybeSingle(),
       admin.from("kaizen_products").select("*").eq("is_active", true).order("sort_order"),
       admin.from("kaizen_promo_codes").select("*").eq("is_active", true).order("created_at", { ascending: false }),
