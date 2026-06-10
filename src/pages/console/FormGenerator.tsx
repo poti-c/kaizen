@@ -522,22 +522,23 @@ function FormEditor({ formType, companies, products, promos, onCreated, call, in
           </div>
         </div>
         <div className="space-y-2">
-          {/* Column headers: Item No. · Description · Price / Unit · Quantity · Total */}
-          <div className="flex gap-2 items-center text-[10px] font-medium uppercase tracking-wide text-slate-500">
-            <div className="w-8 text-center">No.</div>
-            <div className="flex-1">Description</div>
-            <div className="w-28 text-right">Price / Unit</div>
-            <div className="w-16 text-right">Qty</div>
-            <div className="w-28 text-right">Total ({currency})</div>
-            <div className="w-9" />
+          {/* Shared grid so headers and rows line up exactly:
+              No. · Description · Price / Unit · Quantity · Total · (delete) */}
+          <div className="grid grid-cols-[2rem_1fr_7rem_4rem_7rem_2.25rem] gap-2 items-center text-[10px] font-medium uppercase tracking-wide text-slate-500">
+            <div className="text-center">No.</div>
+            <div>Description</div>
+            <div className="text-right">Price / Unit</div>
+            <div className="text-right">Qty</div>
+            <div className="text-right">Total ({currency})</div>
+            <div />
           </div>
           {items.map((it, i) => (
-            <div key={i} className="flex gap-2 items-start">
-              <div className="w-8 h-9 flex items-center justify-center text-sm text-slate-500">{i + 1}</div>
-              <input value={it.description} onChange={e => setItem(i, { description: e.target.value })} className={inputCls + ' flex-1'} placeholder="Description" />
-              <input value={it.unit_price || ''} onChange={e => setItem(i, { unit_price: Number(e.target.value.replace(/[^0-9.]/g, '')) || 0 })} className={inputCls + ' w-28 text-right'} placeholder="Price / unit" inputMode="decimal" />
-              <input value={it.qty || ''} onChange={e => setItem(i, { qty: Number(e.target.value.replace(/[^0-9.]/g, '')) || 0 })} className={inputCls + ' w-16 text-right'} placeholder="Qty" inputMode="decimal" />
-              <div className="w-28 h-9 flex items-center justify-end text-sm text-slate-300 px-2">{money((Number(it.qty) || 0) * (Number(it.unit_price) || 0))}</div>
+            <div key={i} className="grid grid-cols-[2rem_1fr_7rem_4rem_7rem_2.25rem] gap-2 items-center">
+              <div className="text-center text-sm text-slate-500">{i + 1}</div>
+              <input value={it.description} onChange={e => setItem(i, { description: e.target.value })} className={inputCls} placeholder="Description" />
+              <input value={it.unit_price || ''} onChange={e => setItem(i, { unit_price: Number(e.target.value.replace(/[^0-9.]/g, '')) || 0 })} className={inputCls + ' text-right'} placeholder="Price" inputMode="decimal" />
+              <input value={it.qty || ''} onChange={e => setItem(i, { qty: Number(e.target.value.replace(/[^0-9.]/g, '')) || 0 })} className={inputCls + ' text-right'} placeholder="Qty" inputMode="decimal" />
+              <div className="text-right text-sm text-slate-300 px-1 truncate">{money((Number(it.qty) || 0) * (Number(it.unit_price) || 0))}</div>
               <button onClick={() => setItems(items.length > 1 ? items.filter((_, idx) => idx !== i) : items)} className="h-9 w-9 flex items-center justify-center rounded-lg text-slate-400 hover:text-red-400 hover:bg-red-500/10"><X className="h-4 w-4" /></button>
             </div>
           ))}
