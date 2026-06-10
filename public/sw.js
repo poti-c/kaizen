@@ -1,7 +1,9 @@
 // Na Nirand Kaizen — Service Worker
 // Handles push notifications and offline caching
 
-const CACHE_NAME = 'kaizen-v2'
+// Bump this version on each release so installed PWAs detect the new worker,
+// activate it (skipWaiting below), and the page auto-reloads to the latest build.
+const CACHE_NAME = 'kaizen-v3'
 
 // Set the home-screen app badge. On iOS the Badging API may be exposed on the
 // worker's `self.navigator` (newer) or not at all (older). Try every surface

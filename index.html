@@ -28,8 +28,27 @@
     <script>
       // Register Service Worker
       if ('serviceWorker' in navigator) {
+        // Reload once when an updated service worker takes control, so an
+        // installed PWA never gets stuck on a stale cached build (an old build
+        // can, e.g., wrongly report push notifications as unsupported).
+        // Guarded by hadController so it never reloads on a fresh first install.
+        const hadController = !!navigator.serviceWorker.controller
+        let refreshing = false
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+          if (refreshing || !hadController) return
+          refreshing = true
+          window.location.reload()
+        })
         window.addEventListener('load', () => {
-          navigator.serviceWorker.register('/sw.js').catch(() => {})
+          navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' })
+            .then((reg) => {
+              reg.update().catch(() => {})
+              // Re-check for a newer build whenever the app is brought to the foreground.
+              document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState === 'visible') reg.update().catch(() => {})
+              })
+            })
+            .catch(() => {})
         })
         // Listen for messages from the Service Worker
         navigator.serviceWorker.addEventListener('message', (e) => {
