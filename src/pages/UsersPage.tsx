@@ -438,8 +438,8 @@ export function UsersPage() {
                         (isHRManager && (user.role === 'staff' || user.role === 'manager'))
                       )
 
-                    // HR Manager cannot delete
-                    const canDelete = canManage && !isHRManager
+                    // Anyone who can manage a user can also delete them (HR included).
+                    const canDelete = canManage
 
                     return (
                       <div key={user.id} className={cn('flex items-center gap-4 px-5 py-3.5', !user.is_active && 'bg-red-50 opacity-90')}>
