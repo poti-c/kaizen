@@ -87,6 +87,7 @@ const FORM_TYPE_LABEL: Record<string, string> = {
 // Purchasable add-ons (entitlements stored in kaizen_companies.addons).
 const ADDONS: { key: string; label: string; price: string }[] = [
   { key: 'pms', label: 'Preventive Maintenance Scheduler', price: '฿10,000 / year' },
+  { key: 'extra_users', label: 'Extra User Pack', price: '฿15,000 / year' },
 ]
 
 function packageBadgeCls(plan: string) {
