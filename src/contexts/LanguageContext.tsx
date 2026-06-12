@@ -235,7 +235,7 @@ const en = {
   },
   pm: {
     scheduler: 'Preventive Maintenance Scheduler', open: 'Open',
-    addAsset: 'Add Asset', searchAssets: 'Search asset name/tag, serial no, model name…',
+    addAsset: 'Asset', searchAssets: 'Search asset name/tag, serial no, model name…',
     noAssets: 'No assets registered yet.', noAssetsFiltered: 'No assets match your filter.',
     registerFirst: '+ Register your first asset', next: 'Next',
     good: 'Up to Date', dueSoon: 'Due Soon', overdue: 'Overdue', notScheduled: 'Not Scheduled', inactiveStatus: 'Inactive',
@@ -635,7 +635,7 @@ const th: Translations = {
   },
   pm: {
     scheduler: 'ระบบกำหนดการบำรุงรักษาเชิงป้องกัน', open: 'เปิด',
-    addAsset: 'เพิ่มอุปกรณ์', searchAssets: 'ค้นหาชื่อ/แท็กอุปกรณ์ หมายเลขซีเรียล รุ่น…',
+    addAsset: 'อุปกรณ์', searchAssets: 'ค้นหาชื่อ/แท็กอุปกรณ์ หมายเลขซีเรียล รุ่น…',
     noAssets: 'ยังไม่มีอุปกรณ์ที่ลงทะเบียน', noAssetsFiltered: 'ไม่มีอุปกรณ์ตรงกับตัวกรอง',
     registerFirst: '+ ลงทะเบียนอุปกรณ์ชิ้นแรก', next: 'ครั้งถัดไป',
     good: 'เป็นปัจจุบัน', dueSoon: 'ใกล้ถึงกำหนด', overdue: 'เลยกำหนด', notScheduled: 'ยังไม่กำหนด', inactiveStatus: 'ปิดใช้งาน',
