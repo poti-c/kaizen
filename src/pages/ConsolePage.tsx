@@ -90,7 +90,7 @@ const FORM_TYPE_LABEL: Record<string, string> = {
 // `plans` (optional) limits which package tiers the add-on is offered to.
 const ADDONS: { key: string; label: string; price: string; plans?: string[] }[] = [
   { key: 'pms', label: 'Preventive Maintenance Scheduler', price: '฿10,000 / year' },
-  { key: 'routine_roster', label: 'Routine Roster', price: '฿10,000 / year' },
+  { key: 'routine_roster', label: 'Routine Roster', price: '฿8,000 / year' },
   // Premium already includes unlimited managers/staff, so the extra-user pack is Gold-only.
   { key: 'extra_users', label: 'Extra User Pack', price: '฿15,000 / year', plans: ['gold'] },
 ]
