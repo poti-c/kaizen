@@ -51,11 +51,31 @@ serve(async (req) => {
   const body = await req.json();
   const { action } = body;
 
+  // Companies a super admin may manage: their home company plus every company
+  // granted via kaizen_super_admin_companies (the same set the app's company
+  // switcher exposes). Cached for the request.
+  let _accessible: Set<string> | null = null;
+  async function accessibleCompanies(): Promise<Set<string>> {
+    if (_accessible) return _accessible;
+    const ids = new Set<string>();
+    if (callerCompany) ids.add(callerCompany);
+    const { data: grants } = await supabaseAdmin
+      .from("kaizen_super_admin_companies")
+      .select("company_id")
+      .eq("super_admin_id", user.id);
+    for (const g of grants ?? []) if (g.company_id) ids.add(g.company_id);
+    _accessible = ids;
+    return ids;
+  }
+
   async function assertCanManage(userId: string): Promise<{ ok: boolean; error?: string; target?: any }> {
     const { data: target } = await supabaseAdmin.from("kaizen_profiles").select("role, department, company_id, full_name, username").eq("id", userId).single();
     if (!target) return { ok: false, error: "User not found" };
     if (callerRole === "super_admin") {
-      if (target.company_id !== callerCompany) return { ok: false, error: "Different company" };
+      // Honour cross-company access — a super admin manages users in any company
+      // they can switch into, not only their home company.
+      const allowed = await accessibleCompanies();
+      if (!target.company_id || !allowed.has(target.company_id)) return { ok: false, error: "Different company" };
       return { ok: true, target };
     }
     if (target.company_id !== callerCompany) return { ok: false, error: "Different company" };
