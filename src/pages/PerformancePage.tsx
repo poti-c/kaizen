@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import { Clock, CheckCircle2, AlertTriangle, FolderOpen, Trophy, Building2, ChevronRight, Wrench } from 'lucide-react'
+import { Clock, CheckCircle2, AlertTriangle, FolderOpen, Trophy, Building2, ChevronRight, ChevronLeft, Wrench } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useCompany } from '@/contexts/CompanyContext'
@@ -47,6 +47,8 @@ export function PerformancePage() {
   const [range, setRange] = useState<RangeKey>(() => {
     return (localStorage.getItem('kaizen-perf-range') as RangeKey) || 'month'
   })
+  const LEADER_PAGE_SIZE = 6
+  const [leaderPage, setLeaderPage] = useState(1)
 
   useEffect(() => {
     if (profile && activeCompany) load()
@@ -73,6 +75,7 @@ export function PerformancePage() {
 
   function setRangeAndSave(r: RangeKey) {
     setRange(r)
+    setLeaderPage(1)   // new period → back to the top of the leaderboard
     localStorage.setItem('kaizen-perf-range', r)
   }
 
@@ -296,9 +299,16 @@ export function PerformancePage() {
         </div>
         {staffRows.length === 0 ? (
           <p className="px-5 py-8 text-center text-sm text-gray-400">{lang === 'th' ? 'ยังไม่มีข้อมูล' : 'No activity in this period'}</p>
-        ) : (
+        ) : (() => {
+          const totalPages = Math.max(1, Math.ceil(staffRows.length / LEADER_PAGE_SIZE))
+          const page = Math.min(leaderPage, totalPages)
+          const start = (page - 1) * LEADER_PAGE_SIZE
+          const paged = staffRows.slice(start, start + LEADER_PAGE_SIZE)
+          return (<>
           <div className="divide-y divide-gray-50">
-            {staffRows.map((s, i) => (
+            {paged.map((s, idx) => {
+              const i = start + idx   // global rank across pages
+              return (
               <Link key={s.id} to={`/performance/${s.id}`} className="flex items-center gap-3 px-4 md:px-5 py-3 hover:bg-gray-50 transition-colors">
                 {/* Rank */}
                 <span className={`flex-shrink-0 w-6 text-center text-sm font-bold ${i === 0 ? 'text-amber-500' : i === 1 ? 'text-gray-400' : i === 2 ? 'text-amber-700' : 'text-gray-300'}`}>
@@ -325,9 +335,30 @@ export function PerformancePage() {
                 </div>
                 <ChevronRight className="h-4 w-4 text-gray-300 flex-shrink-0" />
               </Link>
-            ))}
+            )})}
           </div>
-        )}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between gap-2 px-4 md:px-5 py-3 border-t border-gray-100">
+              <p className="text-xs text-gray-500">
+                {lang === 'th'
+                  ? `แสดง ${start + 1}–${Math.min(start + LEADER_PAGE_SIZE, staffRows.length)} จาก ${staffRows.length}`
+                  : `Showing ${start + 1}–${Math.min(start + LEADER_PAGE_SIZE, staffRows.length)} of ${staffRows.length}`}
+              </p>
+              <div className="flex items-center gap-2">
+                <button onClick={() => setLeaderPage(page - 1)} disabled={page === 1}
+                  className="inline-flex items-center gap-1 h-8 px-3 text-xs font-medium rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:pointer-events-none">
+                  <ChevronLeft className="h-4 w-4" />{lang === 'th' ? 'ก่อนหน้า' : 'Previous'}
+                </button>
+                <span className="text-sm text-gray-600">{lang === 'th' ? `หน้า ${page} จาก ${totalPages}` : `Page ${page} of ${totalPages}`}</span>
+                <button onClick={() => setLeaderPage(page + 1)} disabled={page >= totalPages}
+                  className="inline-flex items-center gap-1 h-8 px-3 text-xs font-medium rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:pointer-events-none">
+                  {lang === 'th' ? 'ถัดไป' : 'Next'}<ChevronRight className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          )}
+          </>)
+        })()}
       </div>
     </div>
   )
