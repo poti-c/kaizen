@@ -35,7 +35,7 @@ const PRESET_COLORS = [
   { label: 'Crimson Red', primary: '#6b1f2e', accent: '#d4a853', sidebar: '#4a0f1d', background: '#faf4f4' },
   { label: 'Cyberpunk',   primary: '#22d3ee', accent: '#e879f9', sidebar: '#0a0e1a', background: '#0d1117' },
   { label: 'Gentle Grey', primary: '#111827', accent: '#9ca3af', sidebar: '#1f2937', background: '#f3f4f6' },
-  { label: 'Pastelian',   primary: '#a78bfa', accent: '#f9a8d4', sidebar: '#8b5cf6', background: '#faf5ff' },
+  { label: 'Pastelian',   primary: '#8b7ad6', accent: '#f7a3c3', sidebar: '#6f5fc0', background: '#f7f3ff' },
 ]
 
 export function SettingsPage() {
