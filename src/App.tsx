@@ -21,6 +21,7 @@ import { NotificationsPage } from '@/pages/NotificationsPage'
 import { SettingsPage } from '@/pages/SettingsPage'
 import { CasesCalendarPage } from '@/pages/CasesCalendarPage'
 import { PreventiveMaintenancePage } from '@/pages/PreventiveMaintenancePage'
+import { RoutineRosterPage } from '@/pages/RoutineRosterPage'
 import { PackagesExpansions } from '@/components/PackagesExpansions'
 import { PerformancePage } from '@/pages/PerformancePage'
 import { PerformanceDetailPage } from '@/pages/PerformanceDetailPage'
@@ -106,6 +107,7 @@ export default function App() {
                     <Route path="cases" element={<CasesPage />} />
                     <Route path="cases/calendar" element={<CasesCalendarPage />} />
                     <Route path="maintenance" element={<ProtectedRoute roles={['super_admin', 'manager', 'staff']} addon="pms"><PreventiveMaintenancePage /></ProtectedRoute>} />
+                    <Route path="routine-roster" element={<ProtectedRoute roles={['super_admin', 'manager', 'staff']} addon="routine_roster"><RoutineRosterPage /></ProtectedRoute>} />
                     <Route path="cases/new" element={<CreateCasePage />} />
                     <Route path="cases/:id" element={<CaseDetailPage />} />
                     <Route path="users" element={<UsersPage />} />

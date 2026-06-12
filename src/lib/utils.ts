@@ -74,7 +74,7 @@ export function subscriptionInfo(company: CompanyLike | null | undefined): SubIn
 // Add-ons are opt-in, stored in kaizen_companies.addons. A purchased add-on
 // (key === true) is PAUSED while the subscription is expired. A self-serve trial
 // (key + '_trial_until' >= today) is active independently for its window.
-export type AddonKey = 'pms'
+export type AddonKey = 'pms' | 'routine_roster'
 
 export function companyHasAddon(company: CompanyLike | null | undefined, key: AddonKey): boolean {
   const a = company?.addons

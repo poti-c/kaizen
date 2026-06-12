@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Bell, X, LayoutDashboard, FolderOpen, PlusCircle, Users, Settings, LogOut, CalendarDays, ChevronDown, Building2, Wrench } from 'lucide-react'
+import { Bell, X, LayoutDashboard, FolderOpen, PlusCircle, Users, Settings, LogOut, CalendarDays, ChevronDown, Building2, Wrench, ClipboardList } from 'lucide-react'
 import { useNavigate, Link, NavLink } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
 import { useCompany } from '@/contexts/CompanyContext'
@@ -30,6 +30,7 @@ export function Header() {
     { to: '/cases',          icon: FolderOpen,      label: t.nav.cases,           roles: ['super_admin', 'manager', 'staff'] },
     { to: '/cases/calendar', icon: CalendarDays,    label: t.nav.calendar,        roles: ['super_admin', 'manager', 'staff'] },
     { to: '/maintenance',    icon: Wrench,          label: t.nav.maintenance,     roles: ['super_admin', 'manager', 'staff'], addon: 'pms' as const },
+    { to: '/routine-roster', icon: ClipboardList,   label: t.nav.routineRoster,   roles: ['super_admin', 'manager', 'staff'], addon: 'routine_roster' as const },
     { to: '/cases/new',      icon: PlusCircle,      label: t.nav.newCase,         roles: ['staff', 'manager', 'super_admin'] },
     { to: '/notifications',  icon: Bell,            label: t.nav.notifications,   roles: ['super_admin', 'manager', 'staff'] },
     { to: '/users',          icon: Users,           label: t.nav.users,           roles: ['super_admin', 'manager'] },
@@ -38,7 +39,7 @@ export function Header() {
 
   const visibleNavItems = NAV_ITEMS.filter(item =>
     (profile ? item.roles.includes(profile.role) : false) &&
-    (!('addon' in item) || companyHasAddon(activeCompany, item.addon as 'pms'))
+    (item.addon === undefined || companyHasAddon(activeCompany, item.addon))
   )
 
   async function handleSignOut() {
@@ -118,6 +119,7 @@ export function Header() {
                 markRead(n.id)
                 if (n.case_id) navigate(`/cases/${n.case_id}`)
                 else if (n.notification_type === 'pm') navigate('/maintenance')
+                else if (n.notification_type === 'rr') navigate('/routine-roster')
                 else navigate('/notifications')
                 setShowNotifs(false)
               }}
