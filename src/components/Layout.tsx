@@ -48,7 +48,7 @@ export function Layout() {
         <PmsTrialBanner />
         <main
           className="flex-1 overflow-y-auto overflow-x-hidden"
-          style={{ paddingBottom: showBottomNav ? 'calc(4rem + env(safe-area-inset-bottom, 0px))' : undefined }}
+          style={{ background: 'var(--brand-background, #f9fafb)', paddingBottom: showBottomNav ? 'calc(4rem + env(safe-area-inset-bottom, 0px))' : undefined }}
         >
           <Outlet />
         </main>

@@ -29,12 +29,13 @@ const DEFAULT_LOCATIONS = [...LOCATIONS] as string[]
 const DEFAULT_SUPPORT_EMAIL = 'potichao@me.com'
 
 const PRESET_COLORS = [
-  { label: 'Teal Pro',     primary: '#0891b2', accent: '#06b6d4', sidebar: '#1c2b3a' },
-  { label: 'Navy Blue',    primary: '#1e3a5f', accent: '#c9a84c', sidebar: '#0f2744' },
-  { label: 'Forest Green', primary: '#1a4731', accent: '#d4a853', sidebar: '#0e2e1e' },
-  { label: 'Burgundy',     primary: '#6b1f2e', accent: '#d4a853', sidebar: '#4a0f1d' },
-  { label: 'Slate',        primary: '#334155', accent: '#f59e0b', sidebar: '#1e293b' },
-  { label: 'Purple',       primary: '#4c1d95', accent: '#f59e0b', sidebar: '#2d1164' },
+  // Special presets — these also set the page background (no manual bg picker).
+  { label: 'Classic',     primary: '#0891b2', accent: '#06b6d4', sidebar: '#1c2b3a', background: '#f8fafc' },
+  { label: 'Forest',      primary: '#1a4731', accent: '#d4a853', sidebar: '#0e2e1e', background: '#f2f6f3' },
+  { label: 'Crimson Red', primary: '#6b1f2e', accent: '#d4a853', sidebar: '#4a0f1d', background: '#faf4f4' },
+  { label: 'Cyberpunk',   primary: '#22d3ee', accent: '#e879f9', sidebar: '#0a0e1a', background: '#0d1117' },
+  { label: 'Gentle Grey', primary: '#111827', accent: '#9ca3af', sidebar: '#1f2937', background: '#f3f4f6' },
+  { label: 'Pastelian',   primary: '#a78bfa', accent: '#f9a8d4', sidebar: '#8b5cf6', background: '#faf5ff' },
 ]
 
 export function SettingsPage() {
@@ -374,7 +375,8 @@ export function SettingsPage() {
     setCustomPrimary(preset.primary)
     setCustomAccent(preset.accent)
     setCustomSidebar(preset.sidebar)
-    updateSettings({ primary_color: preset.primary, accent_color: preset.accent, sidebar_color: preset.sidebar })
+    // Special presets also set the page background (background has no manual picker).
+    updateSettings({ primary_color: preset.primary, accent_color: preset.accent, sidebar_color: preset.sidebar, background_color: preset.background })
     toast.success(lang === 'th' ? `ใช้ธีม "${preset.label}" แล้ว` : `Applied "${preset.label}" theme.`)
   }
 
@@ -849,6 +851,7 @@ export function SettingsPage() {
                   <div className="w-4 h-4 rounded-sm" style={{ background: preset.primary }} />
                   <div className="w-4 h-4 rounded-sm" style={{ background: preset.accent }} />
                   <div className="w-4 h-4 rounded-sm" style={{ background: preset.sidebar }} />
+                  <div className="w-4 h-4 rounded-sm border border-gray-200" style={{ background: preset.background }} title="Background" />
                 </div>
                 <span className="text-xs text-gray-700 text-center truncate max-w-full">{preset.label}</span>
               </button>

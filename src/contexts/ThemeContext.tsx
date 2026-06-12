@@ -7,6 +7,7 @@ const DEFAULT_SETTINGS: KaizenSettings = {
   primary_color: '#0891b2',
   accent_color: '#06b6d4',
   sidebar_color: '#1c2b3a',
+  background_color: '#f9fafb',
 }
 
 interface ThemeContextValue {
@@ -41,6 +42,7 @@ function applyTheme(settings: KaizenSettings) {
   root.style.setProperty('--brand-primary', settings.primary_color)
   root.style.setProperty('--brand-accent', settings.accent_color)
   root.style.setProperty('--brand-sidebar', settings.sidebar_color)
+  root.style.setProperty('--brand-background', settings.background_color || '#f9fafb')
   root.style.setProperty('--brand-50', lighten(settings.primary_color, 0.95))
   root.style.setProperty('--brand-100', lighten(settings.primary_color, 0.85))
   root.style.setProperty('--brand-200', lighten(settings.primary_color, 0.70))

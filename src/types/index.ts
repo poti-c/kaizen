@@ -262,6 +262,8 @@ export interface KaizenSettings {
   primary_color: string
   accent_color: string
   sidebar_color: string
+  /** Page canvas background. Set only by Special Presets — no manual user picker. */
+  background_color: string
 }
 
 export const DEPARTMENTS: { value: Department; label: string }[] = [

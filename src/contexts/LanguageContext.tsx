@@ -116,7 +116,7 @@ const en = {
   },
   settings: {
     title: 'Settings', theme: 'Color Theme', themeSubtitle: "Customize the app's color scheme",
-    presets: 'Presets', primaryColor: 'Primary Color', accentColor: 'Accent Color',
+    presets: 'Special Presets', primaryColor: 'Primary Color', accentColor: 'Accent Color',
     sidebarColor: 'Sidebar Color', applyTheme: 'Apply Theme', applying: 'Applying...',
     themeApplied: 'Theme updated successfully!', failedTheme: 'Failed to update theme.',
     adminOnly: 'Theme settings can only be changed by Super Admin.',
@@ -550,7 +550,7 @@ const th: Translations = {
   },
   settings: {
     title: 'การตั้งค่า', theme: 'ธีมสี', themeSubtitle: 'ปรับแต่งรูปแบบสีของแอป',
-    presets: 'รูปแบบสำเร็จรูป', primaryColor: 'สีหลัก', accentColor: 'สีเน้น',
+    presets: 'พรีเซ็ตพิเศษ', primaryColor: 'สีหลัก', accentColor: 'สีเน้น',
     sidebarColor: 'สีแถบเมนู', applyTheme: 'ใช้ธีม', applying: 'กำลังใช้งาน...',
     themeApplied: 'อัปเดตธีมสำเร็จ!', failedTheme: 'ไม่สามารถอัปเดตธีมได้',
     adminOnly: 'การตั้งค่าธีมสามารถเปลี่ยนได้โดยผู้ดูแลระบบเท่านั้น',
