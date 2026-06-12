@@ -112,3 +112,36 @@ body {
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+
+/* ── Dark "console" theme (activated by dark-background presets, e.g. Cyberpunk) ──
+   Remaps the common light surfaces to a dark scheme so the whole app looks like
+   the admin console: cards blend into the page and are outlined in gold, text
+   and sidebar navigation turn light/gold. Scoped to .theme-dark so light
+   presets are untouched. */
+.theme-dark {
+  color-scheme: dark;
+}
+/* Cards / panels / inputs / modals (white surfaces) blend into the dark page */
+.theme-dark .bg-white { background-color: var(--brand-surface, #161b22) !important; }
+.theme-dark .bg-gray-50, .theme-dark .bg-gray-50\/60, .theme-dark .bg-gray-100 {
+  background-color: var(--brand-surface-2, #1c2230) !important;
+}
+/* Cards (rounded + bordered) get the gold highlight border */
+.theme-dark .rounded-xl.border, .theme-dark .rounded-2xl.border, .theme-dark .rounded-lg.border {
+  border-color: var(--brand-card-border, rgba(227,179,65,0.55)) !important;
+}
+/* General hairlines → faint gold */
+.theme-dark .border-gray-100, .theme-dark .border-gray-200, .theme-dark .border-gray-300,
+.theme-dark .divide-gray-50 > * + *, .theme-dark .divide-gray-100 > * + * {
+  border-color: var(--brand-border, rgba(227,179,65,0.18)) !important;
+}
+/* Text: primary → light, muted greys → soft slate */
+.theme-dark .text-gray-900, .theme-dark .text-gray-800 { color: var(--brand-text, #e8edf3) !important; }
+.theme-dark .text-gray-700, .theme-dark .text-gray-600, .theme-dark .text-gray-500, .theme-dark .text-gray-400 {
+  color: var(--brand-text-muted, #9aa6b6) !important;
+}
+.theme-dark input, .theme-dark textarea, .theme-dark select { color: var(--brand-text, #e8edf3); }
+.theme-dark input::placeholder, .theme-dark textarea::placeholder { color: #6b7685; }
+/* Sidebar navigation text → logo gold */
+.theme-dark aside nav a { color: var(--brand-gold, #e3b341) !important; opacity: 0.85; }
+.theme-dark aside nav a:hover, .theme-dark aside nav a[aria-current="page"] { opacity: 1; }
