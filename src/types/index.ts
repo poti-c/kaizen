@@ -151,6 +151,66 @@ export interface KaizenNotification {
   case?: KaizenCase
 }
 
+// ── Routine Roster (daily recurring inter-department orders) ────────────────
+export type RrOrderType = 'bulk' | 'per_room'
+export type RrOrderStatus = 'pending' | 'sent' | 'accepted' | 'delivered' | 'confirmed' | 'cancelled'
+
+export interface RrTemplate {
+  id: string
+  company_id: string
+  name: string
+  name_th: string | null
+  request_department: Department
+  fulfill_department: Department
+  order_type: RrOrderType
+  default_item: string | null
+  /** Per-weekday item override, keys 'mon'..'sun' (e.g. turndown gift of the day) */
+  item_by_weekday: Record<string, string> | null
+  due_time: string
+  active: boolean
+  sort_order: number
+  created_at: string
+}
+
+export interface RrOrder {
+  id: string
+  company_id: string
+  template_id: string | null
+  order_date: string
+  title: string
+  request_department: Department
+  fulfill_department: Department
+  order_type: RrOrderType
+  item_label: string | null
+  quantity: number | null
+  note: string | null
+  status: RrOrderStatus
+  due_at: string | null
+  sent_by: string | null
+  sent_at: string | null
+  accepted_by: string | null
+  accepted_at: string | null
+  delivered_by: string | null
+  delivered_at: string | null
+  confirmed_by: string | null
+  confirmed_at: string | null
+  created_at: string
+  // joined
+  items?: RrOrderItem[]
+}
+
+export interface RrOrderItem {
+  id: string
+  order_id: string
+  company_id: string
+  room_no: string
+  item_label: string | null
+  delivered: boolean
+  delivered_by: string | null
+  delivered_at: string | null
+  created_at: string
+}
+
 export interface KaizenSettings {
   primary_color: string
   accent_color: string

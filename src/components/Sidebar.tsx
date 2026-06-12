@@ -1,7 +1,7 @@
 import { NavLink, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, FolderOpen, PlusCircle, Bell, Users,
-  Settings, LogOut, ChevronLeft, ChevronRight, CalendarDays, TrendingUp, Wrench,
+  Settings, LogOut, ChevronLeft, ChevronRight, CalendarDays, TrendingUp, Wrench, ClipboardList,
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useCompany } from '@/contexts/CompanyContext'
@@ -25,6 +25,7 @@ export function Sidebar() {
     { to: '/cases', icon: FolderOpen, label: t.nav.cases, roles: ['super_admin', 'manager', 'staff'] },
     { to: '/cases/calendar', icon: CalendarDays, label: t.nav.calendar, roles: ['super_admin', 'manager', 'staff'] },
     { to: '/maintenance', icon: Wrench, label: t.nav.maintenance, roles: ['super_admin', 'manager', 'staff'], addon: 'pms' },
+    { to: '/routine-roster', icon: ClipboardList, label: t.nav.routineRoster, roles: ['super_admin', 'manager', 'staff'], addon: 'routine_roster' },
     { to: '/cases/new', icon: PlusCircle, label: t.nav.newCase, roles: ['staff', 'manager', 'super_admin'] },
     { to: '/notifications', icon: Bell, label: t.nav.notifications, roles: ['super_admin', 'manager', 'staff'] },
     { to: '/users', icon: Users, label: t.nav.users, roles: ['super_admin', 'manager'] },
