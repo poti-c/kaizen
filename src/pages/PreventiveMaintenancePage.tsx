@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Wrench, Plus, Loader2, X, Check, Trash2, Pencil, MapPin, Search, Ban } from 'lucide-react'
+import { Wrench, Plus, Loader2, X, Check, Trash2, Pencil, MapPin, Search, Ban, FileBarChart } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useCompany } from '@/contexts/CompanyContext'
 import { useAuth } from '@/contexts/AuthContext'
@@ -9,6 +9,7 @@ import { DEPARTMENT_LABELS, type Department } from '@/types'
 import { FREQUENCIES, freqLabel, addInterval, assetStatus, STATUS_META, type FreqUnit, type AssetStatus } from '@/lib/pm'
 import { LOCATIONS } from '@/lib/utils'
 import { PMTaskModal, taskTone, taskStatusKey, type PMTask } from '@/components/pm/PMSchedule'
+import { PMReport } from '@/pages/pm/PMReport'
 
 const STATUS_KEY: Record<AssetStatus, 'good' | 'dueSoon' | 'overdue' | 'notScheduled' | 'inactiveStatus'> = {
   good: 'good', due_soon: 'dueSoon', overdue: 'overdue', unscheduled: 'notScheduled', inactive: 'inactiveStatus',
@@ -67,6 +68,11 @@ export function PreventiveMaintenancePage() {
   const [openTask, setOpenTask] = useState<PMTask | null>(null)
   const [detailAsset, setDetailAsset] = useState<Asset | null>(null)
   const [locations, setLocations] = useState<string[]>([...LOCATIONS] as string[])
+  const [reportManagerIds, setReportManagerIds] = useState<string[]>([])
+  const [showReport, setShowReport] = useState(false)
+  // Report access = Top Management (always) OR a manager explicitly granted in PM settings.
+  const canSeeReport = profile?.role === 'super_admin' ||
+    (profile?.role === 'manager' && !!profile?.id && reportManagerIds.includes(profile.id))
 
   const load = useCallback(async () => {
     if (!companyId) return
@@ -77,7 +83,7 @@ export function PreventiveMaintenancePage() {
     const [a, t, s, openT, doneT, loc] = await Promise.all([
       supabase.from('kaizen_pm_assets').select('*, type:kaizen_pm_equipment_types(name, category)').eq('company_id', companyId).order('next_maintenance_date', { ascending: true, nullsFirst: false }),
       supabase.from('kaizen_pm_equipment_types').select('id, name, category, is_active').eq('company_id', companyId).eq('is_active', true).order('category').order('name'),
-      supabase.from('kaizen_pm_settings').select('due_soon_days').eq('company_id', companyId).maybeSingle(),
+      supabase.from('kaizen_pm_settings').select('due_soon_days, report_manager_ids').eq('company_id', companyId).maybeSingle(),
       supabase.from('kaizen_pm_tasks').select(taskSel).eq('company_id', companyId).in('status', ['scheduled', 'in_progress', 'pending_approval']),
       supabase.from('kaizen_pm_tasks').select(taskSel).eq('company_id', companyId).in('status', ['done', 'approved']).gte('performed_at', monthStartKey),
       supabase.from('kaizen_settings').select('value').eq('company_id', companyId).eq('key', 'custom_locations').maybeSingle(),
@@ -86,6 +92,7 @@ export function PreventiveMaintenancePage() {
     setAssets((a.data as Asset[]) ?? [])
     setTypes((t.data as EqType[]) ?? [])
     if (s.data?.due_soon_days != null) setDueSoonDays(s.data.due_soon_days)
+    setReportManagerIds((s.data as { report_manager_ids?: string[] } | null)?.report_manager_ids ?? [])
     const locList = loc.data?.value as string[] | undefined
     setLocations(Array.isArray(locList) && locList.length ? locList : [...LOCATIONS] as string[])
     setPmTasks((openT.data as unknown as PMTask[]) ?? [])
@@ -141,11 +148,19 @@ export function PreventiveMaintenancePage() {
           <Wrench className="h-5 w-5 text-[var(--brand-primary)]" />
           <h1 className="text-lg font-bold text-gray-900">{tr.pm.scheduler}</h1>
         </div>
-        {canManage && (
-          <button onClick={() => setEditor('new')} className="flex items-center gap-1.5 bg-[var(--brand-primary)] text-white text-sm font-medium px-3 py-2 rounded-lg">
-            <Plus className="h-4 w-4" />{tr.pm.addAsset}
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {canSeeReport && (
+            <button onClick={() => setShowReport(true)}
+              className="flex items-center gap-1.5 border border-[var(--brand-primary)] text-[var(--brand-primary)] text-sm font-medium px-3 py-2 rounded-lg hover:bg-[var(--brand-primary)]/5">
+              <FileBarChart className="h-4 w-4" />{tr.pmReport.button}
+            </button>
+          )}
+          {canManage && (
+            <button onClick={() => setEditor('new')} className="flex items-center gap-1.5 bg-[var(--brand-primary)] text-white text-sm font-medium px-3 py-2 rounded-lg">
+              <Plus className="h-4 w-4" />{tr.pm.addAsset}
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Summary — asset health (filters the list) + task activity (scrolls to its list below) */}
@@ -320,6 +335,10 @@ export function PreventiveMaintenancePage() {
       {editor && companyId && (
         <AssetEditor companyId={companyId} types={types} locations={locations} asset={editor === 'new' ? null : editor}
           onClose={() => setEditor(null)} onSaved={() => { setEditor(null); load() }} />
+      )}
+
+      {showReport && (
+        <PMReport companyName={activeCompany?.org_title || activeCompany?.name || ''} onClose={() => setShowReport(false)} />
       )}
     </div>
   )

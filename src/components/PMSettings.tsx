@@ -3,17 +3,20 @@ import { SlidersHorizontal, Loader2, Check, Search, X, ChevronDown } from 'lucid
 import { supabase } from '@/lib/supabase'
 import { useCompany } from '@/contexts/CompanyContext'
 import { useLanguage } from '@/contexts/LanguageContext'
+import { DEPARTMENT_LABELS, type Department } from '@/types'
 import { toast } from 'sonner'
 
 interface PMSettingsRow {
   require_approval: boolean; due_soon_days: number; escalate_enabled: boolean; escalate_days: number
   notify_engineering: boolean; engineering_excluded_assets: string[]
+  report_manager_ids: string[]
 }
 const DEFAULTS: PMSettingsRow = {
   require_approval: true, due_soon_days: 7, escalate_enabled: true, escalate_days: 3,
-  notify_engineering: false, engineering_excluded_assets: [],
+  notify_engineering: false, engineering_excluded_assets: [], report_manager_ids: [],
 }
 interface AssetRow { id: string; name: string; type?: { name: string } | null }
+interface ManagerRow { id: string; full_name: string; department: string | null }
 
 export function PMSettings() {
   const { activeCompany } = useCompany()
@@ -21,6 +24,7 @@ export function PMSettings() {
   const companyId = activeCompany?.id ?? null
   const [s, setS] = useState<PMSettingsRow>(DEFAULTS)
   const [assets, setAssets] = useState<AssetRow[]>([])
+  const [managers, setManagers] = useState<ManagerRow[]>([])
   const [assetSearch, setAssetSearch] = useState('')
   const [excludeOpen, setExcludeOpen] = useState(false)  // collapsed by default
   const [loading, setLoading] = useState(true)
@@ -29,9 +33,10 @@ export function PMSettings() {
   const load = useCallback(async () => {
     if (!companyId) return
     setLoading(true)
-    const [settingsRes, assetsRes] = await Promise.all([
+    const [settingsRes, assetsRes, managersRes] = await Promise.all([
       supabase.from('kaizen_pm_settings').select('*').eq('company_id', companyId).maybeSingle(),
       supabase.from('kaizen_pm_assets').select('id, name, type:kaizen_pm_equipment_types(name)').eq('company_id', companyId).eq('is_active', true).order('name'),
+      supabase.from('kaizen_profiles').select('id, full_name, department').eq('company_id', companyId).eq('role', 'manager').eq('is_active', true).is('deleted_at', null).order('full_name'),
     ])
     const data = settingsRes.data
     if (data) setS({
@@ -39,8 +44,10 @@ export function PMSettings() {
       escalate_enabled: data.escalate_enabled, escalate_days: data.escalate_days,
       notify_engineering: data.notify_engineering ?? false,
       engineering_excluded_assets: data.engineering_excluded_assets ?? [],
+      report_manager_ids: data.report_manager_ids ?? [],
     })
     setAssets((assetsRes.data as unknown as AssetRow[]) ?? [])
+    setManagers((managersRes.data as unknown as ManagerRow[]) ?? [])
     setLoading(false)
   }, [companyId])
   useEffect(() => { load() }, [load])
@@ -59,6 +66,12 @@ export function PMSettings() {
     const next = new Set(excluded)
     next.has(id) ? next.delete(id) : next.add(id)
     setS({ ...s, engineering_excluded_assets: [...next] })
+  }
+  const reportManagers = new Set(s.report_manager_ids)
+  function toggleReportManager(id: string) {
+    const next = new Set(reportManagers)
+    next.has(id) ? next.delete(id) : next.add(id)
+    setS({ ...s, report_manager_ids: [...next] })
   }
   const filteredAssets = assetSearch.trim()
     ? assets.filter(a => `${a.name} ${a.type?.name ?? ''}`.toLowerCase().includes(assetSearch.toLowerCase()))
@@ -168,6 +181,33 @@ export function PMSettings() {
                 ))}
               </div>
             )}
+          </div>
+
+          {/* ── PMS Report access — which managers may open the PM report ── */}
+          <div className="pt-2 border-t border-gray-100">
+            <p className="text-sm font-medium text-gray-800">
+              {lang === 'th' ? 'สิทธิ์เข้าถึงรายงาน PM' : 'PMS Report access'}
+            </p>
+            <p className="text-xs text-gray-500 mt-0.5">
+              {lang === 'th'
+                ? 'เลือกผู้จัดการที่สามารถเปิดรายงานการบำรุงรักษาเชิงป้องกันได้ ผู้บริหารระดับสูงเข้าถึงได้เสมอโดยอัตโนมัติ'
+                : 'Choose which managers can open the Preventive Maintenance report. Top Management always has access implicitly.'}
+            </p>
+            <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50/60 p-3">
+              {managers.length === 0 ? (
+                <p className="text-[11px] text-gray-400 py-1">{lang === 'th' ? 'ยังไม่มีผู้จัดการในบริษัทนี้' : 'No managers in this company yet.'}</p>
+              ) : (
+                <div className="max-h-48 overflow-y-auto space-y-0.5 pr-1">
+                  {managers.map((m) => (
+                    <label key={m.id} className={`flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer text-xs ${reportManagers.has(m.id) ? 'bg-[var(--brand-primary)]/10' : 'hover:bg-white'}`}>
+                      <input type="checkbox" checked={reportManagers.has(m.id)} onChange={() => toggleReportManager(m.id)} className="h-3.5 w-3.5 flex-shrink-0 accent-[var(--brand-primary)]" />
+                      <span className="flex-1 min-w-0 truncate text-gray-800">{m.full_name}</span>
+                      {m.department && <span className="text-[10px] text-gray-400 flex-shrink-0">{DEPARTMENT_LABELS[m.department as Department] ?? m.department}</span>}
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
 
           <button onClick={save} disabled={busy} className="flex items-center gap-1.5 bg-[var(--brand-primary)] text-white text-sm font-medium px-4 h-9 rounded-lg disabled:opacity-50">
