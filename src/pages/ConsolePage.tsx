@@ -748,7 +748,7 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
             {PACKAGES.map((p) => {
               const active = c.plan === p.key
               return (
-                <button key={p.key} onClick={() => patch({ plan: p.key }, 'plan')} disabled={busy === 'plan'}
+                <button key={p.key} onClick={() => { if (!active && confirm(`Change ${c.name}'s package to ${p.label}?`)) patch({ plan: p.key }, 'plan') }} disabled={busy === 'plan'}
                   className={`rounded-lg border px-2 py-2 text-left transition-colors ${active ? packageBadgeCls(p.key) : 'border-slate-700 text-slate-400 hover:border-slate-600'}`}>
                   <div className="flex items-center gap-1">
                     {p.key === 'premium' && <Crown className="h-3 w-3" />}

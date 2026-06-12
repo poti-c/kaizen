@@ -55,8 +55,11 @@ export function TrialBanner() {
 
   // Only the people who'd actually subscribe need to see this.
   if (!profile || (profile.role !== 'super_admin' && profile.role !== 'manager')) return null
-  const company = activeCompany as { plan?: string | null; created_at?: string | null } | null
+  const company = activeCompany as { plan?: string | null; created_at?: string | null; subscription_end?: string | null } | null
   if (!company || company.plan !== 'trial' || !company.created_at) return null
+  // Safety net: a company with a live paid subscription is not on trial, even
+  // if the plan field is momentarily inconsistent — never nag a paying client.
+  if (company.subscription_end && new Date(company.subscription_end + 'T23:59:59') >= new Date()) return null
 
   const start = new Date(String(company.created_at).slice(0, 10) + 'T00:00:00')
   const end = new Date(start); end.setDate(start.getDate() + TRIAL_DAYS)
@@ -73,13 +76,13 @@ export function TrialBanner() {
 
   const msg = (() => {
     if (lang === 'th') {
-      if (expired) return 'แพ็กเกจ Starter ของคุณสิ้นสุดแล้ว — อัปเกรดเป็น Gold หรือ Premium เพื่อใช้งานต่อ เรายินดีดูแลคุณเสมอ'
-      if (urgent) return `แพ็กเกจ Starter ของคุณเหลืออีก ${daysLeft} วัน — อัปเกรดเป็น Gold หรือ Premium เพื่อให้ทุกอย่างราบรื่น เรายินดีช่วยเหลือ`
-      return `คุณกำลังใช้แพ็กเกจ Starter — มีเวลา ${daysLeft} วันในการสำรวจฟีเจอร์ทั้งหมดของ Kaizen System อัปเกรดเป็น Gold หรือ Premium ได้ทุกเมื่อที่พร้อม`
+      if (expired) return 'แพ็กเกจ Starter ของคุณสิ้นสุดแล้ว — อัปเกรดเป็นแพ็กเกจ Gold หรือ Premium เพื่อใช้งานต่อ เรายินดีดูแลคุณเสมอ'
+      if (urgent) return `แพ็กเกจ Starter ของคุณเหลืออีก ${daysLeft} วัน — อัปเกรดเป็นแพ็กเกจ Gold หรือ Premium เพื่อให้ทุกอย่างราบรื่น เรายินดีช่วยเหลือ`
+      return `คุณกำลังใช้แพ็กเกจ Starter — มีเวลา ${daysLeft} วันในการสำรวจฟีเจอร์ทั้งหมดของ Kaizen System อัปเกรดเป็นแพ็กเกจ Gold หรือ Premium ได้ทุกเมื่อที่พร้อม`
     }
-    if (expired) return "Your Starter plan has ended — upgrade to Gold or Premium to continue. We'd love to keep serving you."
-    if (urgent) return `Your Starter plan has ${daysLeft} day${daysLeft === 1 ? '' : 's'} remaining — upgrade to Gold or Premium to keep everything running smoothly. We're happy to help.`
-    return `You're on the Starter plan — ${daysLeft} days to explore everything Kaizen System offers. Upgrade to Gold or Premium whenever you're ready.`
+    if (expired) return "Your Starter plan has ended — upgrade to the Gold or Premium Package to continue. We'd love to keep serving you."
+    if (urgent) return `Your Starter plan has ${daysLeft} day${daysLeft === 1 ? '' : 's'} remaining — upgrade to the Gold or Premium Package to keep everything running smoothly. We're happy to help.`
+    return `You're on the Starter plan — ${daysLeft} days to explore everything Kaizen System offers. Upgrade to the Gold or Premium Package whenever you're ready.`
   })()
 
   return (

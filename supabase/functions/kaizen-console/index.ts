@@ -633,6 +633,9 @@ Deno.serve(async (req) => {
         patch.multi_company = !!pkg.multi_company;
         patch.features = pkg.features ?? {};
       }
+      // A trial has no paid end date — clearing it keeps the client app's
+      // trial banner and the console's subscription state consistent.
+      if (patch.plan === "trial") patch.subscription_end = null;
     }
     if (body.is_active !== undefined) patch.is_active = body.is_active;
     if (body.name !== undefined) patch.name = String(body.name).trim();
