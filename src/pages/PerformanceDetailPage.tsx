@@ -8,7 +8,8 @@ import { useLanguage } from '@/contexts/LanguageContext'
 import { StatusBadge, PriorityBadge } from '@/components/StatusBadge'
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
-import { getInitials, formatDateTime, isSLABreached, activityLabel, companyHasFeature } from '@/lib/utils'
+import { getInitials, formatDateTime, isSLABreached, activityLabel, companyHasFeature, companyHasAddon } from '@/lib/utils'
+import { loadPerfConfig, DEFAULT_PERF_CONFIG, type PerfConfig } from '@/lib/perfConfig'
 import { cn } from '@/lib/utils'
 import { usePresence } from '@/contexts/PresenceContext'
 import { DEPARTMENT_LABELS } from '@/types'
@@ -34,6 +35,9 @@ export function PerformanceDetailPage() {
   const [reopenedIds, setReopenedIds] = useState<Set<string>>(new Set())  // scoring-caseload case ids EVER reopened (durable, from timeline)
   const [activity, setActivity] = useState<(KaizenCaseTimeline & { case_number?: string; case_title?: string })[]>([])
   const [activeDays, setActiveDays] = useState(0)                 // distinct active days in last 30
+  const [cfg, setCfg] = useState<PerfConfig>(DEFAULT_PERF_CONFIG) // configurable indicator weights
+  const [pmsValue, setPmsValue] = useState<number | null>(null)   // PMS on-time completion % (null = no relevant tasks)
+  const [rrValue, setRrValue] = useState<number | null>(null)     // RR on-time fulfilment % (null = none acted on)
   const [loading, setLoading] = useState(true)
   const [openInfo, setOpenInfo] = useState<string | null>(null)  // which indicator's explainer is open
 
@@ -83,6 +87,81 @@ export function PerformanceDetailPage() {
     } else {
       setReopenedIds(new Set())
     }
+
+    // ── Configurable scoring: load weights + optional PMS / RR reliability ──
+    const perfCfg = await loadPerfConfig(activeCompany?.id)
+    setCfg(perfCfg)
+
+    // PMS reliability: on-time completion %. Staff = own tasks; manager = dept-wide.
+    // Mirrors the all-time window the scoring caseload uses.
+    if (perfCfg.includePms && companyHasAddon(activeCompany, 'pms')) {
+      let pmRows: { status: string; due_date: string; performed_at: string | null }[] = []
+      if (u.role === 'manager') {
+        const { data } = await supabase
+          .from('kaizen_pm_tasks')
+          .select('status, due_date, performed_at, asset:kaizen_pm_assets!inner(department)')
+          .eq('company_id', companyId)
+          .eq('asset.department', u.department)
+        pmRows = (data || []) as typeof pmRows
+      } else {
+        const { data } = await supabase
+          .from('kaizen_pm_tasks')
+          .select('status, due_date, performed_at')
+          .eq('company_id', companyId)
+          .or(`performed_by.eq.${userId},assigned_to.eq.${userId}`)
+        pmRows = (data || []) as typeof pmRows
+      }
+      const relevant = pmRows.filter(r => r.status !== 'cancelled')
+      if (relevant.length) {
+        const onTimeDone = relevant.filter(r =>
+          (r.status === 'done' || r.status === 'approved') &&
+          r.performed_at != null &&
+          r.performed_at.slice(0, 10) <= r.due_date  // due_date is a date; on-time means performed by end of that day
+        ).length
+        setPmsValue(Math.round((onTimeDone / relevant.length) * 100))
+      } else {
+        setPmsValue(null)
+      }
+    } else {
+      setPmsValue(null)
+    }
+
+    // RR reliability: on-time fulfilment %. Staff = orders this user acted on;
+    // manager = dept-wide orders (request or fulfill department).
+    if (perfCfg.includeRr && companyHasAddon(activeCompany, 'routine_roster')) {
+      let rrRows: { status: string; due_at: string | null; delivered_at: string | null; confirmed_at: string | null }[] = []
+      const rrSel = 'status, due_at, delivered_at, confirmed_at'
+      if (u.role === 'manager') {
+        const { data } = await supabase
+          .from('kaizen_rr_orders')
+          .select(rrSel)
+          .eq('company_id', companyId)
+          .neq('status', 'cancelled')
+          .or(`request_department.eq.${u.department},fulfill_department.eq.${u.department}`)
+        rrRows = (data || []) as typeof rrRows
+      } else {
+        const { data } = await supabase
+          .from('kaizen_rr_orders')
+          .select(rrSel)
+          .eq('company_id', companyId)
+          .neq('status', 'cancelled')
+          .or(`sent_by.eq.${userId},accepted_by.eq.${userId},delivered_by.eq.${userId},confirmed_by.eq.${userId}`)
+        rrRows = (data || []) as typeof rrRows
+      }
+      if (rrRows.length) {
+        const onTime = rrRows.filter(r => {
+          if (r.status !== 'delivered' && r.status !== 'confirmed') return false
+          const ts = r.confirmed_at ?? r.delivered_at
+          return !!r.due_at && !!ts && new Date(ts).getTime() <= new Date(r.due_at).getTime()
+        }).length
+        setRrValue(Math.round((onTime / rrRows.length) * 100))
+      } else {
+        setRrValue(null)
+      }
+    } else {
+      setRrValue(null)
+    }
+
     setLoading(false)
   }
 
@@ -253,12 +332,18 @@ export function PerformanceDetailPage() {
           const overdueRate = teamTotal ? (scOverdue.length / teamTotal) * 100 : 0
           const leadershipScore = teamTotal ? Math.round(((100 - reopenRate) + (100 - overdueRate)) / 2) : null
           criteria = [
-            { key: 'approval', label: t.perf.approval, value: approvalScore, weight: 25, color: '#3b82f6', note: approved.length ? `~${formatRes(avgApprovalH)} ${t.perf.avg}` : t.perf.noApprovals, info: t.perf.approvalInfo },
-            { key: 'teamres', label: t.perf.teamRes, value: teamResRate, weight: 20, color: '#22c55e', note: `${scClosed.length}/${teamTotal} ${t.perf.closed}`, info: t.perf.teamResInfo },
-            { key: 'teamsla', label: t.perf.teamSla, value: teamSlaScore, weight: 20, color: '#0ea5e9', note: `${scOverdue.length} ${t.perf.overdue}`, info: t.perf.teamSlaInfo },
-            { key: 'leadership', label: t.perf.leadership, value: leadershipScore, weight: 20, color: '#a855f7', note: `${reopenedCount} ${t.perf.reopened}`, info: t.perf.leadershipInfo },
-            { key: 'engagement', label: t.perf.oversight, value: engagementScore, weight: 15, color: '#f59e0b', note: engagementNote, info: t.perf.oversightInfo },
+            { key: 'approval', label: t.perf.approval, value: approvalScore, weight: cfg.manager.approval, color: '#3b82f6', note: approved.length ? `~${formatRes(avgApprovalH)} ${t.perf.avg}` : t.perf.noApprovals, info: t.perf.approvalInfo },
+            { key: 'teamres', label: t.perf.teamRes, value: teamResRate, weight: cfg.manager.teamres, color: '#22c55e', note: `${scClosed.length}/${teamTotal} ${t.perf.closed}`, info: t.perf.teamResInfo },
+            { key: 'teamsla', label: t.perf.teamSla, value: teamSlaScore, weight: cfg.manager.teamsla, color: '#0ea5e9', note: `${scOverdue.length} ${t.perf.overdue}`, info: t.perf.teamSlaInfo },
+            { key: 'leadership', label: t.perf.leadership, value: leadershipScore, weight: cfg.manager.leadership, color: '#a855f7', note: `${reopenedCount} ${t.perf.reopened}`, info: t.perf.leadershipInfo },
+            { key: 'engagement', label: t.perf.oversight, value: engagementScore, weight: cfg.manager.oversight, color: '#f59e0b', note: engagementNote, info: t.perf.oversightInfo },
           ]
+          if (cfg.includePms && companyHasAddon(activeCompany, 'pms')) {
+            criteria.push({ key: 'pms', label: t.perf.pmsScore, value: pmsValue, weight: cfg.manager.pms, color: '#14b8a6', note: '', info: t.perf.pmsScoreInfo })
+          }
+          if (cfg.includeRr && companyHasAddon(activeCompany, 'routine_roster')) {
+            criteria.push({ key: 'rr', label: t.perf.rrScore, value: rrValue, weight: cfg.manager.rr, color: '#f97316', note: '', info: t.perf.rrScoreInfo })
+          }
         } else {
           const total = sc.length
           const resRate = total ? Math.round((scClosed.length / total) * 100) : null
@@ -270,12 +355,18 @@ export function PerformanceDetailPage() {
           // Quality = share of completed work that did NOT bounce back (ever reopened).
           const qualityScore = completedEver ? Math.max(0, Math.round(100 - (reopenedCount / completedEver) * 100)) : null
           criteria = [
-            { key: 'resolution', label: t.perf.resolutionRate, value: resRate, weight: 30, color: '#22c55e', note: `${scClosed.length}/${total} ${t.perf.closed}`, info: t.perf.resolutionRateInfo },
-            { key: 'ontime', label: t.perf.onTime, value: onTime, weight: 25, color: '#3b82f6', note: `${scOverdue.length} ${t.perf.overdue}`, info: t.perf.onTimeInfo },
-            { key: 'speed', label: t.perf.speed, value: speedScore, weight: 15, color: '#0ea5e9', note: avgResH != null ? `${formatRes(avgResH)} ${t.perf.avg}` : t.perf.noClosed, info: t.perf.speedInfo },
-            { key: 'quality', label: t.perf.quality, value: qualityScore, weight: 10, color: '#a855f7', note: `${reopenedCount} ${t.perf.reopened}`, info: t.perf.qualityInfo },
-            { key: 'engagement', label: t.perf.engagement, value: engagementScore, weight: 20, color: '#f59e0b', note: engagementNote, info: t.perf.engagementInfo },
+            { key: 'resolution', label: t.perf.resolutionRate, value: resRate, weight: cfg.staff.resolution, color: '#22c55e', note: `${scClosed.length}/${total} ${t.perf.closed}`, info: t.perf.resolutionRateInfo },
+            { key: 'ontime', label: t.perf.onTime, value: onTime, weight: cfg.staff.ontime, color: '#3b82f6', note: `${scOverdue.length} ${t.perf.overdue}`, info: t.perf.onTimeInfo },
+            { key: 'speed', label: t.perf.speed, value: speedScore, weight: cfg.staff.speed, color: '#0ea5e9', note: avgResH != null ? `${formatRes(avgResH)} ${t.perf.avg}` : t.perf.noClosed, info: t.perf.speedInfo },
+            { key: 'quality', label: t.perf.quality, value: qualityScore, weight: cfg.staff.quality, color: '#a855f7', note: `${reopenedCount} ${t.perf.reopened}`, info: t.perf.qualityInfo },
+            { key: 'engagement', label: t.perf.engagement, value: engagementScore, weight: cfg.staff.engagement, color: '#f59e0b', note: engagementNote, info: t.perf.engagementInfo },
           ]
+          if (cfg.includePms && companyHasAddon(activeCompany, 'pms')) {
+            criteria.push({ key: 'pms', label: t.perf.pmsScore, value: pmsValue, weight: cfg.staff.pms, color: '#14b8a6', note: '', info: t.perf.pmsScoreInfo })
+          }
+          if (cfg.includeRr && companyHasAddon(activeCompany, 'routine_roster')) {
+            criteria.push({ key: 'rr', label: t.perf.rrScore, value: rrValue, weight: cfg.staff.rr, color: '#f97316', note: '', info: t.perf.rrScoreInfo })
+          }
         }
 
         const scored = criteria.filter(c => c.value != null)

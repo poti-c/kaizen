@@ -7,6 +7,7 @@ import { useCompany } from '@/contexts/CompanyContext'
 import { useLanguage } from '@/contexts/LanguageContext'
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
 import { getInitials, isSLABreached, companyHasAddon } from '@/lib/utils'
+import { loadPerfConfig, DEFAULT_PERF_CONFIG, type PerfConfig } from '@/lib/perfConfig'
 import { DEPARTMENT_LABELS } from '@/types'
 import type { KaizenCase, KaizenProfile, Department } from '@/types'
 import { differenceInHours } from 'date-fns'
@@ -42,6 +43,7 @@ export function PerformancePage() {
   const [cases, setCases] = useState<KaizenCase[]>([])
   const [people, setPeople] = useState<KaizenProfile[]>([])
   const [pmTasks, setPmTasks] = useState<{ status: string; due_date: string; performed_at: string | null }[]>([])
+  const [cfg, setCfg] = useState<PerfConfig>(DEFAULT_PERF_CONFIG)
   const [loading, setLoading] = useState(true)
   const pmsEnabled = companyHasAddon(activeCompany, 'pms')
   const [range, setRange] = useState<RangeKey>(() => {
@@ -66,6 +68,7 @@ export function PerformancePage() {
     ])
     setCases((casesRes.data || []) as KaizenCase[])
     setPeople((peopleRes.data || []) as KaizenProfile[])
+    setCfg(await loadPerfConfig(companyFilter))
     if (companyHasAddon(activeCompany, 'pms')) {
       const { data: pm } = await supabase.from('kaizen_pm_tasks').select('status, due_date, performed_at').eq('company_id', companyFilter!)
       setPmTasks((pm || []) as { status: string; due_date: string; performed_at: string | null }[])
@@ -163,8 +166,19 @@ export function PerformancePage() {
       const overdue = reported.filter((c) => isSLABreached(c)).length
       const resolutionRate = reported.length > 0 ? Math.round((closedReported.length / reported.length) * 100) : 0
       const onTime = reported.length > 0 ? Math.round(((reported.length - overdue) / reported.length) * 100) : 100
-      // weighted score: resolution 50% + on-time 50% (only meaningful with activity)
-      const score = reported.length === 0 ? 0 : Math.round(resolutionRate * 0.5 + onTime * 0.5)
+      // Lightweight leaderboard score: the two indicators we have (resolution +
+      // on-time), weighted by the configured STAFF weights, normalized over just
+      // those two. Falls back to 50/50 if both weights are zero. The full,
+      // multi-indicator model (incl. PMS/RR) lives on the detail page — per-person
+      // PMS/RR data is too heavy to fetch for the whole leaderboard here.
+      const wRes = cfg.staff.resolution
+      const wOn = cfg.staff.ontime
+      const wSum = wRes + wOn
+      const score = reported.length === 0
+        ? 0
+        : wSum > 0
+          ? Math.round((resolutionRate * wRes + onTime * wOn) / wSum)
+          : Math.round(resolutionRate * 0.5 + onTime * 0.5)
       return {
         id: p.id,
         name: p.full_name,
@@ -180,7 +194,7 @@ export function PerformancePage() {
     return rows
       .filter((r) => r.reported > 0 || r.resolved > 0)
       .sort((a, b) => b.score - a.score || b.reported - a.reported)
-  }, [people, visibleCases, isManager, profile])
+  }, [people, visibleCases, isManager, profile, cfg])
 
   function fmtRes(h: number | null) {
     if (h === null) return '—'

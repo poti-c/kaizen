@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Eye, EyeOff, Loader2, Palette, Lock, Info, Scale, Pencil, Check, X, Bell, BellOff, BellRing, Plus, Trash2, Building2, AlertTriangle, LifeBuoy, HelpCircle, MessageSquare, Smartphone, Mail, ChevronRight, ChevronDown, UserX, Camera, Sparkles, Wrench } from 'lucide-react'
+import { Eye, EyeOff, Loader2, Palette, Lock, Info, Scale, Pencil, Check, X, Bell, BellOff, BellRing, Plus, Trash2, Building2, AlertTriangle, LifeBuoy, HelpCircle, MessageSquare, Smartphone, Mail, ChevronRight, ChevronDown, UserX, Camera, Sparkles, Wrench, SlidersHorizontal } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useCompany } from '@/contexts/CompanyContext'
@@ -16,6 +16,7 @@ import { CATEGORIES, LOCATIONS, getInitials, companyHasFeature, companyHasAddon 
 import { PMEquipmentTypes } from '@/components/PMEquipmentTypes'
 import { PMSettings } from '@/components/PMSettings'
 import { CollapsibleCard } from '@/components/CollapsibleCard'
+import { loadPerfConfig, DEFAULT_PERF_CONFIG, type PerfConfig, type StaffWeightKey, type ManagerWeightKey } from '@/lib/perfConfig'
 import { toast } from 'sonner'
 import { usePushNotifications } from '@/hooks/usePushNotifications'
 
@@ -823,6 +824,13 @@ export function SettingsPage() {
         </CollapsibleCard>
       )}
 
+      {/* ── Performance Scoring — Top Management only ── */}
+      {profile?.role === 'super_admin' && (
+        <CollapsibleCard icon={SlidersHorizontal} title={t.settings.scoringTitle}>
+          <PerfScoringSettings />
+        </CollapsibleCard>
+      )}
+
       {/* Theme settings — super admin only, and only if the package includes it */}
       {profile?.role === 'super_admin' && companyHasFeature(activeCompany, 'custom_theme') && (
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
@@ -1417,6 +1425,204 @@ function EditableListCard({
           <Plus className="h-4 w-4" />
         </Button>
       </div>
+    </div>
+  )
+}
+
+// ── PerfScoringSettings ──────────────────────────────────────────────────────
+// Top Management adjusts the relative weight of each performance indicator, and
+// optionally folds in PMS / Routine Roster reliability. Persists per company in
+// kaizen_settings under key 'perf_config' (mirrors the custom_* save pattern).
+
+type WeightRow<K extends string> = { key: K; label: string }
+
+function PerfScoringSettings() {
+  const { profile } = useAuth()
+  const { activeCompany } = useCompany()
+  const { t } = useLanguage()
+  const companyId = activeCompany?.id ?? profile?.company_id ?? null
+
+  const [config, setConfig] = React.useState<PerfConfig>(DEFAULT_PERF_CONFIG)
+  const [loading, setLoading] = React.useState(true)
+  const [saving, setSaving] = React.useState(false)
+
+  const hasPms = companyHasAddon(activeCompany, 'pms')
+  const hasRr  = companyHasAddon(activeCompany, 'routine_roster')
+
+  React.useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    loadPerfConfig(companyId).then(cfg => { if (!cancelled) { setConfig(cfg); setLoading(false) } })
+    return () => { cancelled = true }
+  }, [companyId])
+
+  const staffRows: WeightRow<StaffWeightKey>[] = [
+    { key: 'resolution', label: t.perf.resolutionRate },
+    { key: 'ontime',     label: t.perf.onTime },
+    { key: 'speed',      label: t.perf.speed },
+    { key: 'quality',    label: t.perf.quality },
+    { key: 'engagement', label: t.perf.engagement },
+    ...(config.includePms && hasPms ? [{ key: 'pms' as StaffWeightKey, label: t.perf.pmsScore }] : []),
+    ...(config.includeRr && hasRr ? [{ key: 'rr' as StaffWeightKey, label: t.perf.rrScore }] : []),
+  ]
+  const managerRows: WeightRow<ManagerWeightKey>[] = [
+    { key: 'approval',   label: t.perf.approval },
+    { key: 'teamres',    label: t.perf.teamRes },
+    { key: 'teamsla',    label: t.perf.teamSla },
+    { key: 'leadership', label: t.perf.leadership },
+    { key: 'oversight',  label: t.perf.oversight },
+    ...(config.includePms && hasPms ? [{ key: 'pms' as ManagerWeightKey, label: t.perf.pmsScore }] : []),
+    ...(config.includeRr && hasRr ? [{ key: 'rr' as ManagerWeightKey, label: t.perf.rrScore }] : []),
+  ]
+
+  function share(weights: number[], w: number): string {
+    const sum = weights.reduce((s, x) => s + x, 0)
+    return sum > 0 ? `${Math.round((w / sum) * 100)}%` : '0%'
+  }
+
+  function setStaffWeight(key: StaffWeightKey, value: number) {
+    setConfig(c => ({ ...c, staff: { ...c.staff, [key]: value } }))
+  }
+  function setManagerWeight(key: ManagerWeightKey, value: number) {
+    setConfig(c => ({ ...c, manager: { ...c.manager, [key]: value } }))
+  }
+
+  async function persist(cfg: PerfConfig) {
+    if (!companyId) return
+    setSaving(true)
+    const { error } = await supabase
+      .from('kaizen_settings')
+      .upsert({ key: 'perf_config', value: cfg, company_id: companyId, updated_by: profile?.id ?? null }, { onConflict: 'key,company_id' })
+    setSaving(false)
+    if (error) { toast.error(error.message); return }
+    toast.success(t.settings.scoringSaved)
+  }
+
+  function resetDefaults() {
+    const d: PerfConfig = { ...DEFAULT_PERF_CONFIG, staff: { ...DEFAULT_PERF_CONFIG.staff }, manager: { ...DEFAULT_PERF_CONFIG.manager } }
+    setConfig(d)
+    persist(d)
+  }
+
+  if (loading) {
+    return <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-gray-300" /></div>
+  }
+
+  const staffWeights = staffRows.map(r => config.staff[r.key])
+  const managerWeights = managerRows.map(r => config.manager[r.key])
+
+  return (
+    <div className="space-y-5">
+      <p className="text-xs text-gray-400">{t.settings.scoringSubtitle}</p>
+
+      {/* Add-on toggles */}
+      {(hasPms || hasRr) && (
+        <div className="space-y-2">
+          {hasPms && (
+            <ScoringToggle
+              label={t.settings.scoringIncludePms}
+              checked={config.includePms}
+              onChange={(v) => setConfig(c => ({ ...c, includePms: v }))}
+            />
+          )}
+          {hasRr && (
+            <ScoringToggle
+              label={t.settings.scoringIncludeRr}
+              checked={config.includeRr}
+              onChange={(v) => setConfig(c => ({ ...c, includeRr: v }))}
+            />
+          )}
+        </div>
+      )}
+
+      {/* Staff group */}
+      <div>
+        <h3 className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-2">{t.settings.scoringStaffGroup}</h3>
+        <div className="space-y-2">
+          {staffRows.map(row => (
+            <WeightInputRow
+              key={row.key}
+              label={row.label}
+              value={config.staff[row.key]}
+              shareLabel={share(staffWeights, config.staff[row.key])}
+              onChange={(v) => setStaffWeight(row.key, v)}
+            />
+          ))}
+        </div>
+      </div>
+
+      {/* Manager group */}
+      <div>
+        <h3 className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-2">{t.settings.scoringManagerGroup}</h3>
+        <div className="space-y-2">
+          {managerRows.map(row => (
+            <WeightInputRow
+              key={row.key}
+              label={row.label}
+              value={config.manager[row.key]}
+              shareLabel={share(managerWeights, config.manager[row.key])}
+              onChange={(v) => setManagerWeight(row.key, v)}
+            />
+          ))}
+        </div>
+      </div>
+
+      <p className="text-[11px] text-gray-400">{t.settings.scoringWeightHint}</p>
+
+      <div className="flex items-center gap-2">
+        <Button onClick={() => persist(config)} disabled={saving}>
+          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : t.settings.scoringSave}
+        </Button>
+        <Button variant="outline" onClick={resetDefaults} disabled={saving}>
+          {t.settings.scoringReset}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+function WeightInputRow({ label, value, shareLabel, onChange }: {
+  label: string; value: number; shareLabel: string; onChange: (v: number) => void
+}) {
+  return (
+    <div className="flex items-center gap-3">
+      <span className="flex-1 text-sm text-gray-700 truncate">{label}</span>
+      <span className="text-xs font-medium text-[var(--brand-primary)] w-12 text-right tabular-nums">= {shareLabel}</span>
+      <Input
+        type="number"
+        min={0}
+        max={100}
+        step={1}
+        value={value}
+        onChange={(e) => {
+          const n = Math.max(0, Math.min(100, Math.round(Number(e.target.value) || 0)))
+          onChange(n)
+        }}
+        className="h-8 w-20 text-sm text-right"
+      />
+    </div>
+  )
+}
+
+function ScoringToggle({ label, checked, onChange }: {
+  label: string; checked: boolean; onChange: (v: boolean) => void
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span className="text-sm text-gray-700">{label}</span>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        onClick={() => onChange(!checked)}
+        className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors duration-200 focus:outline-none ${
+          checked ? 'bg-[var(--brand-primary)]' : 'bg-gray-200'
+        }`}
+      >
+        <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform duration-200 ${
+          checked ? 'translate-x-6' : 'translate-x-1'
+        }`} />
+      </button>
     </div>
   )
 }
