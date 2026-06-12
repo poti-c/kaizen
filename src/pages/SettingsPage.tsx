@@ -362,7 +362,11 @@ export function SettingsPage() {
   async function handleSaveTheme() {
     setSavingTheme(true)
     try {
-      await updateSettings({ primary_color: customPrimary, accent_color: customAccent, sidebar_color: customSidebar })
+      // Custom colours only cover primary / accent / sidebar. The page
+      // background (and the dark "console" mode) is reserved for Special
+      // Presets, so applying custom colours always reverts the background to
+      // the basic light canvas.
+      await updateSettings({ primary_color: customPrimary, accent_color: customAccent, sidebar_color: customSidebar, background_color: '#f9fafb' })
       toast.success(t.settings.themeApplied)
     } catch {
       toast.error(t.settings.failedTheme)
