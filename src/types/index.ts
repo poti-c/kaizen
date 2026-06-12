@@ -152,8 +152,16 @@ export interface KaizenNotification {
 }
 
 // ── Routine Roster (daily recurring inter-department orders) ────────────────
-export type RrOrderType = 'bulk' | 'per_room'
+export type RrOrderType = 'bulk' | 'per_room' | 'per_room_variants'
 export type RrOrderStatus = 'pending' | 'sent' | 'accepted' | 'delivered' | 'confirmed' | 'cancelled'
+export type RrPicMode = 'department' | 'users'
+
+/** A selectable variant for per-room-with-variants routines (e.g. V1/V2/V3). */
+export interface RrVariant {
+  code: string
+  label: string
+  label_th: string
+}
 
 export interface RrTemplate {
   id: string
@@ -170,6 +178,22 @@ export interface RrTemplate {
   active: boolean
   sort_order: number
   created_at: string
+  // ── order-ahead scheduling ──
+  /** 0 = same-day, 1 = order placed the day before the service date, etc. */
+  lead_days: number
+  /** Evening order window open time (HH:MM[:SS]) when lead_days > 0. */
+  order_open: string | null
+  order_close: string | null
+  /** Reminder time (HH:MM[:SS]) — optional. */
+  remind_at: string | null
+  // ── bulk unit ──
+  /** Bulk unit label, e.g. "gallon". */
+  unit_label: string | null
+  // ── per-room variants ──
+  variants: RrVariant[] | null
+  // ── person in charge (request side) ──
+  pic_mode: RrPicMode
+  pic_ids: string[] | null
 }
 
 export interface RrOrder {
@@ -185,6 +209,8 @@ export interface RrOrder {
   quantity: number | null
   note: string | null
   status: RrOrderStatus
+  /** Bulk unit label snapshot, e.g. "gallon". */
+  unit_label: string | null
   due_at: string | null
   sent_by: string | null
   sent_at: string | null
@@ -205,9 +231,30 @@ export interface RrOrderItem {
   company_id: string
   room_no: string
   item_label: string | null
+  /** Variant code (V1/V2/V3) for per-room-with-variants routines. */
+  variant: string | null
   delivered: boolean
   delivered_by: string | null
   delivered_at: string | null
+  created_at: string
+}
+
+/** Acknowledgement-timeline event for an order. */
+export interface RrEvent {
+  id: string
+  company_id: string
+  order_id: string
+  actor_id: string | null
+  action: string
+  detail: string | null
+  created_at: string
+}
+
+export interface RrMute {
+  id: string
+  company_id: string
+  user_id: string
+  template_id: string
   created_at: string
 }
 
