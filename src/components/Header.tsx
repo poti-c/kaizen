@@ -274,7 +274,7 @@ export function Header() {
                 <img src="/kaizen-icon.svg" alt="Kaizen" className="w-10 h-10 object-contain flex-shrink-0" />
                 <div>
                   <p className="text-[#c8a882] font-bold text-base leading-snug">{activeCompany?.org_title || activeCompany?.name || 'Kaizen System'}</p>
-                  <p className="text-white/90 font-semibold text-sm leading-snug tracking-wide">Kaizen System</p>
+                  <p className="text-white/90 font-semibold text-[13px] leading-snug tracking-wide">Kaizen System</p>
                   <p className="text-white/50 text-[11px] leading-snug mt-0.5">{todayLabel}</p>
                 </div>
               </div>
