@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { ChevronLeft, ChevronRight, Wrench } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Wrench, ClipboardList } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useCompany } from '@/contexts/CompanyContext'
 import { useLanguage } from '@/contexts/LanguageContext'
 import { cn, companyHasAddon } from '@/lib/utils'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import type { KaizenCase, Department } from '@/types'
+import type { KaizenCase, Department, RrOrder } from '@/types'
 import { DEPARTMENTS } from '@/types'
 import { PMTaskModal, taskTone, taskStatusKey, type PMTask } from '@/components/pm/PMSchedule'
 
@@ -24,7 +24,16 @@ function isoKey(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 }
 
-type Entry = { kind: 'case'; case: KaizenCase } | { kind: 'pm'; task: PMTask }
+type Entry = { kind: 'case'; case: KaizenCase } | { kind: 'pm'; task: PMTask } | { kind: 'rr'; order: RrOrder }
+
+// Routine-order chip/dot tones by workflow status (matches the roster page pills).
+const RR_TONES: Record<string, { chip: string; dot: string }> = {
+  pending:   { chip: 'bg-gray-100 text-gray-600 border-gray-200',    dot: 'bg-gray-400' },
+  sent:      { chip: 'bg-sky-50 text-sky-700 border-sky-200',        dot: 'bg-sky-500' },
+  accepted:  { chip: 'bg-amber-50 text-amber-700 border-amber-200',  dot: 'bg-amber-500' },
+  delivered: { chip: 'bg-teal-50 text-teal-700 border-teal-200',     dot: 'bg-teal-500' },
+  confirmed: { chip: 'bg-green-50 text-green-700 border-green-200',  dot: 'bg-green-500' },
+}
 
 export function CasesCalendarPage() {
   const { profile } = useAuth()
@@ -37,22 +46,28 @@ export function CasesCalendarPage() {
   const [viewMonth, setViewMonth] = useState(today.getMonth())
   const [cases, setCases] = useState<KaizenCase[]>([])
   const [pmTasks, setPmTasks] = useState<PMTask[]>([])
+  const [rrOrders, setRrOrders] = useState<RrOrder[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedKey, setSelectedKey] = useState<string>(isoKey(today))
   const [deptFilter, setDeptFilter] = useState<Department | 'all'>(
     () => (localStorage.getItem('kaizen-default-dept') as Department | 'all') || 'all'
   )
   const pmEnabled = companyHasAddon(activeCompany, 'pms')
+  const rrEnabled = companyHasAddon(activeCompany, 'routine_roster')
   const [searchParams] = useSearchParams()
   const initialTab = searchParams.get('tab')
-  const [mode, setMode] = useState<'cases' | 'pm' | 'combined'>(
-    pmEnabled && (initialTab === 'pm' || initialTab === 'combined') ? initialTab : 'cases'
-  )
+  const [mode, setMode] = useState<'cases' | 'pm' | 'rr' | 'combined'>(() => {
+    if (pmEnabled && initialTab === 'pm') return 'pm'
+    if (rrEnabled && initialTab === 'rr') return 'rr'
+    if ((pmEnabled || rrEnabled) && initialTab === 'combined') return 'combined'
+    return 'cases'
+  })
   const [openTask, setOpenTask] = useState<PMTask | null>(null)
 
   const MONTH_NAMES = lang === 'th' ? MONTH_NAMES_TH : MONTH_NAMES_EN
   const DAY_LABELS = lang === 'th' ? DAY_LABELS_TH : DAY_LABELS_EN
   const showPmData = pmEnabled && (mode === 'pm' || mode === 'combined')
+  const showRrData = rrEnabled && (mode === 'rr' || mode === 'combined')
   const showCaseData = mode === 'cases' || mode === 'combined'
 
   useEffect(() => {
@@ -86,6 +101,16 @@ export function CasesCalendarPage() {
       })())
     } else { setPmTasks([]) }
 
+    if (showRrData) {
+      jobs.push((async () => {
+        const { data } = await supabase.from('kaizen_rr_orders')
+          .select('*')
+          .eq('company_id', activeCompany.id).neq('status', 'cancelled')
+          .gte('order_date', isoKey(start)).lte('order_date', isoKey(new Date(viewYear, viewMonth + 1, 0)))
+        setRrOrders((data as RrOrder[]) ?? [])
+      })())
+    } else { setRrOrders([]) }
+
     await Promise.all(jobs)
     setLoading(false)
   }
@@ -118,6 +143,7 @@ export function CasesCalendarPage() {
     const k = isoKey(new Date(c.created_at)); (byDay[k] ||= []).push({ kind: 'case', case: c })
   })
   if (showPmData) pmTasks.forEach(tk => { (byDay[tk.due_date] ||= []).push({ kind: 'pm', task: tk }) })
+  if (showRrData) rrOrders.forEach(o => { (byDay[o.order_date] ||= []).push({ kind: 'rr', order: o }) })
 
   function isToday(date: Date) {
     return date.getDate() === today.getDate() && date.getMonth() === today.getMonth() && date.getFullYear() === today.getFullYear()
@@ -126,6 +152,11 @@ export function CasesCalendarPage() {
     if (c.status === 'closed') return 'bg-gray-200 text-gray-500'
     return PRIORITY_COLORS[c.priority] || 'bg-gray-400 text-white'
   }
+
+  const rrStatusLabel = (s: string) => ({
+    pending: t.rr.pending, sent: t.rr.sentStatus, accepted: t.rr.acceptedStatus,
+    delivered: t.rr.deliveredStatus, confirmed: t.rr.confirmedStatus, cancelled: t.rr.cancelledStatus,
+  } as Record<string, string>)[s] ?? s
 
   const showDeptFilter = (profile?.role === 'super_admin' || profile?.role === 'manager') && showCaseData
   const selectedDate = selectedKey ? new Date(selectedKey + 'T00:00:00') : null
@@ -136,10 +167,15 @@ export function CasesCalendarPage() {
       {/* Header */}
       <div className="mb-4 space-y-3">
         <h1 className="text-xl md:text-2xl font-bold text-gray-900">{t.nav.calendar}</h1>
-        {pmEnabled && (
+        {(pmEnabled || rrEnabled) && (
           <div className="flex gap-1 border-b border-gray-200 flex-wrap">
-            {([['cases', t.nav.cases], ['pm', t.nav.maintenance], ['combined', t.calendar.combined]] as const).map(([m, label]) => (
-              <button key={m} onClick={() => setMode(m)}
+            {([
+              ['cases', t.nav.cases] as const,
+              ...(pmEnabled ? [['pm', t.nav.maintenance] as const] : []),
+              ...(rrEnabled ? [['rr', t.calendar.routine] as const] : []),
+              ['combined', t.calendar.combined] as const,
+            ]).map(([m, label]) => (
+              <button key={m} onClick={() => setMode(m as typeof mode)}
                 className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px whitespace-nowrap transition-colors ${mode === m ? 'border-[var(--brand-primary)] text-[var(--brand-primary)]' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
                 {label}
               </button>
@@ -199,14 +235,18 @@ export function CasesCalendarPage() {
                     </span>
                   </div>
                   <div className="space-y-0.5">
-                    {entries.slice(0, 3).map((e, idx) => e.kind === 'case' ? (
+                    {entries.slice(0, 3).map((e) => e.kind === 'case' ? (
                       <button key={'c' + e.case.id} onClick={(ev) => { ev.stopPropagation(); navigate(`/cases/${e.case.id}`) }}
                         className={`w-full text-left px-1.5 py-0.5 rounded text-[10px] font-medium truncate block leading-4 ${caseColor(e.case)} hover:opacity-75`}
                         title={`${e.case.case_number} · ${e.case.title}`}>{e.case.case_number}</button>
-                    ) : (
+                    ) : e.kind === 'pm' ? (
                       <button key={'p' + e.task.id} onClick={(ev) => { ev.stopPropagation(); setOpenTask(e.task) }}
                         className={`w-full text-left px-1.5 py-0.5 rounded border text-[10px] font-medium truncate flex items-center gap-1 leading-4 ${taskTone(e.task).chip}`}
                         title={e.task.asset?.name}><Wrench className="h-2.5 w-2.5 flex-shrink-0" /><span className="truncate">{e.task.asset?.name ?? 'Asset'}</span></button>
+                    ) : (
+                      <button key={'r' + e.order.id} onClick={(ev) => { ev.stopPropagation(); navigate('/routine-roster') }}
+                        className={`w-full text-left px-1.5 py-0.5 rounded border text-[10px] font-medium truncate flex items-center gap-1 leading-4 ${(RR_TONES[e.order.status] ?? RR_TONES.pending).chip}`}
+                        title={e.order.title}><ClipboardList className="h-2.5 w-2.5 flex-shrink-0" /><span className="truncate">{e.order.title}</span></button>
                     ))}
                     {entries.length > 3 && <p className="text-[10px] text-gray-400 pl-1 leading-4">+{entries.length - 3} {t.calendar.more}</p>}
                   </div>
@@ -235,12 +275,20 @@ export function CasesCalendarPage() {
                     <p className="text-xs text-gray-400">{e.case.case_number} · {e.case.department}</p>
                   </div>
                 </div>
-              ) : (
+              ) : e.kind === 'pm' ? (
                 <button key={'p' + e.task.id} onClick={() => setOpenTask(e.task)} className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 text-left">
                   <span className={cn('w-2.5 h-2.5 rounded-full flex-shrink-0', taskTone(e.task).dot)} />
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-gray-900 truncate flex items-center gap-1.5"><Wrench className="h-3 w-3 text-gray-400" />{e.task.asset?.name ?? 'Maintenance'}</p>
                     <p className="text-xs text-gray-400">{t.pm[taskStatusKey(e.task)]}{e.task.asset?.location ? ` · ${e.task.asset.location}` : ''}</p>
+                  </div>
+                </button>
+              ) : (
+                <button key={'r' + e.order.id} onClick={() => navigate('/routine-roster')} className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 text-left">
+                  <span className={cn('w-2.5 h-2.5 rounded-full flex-shrink-0', (RR_TONES[e.order.status] ?? RR_TONES.pending).dot)} />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-900 truncate flex items-center gap-1.5"><ClipboardList className="h-3 w-3 text-gray-400" />{e.order.title}{e.order.item_label ? ` · ${e.order.item_label}` : ''}</p>
+                    <p className="text-xs text-gray-400">{rrStatusLabel(e.order.status)}</p>
                   </div>
                 </button>
               ))}
@@ -269,6 +317,16 @@ export function CasesCalendarPage() {
             <Legend color="bg-violet-500" label={t.pm.awaitingApproval} />
             <Legend color="bg-red-500" label={t.pm.overdue} />
             <Legend color="bg-green-500" label={t.pm.done} />
+          </div>
+        )}
+        {showRrData && (
+          <div className={`flex items-center gap-4 flex-wrap ${showCaseData || showPmData ? 'border-t border-gray-200 pt-2' : ''}`}>
+            <span className="text-xs text-gray-400 font-medium">{t.calendar.rrStatus}</span>
+            <Legend color="bg-gray-400" label={t.rr.pending} />
+            <Legend color="bg-sky-500" label={t.rr.sentStatus} />
+            <Legend color="bg-amber-500" label={t.rr.acceptedStatus} />
+            <Legend color="bg-teal-500" label={t.rr.deliveredStatus} />
+            <Legend color="bg-green-500" label={t.rr.confirmedStatus} />
           </div>
         )}
       </div>

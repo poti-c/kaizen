@@ -230,6 +230,7 @@ const en = {
     today: 'Today', more: 'more', priorityLabel: 'Priority:',
     casesCalendar: 'Cases Calendar',
     combined: 'Combined', casePriority: 'Case Priority:', pmStatus: 'PM Status:',
+    routine: 'Routine', rrStatus: 'Routine Status:',
     noMaintenance: 'No maintenance scheduled.', nothingDay: 'Nothing on this day.',
   },
   pm: {
@@ -579,6 +580,7 @@ const th: Translations = {
     today: 'วันนี้', more: 'เพิ่มเติม', priorityLabel: 'ระดับ:',
     casesCalendar: 'ปฏิทินเคส',
     combined: 'รวม', casePriority: 'ระดับความสำคัญเคส:', pmStatus: 'สถานะ PM:',
+    routine: 'งานประจำ', rrStatus: 'สถานะงานประจำ:',
     noMaintenance: 'ไม่มีงานบำรุงรักษาที่กำหนดไว้', nothingDay: 'ไม่มีรายการในวันนี้',
   },
   pm: {
