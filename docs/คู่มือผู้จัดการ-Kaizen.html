@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>คู่มือผู้จัดการ — Kaizen System</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Sarabun', sans-serif;
+    font-size: 14px;
+    line-height: 1.75;
+    color: #1a1a1a;
+    background: #fff;
+    padding: 0;
+  }
+
+  .page {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 48px 56px;
+  }
+
+  /* Cover */
+  .cover {
+    text-align: center;
+    padding: 80px 0 60px;
+    border-bottom: 2px solid #1a3a5c;
+    margin-bottom: 48px;
+  }
+  .cover .brand {
+    font-size: 11px;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    color: #1a3a5c;
+    font-weight: 600;
+    margin-bottom: 12px;
+  }
+  .cover h1 {
+    font-size: 26px;
+    font-weight: 700;
+    color: #0d2740;
+    line-height: 1.35;
+    margin-bottom: 8px;
+  }
+  .cover .subtitle {
+    font-size: 15px;
+    color: #4a6a8a;
+    font-weight: 400;
+    margin-bottom: 24px;
+  }
+  .cover .role-badge {
+    display: inline-block;
+    background: #1a3a5c;
+    color: #fff;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    padding: 5px 18px;
+    border-radius: 20px;
+  }
+
+  /* Intro block */
+  .intro {
+    background: #f0f5fa;
+    border-left: 4px solid #1a3a5c;
+    padding: 14px 20px;
+    border-radius: 0 6px 6px 0;
+    margin-bottom: 32px;
+    font-size: 13.5px;
+    color: #2c4a6a;
+  }
+  .intro .url {
+    margin-top: 6px;
+    font-weight: 700;
+    color: #1a3a5c;
+  }
+
+  /* TOC */
+  .toc {
+    background: #fafafa;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    padding: 20px 24px;
+    margin-bottom: 40px;
+  }
+  .toc h2 {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: #1a3a5c;
+    margin-bottom: 12px;
+    border: none;
+    padding: 0;
+  }
+  .toc ol {
+    padding-left: 20px;
+    columns: 2;
+    column-gap: 24px;
+  }
+  .toc li {
+    font-size: 13px;
+    color: #333;
+    margin-bottom: 4px;
+    break-inside: avoid;
+  }
+
+  /* Section headings */
+  h2 {
+    font-size: 16px;
+    font-weight: 700;
+    color: #0d2740;
+    border-bottom: 2px solid #1a3a5c;
+    padding-bottom: 6px;
+    margin-top: 40px;
+    margin-bottom: 16px;
+  }
+  h3 {
+    font-size: 14px;
+    font-weight: 600;
+    color: #1a3a5c;
+    margin-top: 20px;
+    margin-bottom: 10px;
+  }
+
+  /* Paragraphs */
+  p { margin-bottom: 10px; }
+
+  /* Lists */
+  ol, ul { padding-left: 22px; margin-bottom: 12px; }
+  li { margin-bottom: 4px; }
+  li strong { color: #0d2740; }
+
+  /* Callout blocks */
+  blockquote {
+    background: #fffbe6;
+    border-left: 4px solid #f5a623;
+    padding: 10px 16px;
+    border-radius: 0 6px 6px 0;
+    margin: 12px 0;
+    font-size: 13px;
+    color: #5a4a1a;
+  }
+  blockquote p { margin: 0; }
+  blockquote + blockquote { margin-top: 6px; }
+
+  /* Info note */
+  .note {
+    background: #e8f4fd;
+    border-left: 4px solid #3b82f6;
+    padding: 10px 16px;
+    border-radius: 0 6px 6px 0;
+    margin: 12px 0;
+    font-size: 13px;
+    color: #1e40af;
+  }
+
+  /* Tables */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0 20px;
+    font-size: 13px;
+  }
+  th {
+    background: #1a3a5c;
+    color: #fff;
+    padding: 9px 14px;
+    text-align: left;
+    font-weight: 600;
+    font-size: 12px;
+  }
+  td {
+    padding: 8px 14px;
+    border-bottom: 1px solid #e8e8e8;
+    vertical-align: top;
+  }
+  tr:nth-child(even) td { background: #f7f9fc; }
+  tr:last-child td { border-bottom: none; }
+
+  /* Divider */
+  hr {
+    border: none;
+    border-top: 1px solid #e0e0e0;
+    margin: 32px 0 0;
+  }
+
+  /* Footer */
+  .footer {
+    text-align: center;
+    font-size: 11px;
+    color: #999;
+    padding-top: 32px;
+    margin-top: 48px;
+    border-top: 1px solid #e0e0e0;
+  }
+
+  /* Print */
+  @media print {
+    body { background: #fff; }
+    .page { padding: 30px 40px; max-width: 100%; }
+    .cover { padding: 40px 0 30px; margin-bottom: 32px; }
+    h2 { page-break-after: avoid; }
+    h3 { page-break-after: avoid; }
+    table, blockquote, .note { page-break-inside: avoid; }
+    .no-print { display: none; }
+    a { color: inherit; text-decoration: none; }
+  }
+
+  @page {
+    margin: 20mm 18mm;
+    size: A4;
+  }
+
+  /* Print button */
+  .print-btn {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    background: #1a3a5c;
+    color: #fff;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 6px;
+    font-family: 'Sarabun', sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    z-index: 999;
+  }
+  .print-btn:hover { background: #0d2740; }
+  @media print { .print-btn { display: none; } }
+</style>
+</head>
+<body>
+<button class="print-btn no-print" onclick="window.print()">พิมพ์ / บันทึก PDF</button>
+<div class="page">
+
+  <!-- Cover -->
+  <div class="cover">
+    <div class="brand">NNR Solutions · Kaizen System</div>
+    <h1>คู่มือการใช้งานระบบ Kaizen</h1>
+    <div class="subtitle">สำหรับผู้จัดการ (Manager)</div>
+    <div class="role-badge">Manager Guide</div>
+  </div>
+
+  <!-- Intro -->
+  <div class="intro">
+    <p>ระบบ Kaizen คือระบบบริหารจัดการปัญหาและการปรับปรุงงานสำหรับโรงแรมและธุรกิจบริการ ช่วยให้ทีมรายงานปัญหา ติดตามการแก้ไข และดูแลการบำรุงรักษาได้จากมือถือทุกที่ทุกเวลา</p>
+    <div class="url">🌐 kaizen.nnr-solutions.com</div>
+  </div>
+
+  <!-- TOC -->
+  <div class="toc">
+    <h2>สารบัญ</h2>
+    <ol>
+      <li>การติดตั้งแอปลงบนมือถือ</li>
+      <li>การเข้าสู่ระบบ</li>
+      <li>การแจ้งเตือนและเปลี่ยนภาษา</li>
+      <li>ภาพรวมเมนู</li>
+      <li>แดชบอร์ด</li>
+      <li>การจัดการเคส</li>
+      <li>ปฏิทินเคส</li>
+      <li>การบำรุงรักษาเชิงป้องกัน (PMS)</li>
+      <li>ประสิทธิภาพของทีม</li>
+      <li>การจัดการผู้ใช้งาน</li>
+      <li>การตั้งค่าและบัญชี</li>
+      <li>คำถามที่พบบ่อย</li>
+    </ol>
+  </div>
+
+  <hr>
+
+  <!-- Section 1 -->
+  <h2>1. การติดตั้งแอปลงบนมือถือ</h2>
+  <p>ระบบ Kaizen ใช้งานผ่านเว็บได้เลย แต่แนะนำให้ "ติดตั้ง" ลงหน้าจอมือถือ เพื่อให้เปิดใช้งานได้เร็วเหมือนแอปทั่วไป และเพื่อให้ <strong>การแจ้งเตือนทำงานได้</strong></p>
+
+  <h3>📱 สำหรับ iPhone / iPad (ต้องใช้ Safari เท่านั้น)</h3>
+  <ol>
+    <li>เปิดแอป <strong>Safari</strong> (ไม่ใช่ Chrome) แล้วพิมพ์ที่อยู่ <strong>kaizen.nnr-solutions.com</strong></li>
+    <li>แตะปุ่ม <strong>แชร์</strong> (รูปสี่เหลี่ยมมีลูกศรชี้ขึ้น ⬆️) ที่แถบด้านล่างจอ</li>
+    <li>เลื่อนรายการลง แล้วแตะ <strong>"เพิ่มไปยังหน้าจอโฮม" (Add to Home Screen)</strong></li>
+    <li>แตะ <strong>"เพิ่ม" (Add)</strong> ที่มุมขวาบน</li>
+    <li>ไอคอน <strong>Kaizen</strong> จะปรากฏบนหน้าจอโฮม — ต่อไปให้เปิดใช้งานจากไอคอนนี้เสมอ</li>
+  </ol>
+  <blockquote><p>⚠️ <strong>สำคัญสำหรับ iPhone:</strong> ต้องใช้ <strong>Safari</strong> ในการติดตั้ง และต้องเปิดแอปจาก <strong>ไอคอนบนหน้าจอโฮม</strong> เท่านั้น มิฉะนั้นการแจ้งเตือนจะไม่ทำงาน</p></blockquote>
+
+  <h3>🤖 สำหรับ Android (ใช้ Chrome)</h3>
+  <ol>
+    <li>เปิดแอป <strong>Chrome</strong> แล้วพิมพ์ที่อยู่ <strong>kaizen.nnr-solutions.com</strong></li>
+    <li>แตะปุ่มเมนู <strong>จุดสามจุด (⋮)</strong> ที่มุมขวาบน</li>
+    <li>แตะ <strong>"ติดตั้งแอป" (Install app)</strong> หรือ <strong>"เพิ่มไปยังหน้าจอหลัก"</strong></li>
+    <li>แตะ <strong>"ติดตั้ง" (Install)</strong> เพื่อยืนยัน</li>
+    <li>ไอคอน <strong>Kaizen</strong> จะปรากฏบนหน้าจอ — เปิดใช้งานจากไอคอนนี้</li>
+  </ol>
+
+  <!-- Section 2 -->
+  <h2>2. การเข้าสู่ระบบสำหรับผู้จัดการ</h2>
+  <ol>
+    <li>เปิดแอป Kaizen</li>
+    <li>ที่หน้าเข้าสู่ระบบ เลือกบทบาท <strong>"ผู้จัดการ" (Manager)</strong></li>
+    <li>กรอก <strong>อีเมล</strong> ของคุณ (ผู้จัดการเข้าสู่ระบบด้วยอีเมล)</li>
+    <li>กรอก <strong>รหัสผ่าน</strong></li>
+    <li>แตะ <strong>เข้าสู่ระบบ</strong></li>
+  </ol>
+  <p><strong>ลืมรหัสผ่าน?</strong> แตะ <strong>"ลืมรหัสผ่าน?"</strong> ที่หน้าเข้าสู่ระบบ กรอกอีเมลของคุณ ระบบจะส่งลิงก์รีเซ็ตรหัสผ่านไปให้ทางอีเมล</p>
+  <div class="note">หมายเหตุ: ครั้งแรกที่เข้าสู่ระบบ ระบบอาจให้คุณตั้งรหัสผ่านใหม่</div>
+
+  <!-- Section 3 -->
+  <h2>3. การเปิดการแจ้งเตือนและเปลี่ยนภาษา</h2>
+
+  <h3>เปิดการแจ้งเตือน (Push Notifications)</h3>
+  <p>เพื่อรับแจ้งเตือนเมื่อมีเคสใหม่ เคสที่รออนุมัติ หรือมีการกล่าวถึงคุณ</p>
+  <ol>
+    <li>(เฉพาะ iPhone) ติดตั้งแอปลงหน้าจอโฮมและเปิดจากไอคอนก่อน — ดูข้อ 1</li>
+    <li>ไปที่เมนู <strong>การตั้งค่า</strong></li>
+    <li>เปิดสวิตช์ <strong>การแจ้งเตือน</strong></li>
+    <li>เมื่อระบบถามขออนุญาต ให้แตะ <strong>"อนุญาต" (Allow)</strong></li>
+  </ol>
+
+  <h3>เปลี่ยนภาษา (ไทย / อังกฤษ)</h3>
+  <p>แตะปุ่มสลับภาษา <strong>TH / EN</strong> ที่มุมขวาบนของหน้าจอ ระบบรองรับทั้งภาษาไทยและอังกฤษเต็มรูปแบบ</p>
+
+  <!-- Section 4 -->
+  <h2>4. ภาพรวมเมนูของผู้จัดการ</h2>
+  <p>ผู้จัดการเข้าถึงเมนูได้ครบทุกส่วน (บนมือถือเมนูอยู่แถบด้านล่าง/ปุ่มเมนู, บนคอมพิวเตอร์อยู่แถบด้านซ้าย):</p>
+  <table>
+    <thead><tr><th>เมนู</th><th>ใช้ทำอะไร</th></tr></thead>
+    <tbody>
+      <tr><td><strong>แดชบอร์ด</strong></td><td>ภาพรวมสถานะเคสและตัวเลขสำคัญ</td></tr>
+      <tr><td><strong>เคส</strong></td><td>ดูและจัดการรายงานปัญหาทั้งหมด</td></tr>
+      <tr><td><strong>ปฏิทิน</strong></td><td>ดูเคสตามวันกำหนดเสร็จ</td></tr>
+      <tr><td><strong>การบำรุงรักษาเชิงป้องกัน</strong></td><td>ดูแลการบำรุงรักษาอุปกรณ์ (ถ้าบริษัทเปิดใช้)</td></tr>
+      <tr><td><strong>รายงานใหม่</strong></td><td>สร้างรายงานปัญหาใหม่</td></tr>
+      <tr><td><strong>การแจ้งเตือน</strong></td><td>ดูการแจ้งเตือนทั้งหมด</td></tr>
+      <tr><td><strong>ผู้ใช้งาน</strong></td><td>เพิ่ม/แก้ไขบัญชีพนักงานและผู้จัดการ</td></tr>
+      <tr><td><strong>การตั้งค่า</strong></td><td>โปรไฟล์ รหัสผ่าน ธีมสี การแจ้งเตือน</td></tr>
+      <tr><td><strong>ประสิทธิภาพ</strong></td><td>ดูผลการทำงานของทีม (ถ้าแพ็กเกจรองรับ)</td></tr>
+    </tbody>
+  </table>
+
+  <!-- Section 5 -->
+  <h2>5. แดชบอร์ด (Dashboard)</h2>
+  <p>หน้าแรกหลังเข้าสู่ระบบ แสดงภาพรวม เช่น จำนวนเคสที่เปิดอยู่ เคสที่ใกล้ครบกำหนด เคสที่รออนุมัติ และกิจกรรมล่าสุด ใช้เพื่อดูสถานะงานของทีมแบบรวดเร็ว</p>
+
+  <!-- Section 6 -->
+  <h2>6. การจัดการเคส (รายงานปัญหา)</h2>
+  <p>"เคส" คือรายการปัญหาหรือสิ่งที่ต้องปรับปรุง หัวใจของระบบ Kaizen</p>
+
+  <h3>6.1 ดูและค้นหาเคส</h3>
+  <ul>
+    <li>เข้าเมนู <strong>เคส</strong> จะเห็นรายการเคสทั้งหมด</li>
+    <li>ใช้ช่อง <strong>ค้นหา</strong> (ด้วยคำค้น เลขซีเรียล หรือหมายเลขเคส)</li>
+    <li>กรองตาม <strong>สถานะ / ระดับความสำคัญ / ประเภท / แผนก</strong></li>
+    <li>แตะที่เคสเพื่อดูรายละเอียด</li>
+  </ul>
+  <p><strong>สถานะของเคส:</strong> เปิด → มอบหมายแล้ว → กำลังดำเนินการ → รออนุมัติ → ปิด (และ "เปิดใหม่" หากแก้ไขยังไม่สมบูรณ์)</p>
+
+  <h3>6.2 สร้างรายงานปัญหาใหม่</h3>
+  <ol>
+    <li>แตะ <strong>รายงานใหม่</strong></li>
+    <li>เลือก <strong>แผนก</strong> และ <strong>ประเภท</strong> ของปัญหา</li>
+    <li>กรอก <strong>ชื่อปัญหา</strong> (เช่น "เก้าอี้แตกในห้องอาหาร โต๊ะ 5")</li>
+    <li>กรอก <strong>รายละเอียด</strong> ให้ครบ (สถานที่ ความรุนแรง บริบท)</li>
+    <li>เลือก <strong>ระดับความสำคัญ</strong> (ต่ำ / ปานกลาง / สูง / วิกฤต)</li>
+    <li>(ไม่บังคับ) เพิ่ม <strong>ภาพถ่ายปัญหา</strong> — แตะ <strong>เพิ่มรูปภาพ</strong></li>
+    <li>(ไม่บังคับ) กำหนด <strong>วันกำหนดส่ง</strong> และทำเครื่องหมาย <strong>ปัญหาที่เกิดซ้ำ</strong> หากเคยเกิดมาก่อน</li>
+    <li>แตะ <strong>ส่งเคส</strong></li>
+  </ol>
+
+  <h3>6.3 หน้าที่ของผู้จัดการต่อเคส</h3>
+  <p>เมื่อเปิดดูรายละเอียดเคส ผู้จัดการสามารถ:</p>
+  <ul>
+    <li><strong>มอบหมายแผนก</strong>ที่รับผิดชอบ</li>
+    <li><strong>เสนอแนวทางแก้ไข</strong> (พิมพ์อธิบายแนวทาง)</li>
+    <li><strong>เปลี่ยนระดับความสำคัญ</strong>ของเคส</li>
+    <li><strong>อนุมัติการแก้ไข</strong>เมื่อผู้รับผิดชอบส่งงานแก้ไขแล้ว</li>
+    <li><strong>เปิดเคสใหม่</strong>หากตรวจแล้วยังไม่เรียบร้อย</li>
+    <li>เพิ่ม <strong>บันทึกภายใน</strong> — พิมพ์ <strong>@</strong> เพื่อกล่าวถึงและแจ้งเตือนเพื่อนร่วมงาน</li>
+    <li>ดู <strong>ไทม์ไลน์</strong>กิจกรรม และ <strong>ภาพถ่าย</strong>ปัญหา/การแก้ไข</li>
+  </ul>
+  <div class="note">💡 ระบบจะแสดงเครื่องหมายหากเป็น "ปัญหาที่เกิดซ้ำ/เรื้อรัง" ที่จุดเดิม พร้อมคำแนะนำให้พิจารณาแก้ไขถาวร</div>
+
+  <!-- Section 7 -->
+  <h2>7. ปฏิทินเคส</h2>
+  <p>เมนู <strong>ปฏิทิน</strong> แสดงเคสตามวันกำหนดเสร็จ ช่วยให้เห็นภาระงานและสิ่งที่ใกล้ครบกำหนดได้ง่าย</p>
+
+  <!-- Section 8 -->
+  <h2>8. การบำรุงรักษาเชิงป้องกัน (PMS)</h2>
+  <blockquote><p>เมนูนี้จะปรากฏเฉพาะเมื่อบริษัทของคุณเปิดใช้ส่วนเสริม "การบำรุงรักษาเชิงป้องกัน"</p></blockquote>
+  <ul>
+    <li>ดูรายการอุปกรณ์/ทรัพย์สินทั้งหมดและสถานะการบำรุงรักษา (เป็นปัจจุบัน / ใกล้ครบกำหนด / เกินกำหนด)</li>
+    <li>แตะที่การ์ดอุปกรณ์เพื่อดูรายการตรวจเช็กและบันทึกการบำรุงรักษา</li>
+    <li>ใช้ตัวกรองด้านบนเพื่อดูเฉพาะอุปกรณ์ที่ต้องการ</li>
+    <li>หากเลยกำหนด ระบบจะยกระดับเป็นเคสให้โดยอัตโนมัติ</li>
+  </ul>
+
+  <!-- Section 9 -->
+  <h2>9. ประสิทธิภาพของทีม (Performance)</h2>
+  <blockquote><p>ปรากฏเมื่อแพ็กเกจรองรับการวิเคราะห์ประสิทธิภาพ</p></blockquote>
+  <p>ดูผลการทำงานของทีมและรายบุคคล เช่น จำนวนเคสที่รับผิดชอบ ความตรงเวลา และคุณภาพการแก้ไข แตะที่ชื่อบุคคลเพื่อดูรายละเอียดเชิงลึก</p>
+  <div class="note">หมายเหตุ: คะแนนของผู้จัดการคิดจากภาระงานทั้งแผนกที่ดูแล จึงอาจต่างจากพนักงานรายบุคคล</div>
+
+  <!-- Section 10 -->
+  <h2>10. การจัดการผู้ใช้งาน (เพิ่ม/แก้ไขพนักงาน)</h2>
+  <p>เข้าเมนู <strong>ผู้ใช้งาน</strong></p>
+
+  <h3>เพิ่มพนักงานใหม่</h3>
+  <ol>
+    <li>แตะ <strong>เพิ่มผู้ใช้</strong></li>
+    <li>เลือกบทบาท <strong>พนักงาน (Staff)</strong></li>
+    <li>กรอก <strong>ชื่อ-นามสกุล</strong> และ <strong>ตำแหน่ง</strong></li>
+    <li>กรอก <strong>ชื่อผู้ใช้ (Username)</strong> — <em>พนักงานเข้าสู่ระบบด้วยชื่อผู้ใช้ + รหัสบริษัท</em></li>
+    <li>เลือก <strong>แผนก</strong></li>
+    <li>ตั้ง <strong>รหัสผ่าน</strong> (อย่างน้อย 6 ตัวอักษร)</li>
+    <li>แตะ <strong>สร้างบัญชี</strong></li>
+  </ol>
+
+  <h3>เพิ่ม/แก้ไขผู้จัดการ</h3>
+  <ul>
+    <li>เมื่อเลือกบทบาท <strong>ผู้จัดการ</strong> ช่อง <strong>อีเมล</strong> จะปรากฏแทนชื่อผู้ใช้ เพราะผู้จัดการเข้าสู่ระบบด้วยอีเมล</li>
+    <li>การแก้ไขผู้ใช้: แตะที่บัญชี → แก้ไขชื่อ ตำแหน่ง บทบาท หรือ <strong>รีเซ็ตรหัสผ่าน</strong></li>
+  </ul>
+  <blockquote><p>หากต้องการรีเซ็ตรหัสผ่านให้พนักงาน ให้ทำที่หน้านี้ (พนักงานไม่สามารถรีเซ็ตเองได้ ต้องให้ผู้จัดการหรือ HR ช่วย)</p></blockquote>
+
+  <!-- Section 11 -->
+  <h2>11. การตั้งค่าและบัญชีของคุณ</h2>
+  <p>เข้าเมนู <strong>การตั้งค่า</strong> เพื่อ:</p>
+  <ul>
+    <li>ดู/แก้ไข <strong>ข้อมูลบัญชี</strong> และอัปโหลด <strong>รูปโปรไฟล์</strong> (แตะที่รูปเพื่อเปลี่ยน)</li>
+    <li><strong>เปลี่ยนรหัสผ่าน</strong> (รหัสใหม่ต้องมีอย่างน้อย 8 ตัวอักษร)</li>
+    <li>เปิด/ปิด <strong>การแจ้งเตือน</strong></li>
+    <li>ปรับ <strong>ธีมสี</strong> ของแอป</li>
+    <li><strong>ออกจากระบบ</strong></li>
+  </ul>
+
+  <!-- Section 12 -->
+  <h2>12. คำถามที่พบบ่อยและการแก้ปัญหาเบื้องต้น</h2>
+
+  <p><strong>เข้าสู่ระบบไม่ได้</strong> — ตรวจว่าเลือกบทบาท "ผู้จัดการ" และกรอกอีเมล (ไม่ใช่ชื่อผู้ใช้) หากลืมรหัสผ่าน ใช้ "ลืมรหัสผ่าน?"</p>
+  <p><strong>การแจ้งเตือนไม่เข้า (iPhone)</strong> — ต้องติดตั้งแอปลงหน้าจอโฮมด้วย Safari แล้วเปิดจากไอคอนนั้น จากนั้นเปิดการแจ้งเตือนในเมนูการตั้งค่า</p>
+  <p><strong>เห็นหน้าจอเวอร์ชันเก่า</strong> — ปิดแอปแล้วเปิดใหม่ หรือดึงหน้าจอลงเพื่อรีเฟรช ระบบจะอัปเดตให้อัตโนมัติ</p>
+  <p><strong>ไม่เห็นเมนูการบำรุงรักษา</strong> — ส่วนนี้เป็นส่วนเสริม ต้องให้บริษัทเปิดใช้งานก่อน</p>
+
+  <!-- Footer -->
+  <div class="footer">
+    จัดทำโดย NNR Solutions &nbsp;·&nbsp; เอกสารนี้สำหรับผู้ใช้งานระบบ Kaizen ภายในองค์กร
+  </div>
+
+</div>
+</body>
+</html>

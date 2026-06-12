@@ -29,6 +29,8 @@ export type AssignmentStatus = 'pending' | 'acknowledged' | 'in_progress' | 'com
 export interface KaizenCompany {
   id: string
   name: string
+  /** Display name shown in the app UI; falls back to the legal `name`. Never printed on documents. */
+  org_title?: string | null
   slug: string
   logo_url: string | null
   is_active: boolean

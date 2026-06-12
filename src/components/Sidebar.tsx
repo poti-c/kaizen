@@ -56,7 +56,7 @@ export function Sidebar() {
         <img src="/kaizen-icon.svg" alt="Kaizen" className="w-10 h-10 object-contain flex-shrink-0" />
         {!collapsed && (
           <div className="min-w-0">
-            <p className="text-[#c8a882] font-bold text-base leading-snug truncate">{activeCompany?.name ?? 'Kaizen System'}</p>
+            <p className="text-[#c8a882] font-bold text-base leading-snug truncate">{activeCompany?.org_title || activeCompany?.name || 'Kaizen System'}</p>
             <p className="text-white/90 font-semibold text-sm leading-snug tracking-wide truncate">Kaizen System</p>
           </div>
         )}

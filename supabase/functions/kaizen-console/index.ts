@@ -334,18 +334,35 @@ Deno.serve(async (req) => {
   }
 
   if (action === "list") {
-    const [ownersRes, companiesRes, linksRes, countsRes, invRes] = await Promise.all([
+    const [ownersRes, companiesRes, linksRes, countsRes, invRes, formsRes] = await Promise.all([
       admin.from("kaizen_profiles").select("id, full_name, email, job_title, is_active, created_at, company_id").eq("role", "super_admin").order("created_at", { ascending: true }),
       admin.from("kaizen_companies").select("*").order("name"),
       admin.from("kaizen_super_admin_companies").select("super_admin_id, company_id"),
       admin.from("kaizen_profiles").select("company_id, role"),
       admin.from("kaizen_invoices").select("company_id, period_end, amount"),
+      admin.from("kaizen_generated_forms").select("company_id, form_type, status, total"),
     ]);
     const owners = ownersRes.data ?? [];
     const companies = companiesRes.data ?? [];
     const links = linksRes.data ?? [];
     const profiles = countsRes.data ?? [];
     const invoices = invRes.data ?? [];
+    const genForms = formsRes.data ?? [];
+    // Per-company sales aggregates:
+    //  confirmed = recorded payments + Form Generator invoices marked paid
+    //  opportunity = quotations still in play (sent / follow-up, not yet accepted)
+    const confirmedBy = {}; const opportunityBy = {};
+    for (const r of invoices) {
+      confirmedBy[r.company_id] = (confirmedBy[r.company_id] ?? 0) + (Number(r.amount) || 0);
+    }
+    for (const f of genForms) {
+      const total = Number(f.total) || 0;
+      if (f.form_type === "invoice" && f.status === "paid") {
+        confirmedBy[f.company_id] = (confirmedBy[f.company_id] ?? 0) + total;
+      } else if (f.form_type === "quotation" && (f.status === "sent" || f.status === "followup")) {
+        opportunityBy[f.company_id] = (opportunityBy[f.company_id] ?? 0) + total;
+      }
+    }
     const latestEnd = {};
     for (const r of invoices) {
       if (!latestEnd[r.company_id] || r.period_end > latestEnd[r.company_id]) latestEnd[r.company_id] = r.period_end;
@@ -378,6 +395,8 @@ Deno.serve(async (req) => {
       live_managers: profiles.filter(p => p.company_id === c.id && p.role === "manager").length,
       live_staff: profiles.filter(p => p.company_id === c.id && p.role === "staff").length,
       subscription: computeSubscription(c.plan, c.created_at, latestEnd[c.id] ?? null, durations["trial"]),
+      confirmed_revenue: confirmedBy[c.id] ?? 0,
+      opportunity_value: opportunityBy[c.id] ?? 0,
     }));
     const ownersOut = owners.map((o) => {
       const ids = links.filter(l => l.super_admin_id === o.id).map(l => l.company_id);
@@ -617,6 +636,9 @@ Deno.serve(async (req) => {
     }
     if (body.is_active !== undefined) patch.is_active = body.is_active;
     if (body.name !== undefined) patch.name = String(body.name).trim();
+    // Display name for the client's app/console UI — never printed on
+    // invoices, receipts or tax invoices (those use the legal name above).
+    if (body.org_title !== undefined) patch.org_title = cleanStr(body.org_title);
     if (body.contact_person !== undefined) patch.contact_person = cleanStr(body.contact_person);
     if (body.contact_phone !== undefined) patch.contact_phone = cleanStr(body.contact_phone);
     if (body.contact_email !== undefined) patch.contact_email = cleanStr(body.contact_email);
@@ -930,7 +952,7 @@ Deno.serve(async (req) => {
       await admin.from("kaizen_invoices").insert({
         company_id: sub.company_id, payee: sub.target_label ?? sub.target, amount: sub.amount,
         currency: sub.currency ?? "THB", payment_date: today, period_start: today, period_end,
-        notes: "Client PromptPay payment (approved)",
+        notes: "Client PromptPay payment (approved)", submission_id: sub.id,
       });
     } else {
       // Add-on: enable it on the company's addons map.
@@ -992,11 +1014,26 @@ Deno.serve(async (req) => {
   if (action === "delete_invoice") {
     const invoice_id = String(body.invoice_id ?? "");
     if (!invoice_id) return json({ error: "invoice_id required" }, 400);
-    const { data: inv } = await admin.from("kaizen_invoices").select("proof_path").eq("id", invoice_id).maybeSingle();
+    const { data: inv } = await admin.from("kaizen_invoices").select("proof_path, submission_id, company_id, amount").eq("id", invoice_id).maybeSingle();
     if (inv?.proof_path) { await admin.storage.from(INVOICE_BUCKET).remove([inv.proof_path]); }
     const { error } = await admin.from("kaizen_invoices").delete().eq("id", invoice_id);
     if (error) return json({ error: error.message }, 400);
-    await audit("delete_invoice", { invoice_id }, ip, true);
+    // Keep the Payments inbox in sync: removing the recorded payment also
+    // removes the client submission it came from. Older invoices predate the
+    // submission_id link — for those, fall back to the matching approved
+    // submission (same company + amount) so the pair never drifts apart.
+    let removedSubmission = inv?.submission_id ?? null;
+    if (removedSubmission) {
+      await admin.from("kaizen_payment_submissions").delete().eq("id", removedSubmission);
+    } else if (inv) {
+      const { data: legacy } = await admin.from("kaizen_payment_submissions").select("id")
+        .eq("company_id", inv.company_id).eq("status", "approved").eq("amount", inv.amount).limit(1);
+      if (legacy?.[0]) {
+        removedSubmission = legacy[0].id;
+        await admin.from("kaizen_payment_submissions").delete().eq("id", removedSubmission);
+      }
+    }
+    await audit("delete_invoice", { invoice_id, submission_id: removedSubmission }, ip, true);
     return json({ success: true });
   }
 

@@ -1,0 +1,952 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>คู่มือผู้จัดการ — Kaizen System</title>
+<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Sarabun',sans-serif;font-size:14px;line-height:1.7;color:#1a1a1a;background:#fff}
+.page{max-width:794px;margin:0 auto}
+
+/* ── COVER ─────────────────────────────── */
+.cover{background:linear-gradient(145deg,#0d2740 0%,#1a3a5c 60%,#2a5080 100%);color:#fff;padding:70px 56px 60px;position:relative;overflow:hidden;page-break-after:always}
+.cover::before{content:'';position:absolute;right:-60px;top:-60px;width:320px;height:320px;border-radius:50%;background:rgba(255,255,255,0.04)}
+.cover::after{content:'';position:absolute;left:-40px;bottom:-80px;width:240px;height:240px;border-radius:50%;background:rgba(255,255,255,0.03)}
+.cover-logo{display:flex;align-items:center;gap:14px;margin-bottom:50px}
+.cover-logo-icon{width:52px;height:52px;background:linear-gradient(135deg,#c9a84c,#f0d070);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:800;color:#0d2740}
+.cover-logo-text{font-size:14px;letter-spacing:0.25em;text-transform:uppercase;opacity:0.85;font-weight:600}
+.cover h1{font-size:36px;font-weight:800;line-height:1.2;margin-bottom:10px}
+.cover-sub{font-size:18px;opacity:0.75;font-weight:300;margin-bottom:32px}
+.cover-badge{display:inline-flex;align-items:center;gap:8px;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.3);border-radius:30px;padding:7px 20px;font-size:13px;font-weight:600;letter-spacing:0.1em}
+.cover-badge::before{content:'👔';font-size:16px}
+.cover-url{position:absolute;bottom:36px;right:56px;font-size:12px;opacity:0.5;letter-spacing:0.1em}
+
+/* ── LAYOUT ─────────────────────────────── */
+.section{padding:40px 56px 0}
+.section:last-child{padding-bottom:50px}
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:24px;align-items:start}
+.three-col{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px}
+
+/* ── SECTION HEADER ─────────────────────── */
+.sec-header{display:flex;align-items:center;gap:14px;margin-bottom:22px;padding-bottom:12px;border-bottom:2.5px solid #1a3a5c}
+.sec-num{width:38px;height:38px;border-radius:50%;background:#1a3a5c;color:#fff;font-size:17px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.sec-title{font-size:18px;font-weight:700;color:#0d2740}
+.sec-subtitle{font-size:13px;color:#6b7280;font-weight:400;margin-top:1px}
+
+/* ── STEPS ──────────────────────────────── */
+.steps{display:flex;flex-direction:column;gap:12px}
+.step{display:flex;gap:13px;align-items:flex-start}
+.step-n{flex-shrink:0;width:26px;height:26px;border-radius:50%;background:#1a3a5c;color:#fff;font-weight:700;font-size:12px;display:flex;align-items:center;justify-content:center}
+.step-body{flex:1;padding-top:3px}
+.step-body strong{color:#0d2740}
+.step-body em{color:#6b7280;font-style:normal;font-size:12px;display:block;margin-top:2px}
+
+/* ── PHONE MOCK-UP ──────────────────────── */
+.phone-wrap{display:flex;flex-direction:column;align-items:center;gap:8px}
+.phone-label{font-size:11px;font-weight:600;color:#6b7280;letter-spacing:0.1em;text-transform:uppercase}
+.phone{border:2.5px solid #2a2a2a;border-radius:24px;background:#f8fafc;overflow:hidden;width:168px;box-shadow:0 8px 24px rgba(0,0,0,0.14);flex-shrink:0;font-size:7.5px;line-height:1.35}
+.phone-status{background:#111;height:14px;display:flex;align-items:center;justify-content:flex-end;padding:0 10px;gap:4px}
+.phone-status span{color:rgba(255,255,255,0.7);font-size:6px}
+.phone-content{background:#fff;min-height:240px}
+.phone-nav{background:#f8f9fa;border-top:1px solid #e5e7eb;display:flex;justify-content:space-around;padding:7px 4px 5px;font-size:6.5px;color:#555}
+.phone-nav .active-tab{color:#1a3a5c;font-weight:700}
+.pn-icon{font-size:11px;display:block;text-align:center;margin-bottom:1px}
+
+/* login mock */
+.pmock-login{padding:12px 10px}
+.pmock-login .logo-row{display:flex;align-items:center;gap:5px;margin-bottom:10px}
+.pmock-login .logo-box{width:20px;height:20px;background:linear-gradient(135deg,#c9a84c,#f0d070);border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:800;color:#0d2740}
+.pmock-login .logo-text{font-size:8px;font-weight:700}
+.pmock-login .tabs{display:flex;gap:3px;margin-bottom:8px}
+.pmock-login .tab{flex:1;text-align:center;font-size:6.5px;padding:3px;border-radius:4px;border:1px solid #ddd;color:#888}
+.pmock-login .tab.active{background:#1a3a5c;color:#fff;border-color:#1a3a5c;font-weight:700}
+.pmock-login .label{font-size:6.5px;color:#888;margin-bottom:2px}
+.pmock-login .field{border:1px solid #d1d5db;border-radius:4px;padding:4px 6px;font-size:6.5px;color:#ccc;margin-bottom:6px;background:#fff}
+.pmock-login .btn{background:#1a3a5c;color:#fff;border-radius:4px;text-align:center;padding:5px;font-size:7px;font-weight:700}
+
+/* dashboard mock */
+.pmock-dash{padding:10px 8px}
+.pmock-dash .title{font-size:10px;font-weight:800;color:#1a1a1a;margin-bottom:2px}
+.pmock-dash .sub{font-size:6.5px;color:#888;margin-bottom:8px}
+.pmock-dash .card{background:#f8fafc;border-radius:6px;padding:6px 8px;margin-bottom:6px}
+.pmock-dash .card-title{font-size:6.5px;font-weight:700;color:#555;margin-bottom:4px;display:flex;justify-content:space-between}
+.pmock-dash .stat-row{display:flex;justify-content:space-between;font-size:6.5px;padding:1px 0}
+.pmock-dash .stat-val{font-weight:700}
+.pmock-dash .red{color:#ef4444}.pmock-dash .blue{color:#3b82f6}.pmock-dash .orange{color:#f59e0b}.pmock-dash .green{color:#22c55e}
+.pmock-dash .kpi-grid{display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-top:4px}
+.pmock-dash .kpi{background:#fff;border-radius:4px;padding:4px;border:1px solid #e5e7eb}
+.pmock-dash .kpi-label{font-size:5.5px;color:#888}
+.pmock-dash .kpi-val{font-size:10px;font-weight:800;color:#1a1a1a}
+
+/* cases list mock */
+.pmock-cases{padding:8px}
+.pmock-cases .title{font-size:10px;font-weight:800;margin-bottom:6px}
+.pmock-cases .search{border:1px solid #e5e7eb;border-radius:4px;padding:3px 6px;font-size:6px;color:#ccc;margin-bottom:5px;background:#f9f9f9}
+.pmock-cases .tabs{display:flex;gap:3px;margin-bottom:6px;font-size:6px}
+.pmock-cases .tab{padding:2px 5px;border-radius:10px;background:#f3f4f6;color:#666}
+.pmock-cases .tab.active{background:#1a3a5c;color:#fff;font-weight:700}
+.pmock-case-card{border-radius:5px;padding:5px 6px;margin-bottom:4px;border:1px solid #f3f4f6}
+.pmock-case-card .badges{display:flex;gap:2px;flex-wrap:wrap;margin-bottom:2px}
+.pmock-case-card .badge{border-radius:10px;padding:1px 5px;font-size:5.5px;font-weight:700}
+.badge-critical{background:#fee2e2;color:#dc2626}
+.badge-high{background:#fef3c7;color:#d97706}
+.badge-assigned{background:#dbeafe;color:#1d4ed8}
+.badge-inprog{background:#dcfce7;color:#15803d}
+.badge-open{background:#f3f4f6;color:#374151}
+.pmock-case-card .case-title{font-size:7px;font-weight:700;color:#111;margin-bottom:2px}
+.pmock-case-card .case-meta{font-size:5.5px;color:#888}
+
+/* case detail mock */
+.pmock-detail{padding:8px}
+.pmock-detail .back{font-size:7px;color:#1a3a5c;margin-bottom:6px}
+.pmock-detail .case-id{font-size:6px;color:#888;margin-bottom:3px}
+.pmock-detail h4{font-size:8.5px;font-weight:800;color:#111;margin-bottom:5px;line-height:1.3}
+.pmock-detail .info-card{background:#f8fafc;border-radius:4px;padding:5px;margin-bottom:4px;font-size:6px}
+.pmock-detail .info-card label{color:#888;display:block;margin-bottom:1px}
+.pmock-detail .notes-box{border:1px solid #e5e7eb;border-radius:4px;padding:4px;background:#fff}
+.pmock-detail .note-placeholder{color:#bbb;font-size:6px;font-style:italic}
+
+/* report mock */
+.pmock-report{padding:8px}
+.pmock-report .title{font-size:9px;font-weight:800;margin-bottom:5px}
+.pmock-report .field-label{font-size:6px;color:#888;margin-bottom:2px;margin-top:5px}
+.pmock-report .field{border:1px solid #d1d5db;border-radius:3px;padding:3px 5px;font-size:6px;color:#ccc;background:#fff;width:100%}
+.pmock-report .priority-row{display:flex;gap:3px;margin-top:5px}
+.pmock-report .pri{flex:1;text-align:center;border:1px solid #d1d5db;border-radius:3px;padding:2px;font-size:5.5px;color:#888}
+.pmock-report .pri.active{background:#1a3a5c;color:#fff;border-color:#1a3a5c;font-weight:700}
+
+/* users mock */
+.pmock-users{padding:8px}
+.pmock-users .title{font-size:10px;font-weight:800;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center}
+.pmock-users .add-btn{background:#1a3a5c;color:#fff;border-radius:4px;padding:2px 6px;font-size:6.5px;font-weight:700}
+.pmock-users .group-label{font-size:6.5px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:0.05em;margin:5px 0 3px}
+.pmock-users .user-row{display:flex;align-items:center;gap:5px;padding:3px 0;border-bottom:1px solid #f3f4f6}
+.pmock-users .avatar{width:16px;height:16px;border-radius:50%;background:#1a3a5c;color:#fff;font-size:6px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.pmock-users .user-info .name{font-size:7px;font-weight:700;color:#111}
+.pmock-users .user-info .role{font-size:5.5px;color:#888}
+.pmock-users .dept-badge{margin-left:auto;border-radius:8px;padding:1px 5px;font-size:5.5px;font-weight:700;background:#dbeafe;color:#1d4ed8}
+
+/* settings mock */
+.pmock-settings{padding:8px}
+.pmock-settings .title{font-size:10px;font-weight:800;margin-bottom:7px}
+.pmock-settings .section-card{background:#f8fafc;border-radius:5px;padding:6px;margin-bottom:5px}
+.pmock-settings .sec-title{font-size:7px;font-weight:700;color:#555;margin-bottom:4px;display:flex;align-items:center;gap:3px}
+.pmock-settings .profile-row{display:flex;align-items:center;gap:5px;margin-bottom:4px}
+.pmock-settings .profile-avatar{width:22px;height:22px;border-radius:50%;background:#1a3a5c;color:#fff;font-size:8px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.pmock-settings .profile-info .name{font-size:7px;font-weight:700}
+.pmock-settings .profile-info .role{font-size:5.5px;color:#888}
+.pmock-settings .lang-row{display:flex;gap:4px}
+.pmock-settings .lang-btn{flex:1;text-align:center;border:1px solid #d1d5db;border-radius:3px;padding:2px;font-size:6px}
+.pmock-settings .lang-btn.active{background:#1a3a5c;color:#fff;border-color:#1a3a5c;font-weight:700}
+.pmock-settings .notif-row{display:flex;justify-content:space-between;align-items:center;font-size:6.5px}
+.pmock-settings .toggle{width:18px;height:10px;background:#22c55e;border-radius:5px;position:relative}
+.pmock-settings .toggle::after{content:'';position:absolute;right:2px;top:2px;width:6px;height:6px;border-radius:50%;background:#fff}
+
+/* notifications mock */
+.pmock-notif{padding:8px}
+.pmock-notif .title{font-size:10px;font-weight:800;margin-bottom:6px}
+.pmock-notif .notif-item{display:flex;gap:5px;padding:4px 0;border-bottom:1px solid #f3f4f6}
+.pmock-notif .dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;margin-top:3px}
+.pmock-notif .notif-text{font-size:6.5px;color:#333}
+.pmock-notif .notif-time{font-size:5.5px;color:#aaa;margin-top:1px}
+
+/* ── CALLOUT BOXES ──────────────────────── */
+.callout{border-radius:8px;padding:12px 16px;margin:14px 0;display:flex;gap:10px;align-items:flex-start;font-size:13px}
+.callout-icon{font-size:18px;flex-shrink:0;margin-top:1px}
+.callout-body strong{display:block;margin-bottom:3px;font-size:13px}
+.callout-body p{font-size:12.5px;color:inherit;opacity:0.9}
+.callout.warn{background:#fffbeb;border:1px solid #fcd34d;color:#78350f}
+.callout.info{background:#eff6ff;border:1px solid #93c5fd;color:#1e3a5f}
+.callout.tip{background:#f0fdf4;border:1px solid #86efac;color:#14532d}
+.callout.danger{background:#fff1f2;border:1px solid #fca5a5;color:#7f1d1d}
+
+/* ── STATUS FLOW ────────────────────────── */
+.flow-wrap{margin:14px 0}
+.flow{display:flex;align-items:center;flex-wrap:wrap;gap:0}
+.flow-node{display:flex;flex-direction:column;align-items:center;gap:3px}
+.flow-badge{border-radius:20px;padding:5px 14px;font-size:11px;font-weight:700;white-space:nowrap}
+.flow-desc{font-size:10px;color:#6b7280;text-align:center;max-width:70px}
+.flow-arrow{font-size:18px;color:#9ca3af;padding:0 2px;margin-bottom:18px}
+.status-open{background:#f3f4f6;color:#374151}
+.status-assigned{background:#dbeafe;color:#1d4ed8}
+.status-inprog{background:#fef3c7;color:#d97706}
+.status-wait{background:#fce7f3;color:#9d174d}
+.status-closed{background:#dcfce7;color:#15803d}
+.status-reopen{background:#fee2e2;color:#dc2626}
+
+/* ── MENU GRID ──────────────────────────── */
+.menu-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:14px 0}
+.menu-card{border:1.5px solid #e5e7eb;border-radius:10px;padding:14px 12px;display:flex;flex-direction:column;gap:5px}
+.menu-icon{font-size:22px}
+.menu-name{font-size:12px;font-weight:700;color:#0d2740}
+.menu-desc{font-size:11px;color:#6b7280;line-height:1.45}
+
+/* ── PRIORITY BADGES ────────────────────── */
+.priority-row{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
+.pri-badge{border-radius:20px;padding:5px 16px;font-size:12px;font-weight:700}
+.pri-low{background:#f0fdf4;color:#15803d;border:1.5px solid #86efac}
+.pri-med{background:#eff6ff;color:#1d4ed8;border:1.5px solid #93c5fd}
+.pri-high{background:#fffbeb;color:#d97706;border:1.5px solid #fcd34d}
+.pri-crit{background:#fff1f2;color:#dc2626;border:1.5px solid #fca5a5}
+
+/* ── FEATURE TABLE ──────────────────────── */
+table{width:100%;border-collapse:collapse;margin:12px 0;font-size:13px}
+th{background:#0d2740;color:#fff;padding:10px 14px;text-align:left;font-size:12px;font-weight:600}
+td{padding:9px 14px;border-bottom:1px solid #f3f4f6;vertical-align:top}
+tr:nth-child(even) td{background:#f8fafc}
+tr:last-child td{border-bottom:none}
+
+/* ── FAQ ────────────────────────────────── */
+.faq-item{border-radius:8px;border:1.5px solid #e5e7eb;padding:14px 16px;margin-bottom:10px}
+.faq-q{font-weight:700;font-size:13.5px;color:#0d2740;margin-bottom:6px;display:flex;gap:8px}
+.faq-q::before{content:'Q';background:#1a3a5c;color:#fff;width:20px;height:20px;border-radius:50%;font-size:11px;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px}
+.faq-a{font-size:13px;color:#374151;padding-left:28px}
+
+/* ── HIGHLIGHT BOX ──────────────────────── */
+.highlight-box{background:#f0f7ff;border-radius:10px;padding:18px;margin:14px 0;border:1.5px solid #bfdbfe}
+.highlight-box h4{font-size:14px;font-weight:700;color:#1e3a5f;margin-bottom:8px}
+
+/* ── INSTALL COMPARISON ─────────────────── */
+.install-card{background:#f8fafc;border-radius:10px;padding:18px;border:1.5px solid #e5e7eb}
+.install-card .os-header{display:flex;align-items:center;gap:10px;margin-bottom:14px;padding-bottom:10px;border-bottom:1.5px solid #e5e7eb}
+.install-card .os-icon{font-size:28px}
+.install-card .os-name{font-size:16px;font-weight:700;color:#0d2740}
+.install-card .os-note{font-size:11.5px;color:#6b7280}
+
+/* ── DIVIDER ────────────────────────────── */
+.divider{border:none;border-top:1.5px solid #e5e7eb;margin:32px 0}
+
+/* ── PAGE BREAK HELPERS ─────────────────── */
+.page-break{page-break-before:always}
+
+/* ── FOOTER ─────────────────────────────── */
+.manual-footer{text-align:center;font-size:11px;color:#9ca3af;padding:28px 56px 40px;border-top:1px solid #e5e7eb;margin-top:20px}
+
+/* ── PRINT ──────────────────────────────── */
+@media print{
+  body{background:#fff}
+  .page{max-width:100%}
+  .cover{padding:50px 40px 40px}
+  .section{padding:28px 40px 0}
+  .print-btn{display:none!important}
+  h2,h3{page-break-after:avoid}
+  .callout,.phone-wrap,.install-card,.faq-item{page-break-inside:avoid}
+  .two-col{page-break-inside:avoid}
+  a{color:inherit;text-decoration:none}
+}
+@page{margin:15mm 14mm;size:A4}
+
+/* ── PRINT BUTTON ───────────────────────── */
+.print-btn{position:fixed;top:20px;right:20px;background:#1a3a5c;color:#fff;border:none;padding:10px 20px;border-radius:8px;font-family:'Sarabun',sans-serif;font-size:13px;font-weight:700;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,0.2);z-index:999;transition:background 0.2s}
+.print-btn:hover{background:#0d2740}
+@media print{.print-btn{display:none}}
+</style>
+</head>
+<body>
+<button class="print-btn" onclick="window.print()">🖨 พิมพ์ / บันทึก PDF</button>
+<div class="page">
+
+<!-- ═══════════════════════════════════════ COVER -->
+<div class="cover">
+  <div class="cover-logo">
+    <div class="cover-logo-icon">K</div>
+    <div class="cover-logo-text">NNR Solutions · Kaizen System</div>
+  </div>
+  <h1>คู่มือการใช้งาน<br>ระบบ Kaizen</h1>
+  <div class="cover-sub">สำหรับผู้จัดการ (Manager) และ ผู้บริหาร</div>
+  <div class="cover-badge">Manager Guide — Version 1.0</div>
+  <div class="cover-url">kaizen.nnr-solutions.com</div>
+</div>
+
+<!-- ═══════════════════════════════════════ SECTION 1: INSTALL -->
+<div class="section">
+  <div class="sec-header">
+    <div class="sec-num">1</div>
+    <div>
+      <div class="sec-title">การติดตั้งแอปลงบนมือถือ</div>
+      <div class="sec-subtitle">ติดตั้งครั้งเดียว ใช้ได้เหมือนแอปทั่วไป พร้อมรับการแจ้งเตือน</div>
+    </div>
+  </div>
+
+  <div class="callout warn">
+    <div class="callout-icon">⚠️</div>
+    <div class="callout-body">
+      <strong>ทำไมต้องติดตั้งลงหน้าจอโฮม?</strong>
+      <p>ระบบ Kaizen เป็น Web App ที่ทำงานได้เหมือนแอปจริง แต่ <b>การแจ้งเตือน Push Notification จะใช้งานได้เฉพาะเมื่อเปิดจากไอคอนบนหน้าจอโฮมเท่านั้น</b> ไม่ใช่จาก Browser โดยตรง</p>
+    </div>
+  </div>
+
+  <div class="two-col" style="margin-top:18px">
+    <div class="install-card">
+      <div class="os-header">
+        <div class="os-icon">🍎</div>
+        <div>
+          <div class="os-name">iPhone / iPad</div>
+          <div class="os-note">ต้องใช้ Safari เท่านั้น · iOS 16.4 ขึ้นไป</div>
+        </div>
+      </div>
+      <div class="steps">
+        <div class="step"><div class="step-n">1</div><div class="step-body">เปิด <strong>Safari</strong> (ห้ามใช้ Chrome)<br>พิมพ์ <strong>kaizen.nnr-solutions.com</strong></div></div>
+        <div class="step"><div class="step-n">2</div><div class="step-body">แตะปุ่ม <strong>แชร์ ⬆️</strong><br><em>อยู่ที่แถบด้านล่างกลางจอ</em></div></div>
+        <div class="step"><div class="step-n">3</div><div class="step-body">เลื่อนลง → แตะ <strong>"เพิ่มไปยังหน้าจอโฮม"</strong><br><em>(Add to Home Screen)</em></div></div>
+        <div class="step"><div class="step-n">4</div><div class="step-body">แตะ <strong>"เพิ่ม" (Add)</strong> มุมขวาบน</div></div>
+        <div class="step"><div class="step-n">5</div><div class="step-body"><strong>เปิดแอปจากไอคอน Kaizen</strong> บนหน้าจอโฮมเสมอ</div></div>
+      </div>
+    </div>
+    <div class="install-card">
+      <div class="os-header">
+        <div class="os-icon">🤖</div>
+        <div>
+          <div class="os-name">Android</div>
+          <div class="os-note">ใช้ Chrome · รองรับทุก Android เวอร์ชัน</div>
+        </div>
+      </div>
+      <div class="steps">
+        <div class="step"><div class="step-n">1</div><div class="step-body">เปิด <strong>Chrome</strong><br>พิมพ์ <strong>kaizen.nnr-solutions.com</strong></div></div>
+        <div class="step"><div class="step-n">2</div><div class="step-body">แตะปุ่ม <strong>⋮ (จุดสามจุด)</strong> มุมขวาบน</div></div>
+        <div class="step"><div class="step-n">3</div><div class="step-body">แตะ <strong>"ติดตั้งแอป" (Install app)</strong><br><em>หรือ "เพิ่มไปยังหน้าจอหลัก"</em></div></div>
+        <div class="step"><div class="step-n">4</div><div class="step-body">แตะ <strong>"ติดตั้ง" (Install)</strong> เพื่อยืนยัน</div></div>
+        <div class="step"><div class="step-n">5</div><div class="step-body"><strong>เปิดแอปจากไอคอน Kaizen</strong> บนหน้าจอ</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="callout tip" style="margin-top:16px">
+    <div class="callout-icon">✅</div>
+    <div class="callout-body">
+      <strong>Android รองรับ Push Notification เต็มรูปแบบ</strong>
+      <p>Android Chrome รองรับ Push Notification ที่เชื่อถือได้และสมบูรณ์กว่า iPhone ได้รับการแจ้งเตือนแม้ปิดแอปอยู่ (Background Push) ไม่มีข้อจำกัดด้านเบราว์เซอร์</p>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════ SECTION 2: LOGIN -->
+<div class="section">
+  <div class="sec-header">
+    <div class="sec-num">2</div>
+    <div>
+      <div class="sec-title">การเข้าสู่ระบบสำหรับผู้จัดการ</div>
+      <div class="sec-subtitle">ผู้จัดการใช้ <b>อีเมล + รหัสผ่าน</b> เข้าสู่ระบบ (ต่างจากพนักงานที่ใช้รหัสบริษัท + ชื่อผู้ใช้)</div>
+    </div>
+  </div>
+
+  <div class="two-col">
+    <div>
+      <div class="steps">
+        <div class="step"><div class="step-n">1</div><div class="step-body">เปิดแอป Kaizen จากไอคอนบนหน้าจอโฮม</div></div>
+        <div class="step"><div class="step-n">2</div><div class="step-body">ที่แถบด้านบน เลือก <strong>"Manager"</strong><br><em>จะเห็นช่อง Email Address ปรากฏขึ้น</em></div></div>
+        <div class="step"><div class="step-n">3</div><div class="step-body">กรอก <strong>อีเมล</strong> ของคุณ</div></div>
+        <div class="step"><div class="step-n">4</div><div class="step-body">กรอก <strong>รหัสผ่าน</strong></div></div>
+        <div class="step"><div class="step-n">5</div><div class="step-body">แตะ <strong>Sign In</strong></div></div>
+      </div>
+      <div class="callout info" style="margin-top:12px">
+        <div class="callout-icon">🔑</div>
+        <div class="callout-body">
+          <strong>ลืมรหัสผ่าน?</strong>
+          <p>แตะ <b>"Forgot password?"</b> กรอกอีเมล ระบบจะส่งลิงก์รีเซ็ตไปให้ทางอีเมลภายใน 2 นาที ตรวจสอบกล่อง Spam ด้วย</p>
+        </div>
+      </div>
+    </div>
+    <div class="phone-wrap">
+      <div class="phone">
+        <div class="phone-status"><span>9:41</span><span>▓▓ 100%</span></div>
+        <div class="phone-content pmock-login">
+          <div class="logo-row">
+            <div class="logo-box">K</div>
+            <div class="logo-text">Kaizen System</div>
+          </div>
+          <div style="font-size:10px;font-weight:800;color:#111;margin-bottom:6px">Sign In</div>
+          <div class="tabs">
+            <div class="tab">Super Admin</div>
+            <div class="tab active">Manager</div>
+            <div class="tab">Staff</div>
+          </div>
+          <div class="label">Email Address</div>
+          <div class="field">กรอกอีเมลของคุณ</div>
+          <div class="label">Password</div>
+          <div class="field">••••••••</div>
+          <div style="text-align:right;font-size:5.5px;color:#1a3a5c;margin-bottom:6px">Forgot password?</div>
+          <div class="btn">Sign In</div>
+          <div style="text-align:center;font-size:5.5px;color:#aaa;margin-top:8px">Kaizen System · Internal Use Only</div>
+        </div>
+        <div class="phone-nav">
+          <div><span class="pn-icon">🏠</span>Home</div>
+          <div><span class="pn-icon">📋</span>Cases</div>
+          <div><span class="pn-icon">➕</span>New</div>
+          <div><span class="pn-icon">📈</span>Performance</div>
+          <div><span class="pn-icon">👥</span>Users</div>
+        </div>
+      </div>
+      <div class="phone-label">หน้าเข้าสู่ระบบ (Manager)</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════ SECTION 3: NOTIFICATIONS -->
+<div class="section">
+  <div class="sec-header">
+    <div class="sec-num">3</div>
+    <div>
+      <div class="sec-title">การเปิดการแจ้งเตือนและเปลี่ยนภาษา</div>
+      <div class="sec-subtitle">รับแจ้งเตือนทันทีเมื่อมีเคสใหม่ เคสรออนุมัติ หรือมีคนกล่าวถึงคุณ</div>
+    </div>
+  </div>
+
+  <div class="two-col">
+    <div>
+      <h3 style="font-size:14px;font-weight:700;color:#1a3a5c;margin-bottom:10px">🔔 เปิดการแจ้งเตือน</h3>
+      <div class="steps">
+        <div class="step"><div class="step-n">1</div><div class="step-body"><em style="color:#dc2626;font-style:normal;font-size:12px">เฉพาะ iPhone:</em> ต้องเปิดแอปจากไอคอนหน้าจอโฮมก่อน (ดูข้อ 1)</div></div>
+        <div class="step"><div class="step-n">2</div><div class="step-body">ไปที่เมนู <strong>Settings</strong> (การตั้งค่า)</div></div>
+        <div class="step"><div class="step-n">3</div><div class="step-body">เปิดสวิตช์ <strong>Push Notifications</strong></div></div>
+        <div class="step"><div class="step-n">4</div><div class="step-body">เมื่อระบบขออนุญาต แตะ <strong>"Allow"</strong></div></div>
+      </div>
+      <div style="margin-top:16px">
+        <h3 style="font-size:14px;font-weight:700;color:#1a3a5c;margin-bottom:10px">🌐 เปลี่ยนภาษา TH / EN</h3>
+        <p style="font-size:13px;color:#374151">แตะปุ่ม <strong>TH / EN</strong> ที่มุมขวาบนของหน้าจอเพื่อสลับภาษาได้ตลอดเวลา ระบบรองรับทั้งภาษาไทยและอังกฤษเต็มรูปแบบ</p>
+      </div>
+    </div>
+    <div class="phone-wrap">
+      <div class="phone">
+        <div class="phone-status"><span>9:41</span><span>▓▓ 100%</span></div>
+        <div class="phone-content pmock-settings">
+          <div class="title">Settings</div>
+          <div class="section-card">
+            <div class="sec-title">👤 Account Information</div>
+            <div class="profile-row">
+              <div class="profile-avatar">P</div>
+              <div class="profile-info">
+                <div class="name">Poti Chaopaisarn</div>
+                <div class="role">Super Admin · Top Management</div>
+              </div>
+            </div>
+          </div>
+          <div class="section-card">
+            <div class="sec-title">🔔 Push Notifications</div>
+            <div class="notif-row">
+              <span>รับการแจ้งเตือนบนอุปกรณ์นี้</span>
+              <div class="toggle"></div>
+            </div>
+          </div>
+          <div class="section-card">
+            <div class="sec-title">🌐 Language</div>
+            <div class="lang-row">
+              <div class="lang-btn active">EN English</div>
+              <div class="lang-btn">TH ภาษาไทย</div>
+            </div>
+          </div>
+        </div>
+        <div class="phone-nav">
+          <div><span class="pn-icon">🏠</span>Home</div>
+          <div><span class="pn-icon">📋</span>Cases</div>
+          <div><span class="pn-icon active-tab">➕</span>New</div>
+          <div><span class="pn-icon">📈</span>Performance</div>
+          <div><span class="pn-icon">👥</span>Users</div>
+        </div>
+      </div>
+      <div class="phone-label">หน้า Settings</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════ SECTION 4: MENU -->
+<div class="section">
+  <div class="sec-header">
+    <div class="sec-num">4</div>
+    <div>
+      <div class="sec-title">ภาพรวมเมนูของผู้จัดการ</div>
+      <div class="sec-subtitle">เมนูด้านล่างจอ (มือถือ) หรือแถบด้านซ้าย (คอมพิวเตอร์)</div>
+    </div>
+  </div>
+  <div class="menu-grid">
+    <div class="menu-card"><div class="menu-icon">🏠</div><div class="menu-name">Dashboard (แดชบอร์ด)</div><div class="menu-desc">ภาพรวมสถานะเคส ตัวเลขสำคัญ และกิจกรรมล่าสุดของทั้งองค์กร</div></div>
+    <div class="menu-card"><div class="menu-icon">📋</div><div class="menu-name">Cases (เคส)</div><div class="menu-desc">ดู ค้นหา และจัดการรายงานปัญหาทั้งหมด กรองตามสถานะ แผนก หรือความสำคัญ</div></div>
+    <div class="menu-card"><div class="menu-icon">➕</div><div class="menu-name">New Case (รายงานใหม่)</div><div class="menu-desc">สร้างรายงานปัญหาใหม่ด้วยตนเอง กรอกรายละเอียดและแนบรูปภาพ</div></div>
+    <div class="menu-card"><div class="menu-icon">📅</div><div class="menu-name">Calendar (ปฏิทิน)</div><div class="menu-desc">ดูเคสตามวันกำหนดเสร็จ มองเห็นภาระงานและสิ่งที่ใกล้ครบกำหนดได้ง่าย</div></div>
+    <div class="menu-card"><div class="menu-icon">🔧</div><div class="menu-name">PMS (การบำรุงรักษา)</div><div class="menu-desc">ดูแลตารางบำรุงรักษาอุปกรณ์ทรัพย์สิน ติดตามสถานะ และยืนยันงาน</div></div>
+    <div class="menu-card"><div class="menu-icon">📊</div><div class="menu-name">Performance (ประสิทธิภาพ)</div><div class="menu-desc">วิเคราะห์ผลการทำงานของทีมและรายบุคคล อัตราการแก้ไข ความตรงเวลา</div></div>
+    <div class="menu-card"><div class="menu-icon">🔔</div><div class="menu-name">Notifications (แจ้งเตือน)</div><div class="menu-desc">ดูการแจ้งเตือนทั้งหมด เคสใหม่ เคสรออนุมัติ การกล่าวถึง</div></div>
+    <div class="menu-card"><div class="menu-icon">👥</div><div class="menu-name">Users (ผู้ใช้งาน)</div><div class="menu-desc">เพิ่ม แก้ไข และจัดการบัญชีพนักงานและผู้จัดการทุกคน</div></div>
+    <div class="menu-card"><div class="menu-icon">⚙️</div><div class="menu-name">Settings (ตั้งค่า)</div><div class="menu-desc">โปรไฟล์ รหัสผ่าน ธีมสี การแจ้งเตือน และภาษา</div></div>
+  </div>
+</div>
+
+<div class="page-break"></div>
+
+<!-- ═══════════════════════════════════════ SECTION 5: DASHBOARD -->
+<div class="section">
+  <div class="sec-header">
+    <div class="sec-num">5</div>
+    <div>
+      <div class="sec-title">แดชบอร์ด (Dashboard)</div>
+      <div class="sec-subtitle">หน้าแรก — ภาพรวมสถานะงานของทั้งองค์กรแบบ Real-time</div>
+    </div>
+  </div>
+
+  <div class="two-col">
+    <div>
+      <p style="font-size:13px;margin-bottom:14px;color:#374151">แดชบอร์ดแสดงสถานะงานสำคัญทุกอย่างในหน้าเดียว ช่วยให้ผู้จัดการตัดสินใจได้เร็วโดยไม่ต้องค้นหาในแต่ละเมนู</p>
+      <table>
+        <thead><tr><th>ข้อมูลที่แสดง</th><th>ความหมาย</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Case Overview</strong></td><td>จำนวนเคสทั้งหมดแยกตามสถานะ มีกราฟวงกลม</td></tr>
+          <tr><td><strong>Cases by Category</strong></td><td>เคสแยกตามประเภท เช่น Equipment, Safety</td></tr>
+          <tr><td><strong>Preventive Maintenance</strong></td><td>สรุป PMS: ตรงกำหนด / ใกล้ครบ / เกินกำหนด</td></tr>
+          <tr><td><strong>Avg Resolution</strong></td><td>เวลาเฉลี่ยในการปิดเคส (เป้าหมาย: ยิ่งน้อยยิ่งดี)</td></tr>
+          <tr><td><strong>Cases This Month</strong></td><td>จำนวนเคสทั้งหมดในเดือนนี้ รวม Overdue</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="phone-wrap">
+      <div class="phone">
+        <div class="phone-status"><span>9:41</span><span>▓▓ 100%</span></div>
+        <div class="phone-content pmock-dash">
+          <div class="title">Dashboard</div>
+          <div class="sub">Welcome back, Poti · Top Management</div>
+          <div class="card">
+            <div class="card-title"><span>📊 Case Overview</span><span style="color:#888">Jun 2026</span></div>
+            <div class="stat-row"><span>Total Cases</span><span class="stat-val">18</span></div>
+            <div class="stat-row"><span>Open</span><span class="stat-val red">10</span></div>
+            <div class="stat-row"><span>In Progress</span><span class="stat-val blue">5</span></div>
+            <div class="stat-row"><span>Waiting Approval</span><span class="stat-val orange">1</span></div>
+            <div class="stat-row"><span>Resolved</span><span class="stat-val green">2</span></div>
+          </div>
+          <div class="card">
+            <div class="card-title">🔧 Preventive Maintenance</div>
+            <div style="display:flex;gap:4px;font-size:6px">
+              <div style="flex:1;background:#dcfce7;border-radius:3px;padding:3px;text-align:center"><div style="font-size:9px;font-weight:800;color:#15803d">19</div><div style="color:#15803d">Up to Date</div></div>
+              <div style="flex:1;background:#fef3c7;border-radius:3px;padding:3px;text-align:center"><div style="font-size:9px;font-weight:800;color:#d97706">4</div><div style="color:#d97706">Due Soon</div></div>
+              <div style="flex:1;background:#fee2e2;border-radius:3px;padding:3px;text-align:center"><div style="font-size:9px;font-weight:800;color:#dc2626">0</div><div style="color:#dc2626">Overdue</div></div>
+            </div>
+          </div>
+          <div class="kpi-grid">
+            <div class="kpi"><div class="kpi-label">⏱ Avg Resolution</div><div class="kpi-val">3d 9h</div></div>
+            <div class="kpi"><div class="kpi-label">📅 This Month</div><div class="kpi-val red">17 <span style="font-size:7px">Overdue</span></div></div>
+          </div>
+        </div>
+        <div class="phone-nav">
+          <div class="active-tab"><span class="pn-icon">🏠</span>Home</div>
+          <div><span class="pn-icon">📋</span>Cases</div>
+          <div><span class="pn-icon">➕</span>New</div>
+          <div><span class="pn-icon">📈</span>Perf.</div>
+          <div><span class="pn-icon">👥</span>Users</div>
+        </div>
+      </div>
+      <div class="phone-label">แดชบอร์ดจริงของระบบ</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════ SECTION 6: CASES -->
+<div class="section">
+  <div class="sec-header">
+    <div class="sec-num">6</div>
+    <div>
+      <div class="sec-title">การจัดการเคส (Cases)</div>
+      <div class="sec-subtitle">หัวใจของระบบ — ติดตามและบริหารรายงานปัญหาทั้งหมด</div>
+    </div>
+  </div>
+
+  <h3 style="font-size:14px;font-weight:700;color:#1a3a5c;margin-bottom:10px">สถานะของเคส — วงจรชีวิต</h3>
+  <div class="flow-wrap">
+    <div class="flow">
+      <div class="flow-node"><span class="flow-badge status-open">เปิด (Open)</span><span class="flow-desc">เพิ่งรายงาน</span></div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-node"><span class="flow-badge status-assigned">มอบหมายแล้ว</span><span class="flow-desc">มีผู้รับผิดชอบ</span></div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-node"><span class="flow-badge status-inprog">กำลังดำเนินการ</span><span class="flow-desc">กำลังแก้ไข</span></div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-node"><span class="flow-badge status-wait">รออนุมัติ</span><span class="flow-desc">แก้ไขแล้ว รอตรวจ</span></div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-node"><span class="flow-badge status-closed">ปิด (Closed)</span><span class="flow-desc">เสร็จสมบูรณ์</span></div>
+    </div>
+    <div style="margin-top:8px;font-size:12px;color:#888">⤷ หากตรวจแล้วยังไม่เรียบร้อย → <span class="flow-badge status-reopen" style="font-size:11px">เปิดใหม่ (Reopened)</span> → กลับไปดำเนินการต่อ</div>
+  </div>
+
+  <div class="two-col" style="margin-top:16px">
+    <div>
+      <h3 style="font-size:14px;font-weight:700;color:#1a3a5c;margin-bottom:10px">สิ่งที่ผู้จัดการทำได้ในแต่ละเคส</h3>
+      <div class="steps">
+        <div class="step"><div class="step-n">✓</div><div class="step-body"><strong>มอบหมายแผนก</strong>ที่รับผิดชอบและบุคคลที่เหมาะสม</div></div>
+        <div class="step"><div class="step-n">✓</div><div class="step-body"><strong>เสนอแนวทางแก้ไข</strong> พิมพ์อธิบายในช่อง Proposed Solution</div></div>
+        <div class="step"><div class="step-n">✓</div><div class="step-body"><strong>เปลี่ยนระดับความสำคัญ</strong> หากสถานการณ์เปลี่ยนไป</div></div>
+        <div class="step"><div class="step-n">✓</div><div class="step-body"><strong>อนุมัติการแก้ไข</strong> เมื่อผู้รับผิดชอบส่งหลักฐานแล้ว</div></div>
+        <div class="step"><div class="step-n">✓</div><div class="step-body"><strong>เปิดเคสใหม่</strong> หากการแก้ไขยังไม่สมบูรณ์</div></div>
+        <div class="step"><div class="step-n">✓</div><div class="step-body">เพิ่ม <strong>บันทึกภายใน</strong> พิมพ์ <strong>@</strong> เพื่อแจ้งเตือนเพื่อนร่วมงาน</div></div>
+      </div>
+
+      <div style="margin-top:14px">
+        <h3 style="font-size:14px;font-weight:700;color:#1a3a5c;margin-bottom:8px">ระดับความสำคัญ (Priority)</h3>
+        <div class="priority-row">
+          <span class="pri-badge pri-low">🟢 ต่ำ</span>
+          <span class="pri-badge pri-med">🔵 ปานกลาง</span>
+          <span class="pri-badge pri-high">🟡 สูง</span>
+          <span class="pri-badge pri-crit">🔴 วิกฤต</span>
+        </div>
+      </div>
+    </div>
+    <div class="phone-wrap">
+      <div class="phone">
+        <div class="phone-status"><span>9:41</span><span>▓▓ 100%</span></div>
+        <div class="phone-content pmock-detail">
+          <div class="back">← KZN-202606-2669</div>
+          <div class="badges" style="display:flex;gap:2px;margin-bottom:4px">
+            <span class="badge badge-assigned">Assigned</span>
+            <span class="badge badge-critical">Critical</span>
+            <span style="background:#fce7f3;color:#9d174d;border-radius:10px;padding:1px 5px;font-size:5.5px;font-weight:700">Restaurant</span>
+          </div>
+          <h4>Dining table completely collapsed — guests disturbed</h4>
+          <div class="info-card">
+            <label>Case Information</label>
+            The dining table near the window has fully collapsed during service. A guest was startled. 4th incident.
+          </div>
+          <div class="info-card">
+            <label>In Charge: User B &nbsp;·&nbsp; Due: 7 Jun 2026 ⚠️</label>
+            <div style="margin-top:3px;display:flex;gap:3px;flex-wrap:wrap">
+              <span style="background:#eff6ff;color:#1d4ed8;border-radius:3px;padding:1px 4px;font-size:5.5px">Assign Dept</span>
+              <span style="background:#f0fdf4;color:#15803d;border-radius:3px;padding:1px 4px;font-size:5.5px">Approve ✓</span>
+              <span style="background:#fff1f2;color:#dc2626;border-radius:3px;padding:1px 4px;font-size:5.5px">Reopen</span>
+            </div>
+          </div>
+          <div class="notes-box">
+            <div style="font-size:6.5px;font-weight:700;margin-bottom:3px">💬 Internal Notes (4)</div>
+            <div class="note-placeholder">@ พิมพ์ @ เพื่อกล่าวถึง...</div>
+          </div>
+        </div>
+        <div class="phone-nav">
+          <div><span class="pn-icon">🏠</span>Home</div>
+          <div class="active-tab"><span class="pn-icon">📋</span>Cases</div>
+          <div><span class="pn-icon">➕</span>New</div>
+          <div><span class="pn-icon">📈</span>Perf.</div>
+          <div><span class="pn-icon">👥</span>Users</div>
+        </div>
+      </div>
+      <div class="phone-label">รายละเอียดเคส</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════ SECTION 7: CALENDAR -->
+<div class="section">
+  <div class="sec-header">
+    <div class="sec-num">7</div>
+    <div>
+      <div class="sec-title">ปฏิทินเคส (Calendar)</div>
+      <div class="sec-subtitle">มองเห็นภาระงานและ Deadline ของทีมในมุมมองรายเดือน</div>
+    </div>
+  </div>
+  <div class="two-col">
+    <div>
+      <p style="font-size:13px;color:#374151;margin-bottom:12px">เมนูปฏิทินแสดงเคสทั้งหมดตามวันที่กำหนดส่ง ใช้ตรวจสอบว่าวันไหนมีงานหนัก และป้องกันไม่ให้เกิน Deadline</p>
+      <table>
+        <thead><tr><th>แท็บ</th><th>แสดงผล</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Cases</strong></td><td>เคสปัญหาทั้งหมดตามวัน Deadline</td></tr>
+          <tr><td><strong>Preventive Maintenance</strong></td><td>งาน PMS ตามกำหนดการบำรุงรักษา</td></tr>
+          <tr><td><strong>Combined</strong></td><td>รวมทั้งเคสและ PMS ในปฏิทินเดียว</td></tr>
+        </tbody>
+      </table>
+      <div class="callout tip">
+        <div class="callout-icon">💡</div>
+        <div class="callout-body">
+          <strong>สีบนปฏิทิน = ระดับความสำคัญ</strong>
+          <p>🟢 ต่ำ &nbsp;·&nbsp; 🔵 ปานกลาง &nbsp;·&nbsp; 🟠 สูง &nbsp;·&nbsp; 🔴 วิกฤต &nbsp;·&nbsp; ⬜ ปิดแล้ว</p>
+        </div>
+      </div>
+    </div>
+    <div class="phone-wrap">
+      <div class="phone">
+        <div class="phone-status"><span>9:41</span><span>▓▓ 100%</span></div>
+        <div class="phone-content" style="padding:8px">
+          <div style="font-size:10px;font-weight:800;margin-bottom:5px">Calendar</div>
+          <div style="display:flex;gap:4px;margin-bottom:6px;font-size:6px">
+            <span style="padding:2px 6px;background:#1a3a5c;color:#fff;border-radius:8px;font-weight:700">Cases</span>
+            <span style="padding:2px 6px;background:#f3f4f6;border-radius:8px;color:#666">PMS</span>
+            <span style="padding:2px 6px;background:#f3f4f6;border-radius:8px;color:#666">Combined</span>
+          </div>
+          <div style="font-size:8px;font-weight:700;text-align:center;margin-bottom:4px">June 2026</div>
+          <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:1px;font-size:5.5px;text-align:center">
+            <div style="color:#888">M</div><div style="color:#888">T</div><div style="color:#888">W</div><div style="color:#888">T</div><div style="color:#888">F</div><div style="color:#e74c3c">S</div><div style="color:#e74c3c">S</div>
+            <div>1</div><div>2</div><div style="color:#fff;background:#3b82f6;border-radius:2px">3</div><div>4</div><div>5</div><div style="color:#e74c3c">6</div><div style="color:#e74c3c">7</div>
+            <div>8</div><div>9</div><div>10</div><div style="color:#fff;background:#1a3a5c;border-radius:50%;width:11px;height:11px;display:flex;align-items:center;justify-content:center;margin:auto">11</div><div>12</div><div style="color:#e74c3c">13</div><div style="color:#e74c3c">14</div>
+            <div>15</div><div>16</div><div>17</div><div>18</div><div>19</div><div style="color:#e74c3c">20</div><div style="color:#e74c3c">21</div>
+            <div>22</div><div>23</div><div>24</div><div>25</div><div>26</div><div style="color:#e74c3c">27</div><div style="color:#e74c3c">28</div>
+          </div>
+          <div style="margin-top:6px;background:#f8fafc;border-radius:4px;padding:4px;font-size:6px">
+            <div style="font-weight:700;margin-bottom:2px">Thu, 11 June 2026</div>
+            <div style="display:flex;align-items:center;gap:3px"><span style="width:5px;height:5px;border-radius:50%;background:#f59e0b;flex-shrink:0"></span>Computer not working · KZN-202606-4557</div>
+          </div>
+        </div>
+        <div class="phone-nav">
+          <div><span class="pn-icon">🏠</span>Home</div>
+          <div class="active-tab"><span class="pn-icon">📋</span>Cases</div>
+          <div><span class="pn-icon">➕</span>New</div>
+          <div><span class="pn-icon">📈</span>Perf.</div>
+          <div><span class="pn-icon">👥</span>Users</div>
+        </div>
+      </div>
+      <div class="phone-label">ปฏิทิน June 2026</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════ SECTION 8: PMS -->
+<div class="section">
+  <div class="sec-header">
+    <div class="sec-num">8</div>
+    <div>
+      <div class="sec-title">การบำรุงรักษาเชิงป้องกัน — PMS</div>
+      <div class="sec-subtitle">Preventive Maintenance Scheduler · ส่วนเสริมที่ต้องเปิดใช้งานก่อน</div>
+    </div>
+  </div>
+  <div class="two-col">
+    <div>
+      <p style="font-size:13px;color:#374151;margin-bottom:12px">PMS ช่วยวางตารางบำรุงรักษาอุปกรณ์ทรัพย์สินล่วงหน้า ป้องกันการเสียหายกะทันหัน และรักษา Compliance ของโรงแรม</p>
+      <div class="highlight-box">
+        <h4>ตัวเลขสำคัญบนหน้า PMS</h4>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:12.5px">
+          <div style="background:#dcfce7;border-radius:6px;padding:8px"><div style="font-size:18px;font-weight:800;color:#15803d">19</div><div style="color:#15803d;font-size:12px">Up to Date</div></div>
+          <div style="background:#fef3c7;border-radius:6px;padding:8px"><div style="font-size:18px;font-weight:800;color:#d97706">4</div><div style="color:#d97706;font-size:12px">Due Soon</div></div>
+          <div style="background:#fee2e2;border-radius:6px;padding:8px"><div style="font-size:18px;font-weight:800;color:#dc2626">0</div><div style="color:#dc2626;font-size:12px">Overdue</div></div>
+          <div style="background:#f3f4f6;border-radius:6px;padding:8px"><div style="font-size:18px;font-weight:800;color:#374151">23</div><div style="color:#374151;font-size:12px">All Assets</div></div>
+        </div>
+      </div>
+      <div class="callout warn" style="margin-top:10px">
+        <div class="callout-icon">⚙️</div>
+        <div class="callout-body"><strong>หากเลยกำหนด → เปลี่ยนเป็นเคสอัตโนมัติ</strong><p>อุปกรณ์ที่เกิน Overdue จะถูกยกระดับเป็น Case ให้โดยอัตโนมัติ ป้องกันไม่ให้หลุดรอด</p></div>
+      </div>
+    </div>
+    <div class="phone-wrap">
+      <div class="phone">
+        <div class="phone-status"><span>9:41</span><span>▓▓ 100%</span></div>
+        <div class="phone-content" style="padding:8px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+            <div style="font-size:9px;font-weight:800">🔧 PMS Scheduler</div>
+            <div style="background:#1a3a5c;color:#fff;border-radius:4px;padding:2px 6px;font-size:5.5px;font-weight:700">+ Add Asset</div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:3px;margin-bottom:5px;font-size:6px">
+            <div style="background:#f3f4f6;border-radius:4px;padding:4px"><div style="font-weight:800;font-size:9px">23</div>All Assets</div>
+            <div style="background:#fee2e2;border-radius:4px;padding:4px"><div style="font-weight:800;font-size:9px;color:#dc2626">0</div>Overdue</div>
+            <div style="background:#fef3c7;border-radius:4px;padding:4px"><div style="font-weight:800;font-size:9px;color:#d97706">4</div>Due Soon</div>
+            <div style="background:#dcfce7;border-radius:4px;padding:4px"><div style="font-weight:800;font-size:9px;color:#15803d">19</div>Up to Date</div>
+          </div>
+          <div style="font-size:6px;color:#888;margin-bottom:4px">Tap a status to filter</div>
+          <div style="border:1px solid #e5e7eb;border-radius:3px;padding:3px 5px;font-size:5.5px;color:#ccc;margin-bottom:4px">🔍 Search asset name, tag...</div>
+          <div style="font-size:6px;color:#888;text-align:center;margin-top:20px">กรองด้วยสถานะด้านบน<br>เพื่อดูรายการอุปกรณ์</div>
+        </div>
+        <div class="phone-nav">
+          <div><span class="pn-icon">🏠</span>Home</div>
+          <div class="active-tab"><span class="pn-icon">📋</span>Cases</div>
+          <div><span class="pn-icon">➕</span>New</div>
+          <div><span class="pn-icon">📈</span>Perf.</div>
+          <div><span class="pn-icon">👥</span>Users</div>
+        </div>
+      </div>
+      <div class="phone-label">หน้า PMS Scheduler</div>
+    </div>
+  </div>
+</div>
+
+<div class="page-break"></div>
+
+<!-- ═══════════════════════════════════════ SECTION 9: PERFORMANCE -->
+<div class="section">
+  <div class="sec-header">
+    <div class="sec-num">9</div>
+    <div>
+      <div class="sec-title">ประสิทธิภาพของทีม (Performance)</div>
+      <div class="sec-subtitle">วิเคราะห์ผลการทำงานรายบุคคลและรายแผนก</div>
+    </div>
+  </div>
+  <div class="two-col">
+    <div>
+      <p style="font-size:13px;color:#374151;margin-bottom:12px">เมนู Performance แสดงข้อมูลเปรียบเทียบผลการทำงานของแต่ละแผนกและพนักงาน ช่วยระบุจุดที่ต้องปรับปรุงและให้รางวัลผู้ที่ทำได้ดี</p>
+      <table>
+        <thead><tr><th>ข้อมูลที่ดูได้</th><th>รายละเอียด</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Department Comparison</strong></td><td>เปรียบเทียบเคสเปิด/ปิด เวลาเฉลี่ย และ Overdue แต่ละแผนก</td></tr>
+          <tr><td><strong>Staff Leaderboard</strong></td><td>คะแนนรายบุคคล จำนวนเคสที่แก้ไข อัตราความสำเร็จ</td></tr>
+          <tr><td><strong>ช่วงเวลา</strong></td><td>ดูได้ This Month / Last 30d / Last 90d / All Time</td></tr>
+        </tbody>
+      </table>
+      <div class="callout info">
+        <div class="callout-icon">📌</div>
+        <div class="callout-body"><strong>คะแนนของผู้จัดการคิดต่างกัน</strong><p>คะแนนผู้จัดการคำนวณจากภาพรวมของแผนกที่ดูแลทั้งหมด ไม่ใช่จากเคสรายบุคคลเหมือนพนักงาน</p></div>
+      </div>
+    </div>
+    <div class="phone-wrap">
+      <div class="phone">
+        <div class="phone-status"><span>9:41</span><span>▓▓ 100%</span></div>
+        <div class="phone-content" style="padding:8px">
+          <div style="font-size:10px;font-weight:800;margin-bottom:2px">Team Performance</div>
+          <div style="font-size:6px;color:#888;margin-bottom:5px">Department &amp; individual breakdown</div>
+          <div style="display:flex;gap:3px;margin-bottom:6px;font-size:6px">
+            <span style="padding:2px 5px;background:#1a3a5c;color:#fff;border-radius:6px;font-weight:700">This Month</span>
+            <span style="padding:2px 5px;background:#f3f4f6;border-radius:6px;color:#666">Last 30d</span>
+            <span style="padding:2px 5px;background:#f3f4f6;border-radius:6px;color:#666">Last 90d</span>
+            <span style="padding:2px 5px;background:#f3f4f6;border-radius:6px;color:#666">All Time</span>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:3px;margin-bottom:5px">
+            <div style="background:#f8fafc;border-radius:4px;padding:4px"><div style="font-size:6px;color:#888">Total Cases</div><div style="font-size:12px;font-weight:800">18</div></div>
+            <div style="background:#f8fafc;border-radius:4px;padding:4px"><div style="font-size:6px;color:#888">Resolution Rate</div><div style="font-size:12px;font-weight:800">11%</div></div>
+            <div style="background:#f8fafc;border-radius:4px;padding:4px"><div style="font-size:6px;color:#888">Avg Resolution</div><div style="font-size:9px;font-weight:800">3d 9h</div></div>
+            <div style="background:#fee2e2;border-radius:4px;padding:4px"><div style="font-size:6px;color:#888">Overdue</div><div style="font-size:12px;font-weight:800;color:#dc2626">13</div></div>
+          </div>
+          <div style="font-size:6.5px;font-weight:700;margin-bottom:3px;color:#555">🏢 Department Comparison</div>
+          <div style="font-size:5.5px">
+            <div style="display:flex;justify-content:space-between;padding:2px 0;border-bottom:1px solid #f3f4f6"><span>Kitchen</span><span>1/2</span><span style="color:#22c55e">50%</span></div>
+            <div style="display:flex;justify-content:space-between;padding:2px 0;border-bottom:1px solid #f3f4f6"><span>Front Office</span><span>7/8</span><span style="color:#f59e0b">13%</span></div>
+            <div style="display:flex;justify-content:space-between;padding:2px 0"><span>Restaurant</span><span>3/3</span><span style="color:#ef4444">0%</span></div>
+          </div>
+        </div>
+        <div class="phone-nav">
+          <div><span class="pn-icon">🏠</span>Home</div>
+          <div><span class="pn-icon">📋</span>Cases</div>
+          <div><span class="pn-icon">➕</span>New</div>
+          <div class="active-tab"><span class="pn-icon">📈</span>Perf.</div>
+          <div><span class="pn-icon">👥</span>Users</div>
+        </div>
+      </div>
+      <div class="phone-label">หน้า Team Performance</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════ SECTION 10: USERS -->
+<div class="section">
+  <div class="sec-header">
+    <div class="sec-num">10</div>
+    <div>
+      <div class="sec-title">การจัดการผู้ใช้งาน (Users)</div>
+      <div class="sec-subtitle">เพิ่ม แก้ไข รีเซ็ตรหัสผ่าน — จัดการบัญชีพนักงานทุกคน</div>
+    </div>
+  </div>
+
+  <div class="two-col">
+    <div>
+      <div class="callout info" style="margin-bottom:14px">
+        <div class="callout-icon">ℹ️</div>
+        <div class="callout-body">
+          <strong>วิธีล็อกอินต่างกันตามบทบาท</strong>
+          <p>🏢 <b>ผู้จัดการ</b> → เข้าสู่ระบบด้วย <b>อีเมล + รหัสผ่าน</b><br>
+          👷 <b>พนักงาน</b> → เข้าสู่ระบบด้วย <b>รหัสบริษัท + ชื่อผู้ใช้ + รหัสผ่าน</b></p>
+        </div>
+      </div>
+
+      <h3 style="font-size:13px;font-weight:700;color:#1a3a5c;margin-bottom:8px">เพิ่มพนักงานใหม่ (Staff)</h3>
+      <div class="steps">
+        <div class="step"><div class="step-n">1</div><div class="step-body">ไปที่เมนู <strong>Users</strong> → แตะ <strong>+ Add User</strong></div></div>
+        <div class="step"><div class="step-n">2</div><div class="step-body">เลือกบทบาท <strong>Staff</strong> → กรอกชื่อ-นามสกุล และตำแหน่ง</div></div>
+        <div class="step"><div class="step-n">3</div><div class="step-body">กรอก <strong>Username</strong> — พนักงานจะใช้ตัวนี้ + รหัสบริษัทในการล็อกอิน</div></div>
+        <div class="step"><div class="step-n">4</div><div class="step-body">เลือก <strong>แผนก</strong> และตั้ง <strong>รหัสผ่านเริ่มต้น</strong> (อย่างน้อย 6 ตัว)</div></div>
+        <div class="step"><div class="step-n">5</div><div class="step-body">แตะ <strong>Create Account</strong> → แจ้ง Username และรหัสผ่านให้พนักงาน</div></div>
+      </div>
+
+      <div class="callout warn" style="margin-top:12px">
+        <div class="callout-icon">🔒</div>
+        <div class="callout-body"><strong>พนักงานรีเซ็ตรหัสผ่านเองไม่ได้</strong><p>ต้องให้ผู้จัดการหรือ HR รีเซ็ตให้จากหน้า Users → คลิกที่บัญชี → Reset Password</p></div>
+      </div>
+    </div>
+    <div class="phone-wrap">
+      <div class="phone">
+        <div class="phone-status"><span>9:41</span><span>▓▓ 100%</span></div>
+        <div class="phone-content pmock-users">
+          <div class="title"><span>Users <span style="font-size:7px;font-weight:400;color:#888">15 accounts</span></span><span class="add-btn">+ Add User</span></div>
+          <div class="group-label">🛡 Super Admins &nbsp; 2</div>
+          <div class="user-row">
+            <div class="avatar">CD</div>
+            <div class="user-info"><div class="name">Chanlakan Dulyapraphant</div><div class="role">General Manager · @Linn</div></div>
+            <div class="dept-badge" style="background:#fce7f3;color:#9d174d">Top Mgmt</div>
+          </div>
+          <div class="user-row">
+            <div class="avatar" style="background:#c9a84c">P</div>
+            <div class="user-info"><div class="name">Poti Chaopaisarn</div><div class="role">Top Management</div></div>
+          </div>
+          <div class="group-label">👤 Managers &nbsp; 8</div>
+          <div class="user-row">
+            <div class="avatar" style="background:#7c3aed">BC</div>
+            <div class="user-info"><div class="name">Boonnada Chiangkam</div><div class="role">acc@nanirand.com</div></div>
+            <div class="dept-badge">Accounting</div>
+          </div>
+          <div class="user-row">
+            <div class="avatar" style="background:#059669">PS</div>
+            <div class="user-info"><div class="name">Piyapong Satanpun</div><div class="role">eng@nanirand.com</div></div>
+            <div class="dept-badge" style="background:#dcfce7;color:#15803d">Eng.</div>
+          </div>
+          <div class="group-label">👷 Staff &nbsp; 5</div>
+          <div style="font-size:6px;color:#aaa;text-align:center;padding:6px">เลื่อนดูพนักงานเพิ่มเติม...</div>
+        </div>
+        <div class="phone-nav">
+          <div><span class="pn-icon">🏠</span>Home</div>
+          <div><span class="pn-icon">📋</span>Cases</div>
+          <div><span class="pn-icon">➕</span>New</div>
+          <div><span class="pn-icon">📈</span>Perf.</div>
+          <div class="active-tab"><span class="pn-icon">👥</span>Users</div>
+        </div>
+      </div>
+      <div class="phone-label">หน้าจัดการผู้ใช้งาน</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════ SECTION 11: SETTINGS -->
+<div class="section">
+  <div class="sec-header">
+    <div class="sec-num">11</div>
+    <div>
+      <div class="sec-title">การตั้งค่าและบัญชีของคุณ (Settings)</div>
+      <div class="sec-subtitle">แก้ไขโปรไฟล์ รหัสผ่าน การแจ้งเตือน และภาษา</div>
+    </div>
+  </div>
+  <table>
+    <thead><tr><th>รายการ</th><th>วิธีการ</th><th>หมายเหตุ</th></tr></thead>
+    <tbody>
+      <tr><td><strong>เปลี่ยนรูปโปรไฟล์</strong></td><td>Settings → แตะที่รูป → เลือกรูปใหม่</td><td>รองรับ JPG, PNG</td></tr>
+      <tr><td><strong>เปลี่ยนรหัสผ่าน</strong></td><td>Settings → Change Password → ใส่รหัสเดิม + ใหม่</td><td>อย่างน้อย 8 ตัวอักษร</td></tr>
+      <tr><td><strong>การแจ้งเตือน</strong></td><td>Settings → Push Notifications → เปิด/ปิดสวิตช์</td><td>iOS ต้องเปิดจาก Home Screen ก่อน</td></tr>
+      <tr><td><strong>เปลี่ยนภาษา</strong></td><td>Settings → Language → EN หรือ TH</td><td>ใช้ได้ทั้งสองภาษาเต็มรูปแบบ</td></tr>
+      <tr><td><strong>ออกจากระบบ</strong></td><td>Settings → เลื่อนลงล่างสุด → Sign Out</td><td>—</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ═══════════════════════════════════════ SECTION 12: FAQ -->
+<div class="section">
+  <div class="sec-header">
+    <div class="sec-num">12</div>
+    <div>
+      <div class="sec-title">คำถามที่พบบ่อย</div>
+      <div class="sec-subtitle">ปัญหาที่มักพบและวิธีแก้ไข</div>
+    </div>
+  </div>
+  <div class="faq-item">
+    <div class="faq-q">เข้าสู่ระบบไม่ได้ ขึ้น "Invalid email or password"</div>
+    <div class="faq-a">ตรวจสอบว่าแท็บเลือก <b>Manager</b> และกรอกอีเมล (ไม่ใช่ Username) หากลืมรหัสผ่านให้แตะ "Forgot password?" แล้วกรอกอีเมล</div>
+  </div>
+  <div class="faq-item">
+    <div class="faq-q">การแจ้งเตือนไม่เข้า iPhone ทั้งที่เปิดไว้แล้ว</div>
+    <div class="faq-a">ต้องเปิดแอปจาก <b>ไอคอนบนหน้าจอโฮม</b> เท่านั้น (ไม่ใช่จาก Safari โดยตรง) หากยังไม่ได้ติดตั้ง ให้ทำตามข้อ 1 ก่อน</div>
+  </div>
+  <div class="faq-item">
+    <div class="faq-q">เห็นหน้าจอเวอร์ชันเก่า ข้อมูลไม่อัปเดต</div>
+    <div class="faq-a">ปิดแอปและเปิดใหม่ หรือดึงหน้าจอลงเพื่อรีเฟรช ระบบจะดาวน์โหลดเวอร์ชันล่าสุดให้อัตโนมัติ</div>
+  </div>
+  <div class="faq-item">
+    <div class="faq-q">ไม่เห็นเมนู PMS (การบำรุงรักษา)</div>
+    <div class="faq-a">เมนู PMS เป็น Add-on ที่ต้องเปิดใช้งาน กรุณาติดต่อ NNR Solutions เพื่อเปิดใช้งานให้กับองค์กรของคุณ</div>
+  </div>
+  <div class="faq-item">
+    <div class="faq-q">พนักงานลืมรหัสผ่าน จะรีเซ็ตให้ได้อย่างไร</div>
+    <div class="faq-a">ไปที่ Users → แตะที่บัญชีพนักงาน → แตะ Reset Password → ตั้งรหัสผ่านชั่วคราวให้ → แจ้งพนักงาน</div>
+  </div>
+</div>
+
+<div class="manual-footer">
+  จัดทำโดย NNR Solutions &nbsp;·&nbsp; kaizen.nnr-solutions.com &nbsp;·&nbsp; เอกสารนี้สำหรับผู้ใช้งานระบบ Kaizen ภายในองค์กร
+</div>
+
+</div><!-- /page -->
+</body>
+</html>

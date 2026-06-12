@@ -1,0 +1,848 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>คู่มือพนักงาน — Kaizen System</title>
+<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Sarabun',sans-serif;font-size:14px;line-height:1.7;color:#1a1a1a;background:#fff}
+.page{max-width:794px;margin:0 auto}
+
+/* ── COVER ─────────────────────────────── */
+.cover{background:linear-gradient(145deg,#0d3a20 0%,#1a5c3a 60%,#2a7a50 100%);color:#fff;padding:70px 56px 60px;position:relative;overflow:hidden;page-break-after:always}
+.cover::before{content:'';position:absolute;right:-60px;top:-60px;width:320px;height:320px;border-radius:50%;background:rgba(255,255,255,0.04)}
+.cover::after{content:'';position:absolute;left:-40px;bottom:-80px;width:240px;height:240px;border-radius:50%;background:rgba(255,255,255,0.03)}
+.cover-logo{display:flex;align-items:center;gap:14px;margin-bottom:50px}
+.cover-logo-icon{width:52px;height:52px;background:linear-gradient(135deg,#c9a84c,#f0d070);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:800;color:#0d3a20}
+.cover-logo-text{font-size:14px;letter-spacing:0.25em;text-transform:uppercase;opacity:0.85;font-weight:600}
+.cover h1{font-size:36px;font-weight:800;line-height:1.2;margin-bottom:10px}
+.cover-sub{font-size:18px;opacity:0.75;font-weight:300;margin-bottom:32px}
+.cover-badge{display:inline-flex;align-items:center;gap:8px;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.3);border-radius:30px;padding:7px 20px;font-size:13px;font-weight:600;letter-spacing:0.1em}
+.cover-badge::before{content:'👷';font-size:16px}
+.cover-url{position:absolute;bottom:36px;right:56px;font-size:12px;opacity:0.5;letter-spacing:0.1em}
+
+/* ── LAYOUT ─────────────────────────────── */
+.section{padding:40px 56px 0}
+.section:last-child{padding-bottom:50px}
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:24px;align-items:start}
+
+/* ── SECTION HEADER ─────────────────────── */
+.sec-header{display:flex;align-items:center;gap:14px;margin-bottom:22px;padding-bottom:12px;border-bottom:2.5px solid #1a5c3a}
+.sec-num{width:38px;height:38px;border-radius:50%;background:#1a5c3a;color:#fff;font-size:17px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.sec-num.star{background:linear-gradient(135deg,#d97706,#f59e0b);font-size:20px}
+.sec-title{font-size:18px;font-weight:700;color:#0d3a20}
+.sec-subtitle{font-size:13px;color:#6b7280;font-weight:400;margin-top:1px}
+
+/* ── STEPS ──────────────────────────────── */
+.steps{display:flex;flex-direction:column;gap:12px}
+.step{display:flex;gap:13px;align-items:flex-start}
+.step-n{flex-shrink:0;width:26px;height:26px;border-radius:50%;background:#1a5c3a;color:#fff;font-weight:700;font-size:12px;display:flex;align-items:center;justify-content:center}
+.step-n.check{background:#22c55e}
+.step-body{flex:1;padding-top:3px}
+.step-body strong{color:#0d3a20}
+.step-body em{color:#6b7280;font-style:normal;font-size:12px;display:block;margin-top:2px}
+.step-body .example{background:#f0fdf4;border-left:3px solid #22c55e;padding:5px 10px;border-radius:0 5px 5px 0;font-size:12px;color:#14532d;margin-top:5px;font-style:italic}
+
+/* ── PHONE MOCK-UP ──────────────────────── */
+.phone-wrap{display:flex;flex-direction:column;align-items:center;gap:8px}
+.phone-label{font-size:11px;font-weight:600;color:#6b7280;letter-spacing:0.1em;text-transform:uppercase}
+.phone{border:2.5px solid #2a2a2a;border-radius:24px;background:#f8fafc;overflow:hidden;width:168px;box-shadow:0 8px 24px rgba(0,0,0,0.14);flex-shrink:0;font-size:7.5px;line-height:1.35}
+.phone-status{background:#111;height:14px;display:flex;align-items:center;justify-content:flex-end;padding:0 10px;gap:4px}
+.phone-status span{color:rgba(255,255,255,0.7);font-size:6px}
+.phone-content{background:#fff;min-height:240px}
+.phone-nav{background:#f8f9fa;border-top:1px solid #e5e7eb;display:flex;justify-content:space-around;padding:7px 4px 5px;font-size:6.5px;color:#555}
+.phone-nav .active-tab{color:#1a5c3a;font-weight:700}
+.pn-icon{font-size:11px;display:block;text-align:center;margin-bottom:1px}
+
+/* login staff mock */
+.pmock-login{padding:12px 10px}
+.pmock-login .logo-row{display:flex;align-items:center;gap:5px;margin-bottom:10px}
+.pmock-login .logo-box{width:20px;height:20px;background:linear-gradient(135deg,#c9a84c,#f0d070);border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:800;color:#0d3a20}
+.pmock-login .logo-text{font-size:8px;font-weight:700}
+.pmock-login .tabs{display:flex;gap:3px;margin-bottom:8px}
+.pmock-login .tab{flex:1;text-align:center;font-size:6.5px;padding:3px;border-radius:4px;border:1px solid #ddd;color:#888}
+.pmock-login .tab.active{background:#1a5c3a;color:#fff;border-color:#1a5c3a;font-weight:700}
+.pmock-login .label{font-size:6.5px;color:#888;margin-bottom:2px}
+.pmock-login .field{border:1px solid #d1d5db;border-radius:4px;padding:4px 6px;font-size:6.5px;color:#ccc;margin-bottom:6px;background:#fff}
+.pmock-login .btn{background:#1a5c3a;color:#fff;border-radius:4px;text-align:center;padding:5px;font-size:7px;font-weight:700}
+
+/* report form mock */
+.pmock-report{padding:8px}
+
+/* cases list mock */
+.pmock-cases{padding:8px}
+.pmock-case-card{border-radius:5px;padding:5px 6px;margin-bottom:4px;border:1px solid #f3f4f6}
+.pmock-case-card .badges{display:flex;gap:2px;flex-wrap:wrap;margin-bottom:2px}
+.badge{border-radius:10px;padding:1px 5px;font-size:5.5px;font-weight:700}
+.badge-critical{background:#fee2e2;color:#dc2626}
+.badge-high{background:#fef3c7;color:#d97706}
+.badge-assigned{background:#dbeafe;color:#1d4ed8}
+.badge-inprog{background:#dcfce7;color:#15803d}
+.badge-wait{background:#fce7f3;color:#9d174d}
+.badge-open{background:#f3f4f6;color:#374151}
+
+/* ── CALLOUT BOXES ──────────────────────── */
+.callout{border-radius:8px;padding:12px 16px;margin:14px 0;display:flex;gap:10px;align-items:flex-start;font-size:13px}
+.callout-icon{font-size:18px;flex-shrink:0;margin-top:1px}
+.callout-body strong{display:block;margin-bottom:3px;font-size:13px}
+.callout-body p{font-size:12.5px;color:inherit;opacity:0.9}
+.callout.warn{background:#fffbeb;border:1px solid #fcd34d;color:#78350f}
+.callout.info{background:#f0fdf4;border:1px solid #86efac;color:#14532d}
+.callout.tip{background:#eff6ff;border:1px solid #93c5fd;color:#1e3a5f}
+.callout.danger{background:#fff1f2;border:1px solid #fca5a5;color:#7f1d1d}
+
+/* ── BIG STEP (the main report section) ──── */
+.big-step{background:#f0fdf4;border:2px solid #86efac;border-radius:12px;padding:18px 20px;margin-bottom:12px}
+.big-step .bs-num{width:34px;height:34px;border-radius:50%;background:#1a5c3a;color:#fff;font-size:16px;font-weight:800;display:flex;align-items:center;justify-content:center;float:left;margin-right:12px;margin-top:2px}
+.big-step .bs-content{overflow:hidden}
+.big-step .bs-title{font-size:14px;font-weight:700;color:#0d3a20;margin-bottom:4px}
+.big-step .bs-desc{font-size:13px;color:#374151}
+.big-step .bs-example{display:inline-block;background:#dcfce7;border-radius:4px;padding:3px 8px;font-size:11.5px;color:#15803d;margin-top:5px;font-style:italic}
+.big-step .bs-tip{font-size:11.5px;color:#1a5c3a;margin-top:4px;font-weight:600}
+
+/* ── STATUS TABLE ───────────────────────── */
+.status-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:14px 0}
+.status-card{border-radius:8px;padding:12px;text-align:center}
+.status-card .s-icon{font-size:20px;margin-bottom:4px}
+.status-card .s-name{font-size:12px;font-weight:700;margin-bottom:3px}
+.status-card .s-desc{font-size:11px;opacity:0.85}
+.sc-open{background:#f3f4f6;color:#374151}
+.sc-assigned{background:#dbeafe;color:#1d4ed8}
+.sc-inprog{background:#fef3c7;color:#d97706}
+.sc-wait{background:#fce7f3;color:#9d174d}
+.sc-closed{background:#dcfce7;color:#15803d}
+.sc-reopen{background:#fee2e2;color:#dc2626}
+
+/* ── TABLES ─────────────────────────────── */
+table{width:100%;border-collapse:collapse;margin:12px 0;font-size:13px}
+th{background:#0d3a20;color:#fff;padding:10px 14px;text-align:left;font-size:12px;font-weight:600}
+td{padding:9px 14px;border-bottom:1px solid #f3f4f6;vertical-align:top}
+tr:nth-child(even) td{background:#f8fdf8}
+tr:last-child td{border-bottom:none}
+
+/* ── MENU GRID ──────────────────────────── */
+.menu-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:14px 0}
+.menu-card{border:1.5px solid #e5e7eb;border-radius:10px;padding:14px 12px;display:flex;flex-direction:column;gap:5px}
+.menu-icon{font-size:22px}
+.menu-name{font-size:12px;font-weight:700;color:#0d3a20}
+.menu-desc{font-size:11px;color:#6b7280;line-height:1.45}
+
+/* ── FAQ ────────────────────────────────── */
+.faq-item{border-radius:8px;border:1.5px solid #e5e7eb;padding:14px 16px;margin-bottom:10px}
+.faq-q{font-weight:700;font-size:13.5px;color:#0d3a20;margin-bottom:6px;display:flex;gap:8px}
+.faq-q::before{content:'Q';background:#1a5c3a;color:#fff;width:20px;height:20px;border-radius:50%;font-size:11px;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px}
+.faq-a{font-size:13px;color:#374151;padding-left:28px}
+
+/* ── INSTALL CARD ───────────────────────── */
+.install-card{background:#f8fafc;border-radius:10px;padding:18px;border:1.5px solid #e5e7eb}
+.install-card .os-header{display:flex;align-items:center;gap:10px;margin-bottom:14px;padding-bottom:10px;border-bottom:1.5px solid #e5e7eb}
+.install-card .os-icon{font-size:28px}
+.install-card .os-name{font-size:16px;font-weight:700;color:#0d3a20}
+.install-card .os-note{font-size:11.5px;color:#6b7280}
+
+/* ── HIGHLIGHT ──────────────────────────── */
+.highlight-box{background:#f0fdf4;border-radius:10px;padding:18px;margin:14px 0;border:2px solid #86efac}
+.highlight-box h4{font-size:15px;font-weight:800;color:#0d3a20;margin-bottom:10px}
+
+/* ── PAGE BREAK ─────────────────────────── */
+.page-break{page-break-before:always}
+.divider{border:none;border-top:1.5px solid #e5e7eb;margin:32px 0}
+
+/* ── FOOTER ─────────────────────────────── */
+.manual-footer{text-align:center;font-size:11px;color:#9ca3af;padding:28px 56px 40px;border-top:1px solid #e5e7eb;margin-top:20px}
+
+/* ── PRINT ──────────────────────────────── */
+@media print{
+  body{background:#fff}
+  .page{max-width:100%}
+  .cover{padding:50px 40px 40px}
+  .section{padding:28px 40px 0}
+  .print-btn{display:none!important}
+  h2,h3{page-break-after:avoid}
+  .callout,.phone-wrap,.install-card,.faq-item,.big-step{page-break-inside:avoid}
+  .two-col{page-break-inside:avoid}
+  a{color:inherit;text-decoration:none}
+}
+@page{margin:15mm 14mm;size:A4}
+
+/* ── PRINT BUTTON ───────────────────────── */
+.print-btn{position:fixed;top:20px;right:20px;background:#1a5c3a;color:#fff;border:none;padding:10px 20px;border-radius:8px;font-family:'Sarabun',sans-serif;font-size:13px;font-weight:700;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,0.2);z-index:999;transition:background 0.2s}
+.print-btn:hover{background:#0d3a20}
+@media print{.print-btn{display:none}}
+</style>
+</head>
+<body>
+<button class="print-btn" onclick="window.print()">🖨 พิมพ์ / บันทึก PDF</button>
+<div class="page">
+
+<!-- ═══════════════════════════════════════ COVER -->
+<div class="cover">
+  <div class="cover-logo">
+    <div class="cover-logo-icon">K</div>
+    <div class="cover-logo-text">NNR Solutions · Kaizen System</div>
+  </div>
+  <h1>คู่มือการใช้งาน<br>ระบบ Kaizen</h1>
+  <div class="cover-sub">สำหรับพนักงาน (Staff)</div>
+  <div class="cover-badge">Staff Guide — Version 1.0</div>
+  <div class="cover-url">kaizen.nnr-solutions.com</div>
+</div>
+
+<!-- ═══════════════════════════════════════ SECTION 1: INSTALL -->
+<div class="section">
+  <div class="sec-header">
+    <div class="sec-num">1</div>
+    <div>
+      <div class="sec-title">การติดตั้งแอปลงบนมือถือ</div>
+      <div class="sec-subtitle">ทำครั้งเดียว ใช้ได้เหมือนแอปจริง พร้อมรับการแจ้งเตือนเมื่อมีงานมอบหมาย</div>
+    </div>
+  </div>
+
+  <div class="callout warn">
+    <div class="callout-icon">⚠️</div>
+    <div class="callout-body">
+      <strong>ทำไมต้องติดตั้งลงหน้าจอโฮม?</strong>
+      <p>ถ้าเปิดผ่าน Browser ธรรมดา <b>การแจ้งเตือนจะไม่ทำงาน</b> คุณจะไม่รู้ว่ามีงานส่งมาให้ ต้องติดตั้งลงหน้าจอโฮมและเปิดจากไอคอน Kaizen เสมอ</p>
+    </div>
+  </div>
+
+  <div class="two-col" style="margin-top:18px">
+    <div class="install-card">
+      <div class="os-header">
+        <div class="os-icon">🍎</div>
+        <div>
+          <div class="os-name">iPhone / iPad</div>
+          <div class="os-note">ใช้ Safari เท่านั้น · iOS 16.4+</div>
+        </div>
+      </div>
+      <div class="steps">
+        <div class="step"><div class="step-n">1</div><div class="step-body">เปิด <strong>Safari</strong> (ห้ามใช้ Chrome)<br>พิมพ์ <strong>kaizen.nnr-solutions.com</strong></div></div>
+        <div class="step"><div class="step-n">2</div><div class="step-body">แตะปุ่ม <strong>แชร์ ⬆️</strong><br><em>อยู่ที่แถบด้านล่างกลางจอ</em></div></div>
+        <div class="step"><div class="step-n">3</div><div class="step-body">เลื่อนลง → แตะ <strong>"เพิ่มไปยังหน้าจอโฮม"</strong><br><em>(Add to Home Screen)</em></div></div>
+        <div class="step"><div class="step-n">4</div><div class="step-body">แตะ <strong>"เพิ่ม" (Add)</strong> มุมขวาบน</div></div>
+        <div class="step"><div class="step-n">5</div><div class="step-body"><strong>เปิดแอปจากไอคอน Kaizen</strong><br>บนหน้าจอโฮมเสมอ</div></div>
+      </div>
+    </div>
+    <div class="install-card">
+      <div class="os-header">
+        <div class="os-icon">🤖</div>
+        <div>
+          <div class="os-name">Android</div>
+          <div class="os-note">ใช้ Chrome · การแจ้งเตือนเต็มรูปแบบ</div>
+        </div>
+      </div>
+      <div class="steps">
+        <div class="step"><div class="step-n">1</div><div class="step-body">เปิด <strong>Chrome</strong><br>พิมพ์ <strong>kaizen.nnr-solutions.com</strong></div></div>
+        <div class="step"><div class="step-n">2</div><div class="step-body">แตะปุ่ม <strong>⋮ (จุดสามจุด)</strong> มุมขวาบน</div></div>
+        <div class="step"><div class="step-n">3</div><div class="step-body">แตะ <strong>"ติดตั้งแอป" (Install app)</strong><br><em>หรือ "เพิ่มไปยังหน้าจอหลัก"</em></div></div>
+        <div class="step"><div class="step-n">4</div><div class="step-body">แตะ <strong>"ติดตั้ง" (Install)</strong></div></div>
+        <div class="step"><div class="step-n">5</div><div class="step-body"><strong>เปิดแอปจากไอคอน Kaizen</strong><br>บนหน้าจอ</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════ SECTION 2: LOGIN -->
+<div class="section">
+  <div class="sec-header">
+    <div class="sec-num">2</div>
+    <div>
+      <div class="sec-title">การเข้าสู่ระบบสำหรับพนักงาน</div>
+      <div class="sec-subtitle">พนักงานใช้ <b>รหัสบริษัท + ชื่อผู้ใช้ + รหัสผ่าน</b> (ขอจากผู้จัดการหรือ HR)</div>
+    </div>
+  </div>
+
+  <div class="two-col">
+    <div>
+      <div class="callout info" style="margin-bottom:14px">
+        <div class="callout-icon">📋</div>
+        <div class="callout-body">
+          <strong>ข้อมูลที่ต้องมีก่อนเข้าสู่ระบบครั้งแรก</strong>
+          <p>🏢 <b>รหัสบริษัท (Company Code)</b> — ได้รับจากผู้จัดการ<br>
+          👤 <b>ชื่อผู้ใช้ (Username)</b> — ชื่อที่ผู้จัดการตั้งให้<br>
+          🔒 <b>รหัสผ่าน (Password)</b> — รหัสเริ่มต้นจากผู้จัดการ</p>
+        </div>
+      </div>
+      <div class="steps">
+        <div class="step"><div class="step-n">1</div><div class="step-body">เปิดแอป Kaizen จากไอคอนบนหน้าจอโฮม</div></div>
+        <div class="step"><div class="step-n">2</div><div class="step-body">ที่แถบด้านบน เลือก <strong>"Staff"</strong><br><em>จะเห็นช่องรหัสบริษัทปรากฏขึ้น</em></div></div>
+        <div class="step"><div class="step-n">3</div><div class="step-body">กรอก <strong>รหัสบริษัท (Company Code)</strong></div></div>
+        <div class="step"><div class="step-n">4</div><div class="step-body">กรอก <strong>ชื่อผู้ใช้ (Username)</strong></div></div>
+        <div class="step"><div class="step-n">5</div><div class="step-body">กรอก <strong>รหัสผ่าน</strong> แล้วแตะ <strong>Sign In</strong></div></div>
+      </div>
+      <div class="callout danger" style="margin-top:10px">
+        <div class="callout-icon">🔒</div>
+        <div class="callout-body">
+          <strong>ลืมรหัสผ่าน?</strong>
+          <p>พนักงานรีเซ็ตรหัสผ่านเองไม่ได้ <b>กรุณาติดต่อผู้จัดการหรือฝ่าย HR</b> เพื่อรีเซ็ตรหัสผ่านให้ภายใน 5 นาที</p>
+        </div>
+      </div>
+    </div>
+    <div class="phone-wrap">
+      <div class="phone">
+        <div class="phone-status"><span>9:41</span><span>▓▓ 100%</span></div>
+        <div class="phone-content pmock-login">
+          <div class="logo-row">
+            <div class="logo-box">K</div>
+            <div class="logo-text">Kaizen System</div>
+          </div>
+          <div style="font-size:7px;color:#888;margin-bottom:2px">Improving Together</div>
+          <div style="font-size:10px;font-weight:800;color:#111;margin-bottom:6px">Sign In</div>
+          <div class="tabs">
+            <div class="tab">Super Admin</div>
+            <div class="tab">Manager</div>
+            <div class="tab active">Staff</div>
+          </div>
+          <div class="label">Company Code <span style="color:#dc2626">*</span></div>
+          <div class="field">รหัสบริษัทของคุณ</div>
+          <div class="label">Username <span style="color:#dc2626">*</span></div>
+          <div class="field">ชื่อผู้ใช้ของคุณ</div>
+          <div class="label">Password <span style="color:#dc2626">*</span></div>
+          <div class="field">••••••••</div>
+          <div class="btn">Sign In</div>
+          <div style="text-align:center;font-size:5.5px;color:#aaa;margin-top:8px">Kaizen System · Internal Use Only</div>
+        </div>
+        <div class="phone-nav">
+          <div><span class="pn-icon">🏠</span>Home</div>
+          <div><span class="pn-icon">📋</span>Cases</div>
+          <div><span class="pn-icon">➕</span>New</div>
+          <div><span class="pn-icon">🔔</span>Notif.</div>
+          <div><span class="pn-icon">⚙️</span>Settings</div>
+        </div>
+      </div>
+      <div class="phone-label">หน้าเข้าสู่ระบบ (Staff)</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════ SECTION 3: NOTIFICATIONS -->
+<div class="section">
+  <div class="sec-header">
+    <div class="sec-num">3</div>
+    <div>
+      <div class="sec-title">การเปิดการแจ้งเตือนและเปลี่ยนภาษา</div>
+      <div class="sec-subtitle">รับแจ้งเตือนทันทีเมื่อมีงานมอบหมาย หรือมีคนกล่าวถึงคุณ</div>
+    </div>
+  </div>
+  <div class="two-col">
+    <div>
+      <div class="steps">
+        <div class="step"><div class="step-n">1</div><div class="step-body"><em style="color:#dc2626;font-style:normal;font-size:12px">เฉพาะ iPhone:</em> เปิดแอปจากไอคอนหน้าจอโฮมก่อน</div></div>
+        <div class="step"><div class="step-n">2</div><div class="step-body">แตะเมนู <strong>Settings</strong> (ตั้งค่า)</div></div>
+        <div class="step"><div class="step-n">3</div><div class="step-body">เปิดสวิตช์ <strong>Push Notifications</strong></div></div>
+        <div class="step"><div class="step-n">4</div><div class="step-body">เมื่อระบบขออนุญาต แตะ <strong>"Allow"</strong></div></div>
+      </div>
+      <div style="margin-top:14px">
+        <h3 style="font-size:14px;font-weight:700;color:#1a5c3a;margin-bottom:8px">🌐 เปลี่ยนภาษา TH / EN</h3>
+        <p style="font-size:13px;color:#374151">แตะปุ่ม <b>TH / EN</b> มุมขวาบนของหน้าจอ เพื่อสลับภาษาได้ตลอดเวลา</p>
+      </div>
+      <div class="callout tip" style="margin-top:12px">
+        <div class="callout-icon">📱</div>
+        <div class="callout-body">
+          <strong>Android รองรับ Push Notification เต็มรูปแบบ</strong>
+          <p>Android รับการแจ้งเตือนได้แม้ปิดแอปอยู่ และไม่มีข้อจำกัดด้านเบราว์เซอร์</p>
+        </div>
+      </div>
+    </div>
+    <div class="phone-wrap">
+      <div class="phone">
+        <div class="phone-status"><span>9:41</span><span>▓▓ 100%</span></div>
+        <div class="phone-content" style="padding:8px">
+          <div style="font-size:10px;font-weight:800;margin-bottom:6px">Settings</div>
+          <div style="background:#f8fafc;border-radius:5px;padding:6px;margin-bottom:5px">
+            <div style="font-size:7px;font-weight:700;color:#555;margin-bottom:3px">👤 Account</div>
+            <div style="display:flex;align-items:center;gap:5px">
+              <div style="width:20px;height:20px;border-radius:50%;background:#1a5c3a;color:#fff;font-size:7px;font-weight:700;display:flex;align-items:center;justify-content:center">U</div>
+              <div><div style="font-size:7px;font-weight:700">Staff User</div><div style="font-size:5.5px;color:#888">Staff · Department</div></div>
+            </div>
+          </div>
+          <div style="background:#f8fafc;border-radius:5px;padding:6px;margin-bottom:5px">
+            <div style="font-size:7px;font-weight:700;color:#555;margin-bottom:4px">🔔 Push Notifications</div>
+            <div style="display:flex;justify-content:space-between;align-items:center;font-size:6.5px">
+              <span>รับการแจ้งเตือนบนอุปกรณ์นี้</span>
+              <div style="width:18px;height:10px;background:#22c55e;border-radius:5px;position:relative"><div style="position:absolute;right:2px;top:2px;width:6px;height:6px;border-radius:50%;background:#fff"></div></div>
+            </div>
+          </div>
+          <div style="background:#f8fafc;border-radius:5px;padding:6px">
+            <div style="font-size:7px;font-weight:700;color:#555;margin-bottom:4px">🌐 Language</div>
+            <div style="display:flex;gap:4px">
+              <div style="flex:1;text-align:center;border:1px solid #1a5c3a;border-radius:3px;padding:2px;font-size:6px;background:#1a5c3a;color:#fff;font-weight:700">EN</div>
+              <div style="flex:1;text-align:center;border:1px solid #d1d5db;border-radius:3px;padding:2px;font-size:6px;color:#888">TH ไทย</div>
+            </div>
+          </div>
+        </div>
+        <div class="phone-nav">
+          <div><span class="pn-icon">🏠</span>Home</div>
+          <div><span class="pn-icon">📋</span>Cases</div>
+          <div><span class="pn-icon">➕</span>New</div>
+          <div><span class="pn-icon">🔔</span>Notif.</div>
+          <div class="active-tab"><span class="pn-icon">⚙️</span>Settings</div>
+        </div>
+      </div>
+      <div class="phone-label">หน้า Settings</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════ SECTION 4: MENU -->
+<div class="section">
+  <div class="sec-header">
+    <div class="sec-num">4</div>
+    <div>
+      <div class="sec-title">เมนูของพนักงาน</div>
+      <div class="sec-subtitle">เมนูด้านล่างจอ — เข้าถึงฟังก์ชันหลักทั้งหมดได้ในคลิกเดียว</div>
+    </div>
+  </div>
+  <div class="menu-grid">
+    <div class="menu-card"><div class="menu-icon">📋</div><div class="menu-name">Cases (เคส)</div><div class="menu-desc">ดูรายการปัญหาทั้งหมด ติดตามสถานะ และค้นหาเคสที่ได้รับมอบหมาย</div></div>
+    <div class="menu-card" style="border-color:#22c55e;background:#f0fdf4"><div class="menu-icon">➕</div><div class="menu-name" style="color:#15803d">New Case ⭐ (รายงานใหม่)</div><div class="menu-desc">หน้าที่หลักของคุณ สร้างรายงานปัญหาใหม่พร้อมรูปภาพ</div></div>
+    <div class="menu-card"><div class="menu-icon">📅</div><div class="menu-name">Calendar (ปฏิทิน)</div><div class="menu-desc">ดูเคสที่ได้รับมอบหมายตามวันกำหนดส่ง</div></div>
+    <div class="menu-card"><div class="menu-icon">🔧</div><div class="menu-name">PMS (บำรุงรักษา)</div><div class="menu-desc">งานบำรุงรักษาอุปกรณ์ที่ได้รับมอบหมาย (ถ้าบริษัทเปิดใช้)</div></div>
+    <div class="menu-card"><div class="menu-icon">🔔</div><div class="menu-name">Notifications (แจ้งเตือน)</div><div class="menu-desc">งานที่ได้รับมอบหมาย การกล่าวถึง และอัปเดตจากเคส</div></div>
+    <div class="menu-card"><div class="menu-icon">⚙️</div><div class="menu-name">Settings (ตั้งค่า)</div><div class="menu-desc">โปรไฟล์ รหัสผ่าน การแจ้งเตือน และภาษา</div></div>
+  </div>
+</div>
+
+<div class="page-break"></div>
+
+<!-- ═══════════════════════════════════════ SECTION 5: REPORT A PROBLEM ⭐ -->
+<div class="section">
+  <div class="sec-header">
+    <div class="sec-num star">⭐</div>
+    <div>
+      <div class="sec-title">วิธีรายงานปัญหา — หน้าที่หลักของคุณ</div>
+      <div class="sec-subtitle">เมื่อพบปัญหา รายงานทันที ยิ่งรายละเอียดชัด ยิ่งแก้ได้เร็ว</div>
+    </div>
+  </div>
+
+  <div class="two-col" style="align-items:start">
+    <div>
+      <div class="big-step">
+        <div class="bs-num">1</div>
+        <div class="bs-content">
+          <div class="bs-title">แตะปุ่ม ➕ "New Case" ที่แถบด้านล่าง</div>
+          <div class="bs-desc">ปุ่มสีเขียวตรงกลางแถบเมนู กดได้เลยทันทีที่พบปัญหา</div>
+        </div>
+      </div>
+      <div class="big-step">
+        <div class="bs-num">2</div>
+        <div class="bs-content">
+          <div class="bs-title">เลือก Department และ Category</div>
+          <div class="bs-desc">เลือกแผนกที่รับผิดชอบปัญหานี้ และประเภทของปัญหา เช่น Equipment, Safety, Cleanliness</div>
+        </div>
+      </div>
+      <div class="big-step">
+        <div class="bs-num">3</div>
+        <div class="bs-content">
+          <div class="bs-title">กรอก Problem Title — สั้น กระชับ เข้าใจได้ทันที</div>
+          <div class="bs-desc">ชื่อปัญหาควรบอกได้ว่า <em>อะไร</em> เสีย <em>ที่ไหน</em></div>
+          <div class="bs-example">✎ ตัวอย่าง: "เก้าอี้ขาหัก — ห้องอาหาร โต๊ะ 5"</div>
+          <div class="bs-example">✎ "ก๊อกน้ำรั่ว — ห้องน้ำชาย ชั้น 2"</div>
+        </div>
+      </div>
+      <div class="big-step">
+        <div class="bs-num">4</div>
+        <div class="bs-content">
+          <div class="bs-title">กรอก Description — รายละเอียดให้ครบ</div>
+          <div class="bs-desc">บอก <strong>สถานที่แน่นอน</strong> + <strong>ความรุนแรง</strong> + <strong>บริบท</strong> ที่เกิดขึ้น</div>
+          <div class="bs-example">✎ "ขาเก้าอี้หักด้านซ้าย นั่งแล้วโยก เสี่ยงล้ม ลูกค้านั่งอยู่โซนริมหน้าต่าง มีลูกค้า 4 คน ต้องย้ายโต๊ะ"</div>
+        </div>
+      </div>
+      <div class="big-step">
+        <div class="bs-num">5</div>
+        <div class="bs-content">
+          <div class="bs-title">เลือก Priority — ความสำคัญ</div>
+          <div class="bs-desc">
+            🟢 <strong>Low</strong> — ไม่เร่งด่วน ไม่กระทบบริการ<br>
+            🔵 <strong>Medium</strong> — ควรแก้ไขเร็วๆ นี้<br>
+            🟡 <strong>High</strong> — กระทบบริการ ต้องแก้ด่วน<br>
+            🔴 <strong>Critical</strong> — ฉุกเฉิน กระทบแขก/ความปลอดภัย
+          </div>
+        </div>
+      </div>
+      <div class="big-step" style="border-color:#fcd34d;background:#fffbeb">
+        <div class="bs-num" style="background:#d97706">6</div>
+        <div class="bs-content">
+          <div class="bs-title" style="color:#78350f">📸 ถ่ายรูปแนบ — สำคัญมาก!</div>
+          <div class="bs-desc">แตะ <strong>"Add Photos"</strong> เพื่อถ่ายหรือเลือกรูปปัญหา รูปภาพที่ชัดเจนช่วยให้ทีมแก้ไขได้เร็วขึ้น 3 เท่า</div>
+          <div class="bs-tip" style="color:#d97706">💡 ถ่ายภาพรวม + ระยะใกล้ อย่างน้อย 2 รูป</div>
+        </div>
+      </div>
+      <div class="big-step">
+        <div class="bs-num">7</div>
+        <div class="bs-content">
+          <div class="bs-title">ทำเครื่องหมาย "Recurring Problem" ถ้าเคยเกิดก่อน</div>
+          <div class="bs-desc">ถ้าปัญหานี้เคยเกิดขึ้นที่จุดเดิมมาก่อน ให้เปิดสวิตช์นี้ ระบบจะแจ้งให้ผู้จัดการทราบ</div>
+        </div>
+      </div>
+      <div class="big-step" style="border-color:#1a5c3a;background:#f0fdf4">
+        <div class="bs-num" style="background:#15803d">8</div>
+        <div class="bs-content">
+          <div class="bs-title" style="color:#0d3a20">แตะ "Submit Case" — ส่งรายงาน</div>
+          <div class="bs-desc">ระบบจะแสดง <strong>"Case created successfully!"</strong> และส่งแจ้งเตือนให้ผู้รับผิดชอบโดยอัตโนมัติ</div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="phone-wrap" style="margin-bottom:16px">
+        <div class="phone">
+          <div class="phone-status"><span>9:41</span><span>▓▓ 100%</span></div>
+          <div class="phone-content" style="padding:8px">
+            <div style="font-size:9px;font-weight:800;margin-bottom:2px">Report a Problem</div>
+            <div style="font-size:6px;color:#888;margin-bottom:6px">Document the issue so it can be tracked and resolved</div>
+            <div style="background:#f8fafc;border-radius:5px;padding:6px">
+              <div style="font-size:7px;font-weight:700;margin-bottom:5px">Case Details</div>
+              <div style="font-size:6px;color:#888;margin-bottom:2px">Department <span style="color:#dc2626">*</span></div>
+              <div style="border:1px solid #d1d5db;border-radius:3px;padding:3px 5px;font-size:6px;color:#ccc;margin-bottom:4px;display:flex;justify-content:space-between"><span>Select department</span><span>▼</span></div>
+              <div style="font-size:6px;color:#888;margin-bottom:2px">Problem Title <span style="color:#dc2626">*</span></div>
+              <div style="border:1px solid #d1d5db;border-radius:3px;padding:3px 5px;font-size:6px;color:#ccc;margin-bottom:4px">e.g. Broken chair in dining area</div>
+              <div style="font-size:6px;color:#888;margin-bottom:2px">Description <span style="color:#dc2626">*</span></div>
+              <div style="border:1px solid #d1d5db;border-radius:3px;padding:5px 5px;font-size:6px;color:#ccc;height:28px;margin-bottom:4px">Describe the problem in detail...</div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:3px;margin-bottom:4px">
+                <div><div style="font-size:5.5px;color:#888;margin-bottom:1px">Category <span style="color:#dc2626">*</span></div><div style="border:1px solid #d1d5db;border-radius:3px;padding:2px 4px;font-size:5.5px;color:#ccc">Select ▼</div></div>
+                <div><div style="font-size:5.5px;color:#888;margin-bottom:1px">Location <span style="color:#dc2626">*</span></div><div style="border:1px solid #d1d5db;border-radius:3px;padding:2px 4px;font-size:5.5px;color:#ccc">Select ▼</div></div>
+              </div>
+              <div style="font-size:6px;color:#888;margin-bottom:3px">Priority</div>
+              <div style="display:flex;gap:2px;margin-bottom:4px">
+                <div style="flex:1;text-align:center;border:1px solid #d1d5db;border-radius:3px;padding:2px;font-size:5.5px;color:#888">Low</div>
+                <div style="flex:1;text-align:center;border:1px solid #1a5c3a;border-radius:3px;padding:2px;font-size:5.5px;background:#1a5c3a;color:#fff;font-weight:700">Medium</div>
+                <div style="flex:1;text-align:center;border:1px solid #d1d5db;border-radius:3px;padding:2px;font-size:5.5px;color:#888">High</div>
+                <div style="flex:1;text-align:center;border:1px solid #d1d5db;border-radius:3px;padding:2px;font-size:5.5px;color:#888">Critical</div>
+              </div>
+              <div style="display:flex;align-items:center;gap:4px;background:#f0fdf4;border-radius:3px;padding:3px 4px;margin-bottom:5px">
+                <div style="width:12px;height:7px;background:#d1d5db;border-radius:4px;position:relative;flex-shrink:0"><div style="position:absolute;left:1px;top:1px;width:5px;height:5px;border-radius:50%;background:#fff"></div></div>
+                <span style="font-size:5.5px;color:#555">Recurring Problem</span>
+              </div>
+            </div>
+          </div>
+          <div class="phone-nav">
+            <div><span class="pn-icon">🏠</span>Home</div>
+            <div><span class="pn-icon">📋</span>Cases</div>
+            <div class="active-tab"><span class="pn-icon">➕</span>New</div>
+            <div><span class="pn-icon">🔔</span>Notif.</div>
+            <div><span class="pn-icon">⚙️</span>Settings</div>
+          </div>
+        </div>
+        <div class="phone-label">ฟอร์มรายงานปัญหา</div>
+      </div>
+      <div class="callout tip">
+        <div class="callout-icon">🌟</div>
+        <div class="callout-body">
+          <strong>เคล็ดลับ: รายงานที่ดี</strong>
+          <p>✅ บอกสถานที่แน่นอน (ห้อง/โซน/ชั้น)<br>
+          ✅ ถ่ายรูประยะใกล้ให้เห็นจุดเสีย<br>
+          ✅ ระบุว่ากระทบลูกค้าหรือไม่<br>
+          ❌ อย่ากรอกแค่ "เสีย" หรือ "ชำรุด"</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════ SECTION 6: TRACKING -->
+<div class="section">
+  <div class="sec-header">
+    <div class="sec-num">6</div>
+    <div>
+      <div class="sec-title">การดูและติดตามเคส</div>
+      <div class="sec-subtitle">ตรวจสอบความคืบหน้าของรายงานที่คุณส่ง หรืองานที่ได้รับมอบหมาย</div>
+    </div>
+  </div>
+
+  <p style="font-size:13px;color:#374151;margin-bottom:16px">ไปที่เมนู <strong>Cases</strong> เพื่อดูรายการเคสทั้งหมด ใช้ช่อง Search หรือ Filter เพื่อกรองตามสถานะ แผนก หรือระดับความสำคัญ แตะที่เคสเพื่อดูรายละเอียดและไทม์ไลน์</p>
+
+  <h3 style="font-size:14px;font-weight:700;color:#1a5c3a;margin-bottom:12px">ความหมายของสถานะเคส</h3>
+  <div class="status-grid">
+    <div class="status-card sc-open">
+      <div class="s-icon">📩</div>
+      <div class="s-name">เปิด (Open)</div>
+      <div class="s-desc">เพิ่งรายงาน รอการมอบหมาย</div>
+    </div>
+    <div class="status-card sc-assigned">
+      <div class="s-icon">👤</div>
+      <div class="s-name">มอบหมายแล้ว</div>
+      <div class="s-desc">มีผู้รับผิดชอบแล้ว</div>
+    </div>
+    <div class="status-card sc-inprog">
+      <div class="s-icon">🔨</div>
+      <div class="s-name">กำลังดำเนินการ</div>
+      <div class="s-desc">ผู้รับผิดชอบกำลังแก้ไข</div>
+    </div>
+    <div class="status-card sc-wait">
+      <div class="s-icon">⏳</div>
+      <div class="s-name">รออนุมัติ</div>
+      <div class="s-desc">แก้ไขแล้ว รอผู้จัดการตรวจ</div>
+    </div>
+    <div class="status-card sc-closed">
+      <div class="s-icon">✅</div>
+      <div class="s-name">ปิด (Closed)</div>
+      <div class="s-desc">แก้ไขเสร็จสมบูรณ์</div>
+    </div>
+    <div class="status-card sc-reopen">
+      <div class="s-icon">🔄</div>
+      <div class="s-name">เปิดใหม่ (Reopened)</div>
+      <div class="s-desc">ยังไม่สมบูรณ์ ต้องทำต่อ</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════ SECTION 7: RESOLVE CASE -->
+<div class="section">
+  <div class="sec-header">
+    <div class="sec-num">7</div>
+    <div>
+      <div class="sec-title">การแก้ไขเคสที่ได้รับมอบหมาย</div>
+      <div class="sec-subtitle">เมื่อผู้จัดการมอบหมายเคสให้คุณ — ทำตามขั้นตอนนี้</div>
+    </div>
+  </div>
+  <div class="two-col">
+    <div>
+      <div class="callout info" style="margin-bottom:14px">
+        <div class="callout-icon">🔔</div>
+        <div class="callout-body">
+          <strong>คุณจะได้รับการแจ้งเตือนเมื่อมีงาน</strong>
+          <p>ระบบจะส่ง Push Notification ให้ทันทีเมื่อผู้จัดการมอบหมายเคสให้คุณ แตะที่การแจ้งเตือนเพื่อเปิดเคสนั้นได้เลย</p>
+        </div>
+      </div>
+      <div class="steps">
+        <div class="step"><div class="step-n">1</div><div class="step-body">เปิดเคสที่ได้รับมอบหมาย (จากการแจ้งเตือน หรือเมนู Cases)</div></div>
+        <div class="step"><div class="step-n">2</div><div class="step-body">อ่านรายละเอียด ดูรูปภาพปัญหา และ Proposed Solution จากผู้จัดการ</div></div>
+        <div class="step"><div class="step-n">3</div><div class="step-body"><strong>ดำเนินการแก้ไขปัญหาจริงๆ</strong> ให้เรียบร้อยก่อน</div></div>
+        <div class="step"><div class="step-n">4</div><div class="step-body">แตะ <strong>"Resolve Case"</strong> แล้วกรอก <strong>รายละเอียดการแก้ไข</strong><br><em>อธิบายว่าทำอะไรไปบ้าง แก้ด้วยวิธีไหน</em></div></div>
+        <div class="step"><div class="step-n">5</div><div class="step-body"><strong>อัปโหลดรูปถ่ายหลักฐาน</strong> เช่น รูปหลังซ่อมเสร็จ<br><em>รูปภาพสำคัญมาก ผู้จัดการใช้ตรวจอนุมัติ</em></div></div>
+        <div class="step"><div class="step-n">6</div><div class="step-body">แตะ <strong>"Submit Resolution"</strong> เพื่อส่งให้ผู้จัดการตรวจสอบ</div></div>
+      </div>
+      <div class="callout warn" style="margin-top:12px">
+        <div class="callout-icon">🔄</div>
+        <div class="callout-body">
+          <strong>เคสอาจถูก "เปิดใหม่" (Reopened)</strong>
+          <p>ถ้าผู้จัดการตรวจแล้วเห็นว่ายังไม่เรียบร้อย เคสจะกลับมาเป็น Reopened — ให้อ่านความคิดเห็นจากผู้จัดการ แล้วดำเนินการต่อ</p>
+        </div>
+      </div>
+    </div>
+    <div class="phone-wrap">
+      <div class="phone">
+        <div class="phone-status"><span>9:41</span><span>▓▓ 100%</span></div>
+        <div class="phone-content" style="padding:8px">
+          <div style="font-size:6.5px;color:#1a5c3a;margin-bottom:4px">← KZN-202606-9291</div>
+          <div style="display:flex;gap:2px;margin-bottom:3px;flex-wrap:wrap">
+            <span class="badge badge-inprog">In Progress</span>
+            <span class="badge badge-high">High</span>
+            <span style="background:#fce7f3;color:#9d174d;border-radius:10px;padding:1px 5px;font-size:5.5px;font-weight:700">Restaurant</span>
+          </div>
+          <div style="font-size:8.5px;font-weight:800;color:#111;margin-bottom:5px;line-height:1.3">Chair broken — needs immediate repair</div>
+          <div style="background:#f8fafc;border-radius:4px;padding:5px;margin-bottom:4px;font-size:6px">
+            <div style="color:#888;margin-bottom:2px;font-weight:700">📋 Case Information</div>
+            Dining chair leg broken on left side. Customer seated at Table 5 near window. Needs repair urgently.
+          </div>
+          <div style="background:#f8fafc;border-radius:4px;padding:5px;margin-bottom:4px;font-size:6px">
+            <div style="color:#888;margin-bottom:2px;font-weight:700">👤 In Charge: You</div>
+            <div style="display:flex;gap:2px;margin-top:3px">
+              <span style="background:#1a5c3a;color:#fff;border-radius:3px;padding:1px 5px;font-size:5.5px;font-weight:700">Resolve Case ✓</span>
+            </div>
+          </div>
+          <div style="border:1px solid #e5e7eb;border-radius:4px;padding:4px;background:#fff">
+            <div style="font-size:6.5px;font-weight:700;margin-bottom:2px">💬 Internal Notes</div>
+            <div style="font-size:5.5px;color:#aaa;font-style:italic">พิมพ์ @ เพื่อกล่าวถึง...</div>
+          </div>
+        </div>
+        <div class="phone-nav">
+          <div><span class="pn-icon">🏠</span>Home</div>
+          <div class="active-tab"><span class="pn-icon">📋</span>Cases</div>
+          <div><span class="pn-icon">➕</span>New</div>
+          <div><span class="pn-icon">🔔</span>Notif.</div>
+          <div><span class="pn-icon">⚙️</span>Settings</div>
+        </div>
+      </div>
+      <div class="phone-label">รายละเอียดเคสที่รับผิดชอบ</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════ SECTION 8: INTERNAL NOTES -->
+<div class="section">
+  <div class="sec-header">
+    <div class="sec-num">8</div>
+    <div>
+      <div class="sec-title">บันทึกภายในและการสื่อสาร</div>
+      <div class="sec-subtitle">สื่อสารกับทีมเกี่ยวกับเคส โดยไม่ต้องออกจากระบบ</div>
+    </div>
+  </div>
+  <div class="two-col">
+    <div>
+      <p style="font-size:13px;color:#374151;margin-bottom:12px">ในหน้ารายละเอียดเคส มีช่อง <strong>Internal Notes</strong> ให้พิมพ์ข้อความถึงทีม เช่น อัปเดตความคืบหน้า แจ้งปัญหาเพิ่มเติม หรือขอความช่วยเหลือ</p>
+      <div class="highlight-box">
+        <h4>การใช้ @ Mention</h4>
+        <div class="steps">
+          <div class="step"><div class="step-n check">1</div><div class="step-body">พิมพ์ <strong>@</strong> ในช่อง Internal Notes</div></div>
+          <div class="step"><div class="step-n check">2</div><div class="step-body">จะมีรายชื่อผู้ใช้งานในระบบปรากฏขึ้น เลือกคนที่ต้องการแจ้ง</div></div>
+          <div class="step"><div class="step-n check">3</div><div class="step-body">คนที่ถูกกล่าวถึงจะได้รับ <strong>Push Notification</strong> ทันที</div></div>
+          <div class="step"><div class="step-n check">4</div><div class="step-body">แตะ <strong>"Save Note"</strong> เพื่อบันทึก</div></div>
+        </div>
+      </div>
+      <div class="callout tip" style="margin-top:10px">
+        <div class="callout-icon">💬</div>
+        <div class="callout-body">
+          <strong>ตัวอย่างการใช้งาน</strong>
+          <p>"@ผู้จัดการ ซ่อมเก้าอี้เสร็จแล้วครับ กรุณาตรวจสอบ"<br>"@ช่าง รอน็อตอยู่ครับ จะถึงพรุ่งนี้เช้า"</p>
+        </div>
+      </div>
+    </div>
+    <div class="phone-wrap">
+      <div class="phone">
+        <div class="phone-status"><span>9:41</span><span>▓▓ 100%</span></div>
+        <div class="phone-content" style="padding:8px">
+          <div style="font-size:8.5px;font-weight:800;margin-bottom:5px">💬 Internal Notes <span style="font-size:6.5px;font-weight:400;color:#888">4 notes</span></div>
+          <div style="border-bottom:1px solid #f3f4f6;padding-bottom:5px;margin-bottom:5px">
+            <div style="display:flex;gap:3px;margin-bottom:3px">
+              <div style="width:14px;height:14px;border-radius:50%;background:#1a5c3a;color:#fff;font-size:6px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0">P</div>
+              <div><div style="font-size:6.5px;font-weight:700">Poti <span style="font-weight:400;color:#888">Super Admin · 10 Jun</span></div><div style="font-size:6.5px;color:#333">@Lhin please check this issue.</div></div>
+            </div>
+            <div style="display:flex;gap:3px;margin-bottom:3px">
+              <div style="width:14px;height:14px;border-radius:50%;background:#7c3aed;color:#fff;font-size:6px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0">L</div>
+              <div><div style="font-size:6.5px;font-weight:700">Lhin <span style="font-weight:400;color:#888">Staff · 10 Jun</span></div><div style="font-size:6.5px;color:#333">@Poti กำลังตรวจสอบครับ</div></div>
+            </div>
+          </div>
+          <div style="border:1px solid #d1d5db;border-radius:5px;padding:5px;background:#f9fafb">
+            <div style="font-size:6px;color:#aaa;font-style:italic;margin-bottom:4px">@ พิมพ์ @ เพื่อกล่าวถึง...</div>
+            <div style="background:#1a5c3a;color:#fff;border-radius:3px;text-align:center;padding:3px;font-size:6px;font-weight:700">Save Note</div>
+          </div>
+        </div>
+        <div class="phone-nav">
+          <div><span class="pn-icon">🏠</span>Home</div>
+          <div class="active-tab"><span class="pn-icon">📋</span>Cases</div>
+          <div><span class="pn-icon">➕</span>New</div>
+          <div><span class="pn-icon">🔔</span>Notif.</div>
+          <div><span class="pn-icon">⚙️</span>Settings</div>
+        </div>
+      </div>
+      <div class="phone-label">Internal Notes + @Mention</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════ SECTION 9: NOTIFICATIONS -->
+<div class="section">
+  <div class="sec-header">
+    <div class="sec-num">9</div>
+    <div>
+      <div class="sec-title">การแจ้งเตือน (Notifications)</div>
+      <div class="sec-subtitle">ไม่พลาดงานสำคัญ — ดูการแจ้งเตือนทั้งหมดในที่เดียว</div>
+    </div>
+  </div>
+  <div class="two-col">
+    <div>
+      <table>
+        <thead><tr><th>ประเภทการแจ้งเตือน</th><th>เกิดเมื่อ</th></tr></thead>
+        <tbody>
+          <tr><td><strong>New Case Assigned</strong></td><td>ผู้จัดการมอบหมายเคสให้คุณ</td></tr>
+          <tr><td><strong>@Mention</strong></td><td>มีคนกล่าวถึงคุณใน Internal Notes</td></tr>
+          <tr><td><strong>Case Reopened</strong></td><td>เคสที่คุณส่งถูกเปิดกลับมาให้ทำต่อ</td></tr>
+          <tr><td><strong>Maintenance Due</strong></td><td>งาน PMS ที่คุณรับผิดชอบใกล้ครบกำหนด</td></tr>
+        </tbody>
+      </table>
+      <div class="steps" style="margin-top:12px">
+        <div class="step"><div class="step-n check">→</div><div class="step-body">แตะที่การแจ้งเตือนเพื่อ<strong>ไปยังเคสที่เกี่ยวข้อง</strong>โดยตรง</div></div>
+        <div class="step"><div class="step-n check">→</div><div class="step-body">แตะ <strong>"Mark all read"</strong> เพื่อเคลียร์รายการที่ยังไม่อ่าน</div></div>
+      </div>
+    </div>
+    <div class="phone-wrap">
+      <div class="phone">
+        <div class="phone-status"><span>9:41</span><span>▓▓ 100%</span></div>
+        <div class="phone-content" style="padding:8px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+            <div><div style="font-size:10px;font-weight:800">Notifications</div><div style="font-size:6px;color:#888">5 unread</div></div>
+            <div style="font-size:5.5px;color:#1a5c3a;font-weight:700">✓ Mark all read</div>
+          </div>
+          <div style="font-size:5.5px;font-weight:700;color:#888;text-transform:uppercase;margin-bottom:3px">TODAY</div>
+          <div style="display:flex;gap:4px;padding:4px 0;border-bottom:1px solid #f3f4f6">
+            <div style="width:6px;height:6px;border-radius:50%;background:#3b82f6;flex-shrink:0;margin-top:3px"></div>
+            <div><div style="font-size:6.5px;font-weight:700;color:#333">New Case Assigned</div><div style="font-size:5.5px;color:#555">You have been assigned to KZN-202606-4557</div><div style="font-size:5px;color:#aaa">11 Jun 2026 · 09:31</div></div>
+          </div>
+          <div style="display:flex;gap:4px;padding:4px 0;border-bottom:1px solid #f3f4f6">
+            <div style="width:6px;height:6px;border-radius:50%;background:#f59e0b;flex-shrink:0;margin-top:3px"></div>
+            <div><div style="font-size:6.5px;font-weight:700;color:#333">@Mention</div><div style="font-size:5.5px;color:#555">Poti mentioned you in KZN-202606-2669</div><div style="font-size:5px;color:#aaa">11 Jun 2026 · 10:17</div></div>
+          </div>
+          <div style="font-size:5.5px;font-weight:700;color:#888;text-transform:uppercase;margin:4px 0 3px">YESTERDAY</div>
+          <div style="display:flex;gap:4px;padding:4px 0">
+            <div style="width:6px;height:6px;border-radius:50%;background:#d1d5db;flex-shrink:0;margin-top:3px"></div>
+            <div><div style="font-size:6.5px;color:#666">Case Ready to Close</div><div style="font-size:5px;color:#aaa">10 Jun 2026 · 09:44</div></div>
+          </div>
+        </div>
+        <div class="phone-nav">
+          <div><span class="pn-icon">🏠</span>Home</div>
+          <div><span class="pn-icon">📋</span>Cases</div>
+          <div><span class="pn-icon">➕</span>New</div>
+          <div class="active-tab"><span class="pn-icon">🔔</span>Notif.</div>
+          <div><span class="pn-icon">⚙️</span>Settings</div>
+        </div>
+      </div>
+      <div class="phone-label">หน้า Notifications</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════ SECTION 10: SETTINGS -->
+<div class="section">
+  <div class="sec-header">
+    <div class="sec-num">10</div>
+    <div>
+      <div class="sec-title">การตั้งค่าและบัญชีของคุณ</div>
+      <div class="sec-subtitle">แก้ไขโปรไฟล์ รหัสผ่าน การแจ้งเตือน และภาษา</div>
+    </div>
+  </div>
+  <table>
+    <thead><tr><th>รายการ</th><th>วิธีการ</th><th>หมายเหตุ</th></tr></thead>
+    <tbody>
+      <tr><td><strong>เปลี่ยนรูปโปรไฟล์</strong></td><td>Settings → แตะที่รูปวงกลม → เลือกรูปใหม่</td><td>รองรับ JPG, PNG</td></tr>
+      <tr><td><strong>เปลี่ยนรหัสผ่าน</strong></td><td>Settings → Change Password → รหัสเดิม + รหัสใหม่</td><td>อย่างน้อย 8 ตัวอักษร</td></tr>
+      <tr><td><strong>การแจ้งเตือน</strong></td><td>Settings → Push Notifications → เปิด/ปิดสวิตช์</td><td>iPhone ต้องเปิดจาก Home Screen</td></tr>
+      <tr><td><strong>เปลี่ยนภาษา</strong></td><td>Settings → Language → EN หรือ TH</td><td>ใช้ได้ทั้งสองภาษา</td></tr>
+      <tr><td><strong>ออกจากระบบ</strong></td><td>Settings → เลื่อนลงล่างสุด → Sign Out</td><td>—</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ═══════════════════════════════════════ SECTION 11: FAQ -->
+<div class="section">
+  <div class="sec-header">
+    <div class="sec-num">11</div>
+    <div>
+      <div class="sec-title">คำถามที่พบบ่อย</div>
+      <div class="sec-subtitle">ปัญหาที่มักเจอและวิธีแก้ไข</div>
+    </div>
+  </div>
+  <div class="faq-item">
+    <div class="faq-q">เข้าสู่ระบบไม่ได้ ขึ้น "Invalid credentials"</div>
+    <div class="faq-a">ตรวจสอบว่าเลือกแท็บ <b>Staff</b> และกรอก <b>รหัสบริษัท + Username</b> ให้ถูกต้อง (ไม่ใช่อีเมล) หากยังไม่ได้ ติดต่อผู้จัดการ</div>
+  </div>
+  <div class="faq-item">
+    <div class="faq-q">ไม่รู้รหัสบริษัทหรือ Username ของตัวเอง</div>
+    <div class="faq-a">สอบถามจาก<b>ผู้จัดการหรือฝ่าย HR</b> โดยตรง ข้อมูลนี้จะไม่มีใน Email หรือที่ไหน ต้องให้ผู้จัดการแจ้งให้</div>
+  </div>
+  <div class="faq-item">
+    <div class="faq-q">การแจ้งเตือนไม่เข้า ทั้งที่เปิดไว้แล้ว (iPhone)</div>
+    <div class="faq-a">ตรวจว่าเปิดแอปจาก <b>ไอคอน Kaizen บนหน้าจอโฮม</b> ไม่ใช่จาก Safari โดยตรง ถ้ายังไม่ได้ติดตั้งลง Home Screen ให้ทำตามข้อ 1 ใหม่</div>
+  </div>
+  <div class="faq-item">
+    <div class="faq-q">ส่งรายงานไม่ได้ ปุ่ม Submit เป็นสีเทา</div>
+    <div class="faq-a">ตรวจว่ากรอกข้อมูลที่มีเครื่องหมาย * ครบทุกช่อง ได้แก่ Department, Problem Title, Description, Category และ Location</div>
+  </div>
+  <div class="faq-item">
+    <div class="faq-q">ต้องการแก้ไขรายงานที่ส่งไปแล้ว ทำได้ไหม?</div>
+    <div class="faq-a">ไม่สามารถแก้ไขเนื้อหาเคสที่ส่งไปแล้วได้ แต่สามารถเพิ่ม <b>Internal Notes</b> เพื่ออธิบายเพิ่มเติม หรือ @mention ผู้จัดการเพื่อแจ้ง</div>
+  </div>
+  <div class="faq-item">
+    <div class="faq-q">เคสที่รับผิดชอบถูก "เปิดใหม่" ต้องทำอะไร?</div>
+    <div class="faq-a">เปิดเคสนั้น → อ่านความคิดเห็นจากผู้จัดการว่าขาดอะไร → ดำเนินการแก้ไขเพิ่มเติม → ส่งรูปถ่ายหลักฐานใหม่ → แตะ Submit Resolution อีกครั้ง</div>
+  </div>
+</div>
+
+<div class="manual-footer">
+  จัดทำโดย NNR Solutions &nbsp;·&nbsp; kaizen.nnr-solutions.com &nbsp;·&nbsp; เอกสารนี้สำหรับผู้ใช้งานระบบ Kaizen ภายในองค์กร
+</div>
+
+</div><!-- /page -->
+</body>
+</html>

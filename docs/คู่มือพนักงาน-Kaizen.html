@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>คู่มือพนักงาน — Kaizen System</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Sarabun', sans-serif;
+    font-size: 14px;
+    line-height: 1.75;
+    color: #1a1a1a;
+    background: #fff;
+    padding: 0;
+  }
+
+  .page {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 48px 56px;
+  }
+
+  /* Cover */
+  .cover {
+    text-align: center;
+    padding: 80px 0 60px;
+    border-bottom: 2px solid #1a5c3a;
+    margin-bottom: 48px;
+  }
+  .cover .brand {
+    font-size: 11px;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    color: #1a5c3a;
+    font-weight: 600;
+    margin-bottom: 12px;
+  }
+  .cover h1 {
+    font-size: 26px;
+    font-weight: 700;
+    color: #0d3a20;
+    line-height: 1.35;
+    margin-bottom: 8px;
+  }
+  .cover .subtitle {
+    font-size: 15px;
+    color: #4a8a6a;
+    font-weight: 400;
+    margin-bottom: 24px;
+  }
+  .cover .role-badge {
+    display: inline-block;
+    background: #1a5c3a;
+    color: #fff;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    padding: 5px 18px;
+    border-radius: 20px;
+  }
+
+  /* Intro block */
+  .intro {
+    background: #f0faf5;
+    border-left: 4px solid #1a5c3a;
+    padding: 14px 20px;
+    border-radius: 0 6px 6px 0;
+    margin-bottom: 32px;
+    font-size: 13.5px;
+    color: #1a3a2c;
+  }
+  .intro .url {
+    margin-top: 6px;
+    font-weight: 700;
+    color: #1a5c3a;
+  }
+
+  /* TOC */
+  .toc {
+    background: #fafafa;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    padding: 20px 24px;
+    margin-bottom: 40px;
+  }
+  .toc h2 {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: #1a5c3a;
+    margin-bottom: 12px;
+    border: none;
+    padding: 0;
+  }
+  .toc ol {
+    padding-left: 20px;
+    columns: 2;
+    column-gap: 24px;
+  }
+  .toc li {
+    font-size: 13px;
+    color: #333;
+    margin-bottom: 4px;
+    break-inside: avoid;
+  }
+
+  /* Section headings */
+  h2 {
+    font-size: 16px;
+    font-weight: 700;
+    color: #0d3a20;
+    border-bottom: 2px solid #1a5c3a;
+    padding-bottom: 6px;
+    margin-top: 40px;
+    margin-bottom: 16px;
+  }
+  h3 {
+    font-size: 14px;
+    font-weight: 600;
+    color: #1a5c3a;
+    margin-top: 20px;
+    margin-bottom: 10px;
+  }
+
+  /* Paragraphs */
+  p { margin-bottom: 10px; }
+
+  /* Lists */
+  ol, ul { padding-left: 22px; margin-bottom: 12px; }
+  li { margin-bottom: 4px; }
+  li strong { color: #0d3a20; }
+
+  /* Callout blocks */
+  blockquote {
+    background: #fffbe6;
+    border-left: 4px solid #f5a623;
+    padding: 10px 16px;
+    border-radius: 0 6px 6px 0;
+    margin: 12px 0;
+    font-size: 13px;
+    color: #5a4a1a;
+  }
+  blockquote p { margin: 0; }
+
+  /* Info note */
+  .note {
+    background: #e8f7ee;
+    border-left: 4px solid #22c55e;
+    padding: 10px 16px;
+    border-radius: 0 6px 6px 0;
+    margin: 12px 0;
+    font-size: 13px;
+    color: #14532d;
+  }
+
+  /* Highlight step */
+  .highlight-step {
+    background: #f0faf5;
+    border: 1px solid #bbf7d0;
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin: 16px 0;
+  }
+  .highlight-step h3 {
+    margin-top: 0;
+    color: #0d3a20;
+  }
+
+  /* Tables */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0 20px;
+    font-size: 13px;
+  }
+  th {
+    background: #1a5c3a;
+    color: #fff;
+    padding: 9px 14px;
+    text-align: left;
+    font-weight: 600;
+    font-size: 12px;
+  }
+  td {
+    padding: 8px 14px;
+    border-bottom: 1px solid #e8e8e8;
+    vertical-align: top;
+  }
+  tr:nth-child(even) td { background: #f7fdf9; }
+  tr:last-child td { border-bottom: none; }
+
+  /* Divider */
+  hr {
+    border: none;
+    border-top: 1px solid #e0e0e0;
+    margin: 32px 0 0;
+  }
+
+  /* Footer */
+  .footer {
+    text-align: center;
+    font-size: 11px;
+    color: #999;
+    padding-top: 32px;
+    margin-top: 48px;
+    border-top: 1px solid #e0e0e0;
+  }
+
+  /* Print */
+  @media print {
+    body { background: #fff; }
+    .page { padding: 30px 40px; max-width: 100%; }
+    .cover { padding: 40px 0 30px; margin-bottom: 32px; }
+    h2 { page-break-after: avoid; }
+    h3 { page-break-after: avoid; }
+    table, blockquote, .note, .highlight-step { page-break-inside: avoid; }
+    .no-print { display: none; }
+    a { color: inherit; text-decoration: none; }
+  }
+
+  @page {
+    margin: 20mm 18mm;
+    size: A4;
+  }
+
+  /* Print button */
+  .print-btn {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    background: #1a5c3a;
+    color: #fff;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 6px;
+    font-family: 'Sarabun', sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    z-index: 999;
+  }
+  .print-btn:hover { background: #0d3a20; }
+  @media print { .print-btn { display: none; } }
+</style>
+</head>
+<body>
+<button class="print-btn no-print" onclick="window.print()">พิมพ์ / บันทึก PDF</button>
+<div class="page">
+
+  <!-- Cover -->
+  <div class="cover">
+    <div class="brand">NNR Solutions · Kaizen System</div>
+    <h1>คู่มือการใช้งานระบบ Kaizen</h1>
+    <div class="subtitle">สำหรับพนักงาน (Staff)</div>
+    <div class="role-badge">Staff Guide</div>
+  </div>
+
+  <!-- Intro -->
+  <div class="intro">
+    <p>ระบบ Kaizen ช่วยให้คุณ <strong>รายงานปัญหา</strong>ที่พบในการทำงาน ติดตามการแก้ไข และรับงานที่ได้รับมอบหมาย ได้ง่ายๆ จากมือถือ</p>
+    <div class="url">🌐 kaizen.nnr-solutions.com</div>
+  </div>
+
+  <!-- TOC -->
+  <div class="toc">
+    <h2>สารบัญ</h2>
+    <ol>
+      <li>การติดตั้งแอปลงบนมือถือ</li>
+      <li>การเข้าสู่ระบบ</li>
+      <li>การแจ้งเตือนและเปลี่ยนภาษา</li>
+      <li>เมนูของพนักงาน</li>
+      <li>วิธีรายงานปัญหา ⭐</li>
+      <li>การดูและติดตามเคส</li>
+      <li>การแก้ไขเคสที่ได้รับมอบหมาย</li>
+      <li>บันทึกภายในและการสื่อสาร</li>
+      <li>การบำรุงรักษาเชิงป้องกัน</li>
+      <li>การแจ้งเตือน</li>
+      <li>การตั้งค่าและบัญชี</li>
+      <li>คำถามที่พบบ่อย</li>
+    </ol>
+  </div>
+
+  <hr>
+
+  <!-- Section 1 -->
+  <h2>1. การติดตั้งแอปลงบนมือถือ</h2>
+  <p>แนะนำให้ "ติดตั้ง" แอป Kaizen ลงหน้าจอมือถือ เพื่อเปิดใช้งานได้สะดวก และให้ <strong>การแจ้งเตือนทำงาน</strong></p>
+
+  <h3>📱 สำหรับ iPhone / iPad (ต้องใช้ Safari เท่านั้น)</h3>
+  <ol>
+    <li>เปิดแอป <strong>Safari</strong> (ไม่ใช่ Chrome) แล้วพิมพ์ <strong>kaizen.nnr-solutions.com</strong></li>
+    <li>แตะปุ่ม <strong>แชร์</strong> (รูปสี่เหลี่ยมมีลูกศรชี้ขึ้น ⬆️) ที่แถบด้านล่างจอ</li>
+    <li>เลื่อนลงแล้วแตะ <strong>"เพิ่มไปยังหน้าจอโฮม" (Add to Home Screen)</strong></li>
+    <li>แตะ <strong>"เพิ่ม" (Add)</strong> ที่มุมขวาบน</li>
+    <li>ไอคอน <strong>Kaizen</strong> จะอยู่บนหน้าจอโฮม — เปิดใช้งานจากไอคอนนี้เสมอ</li>
+  </ol>
+  <blockquote><p>⚠️ <strong>iPhone:</strong> ต้องใช้ <strong>Safari</strong> และเปิดแอปจาก <strong>ไอคอนบนหน้าจอโฮม</strong> เท่านั้น ไม่เช่นนั้นการแจ้งเตือนจะไม่ทำงาน</p></blockquote>
+
+  <h3>🤖 สำหรับ Android (ใช้ Chrome)</h3>
+  <ol>
+    <li>เปิดแอป <strong>Chrome</strong> แล้วพิมพ์ <strong>kaizen.nnr-solutions.com</strong></li>
+    <li>แตะเมนู <strong>จุดสามจุด (⋮)</strong> มุมขวาบน</li>
+    <li>แตะ <strong>"ติดตั้งแอป" (Install app)</strong> หรือ <strong>"เพิ่มไปยังหน้าจอหลัก"</strong></li>
+    <li>แตะ <strong>"ติดตั้ง" (Install)</strong></li>
+    <li>ไอคอน <strong>Kaizen</strong> จะอยู่บนหน้าจอ — เปิดจากไอคอนนี้</li>
+  </ol>
+
+  <!-- Section 2 -->
+  <h2>2. การเข้าสู่ระบบสำหรับพนักงาน</h2>
+  <p>พนักงานเข้าสู่ระบบด้วย <strong>รหัสบริษัท + ชื่อผู้ใช้ + รหัสผ่าน</strong> (ขอข้อมูลทั้งหมดนี้จากผู้จัดการของคุณ)</p>
+  <ol>
+    <li>เปิดแอป Kaizen</li>
+    <li>เลือกบทบาท <strong>"พนักงาน" (Staff)</strong></li>
+    <li>กรอก <strong>รหัสบริษัท</strong> (Company Code)</li>
+    <li>กรอก <strong>ชื่อผู้ใช้</strong> (Username) ของคุณ</li>
+    <li>กรอก <strong>รหัสผ่าน</strong></li>
+    <li>แตะ <strong>เข้าสู่ระบบ</strong></li>
+  </ol>
+  <blockquote>
+    <p>🔑 <strong>ลืมรหัสผ่าน?</strong> พนักงานไม่สามารถรีเซ็ตรหัสผ่านเองได้ — กรุณา <strong>ติดต่อผู้จัดการหรือฝ่าย HR</strong> เพื่อรีเซ็ตให้</p>
+    <p style="margin-top:6px">ครั้งแรกที่เข้าสู่ระบบ ระบบอาจให้คุณตั้งรหัสผ่านใหม่ของตัวเอง</p>
+  </blockquote>
+
+  <!-- Section 3 -->
+  <h2>3. การเปิดการแจ้งเตือนและเปลี่ยนภาษา</h2>
+
+  <h3>เปิดการแจ้งเตือน</h3>
+  <p>เพื่อรับแจ้งเมื่อมีงานมอบหมายให้คุณ หรือมีคนกล่าวถึงคุณ</p>
+  <ol>
+    <li>(เฉพาะ iPhone) ติดตั้งแอปลงหน้าจอโฮมและเปิดจากไอคอนก่อน</li>
+    <li>ไปที่เมนู <strong>การตั้งค่า</strong> → เปิดสวิตช์ <strong>การแจ้งเตือน</strong></li>
+    <li>เมื่อระบบถาม ให้แตะ <strong>"อนุญาต" (Allow)</strong></li>
+  </ol>
+
+  <h3>เปลี่ยนภาษา</h3>
+  <p>แตะปุ่ม <strong>TH / EN</strong> ที่มุมขวาบนเพื่อสลับภาษาไทย–อังกฤษ</p>
+
+  <!-- Section 4 -->
+  <h2>4. เมนูของพนักงาน</h2>
+  <p>พนักงานจะเห็นเมนูเหล่านี้ (แถบด้านล่างจอบนมือถือ):</p>
+  <table>
+    <thead><tr><th>เมนู</th><th>ใช้ทำอะไร</th></tr></thead>
+    <tbody>
+      <tr><td><strong>เคส</strong></td><td>ดูรายการปัญหาและติดตามสถานะ</td></tr>
+      <tr><td><strong>รายงานใหม่</strong></td><td>สร้างรายงานปัญหาใหม่ (หน้าที่หลัก)</td></tr>
+      <tr><td><strong>ปฏิทิน</strong></td><td>ดูเคสตามวันกำหนดเสร็จ</td></tr>
+      <tr><td><strong>การบำรุงรักษาเชิงป้องกัน</strong></td><td>งานบำรุงรักษาอุปกรณ์ (ถ้าบริษัทเปิดใช้)</td></tr>
+      <tr><td><strong>การแจ้งเตือน</strong></td><td>ดูการแจ้งเตือนของคุณ</td></tr>
+      <tr><td><strong>การตั้งค่า</strong></td><td>โปรไฟล์ รหัสผ่าน การแจ้งเตือน</td></tr>
+    </tbody>
+  </table>
+
+  <!-- Section 5 -->
+  <div class="highlight-step">
+    <h2 style="border-color:#22c55e; margin-top:0">5. วิธีรายงานปัญหา (หน้าที่หลัก) ⭐</h2>
+    <p>เมื่อพบปัญหา เช่น อุปกรณ์ชำรุด ของเสียหาย หรือสิ่งที่ควรปรับปรุง:</p>
+    <ol>
+      <li>แตะ <strong>รายงานใหม่</strong></li>
+      <li>เลือก <strong>แผนก</strong>ที่เกี่ยวข้อง และ <strong>ประเภท</strong>ของปัญหา</li>
+      <li>กรอก <strong>ชื่อปัญหา</strong> สั้นๆ ให้เข้าใจง่าย<br>
+        <em>ตัวอย่าง: "เก้าอี้แตกในห้องอาหาร โต๊ะ 5"</em></li>
+      <li>กรอก <strong>รายละเอียด</strong> ให้ชัดเจน — บอก <strong>สถานที่ ความรุนแรง และบริบท</strong><br>
+        <em>ตัวอย่าง: "ขาเก้าอี้หักด้านซ้าย นั่งแล้วโยก เสี่ยงล้ม อยู่โซนริมหน้าต่าง"</em></li>
+      <li>เลือก <strong>ระดับความสำคัญ</strong>: ต่ำ / ปานกลาง / สูง / วิกฤต</li>
+      <li><strong>ถ่ายรูปแนบ</strong> (แนะนำมาก) — แตะ <strong>เพิ่มรูปภาพ</strong> เพื่อถ่ายหรือเลือกรูปปัญหา<br>ภาพช่วยให้ทีมเข้าใจและแก้ไขได้เร็วขึ้น</li>
+      <li>หากปัญหานี้ <strong>เคยเกิดมาก่อน</strong> ให้ทำเครื่องหมาย <strong>"ปัญหาที่เกิดซ้ำ"</strong></li>
+      <li>แตะ <strong>ส่งเคส</strong></li>
+    </ol>
+    <p>ระบบจะแจ้งว่า "สร้างเคสสำเร็จ!" และส่งเรื่องให้ผู้รับผิดชอบโดยอัตโนมัติ</p>
+    <div class="note">💡 เคล็ดลับ: ยิ่งรายละเอียดและรูปภาพชัดเจน ปัญหายิ่งถูกแก้ได้เร็ว</div>
+  </div>
+
+  <!-- Section 6 -->
+  <h2>6. การดูและติดตามเคส</h2>
+  <ul>
+    <li>เข้าเมนู <strong>เคส</strong> เพื่อดูรายการปัญหา</li>
+    <li>ใช้ช่อง <strong>ค้นหา</strong> หรือ <strong>กรอง</strong> ตามสถานะ/ระดับความสำคัญ</li>
+    <li>แตะที่เคสเพื่อดูรายละเอียด ไทม์ไลน์ และรูปภาพ</li>
+  </ul>
+
+  <p><strong>ความหมายของสถานะ:</strong></p>
+  <table>
+    <thead><tr><th>สถานะ</th><th>ความหมาย</th></tr></thead>
+    <tbody>
+      <tr><td><strong>เปิด</strong></td><td>เพิ่งรายงาน ยังไม่เริ่มดำเนินการ</td></tr>
+      <tr><td><strong>มอบหมายแล้ว</strong></td><td>มีผู้รับผิดชอบแล้ว</td></tr>
+      <tr><td><strong>กำลังดำเนินการ</strong></td><td>กำลังแก้ไข</td></tr>
+      <tr><td><strong>รออนุมัติ</strong></td><td>แก้ไขแล้ว รอผู้จัดการตรวจ</td></tr>
+      <tr><td><strong>ปิด</strong></td><td>แก้ไขเสร็จเรียบร้อย</td></tr>
+      <tr><td><strong>เปิดใหม่</strong></td><td>แก้ไขยังไม่สมบูรณ์ ต้องทำต่อ</td></tr>
+    </tbody>
+  </table>
+
+  <!-- Section 7 -->
+  <h2>7. การแก้ไขเคสที่ได้รับมอบหมาย</h2>
+  <p>หากคุณเป็น <strong>ผู้รับผิดชอบ</strong>เคส:</p>
+  <ol>
+    <li>เปิดเคสนั้นขึ้นมา</li>
+    <li>ดำเนินการแก้ไขปัญหาจริง</li>
+    <li>แตะ <strong>แก้ไขเคส</strong> แล้วกรอก <strong>รายละเอียดการแก้ไข</strong> (อธิบายว่าแก้อย่างไร)</li>
+    <li><strong>อัปโหลดภาพถ่ายหลักฐาน</strong>การแก้ไข (เช่น รูปหลังซ่อมเสร็จ)</li>
+    <li>แตะ <strong>ส่งการแก้ไข</strong></li>
+  </ol>
+  <p>จากนั้นผู้จัดการจะ <strong>ตรวจและอนุมัติ</strong>การแก้ไขของคุณ หากยังไม่เรียบร้อย เคสอาจถูก <strong>เปิดใหม่</strong>ให้ดำเนินการต่อ</p>
+
+  <!-- Section 8 -->
+  <h2>8. บันทึกภายในและการสื่อสาร</h2>
+  <p>ในหน้ารายละเอียดเคส คุณสามารถเพิ่ม <strong>บันทึกภายใน</strong>เพื่อสื่อสารกับทีมเกี่ยวกับเคสนั้น</p>
+  <ul>
+    <li>พิมพ์ข้อความในช่องบันทึก แล้วแตะ <strong>บันทึก</strong></li>
+    <li>พิมพ์ <strong>@</strong> เพื่อ <strong>กล่าวถึงเพื่อนร่วมงาน</strong> — คนที่ถูกกล่าวถึงจะได้รับการแจ้งเตือน</li>
+  </ul>
+
+  <!-- Section 9 -->
+  <h2>9. การบำรุงรักษาเชิงป้องกัน (ถ้ามี)</h2>
+  <blockquote><p>ปรากฏเฉพาะเมื่อบริษัทเปิดใช้ส่วนเสริมนี้</p></blockquote>
+  <ul>
+    <li>เข้าเมนู <strong>การบำรุงรักษาเชิงป้องกัน</strong> เพื่อดูอุปกรณ์ที่ต้องดูแล</li>
+    <li>แตะการ์ดอุปกรณ์เพื่อดูรายการตรวจเช็ก และบันทึกเมื่อทำการบำรุงรักษาเสร็จ</li>
+  </ul>
+
+  <!-- Section 10 -->
+  <h2>10. การแจ้งเตือน</h2>
+  <p>เมนู <strong>การแจ้งเตือน</strong> รวมการแจ้งทั้งหมดของคุณ เช่น งานที่ได้รับมอบหมาย หรือเมื่อมีคนกล่าวถึงคุณ</p>
+  <ul>
+    <li>แตะการแจ้งเตือนเพื่อไปยังเคสที่เกี่ยวข้อง</li>
+    <li>แตะ <strong>ทำเครื่องหมายอ่านทั้งหมด</strong> เพื่อเคลียร์รายการที่ยังไม่อ่าน</li>
+  </ul>
+
+  <!-- Section 11 -->
+  <h2>11. การตั้งค่าและบัญชีของคุณ</h2>
+  <p>เข้าเมนู <strong>การตั้งค่า</strong> เพื่อ:</p>
+  <ul>
+    <li>อัปโหลด/เปลี่ยน <strong>รูปโปรไฟล์</strong> (แตะที่รูป)</li>
+    <li><strong>เปลี่ยนรหัสผ่าน</strong> (อย่างน้อย 8 ตัวอักษร)</li>
+    <li>เปิด/ปิด <strong>การแจ้งเตือน</strong></li>
+    <li>เปลี่ยน <strong>ภาษา</strong></li>
+    <li><strong>ออกจากระบบ</strong></li>
+  </ul>
+
+  <!-- Section 12 -->
+  <h2>12. คำถามที่พบบ่อย</h2>
+  <p><strong>เข้าสู่ระบบไม่ได้</strong> — ตรวจว่าเลือกบทบาท "พนักงาน" และกรอก <strong>รหัสบริษัท + ชื่อผู้ใช้</strong>ให้ถูกต้อง (ไม่ใช่อีเมล) หากลืมรหัสผ่าน ติดต่อผู้จัดการ</p>
+  <p><strong>ไม่รู้รหัสบริษัท / ชื่อผู้ใช้</strong> — สอบถามจากผู้จัดการของคุณ</p>
+  <p><strong>การแจ้งเตือนไม่เข้า (iPhone)</strong> — ต้องติดตั้งแอปลงหน้าจอโฮมด้วย Safari แล้วเปิดจากไอคอน จากนั้นเปิดการแจ้งเตือนในเมนูการตั้งค่า</p>
+  <p><strong>ส่งรายงานไม่ได้</strong> — ตรวจว่ากรอกข้อมูลที่จำเป็นครบ (แผนก ชื่อปัญหา รายละเอียด) และมีสัญญาณอินเทอร์เน็ต</p>
+
+  <!-- Footer -->
+  <div class="footer">
+    จัดทำโดย NNR Solutions &nbsp;·&nbsp; เอกสารนี้สำหรับผู้ใช้งานระบบ Kaizen ภายในองค์กร
+  </div>
+
+</div>
+</body>
+</html>

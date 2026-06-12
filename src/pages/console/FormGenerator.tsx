@@ -473,9 +473,10 @@ function FormEditor({ formType, companies, products, promos, existingForms, rese
     prefilled.current = true
     if (initialCompanyId) pickCompany(initialCompanyId)
     if (initialItems && initialItems.length) setItems(initialItems)
-    // The line amount already equals what the client paid, so no VAT is added
-    // on top — the receipt total must match the payment.
+    // The line amount already equals what the client paid, so no VAT or
+    // discount is applied on top — the receipt total must match the payment.
     setVatRate('0')
+    setDiscountMode('promo'); setPromoId(''); setDiscountPctInput(''); setDiscountValInput('')
     onPrefilled?.()
   }, [initialCompanyId, initialItems])  // eslint-disable-line react-hooks/exhaustive-deps
 

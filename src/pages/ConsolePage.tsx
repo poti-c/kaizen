@@ -48,7 +48,7 @@ interface ClientDocument {
   doc_number: string; issue_date: string; total: number; currency: string; status: string; created_at: string
 }
 interface ConsoleCompany {
-  id: string; name: string; slug: string; is_active: boolean
+  id: string; name: string; org_title?: string | null; slug: string; is_active: boolean
   plan: string; max_super_admins: number | null; max_managers: number | null; max_staff: number | null
   live_super_admins: number; live_managers: number; live_staff: number; created_at: string
   login_code: string | null
@@ -57,6 +57,8 @@ interface ConsoleCompany {
   office_type?: string | null; branch_code?: string | null; billing_address?: ThaiAddress | null
   addons?: Record<string, boolean> | null
   subscription?: Subscription
+  confirmed_revenue?: number
+  opportunity_value?: number
 }
 interface ConsoleOwner {
   id: string; full_name: string; email: string | null; job_title: string | null
@@ -432,6 +434,18 @@ function CompaniesListTab({ companies, owners, onOpen, onCreate }: {
               <p className="text-[11px] text-slate-400 truncate mt-0.5">
                 /{c.slug} · {superAdminCount(c.id)} super admin{superAdminCount(c.id) !== 1 ? 's' : ''} · {c.live_managers}M / {c.live_staff}S
               </p>
+              <div className="flex items-center gap-4 mt-1.5">
+                <span className="flex items-center gap-1.5 text-[11px]" title="Successful sale transactions recorded for this client (payments + paid invoices)">
+                  <Wallet className="h-3.5 w-3.5 text-green-400" />
+                  <span className="text-slate-400">Confirmed Revenue</span>
+                  <span className="font-semibold text-green-400">{money(c.confirmed_revenue ?? 0, 'THB')}</span>
+                </span>
+                <span className="flex items-center gap-1.5 text-[11px]" title="Quotations sent or in follow-up, not yet confirmed">
+                  <TrendingUp className="h-3.5 w-3.5 text-amber-400" />
+                  <span className="text-slate-400">Opportunity Value</span>
+                  <span className="font-semibold text-amber-400">{money(c.opportunity_value ?? 0, 'THB')}</span>
+                </span>
+              </div>
             </div>
             <ChevronRight className="h-4 w-4 text-slate-400 flex-shrink-0" />
           </button>
@@ -472,7 +486,7 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
   )
   const [busy, setBusy] = useState<string | null>(null)
   const [editingName, setEditingName] = useState(false)
-  const [nameValue, setNameValue] = useState(c.name)
+  const [nameValue, setNameValue] = useState(c.org_title || c.name)
   const [editingCode, setEditingCode] = useState(false)
   const [codeValue, setCodeValue] = useState(c.login_code ?? c.slug)
   const [editingBilling, setEditingBilling] = useState(false)
@@ -515,9 +529,11 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
     finally { setBusy(null) }
   }
   async function saveName() {
+    // Edits the Organisation Name (display title shown in the client's app).
+    // The legal Company Name lives under Contact & Billing and is untouched.
     const v = nameValue.trim()
-    if (!v || v === c.name) { setEditingName(false); return }
-    await patch({ name: v }, 'name'); setEditingName(false)
+    if (!v || v === (c.org_title || c.name)) { setEditingName(false); return }
+    await patch({ org_title: v }, 'name'); setEditingName(false)
   }
   function startBillingEdit() {
     setBill({
@@ -608,19 +624,22 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
         </div>
         <div className="flex-1 min-w-0">
           {editingName ? (
-            <div className="flex items-center gap-2">
-              <input value={nameValue} onChange={(e) => setNameValue(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') saveName(); if (e.key === 'Escape') { setEditingName(false); setNameValue(c.name) } }}
-                className="h-8 rounded-lg bg-slate-800 border border-slate-700 px-2.5 text-base font-bold text-white focus:outline-none focus:ring-2 focus:ring-amber-500/50" autoFocus />
-              <button onClick={saveName} disabled={busy === 'name'} className="p-1.5 rounded-lg text-green-400 hover:bg-green-500/10">
-                {busy === 'name' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-              </button>
-              <button onClick={() => { setEditingName(false); setNameValue(c.name) }} className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-800"><X className="h-4 w-4" /></button>
+            <div>
+              <div className="flex items-center gap-2">
+                <input value={nameValue} onChange={(e) => setNameValue(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') saveName(); if (e.key === 'Escape') { setEditingName(false); setNameValue(c.org_title || c.name) } }}
+                  className="h-8 rounded-lg bg-slate-800 border border-slate-700 px-2.5 text-base font-bold text-white focus:outline-none focus:ring-2 focus:ring-amber-500/50" autoFocus />
+                <button onClick={saveName} disabled={busy === 'name'} className="p-1.5 rounded-lg text-green-400 hover:bg-green-500/10">
+                  {busy === 'name' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                </button>
+                <button onClick={() => { setEditingName(false); setNameValue(c.org_title || c.name) }} className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-800"><X className="h-4 w-4" /></button>
+              </div>
+              <p className="text-[11px] text-slate-400 mt-1">Organisation Name — shown in the client's Kaizen app. The legal Company Name (used on documents) is under Contact &amp; Billing.</p>
             </div>
           ) : (
             <div className="flex items-center gap-2">
-              <h1 className="text-xl font-bold text-white truncate">{c.name}</h1>
-              <button onClick={() => { setNameValue(c.name); setEditingName(true) }} className="p-1 rounded text-slate-400 hover:text-amber-400 hover:bg-slate-800"><Pencil className="h-4 w-4" /></button>
+              <h1 className="text-xl font-bold text-white truncate" title="Organisation Name — shown in the client's Kaizen app">{c.org_title || c.name}</h1>
+              <button onClick={() => { setNameValue(c.org_title || c.name); setEditingName(true) }} className="p-1 rounded text-slate-400 hover:text-amber-400 hover:bg-slate-800" title="Edit Organisation Name (does not change the legal Company Name)"><Pencil className="h-4 w-4" /></button>
             </div>
           )}
           <div className="flex items-center gap-2 mt-1.5 flex-wrap">
