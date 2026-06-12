@@ -271,7 +271,7 @@ export function Header() {
             {/* Header */}
             <div className="flex items-center justify-between px-4 py-4 border-b border-white/10">
               <div className="flex items-center gap-3">
-                <img src="/kaizen-icon.svg" alt="Kaizen" className="w-10 h-10 object-contain flex-shrink-0" />
+                <img src="/kaizen-icon.svg" alt="Kaizen" className="w-11 h-11 object-contain flex-shrink-0" />
                 <div>
                   <p className="text-[#c8a882] font-bold text-base leading-snug">{activeCompany?.org_title || activeCompany?.name || 'Kaizen System'}</p>
                   <p className="text-white/90 font-semibold text-[13px] leading-snug tracking-wide">Kaizen System</p>
