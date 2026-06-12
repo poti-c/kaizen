@@ -142,6 +142,7 @@ body {
 }
 .theme-dark input, .theme-dark textarea, .theme-dark select { color: var(--brand-text, #e8edf3); }
 .theme-dark input::placeholder, .theme-dark textarea::placeholder { color: #6b7685; }
-/* Sidebar navigation text → logo gold */
-.theme-dark aside nav a { color: var(--brand-gold, #e3b341) !important; opacity: 0.85; }
+/* Sidebar navigation: white text, gold icons */
+.theme-dark aside nav a { color: #ffffff !important; opacity: 0.85; }
 .theme-dark aside nav a:hover, .theme-dark aside nav a[aria-current="page"] { opacity: 1; }
+.theme-dark aside nav a svg { color: var(--brand-gold, #e3b341) !important; }
