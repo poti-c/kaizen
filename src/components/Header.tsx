@@ -25,6 +25,11 @@ export function Header() {
   const unreadCount = notifications.filter((n) => !n.is_read).length
   const showSwitcher = profile?.role === 'super_admin' && companies.length > 1
 
+  // Today's date — e.g. "Sat. 13 - June 2026" (shown on mobile, where the sidebar is hidden)
+  const _now = new Date()
+  const _loc = lang === 'th' ? 'th-TH' : 'en-GB'
+  const todayLabel = `${_now.toLocaleDateString(_loc, { weekday: 'short' })}. ${_now.getDate()} - ${_now.toLocaleDateString(_loc, { month: 'long' })} ${_now.getFullYear()}`
+
   const NAV_ITEMS = [
     { to: '/dashboard',      icon: LayoutDashboard, label: t.nav.dashboard,      roles: ['super_admin', 'manager'] },
     { to: '/cases',          icon: FolderOpen,      label: t.nav.cases,           roles: ['super_admin', 'manager', 'staff'] },
@@ -155,7 +160,11 @@ export function Header() {
           onClick={() => setShowMobileNav(true)}
         >
           <img src="/kaizen-icon.svg" alt="Kaizen" className="w-8 h-8 object-contain flex-shrink-0" />
-          <span className="text-[11px] font-semibold text-gray-900 leading-tight text-left flex-shrink-0">Kaizen<br />System</span>
+          {/* Brand on top, today's date under it (the sidebar that carries it is hidden on mobile) */}
+          <span className="text-left leading-tight min-w-0">
+            <span className="block text-[11px] font-semibold text-gray-900 truncate">Kaizen System</span>
+            <span className="block text-[10px] font-medium text-gray-500 whitespace-nowrap">{todayLabel}</span>
+          </span>
         </button>
 
       </div>
