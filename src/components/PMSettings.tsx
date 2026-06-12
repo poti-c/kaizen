@@ -27,6 +27,7 @@ export function PMSettings() {
   const [managers, setManagers] = useState<ManagerRow[]>([])
   const [assetSearch, setAssetSearch] = useState('')
   const [excludeOpen, setExcludeOpen] = useState(false)  // collapsed by default
+  const [grantReport, setGrantReport] = useState(false)  // "give specific managers report access" toggle
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
 
@@ -46,6 +47,7 @@ export function PMSettings() {
       engineering_excluded_assets: data.engineering_excluded_assets ?? [],
       report_manager_ids: data.report_manager_ids ?? [],
     })
+    setGrantReport(((data?.report_manager_ids as string[] | null) ?? []).length > 0)
     setAssets((assetsRes.data as unknown as AssetRow[]) ?? [])
     setManagers((managersRes.data as unknown as ManagerRow[]) ?? [])
     setLoading(false)
@@ -55,8 +57,11 @@ export function PMSettings() {
   async function save() {
     if (!companyId) return
     setBusy(true)
+    // When the report-access toggle is off, no managers are granted (Top
+    // Management still always has access).
+    const payload = { ...s, report_manager_ids: grantReport ? s.report_manager_ids : [] }
     const { error } = await supabase.from('kaizen_pm_settings')
-      .upsert({ company_id: companyId, ...s, updated_at: new Date().toISOString() }, { onConflict: 'company_id' })
+      .upsert({ company_id: companyId, ...payload, updated_at: new Date().toISOString() }, { onConflict: 'company_id' })
     setBusy(false)
     if (error) toast.error(error.message); else toast.success(t.pm.settingsSaved)
   }
@@ -185,29 +190,36 @@ export function PMSettings() {
 
           {/* ── PMS Report access — which managers may open the PM report ── */}
           <div className="pt-2 border-t border-gray-100">
-            <p className="text-sm font-medium text-gray-800">
-              {lang === 'th' ? 'สิทธิ์เข้าถึงรายงาน PM' : 'PMS Report access'}
-            </p>
-            <p className="text-xs text-gray-500 mt-0.5">
-              {lang === 'th'
-                ? 'เลือกผู้จัดการที่สามารถเปิดรายงานการบำรุงรักษาเชิงป้องกันได้ ผู้บริหารระดับสูงเข้าถึงได้เสมอโดยอัตโนมัติ'
-                : 'Choose which managers can open the Preventive Maintenance report. Top Management always has access implicitly.'}
-            </p>
-            <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50/60 p-3">
-              {managers.length === 0 ? (
-                <p className="text-[11px] text-gray-400 py-1">{lang === 'th' ? 'ยังไม่มีผู้จัดการในบริษัทนี้' : 'No managers in this company yet.'}</p>
-              ) : (
-                <div className="max-h-48 overflow-y-auto space-y-0.5 pr-1">
-                  {managers.map((m) => (
-                    <label key={m.id} className={`flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer text-xs ${reportManagers.has(m.id) ? 'bg-[var(--brand-primary)]/10' : 'hover:bg-white'}`}>
-                      <input type="checkbox" checked={reportManagers.has(m.id)} onChange={() => toggleReportManager(m.id)} className="h-3.5 w-3.5 flex-shrink-0 accent-[var(--brand-primary)]" />
-                      <span className="flex-1 min-w-0 truncate text-gray-800">{m.full_name}</span>
-                      {m.department && <span className="text-[10px] text-gray-400 flex-shrink-0">{DEPARTMENT_LABELS[m.department as Department] ?? m.department}</span>}
-                    </label>
-                  ))}
-                </div>
-              )}
-            </div>
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input type="checkbox" checked={grantReport} onChange={(e) => setGrantReport(e.target.checked)} className="accent-[var(--brand-primary)] mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
+              <span>
+                <span className="text-sm font-medium text-gray-800">
+                  {lang === 'th' ? 'สิทธิ์เข้าถึงรายงาน PM' : 'PMS Report access'}
+                </span>
+                <span className="block text-xs text-gray-500 mt-0.5">
+                  {lang === 'th'
+                    ? 'ติ๊กเพื่อเลือกผู้จัดการที่สามารถเปิดรายงานการบำรุงรักษาเชิงป้องกันได้ ผู้บริหารระดับสูงเข้าถึงได้เสมอโดยอัตโนมัติ'
+                    : 'Tick to choose which managers can open the Preventive Maintenance report. Top Management always has access implicitly.'}
+                </span>
+              </span>
+            </label>
+            {grantReport && (
+              <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50/60 p-3">
+                {managers.length === 0 ? (
+                  <p className="text-[11px] text-gray-400 py-1">{lang === 'th' ? 'ยังไม่มีผู้จัดการในบริษัทนี้' : 'No managers in this company yet.'}</p>
+                ) : (
+                  <div className="max-h-48 overflow-y-auto space-y-0.5 pr-1">
+                    {managers.map((m) => (
+                      <label key={m.id} className={`flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer text-xs ${reportManagers.has(m.id) ? 'bg-[var(--brand-primary)]/10' : 'hover:bg-white'}`}>
+                        <input type="checkbox" checked={reportManagers.has(m.id)} onChange={() => toggleReportManager(m.id)} className="h-3.5 w-3.5 flex-shrink-0 accent-[var(--brand-primary)]" />
+                        <span className="flex-1 min-w-0 truncate text-gray-800">{m.full_name}</span>
+                        {m.department && <span className="text-[10px] text-gray-400 flex-shrink-0">{DEPARTMENT_LABELS[m.department as Department] ?? m.department}</span>}
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           <button onClick={save} disabled={busy} className="flex items-center gap-1.5 bg-[var(--brand-primary)] text-white text-sm font-medium px-4 h-9 rounded-lg disabled:opacity-50">
