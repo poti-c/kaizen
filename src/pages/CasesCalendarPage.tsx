@@ -168,7 +168,7 @@ export function CasesCalendarPage() {
       <div className="mb-4 space-y-3">
         <h1 className="text-xl md:text-2xl font-bold text-gray-900">{t.nav.calendar}</h1>
         {(pmEnabled || rrEnabled) && (
-          <div className="flex gap-1 border-b border-gray-200 flex-wrap">
+          <div className="flex gap-0.5 sm:gap-1 border-b border-gray-200 flex-nowrap overflow-x-auto">
             {([
               ['cases', t.nav.cases] as const,
               ...(pmEnabled ? [['pm', t.nav.maintenance] as const] : []),
@@ -176,7 +176,7 @@ export function CasesCalendarPage() {
               ['combined', t.calendar.combined] as const,
             ]).map(([m, label]) => (
               <button key={m} onClick={() => setMode(m as typeof mode)}
-                className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px whitespace-nowrap transition-colors ${mode === m ? 'border-[var(--brand-primary)] text-[var(--brand-primary)]' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+                className={`px-1.5 sm:px-3 py-2 text-[11px] sm:text-sm font-medium border-b-2 -mb-px whitespace-nowrap transition-colors flex-shrink-0 ${mode === m ? 'border-[var(--brand-primary)] text-[var(--brand-primary)]' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
                 {label}
               </button>
             ))}
