@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Sparkles, Crown, Check, X as XIcon, Wrench, Clock, Loader2, Mail, ArrowLeft, Lock, Calendar, Upload, QrCode } from 'lucide-react'
+import { Sparkles, Crown, Check, X as XIcon, Wrench, Clock, Loader2, Mail, ArrowLeft, Lock, Calendar, Upload, QrCode, ClipboardList } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useCompany } from '@/contexts/CompanyContext'
 import { useAuth } from '@/contexts/AuthContext'
@@ -66,6 +66,8 @@ const COMPARE: { label: string; values: [string | boolean, string | boolean, str
 const ADDONS = [
   { key: 'pms' as const, name: 'Preventive Maintenance Scheduler', icon: Wrench,
     desc: 'Register assets, auto-generate scheduled maintenance, checklists, approvals and a live health dashboard.' },
+  { key: 'routine_roster' as const, name: 'Routine Roster', icon: ClipboardList,
+    desc: 'Daily inter-department routines (welcome drinks, fruit, turndown gifts) with order → accept → deliver → confirm tracking and reports.' },
 ]
 
 function fmtDate(d: string | null) {
@@ -94,6 +96,10 @@ const ADDON_TH: Record<string, { name: string; desc: string }> = {
   pms: {
     name: 'ระบบจัดตารางบำรุงรักษาเชิงป้องกัน',
     desc: 'ลงทะเบียนสินทรัพย์ สร้างตารางบำรุงรักษาอัตโนมัติ เช็กลิสต์ การอนุมัติ และแดชบอร์ดสุขภาพระบบแบบเรียลไทม์',
+  },
+  routine_roster: {
+    name: 'งานประจำวัน (Routine Roster)',
+    desc: 'งานประจำระหว่างแผนกรายวัน (เครื่องดื่มต้อนรับ ผลไม้ ของชำร่วย) พร้อมการติดตามแบบสั่ง → รับ → ส่ง → ยืนยัน และรายงาน',
   },
 }
 
@@ -141,6 +147,8 @@ export function PackagesExpansions() {
     packages.forEach(p => { m[p.key] = p.amount })
     const pmsProd = products.find(p => p.key === 'pms') || products.find(p => /preventive|maintenance/i.test(p.name || ''))
     if (pmsProd) m['pms'] = Number(pmsProd.price) || m['pms']
+    const rrProd = products.find(p => p.key === 'routine_roster') || products.find(p => /routine roster/i.test(p.name || ''))
+    if (rrProd) m['routine_roster'] = Number(rrProd.price) || 8000
     return m
   }, [products, packages])
 

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useMemo } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { PlusCircle, Search, Clock, ChevronRight, Download, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, RefreshCw, X, AlertCircle, CalendarDays, ChevronDown, ChevronUp, Wrench, MapPin } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
@@ -34,6 +34,11 @@ type SortDir = 'asc' | 'desc'
 const CATEGORY_LABELS_EN: Record<string, string> = {
   maintenance: 'Maintenance', cleanliness: 'Cleanliness', safety: 'Safety',
   guest_complaint: 'Guest Complaint', equipment: 'Equipment', other: 'Other',
+  preventive_maintenance: 'PMS',
+}
+// Display label for a category slug (PMS clients show preventive-maintenance as "PMS").
+function categoryLabel(slug: string): string {
+  return CATEGORY_LABELS_EN[slug] || slug.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase())
 }
 
 // One PM task row in the Cases → PMS tab (opens the run/checklist modal).
@@ -88,6 +93,13 @@ export function CasesPage() {
   const [validDeptValues, setValidDeptValues] = useState<string[]>(DEPARTMENTS.map(d => d.value))
   // Valid category slugs derived from custom category display names
   const [validCategorySlugs, setValidCategorySlugs] = useState<string[]>([...CATEGORIES] as string[])
+  // Filter options = this company's categories, plus a "PMS" category only for
+  // PMS-subscribed clients. (Avoids the hardcoded generic "Maintenance" option.)
+  const categoryOptions = useMemo(() => {
+    const opts = validCategorySlugs.filter((s) => s !== 'preventive_maintenance')
+    if (companyHasAddon(activeCompany, 'pms')) opts.push('preventive_maintenance')
+    return opts
+  }, [validCategorySlugs, activeCompany])
 
   useEffect(() => {
     if (!activeCompany) return
@@ -402,7 +414,7 @@ export function CasesPage() {
           <td className="px-5 py-3.5"><DepartmentBadge department={c.department} /></td>
           <td className="px-5 py-3.5">
             {c.category ? (
-              <span className="text-xs px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full">{CATEGORY_LABELS_EN[c.category] || c.category}</span>
+              <span className="text-xs px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full">{categoryLabel(c.category)}</span>
             ) : (
               <span className="text-xs text-gray-300">—</span>
             )}
@@ -444,7 +456,7 @@ export function CasesPage() {
             </div>
             <div className="flex items-center gap-3 mt-1.5 flex-wrap">
               <DepartmentBadge department={c.department} />
-              {c.category && <span className="text-xs px-1.5 py-0.5 bg-gray-100 text-gray-500 rounded">{CATEGORY_LABELS_EN[c.category] || c.category}</span>}
+              {c.category && <span className="text-xs px-1.5 py-0.5 bg-gray-100 text-gray-500 rounded">{categoryLabel(c.category)}</span>}
               <span className="text-xs text-gray-400">{formatRelativeTime(c.created_at)}</span>
               <span className="flex items-center gap-1 text-xs text-gray-400">
                 <Clock className="h-3 w-3" />
@@ -800,7 +812,7 @@ export function CasesPage() {
             <div>
               <p className="text-xs font-semibold text-gray-700 uppercase mb-1.5">{lang === 'th' ? 'หมวดหมู่' : 'Category'}</p>
               <div className="flex flex-wrap gap-x-3 gap-y-1.5">
-                {CATEGORIES.map((c) => (
+                {categoryOptions.map((c) => (
                   <label key={c} className="flex items-center gap-1.5 cursor-pointer text-xs">
                     <Checkbox
                       checked={advFilters.categories.includes(c)}
@@ -813,7 +825,7 @@ export function CasesPage() {
                         localStorage.setItem('kaizen-adv-filters', JSON.stringify(newFilters))
                       }}
                     />
-                    <span className="text-gray-600">{CATEGORY_LABELS_EN[c]}</span>
+                    <span className="text-gray-600">{categoryLabel(c)}</span>
                   </label>
                 ))}
               </div>
