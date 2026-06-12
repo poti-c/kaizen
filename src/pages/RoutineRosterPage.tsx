@@ -61,7 +61,7 @@ export function RoutineRosterPage() {
   const companyId = activeCompany?.id ?? null
   const canManage = profile?.role === 'super_admin' || profile?.role === 'manager'
 
-  const [view, setView] = useState<'board' | 'templates'>('board')
+  const [view, setView] = useState<'board' | 'templates' | 'report'>('board')
   const [date, setDate] = useState(() => dateKey(new Date()))
   const [templates, setTemplates] = useState<RrTemplate[]>([])
   const [orders, setOrders] = useState<RrOrder[]>([])
@@ -157,20 +157,21 @@ export function RoutineRosterPage() {
           <ClipboardList className="h-5 w-5 text-[var(--brand-primary)]" />
           <h1 className="text-lg font-bold text-gray-900">{tr.rr.title}</h1>
         </div>
-        {canManage && (
-          <div className="flex rounded-lg border border-gray-300 overflow-hidden text-xs font-medium">
-            {(['board', 'templates'] as const).map((v) => (
-              <button key={v} onClick={() => setView(v)}
-                className={`px-3 h-8 transition-colors ${view === v ? 'bg-[var(--brand-primary)] text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
-                {v === 'board' ? tr.rr.boardTab : tr.rr.templatesTab}
-              </button>
-            ))}
-          </div>
-        )}
+        <div className="flex rounded-lg border border-gray-300 overflow-hidden text-xs font-medium">
+          {([...(['board'] as const), ...(canManage ? (['templates'] as const) : []), ...(['report'] as const)]).map((v) => (
+            <button key={v} onClick={() => setView(v)}
+              className={`px-3 h-8 transition-colors ${view === v ? 'bg-[var(--brand-primary)] text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
+              {v === 'board' ? tr.rr.boardTab : v === 'templates' ? tr.rr.templatesTab : tr.rr.reportTab}
+            </button>
+          ))}
+        </div>
       </div>
 
       {view === 'templates' && canManage && companyId ? (
         <TemplatesView companyId={companyId} templates={templates} onChanged={load} />
+      ) : view === 'report' && companyId ? (
+        <ReportView companyId={companyId} companyName={activeCompany?.org_title || activeCompany?.name || ''}
+          generatedBy={profile?.full_name ?? ''} statusLabel={statusLabel} />
       ) : (
         <>
           {/* Date picker row: ◀ Today ▶ */}
@@ -712,4 +713,178 @@ function TemplateEditor({ companyId, template, sortNext, onClose, onSaved }: {
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return <div className="space-y-1"><label className="text-xs font-medium text-gray-500">{label}</label>{children}</div>
+}
+
+// ── Generate Report — period summary of requested items, for Accounting ──────
+
+function startOfWeek(key: string): string {
+  const d = new Date(key + 'T00:00:00')
+  const dow = d.getDay() === 0 ? 6 : d.getDay() - 1 // Monday-first
+  d.setDate(d.getDate() - dow)
+  return dateKey(d)
+}
+
+function ReportView({ companyId, companyName, generatedBy, statusLabel }: {
+  companyId: string
+  companyName: string
+  generatedBy: string
+  statusLabel: (s: RrOrderStatus) => string
+}) {
+  const { t: tr, lang } = useLanguage()
+  const [mode, setMode] = useState<'daily' | 'weekly'>('daily')
+  const [anchor, setAnchor] = useState(() => dateKey(new Date()))
+  const [rows, setRows] = useState<RrOrder[]>([])
+  const [loading, setLoading] = useState(true)
+
+  const from = mode === 'daily' ? anchor : startOfWeek(anchor)
+  const to = mode === 'daily' ? anchor : shiftDate(startOfWeek(anchor), 6)
+
+  useEffect(() => {
+    let stale = false
+    ;(async () => {
+      setLoading(true)
+      const { data, error } = await supabase.from('kaizen_rr_orders')
+        .select('*, items:kaizen_rr_order_items(*)')
+        .eq('company_id', companyId).neq('status', 'cancelled')
+        .gte('order_date', from).lte('order_date', to)
+        .order('order_date').order('due_at', { ascending: true, nullsFirst: false })
+      if (stale) return
+      if (error) toast.error(error.message)
+      setRows((data as RrOrder[]) ?? [])
+      setLoading(false)
+    })()
+    return () => { stale = true }
+  }, [companyId, from, to])
+
+  // Quantity of an order: bulk = quantity; per-room = number of rooms.
+  const qtyOf = (o: RrOrder) => o.order_type === 'bulk' ? (o.quantity ?? 0) : (o.items?.length ?? 0)
+
+  // Totals per item label (falls back to the routine title).
+  const summary = rows.reduce<Record<string, number>>((acc, o) => {
+    const k = o.item_label || o.title
+    acc[k] = (acc[k] ?? 0) + qtyOf(o)
+    return acc
+  }, {})
+
+  const fmtDay = (key: string) => new Date(key + 'T00:00:00').toLocaleDateString(
+    lang === 'th' ? 'th-TH' : 'en-GB', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })
+  const periodLabel = mode === 'daily' ? fmtDay(from) : `${fmtDay(from)} – ${fmtDay(to)}`
+
+  function printReport() {
+    const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    const rowsHtml = rows.map((o) => `
+      <tr>
+        <td>${esc(fmtDay(o.order_date))}</td>
+        <td>${esc(o.title)}</td>
+        <td>${esc(o.item_label ?? '—')}</td>
+        <td style="text-align:right">${qtyOf(o)}</td>
+        <td>${esc(DEPARTMENT_LABELS[o.request_department] ?? o.request_department)}</td>
+        <td>${esc(DEPARTMENT_LABELS[o.fulfill_department] ?? o.fulfill_department)}</td>
+        <td>${esc(statusLabel(o.status))}</td>
+      </tr>`).join('')
+    const summaryHtml = Object.entries(summary).map(([k, v]) =>
+      `<tr><td>${esc(k)}</td><td style="text-align:right">${v}</td></tr>`).join('')
+    const w = window.open('', '_blank')
+    if (!w) return
+    w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${esc(tr.rr.reportTitle)}</title>
+      <style>
+        body{font-family:'Sarabun','Helvetica Neue',sans-serif;font-size:13px;color:#111;padding:32px;max-width:800px;margin:0 auto}
+        h1{font-size:18px;margin:0 0 2px} .sub{color:#666;font-size:12px;margin-bottom:18px}
+        table{width:100%;border-collapse:collapse;margin-bottom:24px}
+        th{background:#f3f4f6;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:#555}
+        th,td{border:1px solid #e5e7eb;padding:6px 10px}
+        h2{font-size:14px;margin:18px 0 8px}
+        .foot{color:#888;font-size:11px;margin-top:24px;border-top:1px solid #e5e7eb;padding-top:8px}
+        @media print{body{padding:0}}
+      </style></head><body>
+      <h1>${esc(companyName)} — ${esc(tr.rr.reportTitle)}</h1>
+      <p class="sub">${esc(tr.rr.reportPeriod)}: ${esc(periodLabel)} · ${esc(tr.rr.reportForAccounting)}</p>
+      <table><thead><tr>
+        <th>${esc(tr.rr.reportDate)}</th><th>${esc(tr.rr.reportRoutine)}</th><th>${esc(tr.rr.reportItem)}</th>
+        <th style="text-align:right">${esc(tr.rr.reportQty)}</th><th>${esc(tr.rr.reportFrom)}</th>
+        <th>${esc(tr.rr.reportTo)}</th><th>${esc(tr.rr.reportStatus)}</th>
+      </tr></thead><tbody>${rowsHtml}</tbody></table>
+      <h2>${esc(tr.rr.reportSummary)}</h2>
+      <table style="max-width:380px"><thead><tr><th>${esc(tr.rr.reportItem)}</th><th style="text-align:right">${esc(tr.rr.reportTotal)}</th></tr></thead>
+      <tbody>${summaryHtml}</tbody></table>
+      <p class="foot">${esc(tr.rr.reportGeneratedBy)}: ${esc(generatedBy)} · ${esc(tr.rr.reportGeneratedAt)}: ${new Date().toLocaleString(lang === 'th' ? 'th-TH' : 'en-GB')}</p>
+      <script>window.onload = () => window.print()</` + `script></body></html>`)
+    w.document.close()
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Period controls */}
+      <div className="bg-white rounded-xl border border-gray-200 p-4 flex items-center gap-3 flex-wrap">
+        <div className="flex rounded-lg border border-gray-300 overflow-hidden text-xs font-medium">
+          {(['daily', 'weekly'] as const).map((m) => (
+            <button key={m} onClick={() => setMode(m)}
+              className={`px-3 h-8 transition-colors ${mode === m ? 'bg-[var(--brand-primary)] text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
+              {m === 'daily' ? tr.rr.reportDaily : tr.rr.reportWeekly}
+            </button>
+          ))}
+        </div>
+        <input type="date" value={anchor} onChange={(e) => e.target.value && setAnchor(e.target.value)}
+          className="h-8 rounded-lg border border-gray-300 px-2 text-sm" />
+        <span className="text-xs text-gray-500 flex-1 min-w-[120px]">{periodLabel}</span>
+        <button onClick={printReport} disabled={loading || rows.length === 0}
+          className="h-8 px-3 rounded-lg bg-[var(--brand-primary)] text-white text-xs font-semibold disabled:opacity-40">
+          {tr.rr.reportPrint}
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-gray-400" /></div>
+      ) : rows.length === 0 ? (
+        <div className="text-center py-16 bg-white rounded-xl border border-gray-200 text-sm text-gray-400">{tr.rr.reportNoData}</div>
+      ) : (
+        <>
+          {/* Orders table */}
+          <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
+            <table className="w-full text-sm min-w-[560px]">
+              <thead>
+                <tr className="bg-gray-50 text-[11px] uppercase tracking-wide text-gray-500">
+                  <th className="text-left px-3 py-2 font-semibold">{tr.rr.reportDate}</th>
+                  <th className="text-left px-3 py-2 font-semibold">{tr.rr.reportRoutine}</th>
+                  <th className="text-left px-3 py-2 font-semibold">{tr.rr.reportItem}</th>
+                  <th className="text-right px-3 py-2 font-semibold">{tr.rr.reportQty}</th>
+                  <th className="text-left px-3 py-2 font-semibold">{tr.rr.reportFrom}</th>
+                  <th className="text-left px-3 py-2 font-semibold">{tr.rr.reportTo}</th>
+                  <th className="text-left px-3 py-2 font-semibold">{tr.rr.reportStatus}</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {rows.map((o) => (
+                  <tr key={o.id}>
+                    <td className="px-3 py-2 whitespace-nowrap text-gray-600">{fmtDay(o.order_date)}</td>
+                    <td className="px-3 py-2 font-medium text-gray-900">{o.title}</td>
+                    <td className="px-3 py-2 text-gray-600">{o.item_label ?? '—'}</td>
+                    <td className="px-3 py-2 text-right text-gray-900 font-medium">{qtyOf(o)}</td>
+                    <td className="px-3 py-2 text-gray-600">{DEPARTMENT_LABELS[o.request_department] ?? o.request_department}</td>
+                    <td className="px-3 py-2 text-gray-600">{DEPARTMENT_LABELS[o.fulfill_department] ?? o.fulfill_department}</td>
+                    <td className="px-3 py-2">
+                      <span className={`inline-block px-2 py-0.5 rounded-full border text-[11px] font-medium ${STATUS_PILL[o.status]}`}>{statusLabel(o.status)}</span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Summary by item */}
+          <div className="bg-white rounded-xl border border-gray-200 p-4">
+            <h3 className="text-sm font-semibold text-gray-900 mb-2">{tr.rr.reportSummary}</h3>
+            <div className="divide-y divide-gray-100">
+              {Object.entries(summary).map(([k, v]) => (
+                <div key={k} className="flex items-center justify-between py-1.5 text-sm">
+                  <span className="text-gray-600">{k}</span>
+                  <span className="font-semibold text-gray-900">{v}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  )
 }
