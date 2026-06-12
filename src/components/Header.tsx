@@ -161,20 +161,6 @@ export function Header() {
       </div>
 
       <div className="flex items-center gap-1 md:gap-2 flex-shrink-0">
-        {/* Today's date — e.g. "June - 12 - 2026 Friday" */}
-        <span className="hidden md:block text-xs text-gray-500 font-medium whitespace-nowrap mr-1">
-          {(() => {
-            const now = new Date()
-            if (lang === 'th') {
-              const m = now.toLocaleDateString('th-TH', { month: 'long' })
-              const wd = now.toLocaleDateString('th-TH', { weekday: 'long' })
-              return `${m} - ${now.getDate()} - ${now.getFullYear()} ${wd}`
-            }
-            const m = now.toLocaleDateString('en-GB', { month: 'long' })
-            const wd = now.toLocaleDateString('en-GB', { weekday: 'long' })
-            return `${m} - ${now.getDate()} - ${now.getFullYear()} ${wd}`
-          })()}
-        </span>
         {/* Company Switcher — super admin with 2+ companies only */}
         {showSwitcher && (
           <div className="relative">

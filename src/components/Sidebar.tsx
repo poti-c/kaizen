@@ -15,8 +15,13 @@ import { cn } from '@/lib/utils'
 export function Sidebar() {
   const { profile, signOut } = useAuth()
   const { activeCompany } = useCompany()
-  const { t } = useLanguage()
+  const { t, lang } = useLanguage()
   const navigate = useNavigate()
+
+  // Today's date — e.g. "Sat. 13 - June 2026"
+  const now = new Date()
+  const loc = lang === 'th' ? 'th-TH' : 'en-GB'
+  const todayLabel = `${now.toLocaleDateString(loc, { weekday: 'short' })}. ${now.getDate()} - ${now.toLocaleDateString(loc, { month: 'long' })} ${now.getFullYear()}`
   const [collapsed, setCollapsed] = useState(false)
 
   const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; roles: string[]; feature?: FeatureKey; addon?: AddonKey }[] = [
@@ -59,6 +64,7 @@ export function Sidebar() {
           <div className="min-w-0">
             <p className="text-[#c8a882] font-bold text-base leading-snug truncate">{activeCompany?.org_title || activeCompany?.name || 'Kaizen System'}</p>
             <p className="text-white/90 font-semibold text-sm leading-snug tracking-wide truncate">Kaizen System</p>
+            <p className="text-white/50 text-[11px] leading-snug truncate mt-0.5">{todayLabel}</p>
           </div>
         )}
       </div>
