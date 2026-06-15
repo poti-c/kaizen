@@ -1188,12 +1188,15 @@ function TemplateEditor({ companyId, template, sortNext, onClose, onSaved }: {
       company_id: companyId, name: f.name.trim(), name_th: f.name_th.trim() || null,
       request_department: f.request_department, fulfill_department: f.fulfill_department,
       order_type: 'bulk' as RrOrderType, due_time: f.due_time || '12:00',
-      default_item: null,
+      // A bulk routine is one item ordered in a quantity; the picked catalog item drives the
+      // daily order's item label + unit (previously these were hardcoded null, so the picker
+      // did nothing and every order was item-less/unit-less).
+      default_item: catalogItems[0]?.label ?? null,
       catalog_items: catalogItems.length > 0 ? catalogItems : null,
       item_by_weekday: null,
       run_weekdays: f.run_weekdays.length === 7 ? null : f.run_weekdays,
       active: f.active, sort_order: template?.sort_order ?? sortNext,
-      unit_label: null,
+      unit_label: catalogItems[0]?.unit || null,
       lead_days: f.lead_days,
       order_open: f.lead_days > 0 ? (f.order_open || null) : null,
       order_close: f.lead_days > 0 ? (f.order_close || null) : null,

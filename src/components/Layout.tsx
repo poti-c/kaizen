@@ -1,4 +1,5 @@
-import { Outlet, Navigate, useLocation } from 'react-router-dom'
+import { useEffect } from 'react'
+import { Outlet, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { Sidebar } from './Sidebar'
 import { Header } from './Header'
 import { BottomNav } from './BottomNav'
@@ -13,6 +14,24 @@ export function Layout() {
   const { showSidebar, showBottomNav } = useViewMode()
   const { lang } = useLanguage()
   const location = useLocation()
+  const navigate = useNavigate()
+
+  // Handle messages the service worker posts on notification click: deep-link via the
+  // router (no full reload) and apply the app-icon badge fallback.
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return
+    const onMsg = (e: MessageEvent) => {
+      const d = e.data as { type?: string; url?: string; count?: number } | null
+      if (d?.type === 'NAVIGATE' && typeof d.url === 'string') navigate(d.url)
+      else if (d?.type === 'SET_BADGE' && 'setAppBadge' in navigator) {
+        const n = Number(d.count) || 0
+        if (n > 0) (navigator as unknown as { setAppBadge: (n: number) => Promise<void> }).setAppBadge(n).catch(() => {})
+        else (navigator as unknown as { clearAppBadge?: () => Promise<void> }).clearAppBadge?.().catch(() => {})
+      }
+    }
+    navigator.serviceWorker.addEventListener('message', onMsg)
+    return () => navigator.serviceWorker.removeEventListener('message', onMsg)
+  }, [navigate])
 
   if (loading) {
     return (

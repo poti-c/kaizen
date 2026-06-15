@@ -98,7 +98,7 @@ function below1000(n: number): string {
 }
 function intToWords(n: number): string {
   if (n === 0) return 'zero'
-  const units = [['billion', 1e9], ['million', 1e6], ['thousand', 1e3]] as const
+  const units = [['trillion', 1e12], ['billion', 1e9], ['million', 1e6], ['thousand', 1e3]] as const
   let s = ''
   for (const [name, val] of units) {
     if (n >= val) { s += below1000(Math.floor(n / val)) + ' ' + name + ' '; n %= val }

@@ -738,7 +738,28 @@ Deno.serve(async (req) => {
     if (paths.length) { try { await admin.storage.from(INVOICE_BUCKET).remove(paths); } catch { /* ignore */ } }
     await admin.from("kaizen_cases").delete().eq("company_id", company_id);
     await admin.from("kaizen_settings").delete().eq("company_id", company_id);
-    for (const p of profs ?? []) { try { await admin.auth.admin.deleteUser(p.id); } catch { /* ignore */ } }
+    // Owners whose HOME company is this one but who also manage OTHER companies must NOT be
+    // deleted — move their home company to another they manage and just drop the link here.
+    const profIds = (profs ?? []).map((p) => p.id);
+    const { data: links } = profIds.length
+      ? await admin.from("kaizen_super_admin_companies").select("super_admin_id, company_id").in("super_admin_id", profIds)
+      : { data: [] as { super_admin_id: string; company_id: string }[] };
+    const otherCompanies = new Map<string, string[]>();
+    for (const l of links ?? []) {
+      if (l.company_id !== company_id) {
+        const arr = otherCompanies.get(l.super_admin_id) ?? [];
+        arr.push(l.company_id); otherCompanies.set(l.super_admin_id, arr);
+      }
+    }
+    for (const p of profs ?? []) {
+      const others = otherCompanies.get(p.id);
+      if (others && others.length) {
+        await admin.from("kaizen_profiles").update({ company_id: others[0] }).eq("id", p.id);
+        await admin.from("kaizen_super_admin_companies").delete().eq("super_admin_id", p.id).eq("company_id", company_id);
+      } else {
+        try { await admin.auth.admin.deleteUser(p.id); } catch { /* ignore */ }
+      }
+    }
     const { error } = await admin.from("kaizen_companies").delete().eq("id", company_id);
     if (error) return json({ error: error.message }, 400);
     await audit("delete_company", { company_id, name: co.name, removed_accounts: (profs ?? []).length }, ip, true);
@@ -1061,9 +1082,12 @@ Deno.serve(async (req) => {
     if (removedSubmission) {
       await admin.from("kaizen_payment_submissions").delete().eq("id", removedSubmission);
     } else if (inv) {
+      // Legacy invoices predate the submission_id link. Only remove the paired submission when
+      // the company+amount match is UNAMBIGUOUS (exactly one approved submission) — otherwise we
+      // could delete the wrong client payment, so leave it for manual handling.
       const { data: legacy } = await admin.from("kaizen_payment_submissions").select("id")
-        .eq("company_id", inv.company_id).eq("status", "approved").eq("amount", inv.amount).limit(1);
-      if (legacy?.[0]) {
+        .eq("company_id", inv.company_id).eq("status", "approved").eq("amount", inv.amount);
+      if (legacy && legacy.length === 1) {
         removedSubmission = legacy[0].id;
         await admin.from("kaizen_payment_submissions").delete().eq("id", removedSubmission);
       }
