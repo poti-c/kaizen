@@ -23,20 +23,20 @@ function applyTheme(settings: KaizenSettings) {
 
   // Convert hex to RGB for Tailwind custom colors
   function hexToRgb(hex: string) {
-    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex)
-    return result
-      ? {
-          r: parseInt(result[1], 16),
-          g: parseInt(result[2], 16),
-          b: parseInt(result[3], 16),
-        }
-      : { r: 30, g: 58, b: 95 }
+    // Accept #abc shorthand as well as #aabbcc.
+    const short = /^#?([a-f\d])([a-f\d])([a-f\d])$/i.exec(hex)
+    const full = short
+      ? `${short[1]}${short[1]}${short[2]}${short[2]}${short[3]}${short[3]}`
+      : (/^#?([a-f\d]{6})$/i.exec(hex)?.[1] ?? null)
+    if (!full) return { r: 30, g: 58, b: 95 }
+    return { r: parseInt(full.slice(0, 2), 16), g: parseInt(full.slice(2, 4), 16), b: parseInt(full.slice(4, 6), 16) }
   }
 
   function lighten(hex: string, amount: number) {
     const { r, g, b } = hexToRgb(hex)
-    const lighten = (c: number) => Math.min(255, Math.floor(c + (255 - c) * amount))
-    return `#${lighten(r).toString(16).padStart(2, '0')}${lighten(g).toString(16).padStart(2, '0')}${lighten(b).toString(16).padStart(2, '0')}`
+    // Clamp to [0,255]: a negative amount (darken) must not produce a negative channel → "#-..".
+    const ch = (c: number) => Math.max(0, Math.min(255, Math.round(c + (255 - c) * amount)))
+    return `#${ch(r).toString(16).padStart(2, '0')}${ch(g).toString(16).padStart(2, '0')}${ch(b).toString(16).padStart(2, '0')}`
   }
 
   root.style.setProperty('--brand-primary', settings.primary_color)

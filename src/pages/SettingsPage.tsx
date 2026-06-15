@@ -315,7 +315,7 @@ export function SettingsPage() {
     // Create a notification for super admin if cases are affected
     if (affectedCases > 0 && profile) {
       const listLabel = dbKey === 'custom_locations' ? 'location' : dbKey === 'custom_categories' ? 'category' : 'department'
-      const admins = await supabase.from('kaizen_profiles').select('id').eq('role', 'super_admin')
+      const admins = await supabase.from('kaizen_profiles').select('id').eq('role', 'super_admin').eq('company_id', companyId ?? '')
       const notifications = (admins.data || []).map((a: { id: string }) => ({
         user_id: a.id,
         case_id: null,
@@ -323,6 +323,8 @@ export function SettingsPage() {
         message: `${affectedCases} open case${affectedCases > 1 ? 's' : ''} ${affectedCases > 1 ? 'have' : 'has'} a ${listLabel} that was removed: ${items.join(', ')}. Please update the affected cases.`,
         is_read: false,
         notification_type: 'incomplete_case',
+        title_key: 'settings_items_removed',
+        body_params: { count: affectedCases, kind: listLabel, items: items.join(', ') },
       }))
       if (notifications.length > 0) {
         await supabase.from('kaizen_notifications').insert(notifications)
@@ -1077,25 +1079,25 @@ export function SettingsPage() {
               <DialogHeader>
                 <DialogTitle className="flex items-center gap-2">
                   <Scale className="h-5 w-5 text-[var(--brand-primary)]" />
-                  Intellectual Property &amp; Right of Use
+                  {lang === 'th' ? 'ทรัพย์สินทางปัญญาและสิทธิการใช้งาน' : 'Intellectual Property & Right of Use'}
                 </DialogTitle>
               </DialogHeader>
               <div className="text-xs text-gray-500 space-y-3 leading-relaxed text-left max-h-[55vh] overflow-y-auto">
                 <p>
-                  All intellectual property rights relating to this application, including but not limited to its software,
-                  source code, system design, user interface, workflow logic, database structure, documentation, name, logo,
-                  and related materials, shall remain the exclusive property of{' '}
+                  {lang === 'th'
+                    ? 'สิทธิในทรัพย์สินทางปัญญาทั้งหมดที่เกี่ยวข้องกับแอปพลิเคชันนี้ รวมถึงแต่ไม่จำกัดเพียงซอฟต์แวร์ ซอร์สโค้ด การออกแบบระบบ ส่วนติดต่อผู้ใช้ ตรรกะการทำงาน โครงสร้างฐานข้อมูล เอกสาร ชื่อ โลโก้ และวัสดุที่เกี่ยวข้อง ยังคงเป็นกรรมสิทธิ์โดยเฉพาะของ '
+                    : 'All intellectual property rights relating to this application, including but not limited to its software, source code, system design, user interface, workflow logic, database structure, documentation, name, logo, and related materials, shall remain the exclusive property of '}
                   <span className="font-semibold text-gray-700">NNR-Solutions Co., Ltd.</span>
                 </p>
                 <p>
-                  Authorised users are granted a limited, non-exclusive, non-transferable, and revocable right to access
-                  and use the application solely for maintenance job assignment, monitoring, reporting, and related
-                  operational purposes. This right of use does not transfer any ownership rights in the application to any
-                  user, organisation, contractor, technician, or third party.
+                  {lang === 'th'
+                    ? 'ผู้ใช้ที่ได้รับอนุญาตได้รับสิทธิในการเข้าถึงและใช้งานแอปพลิเคชันอย่างจำกัด ไม่ผูกขาด ไม่สามารถโอนสิทธิ์ และเพิกถอนได้ เพื่อการมอบหมายงานซ่อมบำรุง การติดตาม การรายงาน และวัตถุประสงค์ในการดำเนินงานที่เกี่ยวข้องเท่านั้น สิทธิการใช้งานนี้ไม่ได้โอนกรรมสิทธิ์ใด ๆ ในแอปพลิเคชันให้แก่ผู้ใช้ องค์กร ผู้รับเหมา ช่างเทคนิค หรือบุคคลภายนอก'
+                    : 'Authorised users are granted a limited, non-exclusive, non-transferable, and revocable right to access and use the application solely for maintenance job assignment, monitoring, reporting, and related operational purposes. This right of use does not transfer any ownership rights in the application to any user, organisation, contractor, technician, or third party.'}
                 </p>
                 <p>
-                  Users shall not copy, modify, reproduce, distribute, sell, sublicense, reverse-engineer, decompile, or
-                  create derivative works from the application, in whole or in part, without prior written permission from{' '}
+                  {lang === 'th'
+                    ? 'ผู้ใช้ต้องไม่คัดลอก แก้ไข ทำซ้ำ เผยแพร่ จำหน่าย ให้สิทธิช่วง ทำวิศวกรรมย้อนกลับ ถอดรหัส หรือสร้างงานดัดแปลงจากแอปพลิเคชัน ไม่ว่าทั้งหมดหรือบางส่วน โดยไม่ได้รับอนุญาตเป็นลายลักษณ์อักษรล่วงหน้าจาก '
+                    : 'Users shall not copy, modify, reproduce, distribute, sell, sublicense, reverse-engineer, decompile, or create derivative works from the application, in whole or in part, without prior written permission from '}
                   <span className="font-semibold text-gray-700">NNR-Solutions Co., Ltd.</span>
                 </p>
                 <div className="flex justify-center pt-3 pb-1">

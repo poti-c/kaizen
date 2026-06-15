@@ -1265,11 +1265,15 @@ Deno.serve(async (req) => {
     const year = issue_date.slice(0, 4);
     const month = issue_date.slice(5, 7);
     const prefix = FORM_PREFIX[form_type];
-    const { count } = await admin.from("kaizen_generated_forms")
-      .select("id", { count: "exact", head: true })
+    // Use the highest existing suffix (not a row count) so deleting a form never causes a
+    // later form to reuse its number. Suffix is zero-padded 3-digit, so lexical desc == numeric desc.
+    const { data: last } = await admin.from("kaizen_generated_forms")
+      .select("doc_number")
       .eq("form_type", form_type)
-      .like("doc_number", `${prefix}${year}-${month}%`);
-    const doc_number = `${prefix}${year}-${month}${String((count ?? 0) + 1).padStart(3, "0")}`;
+      .like("doc_number", `${prefix}${year}-${month}%`)
+      .order("doc_number", { ascending: false }).limit(1).maybeSingle();
+    const lastSeq = last?.doc_number ? (parseInt(String(last.doc_number).slice(-3), 10) || 0) : 0;
+    const doc_number = `${prefix}${year}-${month}${String(lastSeq + 1).padStart(3, "0")}`;
 
     const row = {
       form_type, doc_number,

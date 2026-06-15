@@ -93,6 +93,17 @@ export const NOTIF_TEMPLATES: Record<string, NotifTemplate> = {
       return th(l) ? `ระดับความสำคัญของเคส ${p.caseNo} เปลี่ยนเป็น ${w}` : `Case ${p.caseNo} priority changed to ${w}.`
     },
   },
+  settings_items_removed: {
+    title: (_p, l) => th(l) ? 'พบเคสที่ข้อมูลไม่สมบูรณ์' : 'Incomplete cases detected',
+    body: (p, l) => {
+      const kind = th(l)
+        ? ({ location: 'สถานที่', category: 'หมวดหมู่', department: 'แผนก' }[String(p.kind)] ?? String(p.kind))
+        : String(p.kind)
+      return th(l)
+        ? `มี ${p.count} เคสที่เปิดอยู่ซึ่งมี${kind}ที่ถูกลบ: ${p.items} กรุณาอัปเดตเคสที่เกี่ยวข้อง`
+        : `${p.count} open case${Number(p.count) > 1 ? 's' : ''} have a ${kind} that was removed: ${p.items}. Please update the affected cases.`
+    },
+  },
   case_auto_pic: {
     title: (_p, l) => th(l) ? 'ได้รับมอบหมายผู้รับผิดชอบโดยอัตโนมัติ' : 'Auto-assigned as In Charge',
     body: (p, l) => th(l) ? `สมาชิกที่ถูกลบทำให้เคส ${p.caseNo} ไม่มีผู้รับผิดชอบ คุณจึงได้รับมอบหมาย สามารถมอบหมายใหม่ได้ทุกเมื่อ` : `A removed team member left case ${p.caseNo} without an owner — you have been assigned as In Charge. You can reassign it anytime.`,

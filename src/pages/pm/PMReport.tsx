@@ -22,6 +22,9 @@ interface RAsset {
 // ── Date helpers (local, YYYY-MM-DD) ─────────────────────────────────────────
 const pad = (n: number) => String(n).padStart(2, '0')
 const keyOf = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+// LOCAL calendar date of a timestamp — must match PMSummaryCard (a .slice(0,10) would use
+// UTC and understate on-time/compliance for evening completions in Thailand, UTC+7).
+const perfKey = (ts: string) => keyOf(new Date(ts))
 const todayKey = keyOf(new Date())
 function addMonths(base: Date, m: number) { const d = new Date(base); d.setMonth(d.getMonth() + m); return d }
 function diffDays(a: string, b: string) {
@@ -41,11 +44,11 @@ function computeMetric(tasks: RTask[], windowStartKey: string, anchorKey: string
     const dueInWindow = t.due_date >= windowStartKey && t.due_date <= anchorKey
     if (dueInWindow) {
       due++
-      if (FINISHED.has(t.status) && t.performed_at && t.performed_at.slice(0, 10) <= t.due_date) onTime++
+      if (FINISHED.has(t.status) && t.performed_at && perfKey(t.performed_at) <= t.due_date) onTime++
       if (!OPEN_OVERDUE_EXCLUDED.has(t.status) && t.due_date < anchorKey) overdue++
     }
     // checklist fails for tasks performed within the window
-    if (t.performed_at && t.performed_at.slice(0, 10) >= windowStartKey && t.performed_at.slice(0, 10) <= anchorKey) {
+    if (t.performed_at && perfKey(t.performed_at) >= windowStartKey && perfKey(t.performed_at) <= anchorKey) {
       if ((t.checklist_results ?? []).some(r => isFail(r.result))) fails++
     }
   }
@@ -117,7 +120,7 @@ export function PMReport({ companyName, onClose }: { companyName: string; onClos
     }).sort((a, b) => b.days - a.days)
 
     // Checklist fail tasks (within period, performed)
-    const periodPerformed = tasks.filter(t => t.performed_at && t.performed_at.slice(0, 10) >= periodStartKey)
+    const periodPerformed = tasks.filter(t => t.performed_at && perfKey(t.performed_at) >= periodStartKey)
     let passItems = 0, failItems = 0, naItems = 0, tasksWithFail = 0
     for (const t of periodPerformed) {
       let hasFail = false
@@ -140,7 +143,7 @@ export function PMReport({ companyName, onClose }: { companyName: string; onClos
       if (!t.asset_id) continue
       const a = ensure(t.asset_id, t)
       if ((t.checklist_results ?? []).some(c => isFail(c.result))) a.fails++
-      if (t.performed_at) { const d = diffDays(t.performed_at.slice(0, 10), t.due_date); if (d > 0) { a.delaySum += d; a.delayN++ } }
+      if (t.performed_at) { const d = diffDays(perfKey(t.performed_at), t.due_date); if (d > 0) { a.delaySum += d; a.delayN++ } }
     }
     const problemAssets = Object.values(perAsset)
       .map(a => ({ ...a, avgDelay: a.delayN ? a.delaySum / a.delayN : 0, score: a.overdue * 2 + a.fails * 1.5 + (a.delayN ? a.delaySum / a.delayN : 0) * 0.3 }))
@@ -155,7 +158,7 @@ export function PMReport({ companyName, onClose }: { companyName: string; onClos
         const k = keyFn(t) ?? '—'
         g[k] ??= { due: 0, onTime: 0 }
         g[k].due++
-        if (FINISHED.has(t.status) && t.performed_at && t.performed_at.slice(0, 10) <= t.due_date) g[k].onTime++
+        if (FINISHED.has(t.status) && t.performed_at && perfKey(t.performed_at) <= t.due_date) g[k].onTime++
       }
       return Object.entries(g).map(([k, v]) => ({ key: k, pct: v.due ? Math.round((v.onTime / v.due) * 100) : 0, due: v.due }))
         .sort((a, b) => a.pct - b.pct)
@@ -172,7 +175,7 @@ export function PMReport({ companyName, onClose }: { companyName: string; onClos
 
     const avgDaysLate = (() => {
       let sum = 0, n = 0
-      for (const t of periodPerformed) if (t.performed_at) { const d = diffDays(t.performed_at.slice(0, 10), t.due_date); if (d > 0) { sum += d; n++ } }
+      for (const t of periodPerformed) if (t.performed_at) { const d = diffDays(perfKey(t.performed_at), t.due_date); if (d > 0) { sum += d; n++ } }
       return n ? Math.round(sum / n) : 0
     })()
 

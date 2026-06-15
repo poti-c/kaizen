@@ -82,9 +82,13 @@ async function notifyManagers(companyId: string, actorId: string | undefined, ti
  * per-department recipient config (whole department, or specific staff — to cover
  * for a manager on holiday). Only counts active, board-visible lines.
  */
-async function notifyFulfillers(companyId: string, orderId: string, date: string, actorId: string | undefined, lang: string) {
-  const { data: lineRows } = await supabase.from('kaizen_rr_room_lines')
+async function notifyFulfillers(companyId: string, orderId: string, date: string, actorId: string | undefined, lang: string, sinceTs?: string | null) {
+  let q = supabase.from('kaizen_rr_room_lines')
     .select('fulfill_department').eq('room_order_id', orderId).eq('active', true).in('approval_status', ['approved', 'auto'])
+  // On a re-submit (edit), only notify departments that gained NEW lines since the last
+  // submit — so an edit doesn't re-blast every department with the full order count.
+  if (sinceTs) q = q.gt('created_at', sinceTs)
+  const { data: lineRows } = await q
   const counts = new Map<string, number>()
   for (const l of (lineRows as { fulfill_department: string }[]) ?? []) {
     counts.set(l.fulfill_department, (counts.get(l.fulfill_department) ?? 0) + 1)
@@ -584,6 +588,7 @@ function RoomOrderBuild({ companyId, unit, requireApproval, initialDate }: { com
       if (error) { setBusy(false); toast.error(error.message); return }
     }
     const wasSubmitted = orderStatus === 'submitted'
+    const prevSubmittedAt = submittedAt // the previous submit time (for "what's new" on re-submit)
     const { error: e2 } = await supabase.from('kaizen_rr_room_orders')
       .update({ status: 'submitted', submitted_by: profile!.id, submitted_at: new Date().toISOString() }).eq('id', oid)
     setBusy(false)
@@ -600,9 +605,10 @@ function RoomOrderBuild({ companyId, unit, requireApproval, initialDate }: { com
           ? `มีคำขอพิเศษ ${count} รายการสำหรับวันที่ ${date} รอการอนุมัติจากคุณ`
           : `${count} special request${count === 1 ? '' : 's'} for ${date} need your approval.`)
     }
-    // Notify the fulfilling departments only on the FIRST submit — a re-submit (edit) would
-    // otherwise re-blast every department with the full order count.
-    if (!wasSubmitted) await notifyFulfillers(companyId, oid, date, profile?.id, lang)
+    // Notify the fulfilling departments: on first submit, all of them; on a re-submit, only
+    // departments that gained new lines since the previous submit (so edits still reach a
+    // newly-involved department without re-blasting everyone).
+    await notifyFulfillers(companyId, oid, date, profile?.id, lang, wasSubmitted ? prevSubmittedAt : null)
     toast.success(lang === 'th' ? 'ส่งใบสั่งห้องแล้ว' : 'Room order submitted')
     load()
   }

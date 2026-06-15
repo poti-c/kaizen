@@ -9,7 +9,7 @@ import { useLanguage } from '@/contexts/LanguageContext'
 import { cn, companyHasAddon } from '@/lib/utils'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import type { KaizenCase, Department, RrOrder } from '@/types'
-import { DEPARTMENTS } from '@/types'
+import { DEPARTMENTS, deptLabel } from '@/types'
 import { PMTaskModal, taskTone, taskStatusKey, type PMTask } from '@/components/pm/PMSchedule'
 
 const PRIORITY_COLORS: Record<string, string> = {
@@ -228,7 +228,7 @@ export function CasesCalendarPage() {
               <SelectContent>
                 <SelectItem value="all">{t.calendar.allDepts}</SelectItem>
                 {DEPARTMENTS.filter(d => d.value !== 'top_management').map((d) => (
-                  <SelectItem key={d.value} value={d.value} className="text-xs">{d.label}</SelectItem>
+                  <SelectItem key={d.value} value={d.value} className="text-xs">{deptLabel(d.value, lang)}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -302,7 +302,7 @@ export function CasesCalendarPage() {
       {selectedDate && (
         <div className="mt-4 bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
           <div className="px-4 py-3 border-b border-gray-100">
-            <h3 className="text-sm font-semibold text-gray-900">{selectedDate.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</h3>
+            <h3 className="text-sm font-semibold text-gray-900">{selectedDate.toLocaleDateString(lang === 'th' ? 'th-TH' : 'en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</h3>
           </div>
           {selectedEntries.length === 0 ? (
             <p className="px-4 py-8 text-center text-sm text-gray-400">{mode === 'pm' ? t.calendar.noMaintenance : t.calendar.nothingDay}</p>
@@ -313,7 +313,7 @@ export function CasesCalendarPage() {
                   <span className={cn('w-2.5 h-2.5 rounded-full flex-shrink-0', caseColor(e.case).split(' ')[0])} />
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-gray-900 truncate">{e.case.title}</p>
-                    <p className="text-xs text-gray-400">{e.case.case_number} · {e.case.department}</p>
+                    <p className="text-xs text-gray-400">{e.case.case_number} · {deptLabel(e.case.department, lang)}</p>
                   </div>
                 </div>
               ) : e.kind === 'pm' ? (

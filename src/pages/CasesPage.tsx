@@ -261,7 +261,9 @@ export function CasesPage() {
 
     if (activeCompany) query = query.eq('company_id', activeCompany.id)
     if (profile.role === 'staff') {
-      query = query.eq('department', profile.department)
+      // Staff see their own department's cases AND any case where they are Person in Charge
+      // (a manager can assign a case across departments).
+      query = query.or(`department.eq.${profile.department},pic_ids.cs.{${profile.id}}`)
     }
     // Managers see all cases (cross-dept view) — edit restrictions enforced in CaseDetailPage
     // HR Manager: no filter — sees all cases (read-only enforced in detail page)
@@ -333,7 +335,9 @@ export function CasesPage() {
       const safe = /^[=+\-@\t\r]/.test(s) ? `'${s}` : s
       return `"${safe.replace(/"/g, '""')}"`
     }
-    const headers = ['Case #', 'Date', 'Title', 'Description', 'Department', 'Category', 'Priority', 'Status', 'Due Date', 'Duration']
+    const headers = lang === 'th'
+      ? ['เลขที่เคส', 'วันที่', 'หัวข้อ', 'รายละเอียด', 'แผนก', 'หมวดหมู่', 'ความสำคัญ', 'สถานะ', 'กำหนดเสร็จ', 'ระยะเวลา']
+      : ['Case #', 'Date', 'Title', 'Description', 'Department', 'Category', 'Priority', 'Status', 'Due Date', 'Duration']
     const rows = filtered.map((c) => [
       c.case_number,
       new Date(c.created_at).toLocaleDateString('en-GB'),
