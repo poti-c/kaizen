@@ -1,5 +1,5 @@
 import { cn, getStatusColor, getPriorityColor, getDepartmentColor } from '@/lib/utils'
-import { DEPARTMENT_LABELS } from '@/types'
+import { deptLabel } from '@/types'
 import { useLanguage } from '@/contexts/LanguageContext'
 import type { CaseStatus, CasePriority, Department } from '@/types'
 
@@ -22,9 +22,10 @@ export function PriorityBadge({ priority }: { priority: CasePriority }) {
 }
 
 export function DepartmentBadge({ department }: { department: Department }) {
+  const { lang } = useLanguage()
   return (
     <span className={cn('inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium', getDepartmentColor(department))}>
-      {DEPARTMENT_LABELS[department]}
+      {deptLabel(department, lang)}
     </span>
   )
 }

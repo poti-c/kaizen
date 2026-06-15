@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState } from 'react'
+import React, { createContext, useContext, useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 
 export type Lang = 'en' | 'th'
@@ -880,6 +880,28 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
       if (uid) supabase.from('kaizen_profiles').update({ preferred_lang: l }).eq('id', uid)
     }).catch(() => {})
   }
+  // On sign-in, reconcile language with the profile: adopt the user's saved preference
+  // (so it follows them across devices), or seed it from the current device when unset
+  // (so server-side push notifications have a language to localize to).
+  useEffect(() => {
+    let active = true
+    async function sync() {
+      const { data } = await supabase.auth.getUser()
+      const uid = data.user?.id
+      if (!uid || !active) return
+      const { data: prof } = await supabase.from('kaizen_profiles').select('preferred_lang').eq('id', uid).maybeSingle()
+      const saved = (prof as { preferred_lang?: string } | null)?.preferred_lang
+      if (saved === 'th' || saved === 'en') {
+        if (active) { setLangState(saved); localStorage.setItem('kaizen-lang', saved) }
+      } else {
+        supabase.from('kaizen_profiles').update({ preferred_lang: localStorage.getItem('kaizen-lang') || 'en' }).eq('id', uid)
+      }
+    }
+    sync()
+    const { data: sub } = supabase.auth.onAuthStateChange((evt) => { if (evt === 'SIGNED_IN') sync() })
+    return () => { active = false; sub.subscription.unsubscribe() }
+  }, [])
+
   const t = lang === 'th' ? th : en
   return <LangContext.Provider value={{ lang, setLang, t }}>{children}</LangContext.Provider>
 }

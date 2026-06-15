@@ -2,30 +2,43 @@
 
 export type FreqUnit = 'day' | 'week' | 'month' | 'year'
 
-export const FREQUENCIES: { label: string; unit: FreqUnit; interval: number }[] = [
-  { label: 'Daily', unit: 'day', interval: 1 },
-  { label: 'Weekly', unit: 'week', interval: 1 },
-  { label: 'Every 2 weeks', unit: 'week', interval: 2 },
-  { label: 'Monthly', unit: 'month', interval: 1 },
-  { label: 'Every 2 months', unit: 'month', interval: 2 },
-  { label: 'Quarterly', unit: 'month', interval: 3 },
-  { label: 'Every 6 months', unit: 'month', interval: 6 },
-  { label: 'Annual', unit: 'year', interval: 1 },
+export const FREQUENCIES: { label: string; label_th: string; unit: FreqUnit; interval: number }[] = [
+  { label: 'Daily', label_th: 'รายวัน', unit: 'day', interval: 1 },
+  { label: 'Weekly', label_th: 'รายสัปดาห์', unit: 'week', interval: 1 },
+  { label: 'Every 2 weeks', label_th: 'ทุก 2 สัปดาห์', unit: 'week', interval: 2 },
+  { label: 'Monthly', label_th: 'รายเดือน', unit: 'month', interval: 1 },
+  { label: 'Every 2 months', label_th: 'ทุก 2 เดือน', unit: 'month', interval: 2 },
+  { label: 'Quarterly', label_th: 'ทุก 3 เดือน', unit: 'month', interval: 3 },
+  { label: 'Every 6 months', label_th: 'ทุก 6 เดือน', unit: 'month', interval: 6 },
+  { label: 'Annual', label_th: 'รายปี', unit: 'year', interval: 1 },
 ]
 
-export function freqLabel(unit: FreqUnit, interval: number): string {
+const UNIT_TH: Record<FreqUnit, string> = { day: 'วัน', week: 'สัปดาห์', month: 'เดือน', year: 'ปี' }
+
+/** Frequency label in the given UI language (handles custom intervals too). */
+export function freqLabel(unit: FreqUnit, interval: number, lang?: string): string {
   const match = FREQUENCIES.find((f) => f.unit === unit && f.interval === interval)
-  if (match) return match.label
-  return `Every ${interval} ${unit}${interval === 1 ? '' : 's'}`
+  if (match) return lang === 'th' ? match.label_th : match.label
+  return lang === 'th'
+    ? `ทุก ${interval} ${UNIT_TH[unit]}`
+    : `Every ${interval} ${unit}${interval === 1 ? '' : 's'}`
 }
 
 // Add a frequency interval to a YYYY-MM-DD date, returning YYYY-MM-DD.
+// Month/year steps clamp to the end of the target month so e.g. Jan 31 + 1 month = Feb 28/29
+// (instead of JS's overflow to Mar 2/3) and Feb 29 + 1 year = Feb 28.
 export function addInterval(dateStr: string, unit: FreqUnit, interval: number): string {
   const d = new Date(dateStr + 'T00:00:00')
   if (unit === 'day') d.setDate(d.getDate() + interval)
   else if (unit === 'week') d.setDate(d.getDate() + interval * 7)
-  else if (unit === 'month') d.setMonth(d.getMonth() + interval)
-  else if (unit === 'year') d.setFullYear(d.getFullYear() + interval)
+  else if (unit === 'month' || unit === 'year') {
+    const months = unit === 'year' ? interval * 12 : interval
+    const day = d.getDate()
+    d.setDate(1)
+    d.setMonth(d.getMonth() + months)
+    const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()
+    d.setDate(Math.min(day, lastDay))
+  }
   const pad = (n: number) => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 }

@@ -313,6 +313,24 @@ export function deptLabel(dept: Department, lang?: string): string {
   return lang === 'th' ? (DEPARTMENT_LABELS_TH[dept] ?? DEPARTMENT_LABELS[dept]) : DEPARTMENT_LABELS[dept]
 }
 
+// Built-in case-category labels (custom company categories carry their own label).
+export const CATEGORY_LABELS_EN: Record<string, string> = {
+  maintenance: 'Maintenance', cleanliness: 'Cleanliness', safety: 'Safety',
+  guest_complaint: 'Guest Complaint', equipment: 'Equipment', other: 'Other',
+  preventive_maintenance: 'Preventive Maintenance',
+}
+export const CATEGORY_LABELS_TH: Record<string, string> = {
+  maintenance: 'งานซ่อมบำรุง', cleanliness: 'ความสะอาด', safety: 'ความปลอดภัย',
+  guest_complaint: 'ข้อร้องเรียนจากแขก', equipment: 'อุปกรณ์', other: 'อื่นๆ',
+  preventive_maintenance: 'บำรุงรักษาเชิงป้องกัน',
+}
+/** Built-in category label in the given language; falls back to the raw/prettified slug
+ *  (e.g. for company-defined custom categories that aren't in the maps). */
+export function categoryLabel(slug: string, lang?: string): string {
+  const map = lang === 'th' ? CATEGORY_LABELS_TH : CATEGORY_LABELS_EN
+  return map[slug] ?? CATEGORY_LABELS_EN[slug] ?? slug.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
 export const STATUS_LABELS: Record<CaseStatus, string> = {
   open: 'Open',
   assigned: 'Assigned',

@@ -92,9 +92,10 @@ export function Header() {
   }
 
   async function markRead(id: string) {
+    const wasUnread = notifications.some((n) => n.id === id && !n.is_read)
     await supabase.from('kaizen_notifications').update({ is_read: true }).eq('id', id)
     setNotifications((prev) => prev.map((n) => n.id === id ? { ...n, is_read: true } : n))
-    setUnreadCount((c) => { const next = Math.max(0, c - 1); syncBadge(next); return next })
+    if (wasUnread) setUnreadCount((c) => { const next = Math.max(0, c - 1); syncBadge(next); return next })
   }
 
   async function markAllRead() {

@@ -12,7 +12,7 @@ import { getInitials, formatDateTime, isSLABreached, activityLabel, companyHasFe
 import { loadPerfConfig, DEFAULT_PERF_CONFIG, type PerfConfig } from '@/lib/perfConfig'
 import { cn } from '@/lib/utils'
 import { usePresence } from '@/contexts/PresenceContext'
-import { DEPARTMENT_LABELS } from '@/types'
+import { deptLabel } from '@/types'
 import type { KaizenProfile, KaizenCase, KaizenCaseTimeline } from '@/types'
 import { differenceInHours, format } from 'date-fns'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
@@ -233,7 +233,7 @@ export function PerformanceDetailPage() {
           <div className="flex-1 min-w-0">
             <h1 className="text-lg font-bold text-gray-900">{user.full_name}</h1>
             {user.position && <p className="text-sm font-medium text-gray-700">{user.position}</p>}
-            <p className="text-sm text-gray-500">{t.roles[user.role]} · {DEPARTMENT_LABELS[user.department]}</p>
+            <p className="text-sm text-gray-500">{t.roles[user.role]} · {deptLabel(user.department, lang)}</p>
             {!user.is_active && <span className="text-xs text-red-500 font-medium">{t.users.inactive}</span>}
           </div>
         </div>

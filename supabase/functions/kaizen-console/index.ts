@@ -370,7 +370,7 @@ Deno.serve(async (req) => {
       admin.from("kaizen_profiles").select("id, full_name, email, job_title, is_active, created_at, company_id").eq("role", "super_admin").order("created_at", { ascending: true }),
       admin.from("kaizen_companies").select("*").order("name"),
       admin.from("kaizen_super_admin_companies").select("super_admin_id, company_id"),
-      admin.from("kaizen_profiles").select("company_id, role"),
+      admin.from("kaizen_profiles").select("company_id, role").eq("is_active", true).is("deleted_at", null),
       admin.from("kaizen_invoices").select("company_id, period_end, amount"),
       admin.from("kaizen_generated_forms").select("company_id, form_type, status, total"),
     ]);

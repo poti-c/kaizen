@@ -12,15 +12,10 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { PhotoUpload } from '@/components/PhotoUpload'
 import { generateCaseNumber, CATEGORIES, LOCATIONS, companyHasAddon } from '@/lib/utils'
-import { DEPARTMENTS } from '@/types'
+import { DEPARTMENTS, CATEGORY_LABELS_EN, categoryLabel } from '@/types'
 import type { CasePriority, Department } from '@/types'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
-
-const CATEGORY_LABELS_EN: Record<string, string> = {
-  maintenance: 'Maintenance', cleanliness: 'Cleanliness', safety: 'Safety',
-  guest_complaint: 'Guest Complaint', equipment: 'Equipment', other: 'Other',
-}
 
 export function CreateCasePage() {
   const navigate = useNavigate()
@@ -49,7 +44,9 @@ export function CreateCasePage() {
   const [customLocations, setCustomLocations] = useState<string[]>([...LOCATIONS] as string[])
 
   useEffect(() => {
+    if (!activeCompany?.id) return
     supabase.from('kaizen_settings').select('key, value')
+      .eq('company_id', activeCompany.id) // this tenant's taxonomy only
       .in('key', ['custom_categories', 'custom_locations'])
       .then(({ data }) => {
         if (!data) return
@@ -125,6 +122,7 @@ export function CreateCasePage() {
       const { data: managers } = await supabase
         .from('kaizen_profiles')
         .select('id')
+        .eq('company_id', activeCompany?.id ?? '') // this tenant only — don't notify other companies
         .eq('department', department)
         .eq('role', 'manager')
         .eq('is_active', true)
@@ -146,6 +144,7 @@ export function CreateCasePage() {
       const { data: admins } = await supabase
         .from('kaizen_profiles')
         .select('id')
+        .eq('company_id', activeCompany?.id ?? '') // this tenant only
         .eq('role', 'super_admin')
         .eq('is_active', true)
 
@@ -247,7 +246,8 @@ export function CreateCasePage() {
                     ? [...customCategories, { slug: 'preventive_maintenance', label: 'Preventive Maintenance' }]
                     : customCategories
                   ).map(({ slug, label }) => (
-                    <SelectItem key={slug} value={slug}>{label}</SelectItem>
+                    // Built-in categories localize via the dict; company-custom ones keep their stored label.
+                    <SelectItem key={slug} value={slug}>{slug in CATEGORY_LABELS_EN ? categoryLabel(slug, lang) : label}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>

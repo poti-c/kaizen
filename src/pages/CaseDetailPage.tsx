@@ -23,11 +23,11 @@ import { ResolutionCard } from '@/components/case/ResolutionCard'
 import { TranslatableSection } from '@/components/TranslatableSection'
 import { CaseTimeline } from '@/components/case/CaseTimeline'
 import { formatDateTime, formatDuration, LOCATIONS, CATEGORIES } from '@/lib/utils'
-import { DEPARTMENTS, DEPARTMENT_LABELS, STATUS_LABELS } from '@/types'
+import { DEPARTMENTS, DEPARTMENT_LABELS, categoryLabel } from '@/types'
 import type { KaizenCase, KaizenProfile, KaizenCaseTimeline, KaizenCasePhoto, Department, CasePriority, CaseStatus } from '@/types'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
-import { buildCasePrintHtml, CATEGORY_LABELS_EN } from '@/lib/casePrint'
+import { buildCasePrintHtml } from '@/lib/casePrint'
 
 // Lightweight title matching so recurrence reflects the SAME item/problem, not
 // just the same category at a location. Tokens are lowercased words ≥3 chars,
@@ -406,6 +406,7 @@ export function CaseDetailPage() {
         .select('id')
         .in('role', opts.roles)
         .eq('is_active', true)
+        .eq('company_id', kcase?.company_id ?? '') // scope to THIS case's tenant — never notify other companies
       // Optional department scoping; omit to target a role across all departments.
       if (depts.length > 0) query = query.in('department', depts)
       const { data } = await query
@@ -530,6 +531,7 @@ export function CaseDetailPage() {
       if (!resolverManagerial) {
         const { data: mgrs } = await supabase.from('kaizen_profiles')
           .select('id').eq('role', 'manager').eq('is_active', true).in('department', approverDepts)
+          .eq('company_id', kcase?.company_id ?? '')
         hasDeptManager = !!mgrs && mgrs.length > 0
       }
       const goesToManager = !resolverManagerial && hasDeptManager
@@ -852,7 +854,7 @@ export function CaseDetailPage() {
     if (!selectedPriority || selectedPriority === kcase?.priority) return
     setSubmitting(true)
     try {
-      const priorityLabel = selectedPriority.charAt(0).toUpperCase() + selectedPriority.slice(1)
+      const priorityLabel = t.priority[selectedPriority as CasePriority]
 
       await supabase.from('kaizen_cases').update({
         priority: selectedPriority,
@@ -1027,7 +1029,7 @@ export function CaseDetailPage() {
           <DepartmentBadge department={kcase.department} />
           {kcase.category && (
             <span className="text-xs px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full border border-gray-200">
-              {kcase.category === 'other' && kcase.category_other ? kcase.category_other : CATEGORY_LABELS_EN[kcase.category] || kcase.category}
+              {kcase.category === 'other' && kcase.category_other ? kcase.category_other : categoryLabel(kcase.category, lang)}
             </span>
           )}
           {kcase.location && (
@@ -1614,7 +1616,7 @@ export function CaseDetailPage() {
                   </SelectTrigger>
                   <SelectContent>
                     {(['critical', 'high', 'medium', 'low'] as CasePriority[]).filter(p => p !== kcase.priority).map((p) => (
-                      <SelectItem key={p} value={p} className="capitalize">{p.charAt(0).toUpperCase() + p.slice(1)}</SelectItem>
+                      <SelectItem key={p} value={p}>{t.priority[p as CasePriority]}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -1753,7 +1755,7 @@ export function CaseDetailPage() {
                 </SelectTrigger>
                 <SelectContent>
                   {(['open', 'assigned', 'in_progress', 'pending_manager_approval', 'pending_admin_approval', 'closed', 'reopened'] as CaseStatus[]).map((s) => (
-                    <SelectItem key={s} value={s}>{STATUS_LABELS[s]}</SelectItem>
+                    <SelectItem key={s} value={s}>{t.status[s]}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>

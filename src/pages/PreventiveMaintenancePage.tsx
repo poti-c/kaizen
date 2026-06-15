@@ -263,7 +263,7 @@ export function PreventiveMaintenancePage() {
                   </div>
                   <p className="text-[11px] text-gray-500 truncate flex items-center gap-2 mt-0.5">
                     {a.location && <span className="flex items-center gap-0.5"><MapPin className="h-3 w-3" />{a.location}</span>}
-                    <span>{freqLabel(a.freq_unit, a.freq_interval)}</span>
+                    <span>{freqLabel(a.freq_unit, a.freq_interval, lang)}</span>
                     {a.next_maintenance_date && <span>· {tr.pm.next} {fmt(a.next_maintenance_date)}</span>}
                   </p>
                 </div>
@@ -412,7 +412,7 @@ function SummaryTile({ count, label, active, color, onClick }: {
 function AssetDetailModal({ asset, dueSoonDays, canManage, onClose, onEdit }: {
   asset: Asset; dueSoonDays: number; canManage: boolean; onClose: () => void; onEdit: () => void
 }) {
-  const { t: tr } = useLanguage()
+  const { t: tr, lang } = useLanguage()
   const s = assetStatus(asset.next_maintenance_date, asset.is_active, dueSoonDays)
   const m = STATUS_META[s]
   return (
@@ -427,7 +427,7 @@ function AssetDetailModal({ asset, dueSoonDays, canManage, onClose, onEdit }: {
           <div className="flex items-center gap-2 flex-wrap text-xs text-gray-500">
             <span className={`px-1.5 py-0.5 rounded-full border ${m.pill}`}>{tr.pm[STATUS_KEY[s]]}</span>
             {asset.type?.name && <span>{asset.type.name}</span>}
-            <span>· {freqLabel(asset.freq_unit, asset.freq_interval)}</span>
+            <span>· {freqLabel(asset.freq_unit, asset.freq_interval, lang)}</span>
           </div>
           {asset.location && <p className="text-xs text-gray-600 flex items-center gap-1"><MapPin className="h-3 w-3" />{asset.location}</p>}
           <div className="grid grid-cols-2 gap-2 text-xs text-gray-600">
@@ -469,7 +469,7 @@ const inputCls = 'w-full h-9 rounded-lg border border-gray-300 px-3 text-sm focu
 function AssetEditor({ companyId, types, locations, asset, onClose, onSaved }: {
   companyId: string; types: EqType[]; locations: string[]; asset: Asset | null; onClose: () => void; onSaved: () => void
 }) {
-  const { t: tr } = useLanguage()
+  const { t: tr, lang } = useLanguage()
   const freqIdx0 = asset ? FREQUENCIES.findIndex((f) => f.unit === asset.freq_unit && f.interval === asset.freq_interval) : 3
   const [f, setF] = useState({
     name: asset?.name ?? '', type_id: asset?.type_id ?? '', location: asset?.location ?? '',
@@ -576,7 +576,7 @@ function AssetEditor({ companyId, types, locations, asset, onClose, onSaved }: {
           <div className="grid grid-cols-2 gap-2.5">
             <Field label={tr.pm.frequency}>
               <select value={f.freqMode} onChange={(e) => { set({ freqMode: e.target.value }); recalcNext(f.last_maintenance_date || f.purchase_date, e.target.value, f.customDays) }} className={inputCls}>
-                {FREQUENCIES.map((fr, i) => <option key={fr.label} value={String(i)}>{fr.label}</option>)}
+                {FREQUENCIES.map((fr, i) => <option key={fr.label} value={String(i)}>{lang === "th" ? fr.label_th : fr.label}</option>)}
                 <option value="custom">{tr.pm.customEvery}</option>
               </select>
             </Field>

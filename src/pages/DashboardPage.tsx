@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { formatRelativeTime, formatDuration, isSLABreached, CATEGORIES, companyHasAddon } from '@/lib/utils'
 import { PMSummaryCard } from '@/components/PMSummaryCard'
-import { DEPARTMENT_LABELS } from '@/types'
+import { deptLabel } from '@/types'
 import type { KaizenCase, Department } from '@/types'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, PieChart, Pie } from 'recharts'
 import { differenceInHours } from 'date-fns'
@@ -246,7 +246,7 @@ export function DashboardPage() {
         <div>
           <h1 className="text-xl md:text-2xl font-bold text-gray-900">{t.dashboard.title}</h1>
           <p className="text-sm text-gray-500 mt-0.5">
-            {t.dashboard.welcome}, {profile?.full_name} · {profile ? DEPARTMENT_LABELS[profile.department] : ''}
+            {t.dashboard.welcome}, {profile?.full_name} · {profile ? deptLabel(profile.department, lang) : ''}
           </p>
         </div>
         {(profile?.role === 'staff' || profile?.role === 'manager' || profile?.role === 'super_admin') && (

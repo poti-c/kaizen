@@ -125,7 +125,13 @@ function eventLabel(e: RoomEvent, lang: string): string {
   switch (e.action) {
     case 'submitted': return lang === 'th' ? 'ส่งใบสั่ง' : 'placed the order'
     case 'resubmitted': return lang === 'th' ? 'ส่งใบสั่งอีกครั้ง' : 're-submitted the order'
-    case 'room_saved': return lang === 'th' ? `แก้ไข ${d}` : `edited ${d}`
+    case 'room_saved': {
+      // detail is "<roomNo> · <statusKey>" (older rows may carry an English label — shown as-is).
+      const [room, st] = d.split(' · ')
+      const known = (['checkin', 'occupied', 'empty', 'oo'] as RoomStatus[]).includes(st as RoomStatus)
+      const stLabel = known ? statusLabel(st as RoomStatus, lang) : (st ?? '')
+      return lang === 'th' ? `แก้ไข ${room} · ${stLabel}` : `edited ${room} · ${stLabel}`
+    }
     case 'emptied_rest': return lang === 'th' ? `ตั้ง ${d} ห้องเป็นว่าง` : `set ${d} rooms to Empty`
     case 'order_received': return lang === 'th' ? `รับงาน (${deptLabel(d as Department, lang)})` : `acknowledged (${deptLabel(d as Department, lang)})`
     case 'approved': return lang === 'th' ? `อนุมัติ ${d}` : `approved ${d}`
@@ -472,17 +478,27 @@ function RoomOrderBuild({ companyId, unit, requireApproval, initialDate }: { com
     // survives an edit to an already-submitted order. Only genuinely new lines are inserted,
     // and only lines the requester removed are deleted.
     const { data: existingRows } = await supabase.from('kaizen_rr_room_lines')
-      .select('id').eq('room_order_id', oid).eq('room_no', roomNo)
-    const existingIds = new Set(((existingRows as { id: string }[]) ?? []).map((r) => r.id))
+      .select('id, active').eq('room_order_id', oid).eq('room_no', roomNo)
+    const prevActive = new Map(((existingRows as { id: string; active: boolean | null }[]) ?? []).map((r) => [r.id, r.active !== false]))
+    const existingIds = new Set(prevActive.keys())
     const keptIds = new Set<string>()
     const inserts: ReturnType<typeof lineRow>[] = []
     for (const l of clean) {
       if (existingIds.has(l.id)) {
         keptIds.add(l.id)
-        const { error } = await supabase.from('kaizen_rr_room_lines').update({
+        const patch: Record<string, unknown> = {
           slot: l.slot || null, item: l.item || null, fulfill_department: l.fulfill_department,
           serving_at: l.serving_at || null, line_type: l.line_type, note: l.note || null, active: l.active,
-        }).eq('id', l.id) // NB: never touch status/delivered_*/acknowledged_*/approval_status here
+        }
+        // Re-activating a line that had been switched off must return it to the board as
+        // FRESH — otherwise a previously-delivered line reappears already ticked/done.
+        // (An active line that stays active keeps its fulfilment state; we only reset on a
+        //  genuine off->on transition.)
+        if (l.active && prevActive.get(l.id) === false) {
+          patch.status = 'pending'; patch.delivered_by = null; patch.delivered_at = null
+          patch.acknowledged_by = null; patch.acknowledged_at = null
+        }
+        const { error } = await supabase.from('kaizen_rr_room_lines').update(patch).eq('id', l.id)
         if (error) { setBusy(false); toast.error(error.message); return false }
       } else {
         inserts.push(lineRow(oid, roomNo, room, l))
@@ -499,7 +515,8 @@ function RoomOrderBuild({ companyId, unit, requireApproval, initialDate }: { com
     }
     const { error: e2 } = await supabase.from('kaizen_rr_room_orders').update({ room_statuses: nextStatuses }).eq('id', oid)
     if (e2) { setBusy(false); toast.error(e2.message); return false }
-    await logRoomEvent(companyId, oid, date, profile?.id, 'room_saved', `${roomNo} · ${statusLabel(status, 'en')}`)
+    // Store the raw status KEY (not an English label) so the History panel can localize it.
+    await logRoomEvent(companyId, oid, date, profile?.id, 'room_saved', `${roomNo} · ${status}`)
     // Re-read this room's rows so local state carries the real DB ids (prevents a second
     // edit from re-inserting the just-added lines as duplicates).
     const { data: fresh } = await supabase.from('kaizen_rr_room_lines').select('*').eq('room_order_id', oid).eq('room_no', roomNo)
@@ -740,21 +757,23 @@ function RoomOrderBuild({ companyId, unit, requireApproval, initialDate }: { com
         </div>
       )}
 
-      {/* Quick actions — only order-placers (Top Management / Front Office) can change the order */}
+      {/* Quick actions — only order-placers (Top Management / Front Office) can change the order.
+          The three buttons share the row equally (flex-1) so they always fit on one line
+          regardless of screen width; labels shrink to icon-friendly sizes on narrow screens. */}
       {canPlace ? (
-        <div className="flex items-center gap-2 pt-2 border-t border-gray-100 overflow-x-auto">
+        <div className="flex items-stretch gap-2 pt-2 border-t border-gray-100">
           <button onClick={submit} disabled={busy}
-            className="flex items-center gap-1.5 flex-shrink-0 bg-[var(--brand-primary)] text-white text-sm font-semibold px-3 h-9 rounded-lg disabled:opacity-50 whitespace-nowrap">
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-            {orderStatus === 'submitted' ? (lang === 'th' ? 'ส่งอีกครั้ง' : 'Re-submit') : (lang === 'th' ? `ส่งใบสั่ง${one}` : 'Submit order request')}
+            className="flex-1 min-w-0 flex items-center justify-center gap-1 bg-[var(--brand-primary)] text-white text-xs sm:text-sm font-semibold px-2 h-9 rounded-lg disabled:opacity-50">
+            {busy ? <Loader2 className="h-4 w-4 flex-shrink-0 animate-spin" /> : <Send className="h-4 w-4 flex-shrink-0 hidden sm:block" />}
+            <span className="truncate">{orderStatus === 'submitted' ? (lang === 'th' ? 'ส่งอีกครั้ง' : 'Re-submit') : (lang === 'th' ? 'ส่งใบสั่ง' : 'Submit order')}</span>
           </button>
           <button onClick={emptyRest} disabled={busy}
-            className="flex items-center gap-1.5 flex-shrink-0 border border-gray-300 text-gray-600 hover:bg-gray-50 text-sm font-medium px-3 h-9 rounded-lg disabled:opacity-50 whitespace-nowrap">
-            <DoorClosed className="h-4 w-4" />{lang === 'th' ? 'ที่เหลือ = ว่าง' : 'Empty the rest'}
+            className="flex-1 min-w-0 flex items-center justify-center gap-1 border border-gray-300 text-gray-600 hover:bg-gray-50 text-xs sm:text-sm font-medium px-2 h-9 rounded-lg disabled:opacity-50">
+            <DoorClosed className="h-4 w-4 flex-shrink-0 hidden sm:block" /><span className="truncate">{lang === 'th' ? 'ที่เหลือ = ว่าง' : 'Empty the rest'}</span>
           </button>
           <button onClick={resetAll} disabled={busy}
-            className="flex items-center gap-1.5 flex-shrink-0 border border-gray-300 text-red-500 hover:bg-red-50 text-sm font-medium px-3 h-9 rounded-lg disabled:opacity-50 whitespace-nowrap">
-            <RotateCcw className="h-4 w-4" />{lang === 'th' ? 'ล้างทั้งหมด' : 'Reset all'}
+            className="flex-1 min-w-0 flex items-center justify-center gap-1 border border-gray-300 text-red-500 hover:bg-red-50 text-xs sm:text-sm font-medium px-2 h-9 rounded-lg disabled:opacity-50">
+            <RotateCcw className="h-4 w-4 flex-shrink-0 hidden sm:block" /><span className="truncate">{lang === 'th' ? 'ล้าง' : 'Reset'}</span>
           </button>
         </div>
       ) : (

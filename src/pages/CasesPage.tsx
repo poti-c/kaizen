@@ -13,7 +13,7 @@ import { PMTaskModal, taskTone, taskStatusKey, type PMTask } from '@/components/
 import { formatRelativeTime, formatDuration, isSLABreached, CATEGORIES, LOCATIONS, companyHasAddon } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 import type { KaizenCase, CaseStatus, CasePriority, Department } from '@/types'
-import { STATUS_LABELS, DEPARTMENTS, DEPARTMENT_LABELS } from '@/types'
+import { DEPARTMENTS, DEPARTMENT_LABELS, categoryLabel } from '@/types'
 
 const STATUS_FILTERS: (CaseStatus | 'all')[] = ['all', 'open', 'assigned', 'in_progress', 'pending_manager_approval', 'pending_admin_approval', 'closed', 'reopened']
 
@@ -31,15 +31,6 @@ type SortKey = 'priority' | 'status' | 'duration' | 'date' | 'due'
 type SortDir = 'asc' | 'desc'
 
 
-const CATEGORY_LABELS_EN: Record<string, string> = {
-  maintenance: 'Maintenance', cleanliness: 'Cleanliness', safety: 'Safety',
-  guest_complaint: 'Guest Complaint', equipment: 'Equipment', other: 'Other',
-  preventive_maintenance: 'PMS',
-}
-// Display label for a category slug (PMS clients show preventive-maintenance as "PMS").
-function categoryLabel(slug: string): string {
-  return CATEGORY_LABELS_EN[slug] || slug.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase())
-}
 
 // One PM task row in the Cases → PMS tab (opens the run/checklist modal).
 function PmTaskRow({ t, onOpen, tr, lang }: { t: PMTask; onOpen: () => void; tr: ReturnType<typeof useLanguage>['t']; lang: string }) {
@@ -421,7 +412,7 @@ export function CasesPage() {
           <td className="px-5 py-3.5"><DepartmentBadge department={c.department} /></td>
           <td className="px-5 py-3.5">
             {c.category ? (
-              <span className="text-xs px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full">{categoryLabel(c.category)}</span>
+              <span className="text-xs px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full">{categoryLabel(c.category, lang)}</span>
             ) : (
               <span className="text-xs text-gray-300">—</span>
             )}
@@ -463,7 +454,7 @@ export function CasesPage() {
             </div>
             <div className="flex items-center gap-3 mt-1.5 flex-wrap">
               <DepartmentBadge department={c.department} />
-              {c.category && <span className="text-xs px-1.5 py-0.5 bg-gray-100 text-gray-500 rounded">{categoryLabel(c.category)}</span>}
+              {c.category && <span className="text-xs px-1.5 py-0.5 bg-gray-100 text-gray-500 rounded">{categoryLabel(c.category, lang)}</span>}
               <span className="text-xs text-gray-400">{formatRelativeTime(c.created_at)}</span>
               <span className="flex items-center gap-1 text-xs text-gray-400">
                 <Clock className="h-3 w-3" />
@@ -763,7 +754,7 @@ export function CasesPage() {
                         localStorage.setItem('kaizen-adv-filters', JSON.stringify(newFilters))
                       }}
                     />
-                    <span className="text-gray-600">{(lang === 'th' ? STATUS_FILTER_LABELS_TH[s as CaseStatus] : STATUS_FILTER_LABELS[s as CaseStatus]) ?? STATUS_LABELS[s as CaseStatus]}</span>
+                    <span className="text-gray-600">{(lang === 'th' ? STATUS_FILTER_LABELS_TH[s as CaseStatus] : STATUS_FILTER_LABELS[s as CaseStatus]) ?? t.status[s as CaseStatus]}</span>
                   </label>
                 ))}
               </div>
@@ -832,7 +823,7 @@ export function CasesPage() {
                         localStorage.setItem('kaizen-adv-filters', JSON.stringify(newFilters))
                       }}
                     />
-                    <span className="text-gray-600">{categoryLabel(c)}</span>
+                    <span className="text-gray-600">{categoryLabel(c, lang)}</span>
                   </label>
                 ))}
               </div>

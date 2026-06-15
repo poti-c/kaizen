@@ -8,7 +8,7 @@ import { useLanguage } from '@/contexts/LanguageContext'
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
 import { getInitials, isSLABreached, companyHasAddon } from '@/lib/utils'
 import { loadPerfConfig, DEFAULT_PERF_CONFIG, type PerfConfig } from '@/lib/perfConfig'
-import { DEPARTMENT_LABELS } from '@/types'
+import { deptLabel } from '@/types'
 import type { KaizenCase, KaizenProfile, Department } from '@/types'
 import { differenceInHours } from 'date-fns'
 
@@ -129,7 +129,7 @@ export function PerformancePage() {
         : null
       rows.push({
         dept,
-        label: DEPARTMENT_LABELS[dept] || dept,
+        label: deptLabel(dept, lang) || dept,
         total: dc.length,
         open: open.length,
         resolutionRate: dc.length > 0 ? Math.round((closed.length / dc.length) * 100) : 0,
@@ -334,7 +334,7 @@ export function PerformancePage() {
                 </Avatar>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-gray-900 truncate">{s.name}</p>
-                  <p className="text-xs text-gray-400 truncate">{DEPARTMENT_LABELS[s.department]}</p>
+                  <p className="text-xs text-gray-400 truncate">{deptLabel(s.department, lang)}</p>
                 </div>
                 {/* Metrics */}
                 <div className="hidden sm:flex items-center gap-5 text-center flex-shrink-0">
