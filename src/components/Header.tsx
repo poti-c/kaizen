@@ -8,7 +8,9 @@ import { useViewMode } from '@/contexts/ViewModeContext'
 import { supabase } from '@/lib/supabase'
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
 import { getInitials, formatRelativeTime, companyHasAddon } from '@/lib/utils'
-import { DEPARTMENT_LABELS } from '@/types'
+import { localizeNotif } from '@/lib/i18nDynamic'
+import { useRrFoAccess } from '@/hooks/useRrFoAccess'
+import { deptLabel } from '@/types'
 import { cn } from '@/lib/utils'
 import type { KaizenNotification } from '@/types'
 
@@ -22,7 +24,8 @@ export function Header() {
   const [showNotifs, setShowNotifs] = useState(false)
   const [showMobileNav, setShowMobileNav] = useState(false)
   const [showCompanySwitcher, setShowCompanySwitcher] = useState(false)
-  const unreadCount = notifications.filter((n) => !n.is_read).length
+  // True unread count from a dedicated count query (not the limit(10) preview list).
+  const [unreadCount, setUnreadCount] = useState(0)
   const showSwitcher = profile?.role === 'super_admin' && companies.length > 1
 
   // Today's date — e.g. "Sat. 13 - June 2026" (shown on mobile, where the sidebar is hidden)
@@ -42,9 +45,11 @@ export function Header() {
     { to: '/settings',       icon: Settings,        label: t.nav.settings,        roles: ['super_admin', 'manager', 'staff'] },
   ]
 
+  const rrFo = useRrFoAccess()
   const visibleNavItems = NAV_ITEMS.filter(item =>
     (profile ? item.roles.includes(profile.role) : false) &&
-    (item.addon === undefined || companyHasAddon(activeCompany, item.addon))
+    (item.addon === undefined || companyHasAddon(activeCompany, item.addon)) &&
+    (item.to !== '/routine-roster' || rrFo.allowed)
   )
 
   async function handleSignOut() {
@@ -59,7 +64,7 @@ export function Header() {
     const channel = supabase
       .channel('kaizen_notifications_header')
       .on('postgres_changes', {
-        event: 'INSERT',
+        event: '*',
         schema: 'public',
         table: 'kaizen_notifications',
         filter: `user_id=eq.${profile.id}`,
@@ -69,36 +74,35 @@ export function Header() {
     return () => { supabase.removeChannel(channel) }
   }, [profile])
 
+  function syncBadge(unread: number) {
+    if (unread > 0 && 'setAppBadge' in navigator) (navigator as any).setAppBadge(unread).catch(() => {})
+    else if ('clearAppBadge' in navigator) (navigator as any).clearAppBadge().catch(() => {})
+  }
+
   async function fetchNotifications() {
     if (!profile) return
-    const { data } = await supabase
-      .from('kaizen_notifications')
-      .select('*')
-      .eq('user_id', profile.id)
-      .order('created_at', { ascending: false })
-      .limit(10)
-    if (data) {
-      setNotifications(data as KaizenNotification[])
-      // Update app icon badge from main context (more reliable on iOS than SW)
-      const unread = (data as KaizenNotification[]).filter(n => !n.is_read).length
-      if ('setAppBadge' in navigator) {
-        unread > 0
-          ? (navigator as any).setAppBadge(unread).catch(() => {})
-          : (navigator as any).clearAppBadge().catch(() => {})
-      }
-    }
+    const [listRes, countRes] = await Promise.all([
+      supabase.from('kaizen_notifications').select('*').eq('user_id', profile.id).order('created_at', { ascending: false }).limit(10),
+      supabase.from('kaizen_notifications').select('id', { count: 'exact', head: true }).eq('user_id', profile.id).eq('is_read', false),
+    ])
+    if (listRes.data) setNotifications(listRes.data as KaizenNotification[])
+    const unread = countRes.count ?? 0
+    setUnreadCount(unread)
+    syncBadge(unread) // app icon badge (more reliable on iOS than SW)
   }
 
   async function markRead(id: string) {
     await supabase.from('kaizen_notifications').update({ is_read: true }).eq('id', id)
     setNotifications((prev) => prev.map((n) => n.id === id ? { ...n, is_read: true } : n))
+    setUnreadCount((c) => { const next = Math.max(0, c - 1); syncBadge(next); return next })
   }
 
   async function markAllRead() {
     if (!profile) return
     await supabase.from('kaizen_notifications').update({ is_read: true }).eq('user_id', profile.id)
     setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })))
-    if ('clearAppBadge' in navigator) (navigator as any).clearAppBadge().catch(() => {})
+    setUnreadCount(0)
+    syncBadge(0)
   }
 
   // Shared notification panel body — used by both mobile (fixed) and desktop (absolute)
@@ -132,8 +136,10 @@ export function Header() {
               <div className="flex items-start gap-3">
                 {!n.is_read && <div className="w-2 h-2 rounded-full bg-blue-500 mt-1.5 flex-shrink-0" />}
                 <div className={`flex-1 min-w-0 ${n.is_read ? 'pl-5' : ''}`}>
-                  <p className={`text-sm font-semibold leading-snug ${!n.is_read ? 'text-gray-900' : 'text-gray-600'}`}>{n.title}</p>
-                  <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{n.message}</p>
+                  {(() => { const loc = localizeNotif(n, lang); return (<>
+                    <p className={`text-sm font-semibold leading-snug ${!n.is_read ? 'text-gray-900' : 'text-gray-600'}`}>{loc.title}</p>
+                    <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{loc.message}</p>
+                  </>) })()}
                   <p className="text-xs text-gray-400 mt-1">{formatRelativeTime(n.created_at)}</p>
                 </div>
               </div>
@@ -319,7 +325,7 @@ export function Header() {
                   </Avatar>
                   <div className="min-w-0 flex-1">
                     <p className="text-white text-sm font-medium truncate">{profile.full_name}</p>
-                    <p className="text-white/50 text-xs truncate">{DEPARTMENT_LABELS[profile.department]}</p>
+                    <p className="text-white/50 text-xs truncate">{deptLabel(profile.department, lang)}</p>
                   </div>
                 </div>
               )}

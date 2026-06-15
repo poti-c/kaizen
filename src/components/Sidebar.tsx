@@ -8,7 +8,8 @@ import { useCompany } from '@/contexts/CompanyContext'
 import { useLanguage } from '@/contexts/LanguageContext'
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
 import { getInitials, companyHasFeature, companyHasAddon, type FeatureKey, type AddonKey } from '@/lib/utils'
-import { DEPARTMENT_LABELS } from '@/types'
+import { useRrFoAccess } from '@/hooks/useRrFoAccess'
+import { deptLabel } from '@/types'
 import { useState } from 'react'
 import { cn } from '@/lib/utils'
 
@@ -17,6 +18,7 @@ export function Sidebar() {
   const { activeCompany } = useCompany()
   const { t, lang } = useLanguage()
   const navigate = useNavigate()
+  const rrFo = useRrFoAccess()
 
   // Today's date — e.g. "Sat. 13 - June 2026"
   const now = new Date()
@@ -46,6 +48,7 @@ export function Sidebar() {
     if (!profile || !item.roles.includes(profile.role)) return false
     if (item.feature && !companyHasFeature(activeCompany, item.feature)) return false
     if (item.addon && !companyHasAddon(activeCompany, item.addon)) return false
+    if (item.to === '/routine-roster' && !rrFo.allowed) return false
     return true
   })
 
@@ -112,7 +115,7 @@ export function Sidebar() {
             {!collapsed && (
               <div className="min-w-0 flex-1">
                 <p className="text-white text-xs font-medium truncate">{profile.full_name}</p>
-                <p className="text-white/50 text-xs truncate">{DEPARTMENT_LABELS[profile.department]}</p>
+                <p className="text-white/50 text-xs truncate">{deptLabel(profile.department, lang)}</p>
               </div>
             )}
           </div>

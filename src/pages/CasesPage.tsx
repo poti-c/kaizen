@@ -13,7 +13,7 @@ import { PMTaskModal, taskTone, taskStatusKey, type PMTask } from '@/components/
 import { formatRelativeTime, formatDuration, isSLABreached, CATEGORIES, LOCATIONS, companyHasAddon } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 import type { KaizenCase, CaseStatus, CasePriority, Department } from '@/types'
-import { STATUS_LABELS, PRIORITY_LABELS, DEPARTMENTS, DEPARTMENT_LABELS } from '@/types'
+import { STATUS_LABELS, DEPARTMENTS, DEPARTMENT_LABELS } from '@/types'
 
 const STATUS_FILTERS: (CaseStatus | 'all')[] = ['all', 'open', 'assigned', 'in_progress', 'pending_manager_approval', 'pending_admin_approval', 'closed', 'reopened']
 
@@ -335,20 +335,27 @@ export function CasesPage() {
   const paginatedClosed     = slicePage(closedCases, pageClosed)
 
   function exportCSV() {
+    // Quote every cell and neutralise CSV/formula injection (cells starting with = + - @ or a
+    // leading tab/CR are prefixed with a single quote so spreadsheets don't execute them).
+    const cell = (v: unknown) => {
+      const s = String(v ?? '')
+      const safe = /^[=+\-@\t\r]/.test(s) ? `'${s}` : s
+      return `"${safe.replace(/"/g, '""')}"`
+    }
     const headers = ['Case #', 'Date', 'Title', 'Description', 'Department', 'Category', 'Priority', 'Status', 'Due Date', 'Duration']
     const rows = filtered.map((c) => [
       c.case_number,
       new Date(c.created_at).toLocaleDateString('en-GB'),
-      `"${c.title.replace(/"/g, '""')}"`,
-      `"${c.description.replace(/"/g, '""')}"`,
+      c.title,
+      c.description,
       c.department,
       c.category || '',
       c.priority,
       c.status,
       c.due_date || '',
       formatDuration(c.created_at, c.closed_at || undefined),
-    ])
-    const csv = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n')
+    ].map(cell))
+    const csv = [headers.map(cell).join(','), ...rows.map((r) => r.join(','))].join('\n')
     const blob = new Blob([csv], { type: 'text/csv' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -577,16 +584,16 @@ export function CasesPage() {
           <h1 className="text-xl md:text-2xl font-bold text-gray-900">{t.cases.title}</h1>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={exportCSV} title={lang === 'th' ? 'ส่งออกเป็น CSV' : 'Export to CSV'}>
-            <Download className="h-4 w-4" />
-            <span className="hidden sm:inline">{t.cases.export}</span>
-          </Button>
           <Link to="/cases/new">
             <Button size="sm" className="md:size-default">
               <PlusCircle className="h-4 w-4" />
               <span className="hidden sm:inline">{t.cases.newCase}</span>
             </Button>
           </Link>
+          <Button variant="outline" size="sm" onClick={exportCSV} title={lang === 'th' ? 'ส่งออกเป็น CSV' : 'Export to CSV'}>
+            <Download className="h-4 w-4" />
+            <span className="hidden sm:inline">{t.cases.export}</span>
+          </Button>
         </div>
       </div>
 
@@ -802,7 +809,7 @@ export function CasesPage() {
                         localStorage.setItem('kaizen-adv-filters', JSON.stringify(newFilters))
                       }}
                     />
-                    <span className="text-gray-600">{PRIORITY_LABELS[p]}</span>
+                    <span className="text-gray-600">{t.priority[p]}</span>
                   </label>
                 ))}
               </div>

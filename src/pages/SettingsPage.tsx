@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Eye, EyeOff, Loader2, Palette, Lock, Info, Scale, Pencil, Check, X, Bell, BellOff, BellRing, Plus, Trash2, Building2, AlertTriangle, LifeBuoy, HelpCircle, MessageSquare, Smartphone, Mail, ChevronRight, ChevronDown, UserX, Camera, Sparkles, Wrench, SlidersHorizontal } from 'lucide-react'
+import { Eye, EyeOff, Loader2, Palette, Lock, Info, Scale, Pencil, Check, X, Bell, BellOff, BellRing, Plus, Trash2, Building2, AlertTriangle, LifeBuoy, HelpCircle, MessageSquare, Smartphone, Mail, ChevronRight, ChevronDown, UserX, Camera, Sparkles, Wrench, SlidersHorizontal, ClipboardList } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useCompany } from '@/contexts/CompanyContext'
@@ -15,6 +15,12 @@ import type { KaizenCompany } from '@/types'
 import { CATEGORIES, LOCATIONS, getInitials, companyHasFeature, companyHasAddon } from '@/lib/utils'
 import { PMEquipmentTypes } from '@/components/PMEquipmentTypes'
 import { PMSettings } from '@/components/PMSettings'
+import { RRSettings } from '@/components/RRSettings'
+import { RoomSetupSettings } from '@/components/RoomSetupSettings'
+import { RoomRecipesSettings } from '@/components/RoomRecipesSettings'
+import { SpecialApprovalSettings } from '@/components/SpecialApprovalSettings'
+import { RoomNotifySettings } from '@/components/RoomNotifySettings'
+import { RrFoAccessSettings } from '@/components/RrFoAccessSettings'
 import { CollapsibleCard } from '@/components/CollapsibleCard'
 import { loadPerfConfig, DEFAULT_PERF_CONFIG, type PerfConfig, type StaffWeightKey, type ManagerWeightKey } from '@/lib/perfConfig'
 import { toast } from 'sonner'
@@ -827,6 +833,23 @@ export function SettingsPage() {
           <PMSettings />
           <div className="border-t border-gray-100 my-6" />
           <PMEquipmentTypes />
+        </CollapsibleCard>
+      )}
+
+      {/* ── Routine Roster (incl. Room Setup) — Top Management, Routine Roster add-on only ── */}
+      {(profile?.role === 'super_admin' || profile?.role === 'manager') && companyHasAddon(activeCompany, 'routine_roster') && (
+        <CollapsibleCard icon={ClipboardList} title={lang === 'th' ? 'ตารางงานประจำ' : 'Routine Roster'}>
+          <RRSettings />
+          <div className="border-t border-gray-100 my-6" />
+          <RoomSetupSettings />
+          <div className="border-t border-gray-100 my-6" />
+          <RoomRecipesSettings />
+          <div className="border-t border-gray-100 my-6" />
+          <SpecialApprovalSettings />
+          <div className="border-t border-gray-100 my-6" />
+          <RoomNotifySettings />
+          <div className="border-t border-gray-100 my-6" />
+          <RrFoAccessSettings />
         </CollapsibleCard>
       )}
 

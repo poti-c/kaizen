@@ -4,7 +4,7 @@ import {
   Trash2, X, Eye, EyeOff, Users, UserCog, ScrollText, AlertTriangle, Check,
   ChevronRight, ChevronLeft, ChevronDown, Pencil, CalendarDays, ArrowLeft, Receipt, Upload, ImageIcon, Clock, Link2, KeyRound,
   Settings, Mail, UserPlus, Building, FileText, Package,
-  LayoutDashboard, Bell, ListChecks, TrendingUp, TrendingDown, Wallet, Sparkles,
+  LayoutDashboard, Bell, ListChecks, TrendingUp, TrendingDown, Wallet, Sparkles, MessageSquare,
 } from 'lucide-react'
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts'
 import { FormGeneratorView } from './console/FormGenerator'
@@ -238,7 +238,7 @@ function LoginScreen({ onLogin }: { onLogin: (t: string, name: string) => void }
 }
 
 // ── Dashboard ────────────────────────────────────────────────────────────────
-type View = 'dashboard' | 'notifications' | 'clients' | 'calendar' | 'payments' | 'products' | 'forms' | 'audit' | 'todos' | 'settings'
+type View = 'dashboard' | 'notifications' | 'clients' | 'calendar' | 'payments' | 'products' | 'forms' | 'audit' | 'todos' | 'feedback' | 'settings'
 interface Metrics {
   revenue: number; opportunity: number; lost: number
   conversions?: { trial_to_gold: number; trial_to_premium: number; gold_to_premium: number }
@@ -298,6 +298,7 @@ function Dashboard({ token, adminName, onLogout }: { token: string; adminName: s
     { key: 'forms', label: 'Form Generator', icon: FileText },
     { key: 'audit', label: 'Audit Logs', icon: ScrollText },
     { key: 'todos', label: 'To-Do Lists', icon: ListChecks },
+    { key: 'feedback', label: 'Trial Feedback', icon: MessageSquare },
     { key: 'settings', label: 'Settings', icon: Settings },
   ]
   const openTodos = todos.filter(t => !t.done)
@@ -359,6 +360,8 @@ function Dashboard({ token, adminName, onLogout }: { token: string; adminName: s
             <AuditTab call={call} />
           ) : view === 'todos' ? (
             <TodosView call={call} />
+          ) : view === 'feedback' ? (
+            <FeedbackView call={call} />
           ) : (
             <AdminSettingsView call={call} onBack={() => go('dashboard')} />
           )}
@@ -2586,6 +2589,101 @@ function Overlay({ children, onClose, wide }: { children: React.ReactNode; onClo
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
       <div className={`relative bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-2xl w-full ${wide ? 'max-w-md' : 'max-w-sm'}`}>{children}</div>
+    </div>
+  )
+}
+
+// ── Trial Feedback (vendor view of in-app feedback across all companies) ────────
+interface FeedbackRow {
+  id: string; company_id: string | null; company_name: string | null
+  user_name: string | null; role: string | null; route: string | null
+  message: string; lang: string | null; status: 'new' | 'triaged' | 'done'; created_at: string
+}
+const FB_STATUS: { key: 'new' | 'triaged' | 'done'; label: string; cls: string }[] = [
+  { key: 'new', label: 'New', cls: 'bg-amber-500/15 text-amber-400 border-amber-500/30' },
+  { key: 'triaged', label: 'Triaged', cls: 'bg-sky-500/15 text-sky-400 border-sky-500/30' },
+  { key: 'done', label: 'Done', cls: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' },
+]
+function FeedbackView({ call }: { call: <T,>(action: string, payload?: Record<string, unknown>) => Promise<T> }) {
+  const [rows, setRows] = useState<FeedbackRow[]>([])
+  const [loading, setLoading] = useState(true)
+  const [filter, setFilter] = useState<'all' | 'new' | 'triaged' | 'done'>('all')
+
+  const load = useCallback(() => {
+    setLoading(true)
+    call<{ feedback: FeedbackRow[] }>('list_feedback')
+      .then(d => setRows(d.feedback ?? []))
+      .catch(() => setRows([]))
+      .finally(() => setLoading(false))
+  }, [call])
+  useEffect(() => { load() }, [load])
+
+  async function setStatus(id: string, status: 'new' | 'triaged' | 'done') {
+    setRows(prev => prev.map(r => r.id === id ? { ...r, status } : r))
+    try { await call('update_feedback_status', { feedback_id: id, status }) } catch { load() }
+  }
+
+  async function remove(id: string) {
+    if (!confirm('Delete this feedback permanently?')) return
+    setRows(prev => prev.filter(r => r.id !== id))
+    try { await call('delete_feedback', { feedback_id: id }) } catch { load() }
+  }
+
+  const shown = rows.filter(r => filter === 'all' || r.status === filter)
+  const counts = { new: rows.filter(r => r.status === 'new').length, triaged: rows.filter(r => r.status === 'triaged').length, done: rows.filter(r => r.status === 'done').length }
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-1">
+        <MessageSquare className="h-5 w-5 text-amber-400" />
+        <h2 className="text-lg font-semibold text-white">Trial Feedback</h2>
+        <span className="ml-1 text-xs text-slate-400">{rows.length} total</span>
+      </div>
+      <p className="text-xs text-slate-400 mb-3">In-app feedback submitted by users across all companies.</p>
+
+      <div className="flex gap-1.5 mb-3 text-xs font-medium">
+        {([['all', `All (${rows.length})`], ['new', `New (${counts.new})`], ['triaged', `Triaged (${counts.triaged})`], ['done', `Done (${counts.done})`]] as const).map(([k, label]) => (
+          <button key={k} onClick={() => setFilter(k)}
+            className={`px-2.5 h-7 rounded-lg border ${filter === k ? 'bg-amber-500/15 text-amber-400 border-amber-500/30' : 'border-slate-700 text-slate-400 hover:bg-slate-800'}`}>{label}</button>
+        ))}
+      </div>
+
+      {loading ? (
+        <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-slate-500" /></div>
+      ) : shown.length === 0 ? (
+        <div className="text-center py-16 text-sm text-slate-400 border border-dashed border-slate-700 rounded-xl">No feedback {filter !== 'all' ? `with status "${filter}"` : 'yet'}. 🙂</div>
+      ) : (
+        <div className="space-y-2">
+          {shown.map(r => {
+            const badge = FB_STATUS.find(s => s.key === r.status) ?? FB_STATUS[0]
+            return (
+              <div key={r.id} className="rounded-xl border border-slate-800 bg-slate-900 p-3.5">
+                <div className="flex items-start gap-2 mb-1.5 flex-wrap">
+                  <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full border ${badge.cls}`}>{badge.label}</span>
+                  <span className="text-sm font-medium text-white">{r.company_name ?? '—'}</span>
+                  <span className="text-xs text-slate-400">· {r.user_name ?? 'Unknown'}{r.role ? ` (${r.role})` : ''}</span>
+                  {r.lang && <span className="text-[10px] uppercase text-slate-500">{r.lang}</span>}
+                  <span className="ml-auto text-[11px] text-slate-500">{new Date(r.created_at).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
+                </div>
+                <p className="text-sm text-slate-200 whitespace-pre-wrap leading-relaxed">{r.message}</p>
+                <div className="flex items-center gap-2 mt-2">
+                  {r.route && <span className="text-[11px] text-slate-500 font-mono bg-slate-800 px-1.5 py-0.5 rounded">{r.route}</span>}
+                  <div className="ml-auto flex items-center gap-1">
+                    {FB_STATUS.filter(s => s.key !== r.status).map(s => (
+                      <button key={s.key} onClick={() => setStatus(r.id, s.key)}
+                        className="text-[11px] px-2 h-6 rounded border border-slate-700 text-slate-300 hover:bg-slate-800">→ {s.label}</button>
+                    ))}
+                    <button onClick={() => remove(r.id)} title="Delete"
+                      className="h-6 w-6 flex items-center justify-center rounded border border-slate-700 text-slate-500 hover:text-red-400 hover:border-red-500/40">
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }

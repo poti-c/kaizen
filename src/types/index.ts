@@ -148,6 +148,8 @@ export interface KaizenNotification {
   is_read: boolean
   notification_type: string
   created_at: string
+  title_key?: string | null
+  body_params?: Record<string, string | number> | null
   case?: KaizenCase
 }
 
@@ -174,6 +176,8 @@ export interface RrTemplate {
   default_item: string | null
   /** Per-weekday item override, keys 'mon'..'sun' (e.g. turndown gift of the day) */
   item_by_weekday: Record<string, string> | null
+  /** Weekdays the routine runs ('mon'..'sun'); null = every day. */
+  run_weekdays: string[] | null
   due_time: string
   active: boolean
   sort_order: number
@@ -191,6 +195,8 @@ export interface RrTemplate {
   unit_label: string | null
   // ── per-room variants ──
   variants: RrVariant[] | null
+  // ── catalog items (from dept item catalog) ──
+  catalog_items: { label: string; unit: string }[] | null
   // ── person in charge (request side) ──
   pic_mode: RrPicMode
   pic_ids: string[] | null
@@ -288,6 +294,23 @@ export const DEPARTMENT_LABELS: Record<Department, string> = {
   restaurant: 'Restaurant',
   kitchen: 'Kitchen',
   accounting: 'Accounting',
+}
+
+export const DEPARTMENT_LABELS_TH: Record<Department, string> = {
+  top_management: 'ผู้บริหารระดับสูง',
+  front_office: 'แผนกต้อนรับ',
+  sales_team: 'ฝ่ายขาย',
+  house_keeping: 'แผนกแม่บ้าน',
+  human_resource: 'ฝ่ายบุคคล',
+  engineering_team: 'ฝ่ายช่าง',
+  restaurant: 'ห้องอาหาร',
+  kitchen: 'ครัว',
+  accounting: 'ฝ่ายบัญชี',
+}
+
+/** Department label in the given UI language (falls back to English). */
+export function deptLabel(dept: Department, lang?: string): string {
+  return lang === 'th' ? (DEPARTMENT_LABELS_TH[dept] ?? DEPARTMENT_LABELS[dept]) : DEPARTMENT_LABELS[dept]
 }
 
 export const STATUS_LABELS: Record<CaseStatus, string> = {

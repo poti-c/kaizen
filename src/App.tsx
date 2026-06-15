@@ -43,12 +43,15 @@ function ConsoleErrorReporter() {
   return null
 }
 
-// All roles land on /dashboard; staff with must_change_password go to /change-password
+// Staff have no Dashboard nav link, so their home is the cases list; managers/admins get the dashboard.
+function homeFor(role: string) { return role === 'staff' ? '/cases' : '/dashboard' }
+
+// Each role lands on its home; users with must_change_password go to /change-password first.
 function RoleRedirect() {
   const { profile } = useAuth()
   if (!profile) return null
   if (profile.must_change_password) return <Navigate to="/change-password" replace />
-  return <Navigate to="/dashboard" replace />
+  return <Navigate to={homeFor(profile.role)} replace />
 }
 
 // Blocks access to a route if the user's role is not in the allowed list, or
@@ -57,9 +60,9 @@ function ProtectedRoute({ roles, feature, addon, children }: { roles: string[]; 
   const { profile } = useAuth()
   const { activeCompany } = useCompany()
   if (!profile) return null
-  if (!roles.includes(profile.role)) return <Navigate to="/dashboard" replace />
-  if (feature && !companyHasFeature(activeCompany, feature)) return <Navigate to="/dashboard" replace />
-  if (addon && !companyHasAddon(activeCompany, addon)) return <Navigate to="/dashboard" replace />
+  if (!roles.includes(profile.role)) return <Navigate to={homeFor(profile.role)} replace />
+  if (feature && !companyHasFeature(activeCompany, feature)) return <Navigate to={homeFor(profile.role)} replace />
+  if (addon && !companyHasAddon(activeCompany, addon)) return <Navigate to={homeFor(profile.role)} replace />
   return <>{children}</>
 }
 

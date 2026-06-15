@@ -36,7 +36,7 @@ export function ChangePasswordPage() {
       if (flagErr) throw flagErr
       await refreshProfile?.()
       toast.success(lang === 'th' ? 'เปลี่ยนรหัสผ่านสำเร็จ' : 'Password changed successfully.')
-      navigate('/dashboard', { replace: true })
+      navigate('/', { replace: true }) // RoleRedirect sends each role to its correct home
     } catch (err) {
       toast.error(err instanceof Error ? err.message : (lang === 'th' ? 'เปลี่ยนรหัสผ่านไม่สำเร็จ' : 'Failed to change password.'))
     } finally {

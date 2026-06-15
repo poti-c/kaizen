@@ -12,7 +12,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { PhotoUpload } from '@/components/PhotoUpload'
 import { generateCaseNumber, CATEGORIES, LOCATIONS, companyHasAddon } from '@/lib/utils'
-import { DEPARTMENTS, PRIORITY_LABELS } from '@/types'
+import { DEPARTMENTS } from '@/types'
 import type { CasePriority, Department } from '@/types'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
@@ -137,6 +137,8 @@ export function CreateCasePage() {
             title: 'New Case Reported',
             message: `${profile.full_name} reported: "${title.trim()}" (${caseNumber})`,
             notification_type: 'new_case',
+            title_key: 'case_new',
+            body_params: { reporter: profile.full_name, title: title.trim(), caseNo: caseNumber },
           }))
         )
       }
@@ -155,6 +157,8 @@ export function CreateCasePage() {
             title: 'New Case Reported',
             message: `${profile.full_name} (${DEPARTMENTS.find(d => d.value === department)?.label}) reported: "${title.trim()}" (${caseNumber})`,
             notification_type: 'new_case',
+            title_key: 'case_new',
+            body_params: { reporter: profile.full_name, title: title.trim(), caseNo: caseNumber },
           }))
         )
       }
@@ -300,7 +304,7 @@ export function CreateCasePage() {
                     priority === p ? priorityStyles[p].active : priorityStyles[p].base
                   }`}
                 >
-                  {PRIORITY_LABELS[p]}
+                  {t.priority[p]}
                 </button>
               ))}
             </div>

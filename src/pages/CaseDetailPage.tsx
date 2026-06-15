@@ -10,6 +10,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useCompany } from '@/contexts/CompanyContext'
 import { useLanguage } from '@/contexts/LanguageContext'
 import { companyHasFeature } from '@/lib/utils'
+import type { NotifParams } from '@/lib/i18nDynamic'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Input } from '@/components/ui/input'
@@ -233,6 +234,8 @@ export function CaseDetailPage() {
         title: 'Assigned as In Charge',
         message: `You have been assigned as In Charge for case ${kcase.case_number}: "${kcase.title}"`,
         notification_type: 'assignment',
+        title_key: 'case_assigned_pic' as string | null,
+        body_params: { caseNo: kcase.case_number } as Record<string, string | number> | null,
       }))
 
       // Notify selected departments
@@ -250,6 +253,8 @@ export function CaseDetailPage() {
             title: 'Department Case Update',
             message: `${names} assigned as In Charge for case ${kcase.case_number}: "${kcase.title}"`,
             notification_type: 'info',
+            title_key: 'case_dept_update',
+            body_params: { names, caseNo: kcase.case_number },
           }))
         }
         const deptNames = notifyDepts.map(d => DEPARTMENT_LABELS[d as Department] ?? d).join(', ')
@@ -376,10 +381,13 @@ export function CaseDetailPage() {
     })
   }
 
-  async function notifyUsers(userIds: string[], title: string, message: string) {
+  // `loc` carries a stable localization key + params so the feed renders in the reader's
+  // language; title/message stay as the English fallback (old clients, push payloads).
+  async function notifyUsers(userIds: string[], title: string, message: string, loc?: { key: string; params: NotifParams }) {
     if (userIds.length === 0) return
     await supabase.from('kaizen_notifications').insert(
-      userIds.map((uid) => ({ user_id: uid, case_id: id!, title, message, notification_type: 'case_update' }))
+      userIds.map((uid) => ({ user_id: uid, case_id: id!, title, message, notification_type: 'case_update',
+        title_key: loc?.key ?? null, body_params: loc?.params ?? null }))
     )
   }
 
@@ -412,9 +420,10 @@ export function CaseDetailPage() {
     opts: { departments?: (string | null | undefined)[]; roles?: string[]; extraIds?: (string | null | undefined)[] },
     title: string,
     message: string,
+    loc?: { key: string; params: NotifParams },
   ) {
     const ids = await fetchRecipientIds(opts)
-    await notifyUsers(ids, title, message)
+    await notifyUsers(ids, title, message, loc)
   }
 
   // @mention handling in textarea
@@ -473,7 +482,7 @@ export function CaseDetailPage() {
   function handlePrint() {
     const printWindow = window.open('', '_blank')
     if (!printWindow || !kcase) return
-    printWindow.document.write(buildCasePrintHtml(kcase, photos, timeline))
+    printWindow.document.write(buildCasePrintHtml(kcase, photos, timeline, lang))
     printWindow.document.close()
     printWindow.focus()
     setTimeout(() => printWindow.print(), 500)
@@ -541,13 +550,16 @@ export function CaseDetailPage() {
       if (goesToManager) {
         // Notify the PIC's department manager(s) to approve; Top Management for visibility.
         await notifyByDeptRole({ departments: approverDepts, roles: ['manager'] },
-          'Case Ready for Approval', `${profile?.full_name} resolved case ${kcase?.case_number} — awaiting your approval.`)
+          'Case Ready for Approval', `${profile?.full_name} resolved case ${kcase?.case_number} — awaiting your approval.`,
+          { key: 'case_ready_approval', params: { caseNo: kcase?.case_number ?? '', actor: profile?.full_name ?? '' } })
         await notifyByDeptRole({ roles: ['super_admin'] },
-          'Case Resolved', `${profile?.full_name} resolved case ${kcase?.case_number} — pending manager approval.`)
+          'Case Resolved', `${profile?.full_name} resolved case ${kcase?.case_number} — pending manager approval.`,
+          { key: 'case_resolved', params: { caseNo: kcase?.case_number ?? '' } })
       } else {
         // No department manager (or a managerial resolver) → Top Management closes.
         await notifyByDeptRole({ roles: ['super_admin'] }, 'Case Ready to Close',
-          `${profile?.full_name} resolved case ${kcase?.case_number} — awaiting closure by Top Management.`)
+          `${profile?.full_name} resolved case ${kcase?.case_number} — awaiting closure by Top Management.`,
+          { key: 'case_ready_close', params: { caseNo: kcase?.case_number ?? '' } })
       }
 
       toast.success(goesToManager ? (lang === 'th' ? 'บันทึกการแก้ไขแล้ว รอผู้จัดการอนุมัติ' : 'Case marked as resolved. Awaiting manager approval.') : (lang === 'th' ? 'ส่งการแก้ไขแล้ว รอผู้บริหารระดับสูงปิดเคส' : 'Resolution submitted. Awaiting Top Management closure.'))
@@ -585,6 +597,7 @@ export function CaseDetailPage() {
           { extraIds: [kcase?.created_by, kcase?.resolved_by, ...picIds] },
           'Case Closed',
           `Case ${kcase?.case_number} has been reviewed and officially closed by Top Management.`,
+          { key: 'case_closed', params: { caseNo: kcase?.case_number ?? '' } },
         )
 
         toast.success(lang === 'th' ? 'อนุมัติและปิดเคสแล้ว' : 'Case approved and closed.')
@@ -604,6 +617,7 @@ export function CaseDetailPage() {
           { roles: ['super_admin'] },
           'Case Awaiting Final Closure',
           `Case ${kcase?.case_number} approved by ${profile?.full_name} — ready for Top Management review and closure.`,
+          { key: 'case_awaiting_closure', params: { caseNo: kcase?.case_number ?? '', actor: profile?.full_name ?? '' } },
         )
 
         toast.success(lang === 'th' ? 'อนุมัติแล้ว แจ้งผู้บริหารระดับสูงเพื่อปิดเคสขั้นสุดท้ายแล้ว' : 'Approved. Top Management has been notified for final closure.')
@@ -638,6 +652,7 @@ export function CaseDetailPage() {
         { extraIds: [kcase?.created_by, kcase?.resolved_by, ...picIds] },
         'Case Closed',
         `Case ${kcase?.case_number} has been reviewed and officially closed by Top Management.`,
+        { key: 'case_closed', params: { caseNo: kcase?.case_number ?? '' } },
       )
 
       toast.success(lang === 'th' ? 'ปิดเคสอย่างเป็นทางการแล้ว' : 'Case officially closed.')
@@ -680,6 +695,7 @@ export function CaseDetailPage() {
         },
         'Case Reopened',
         `Case ${kcase!.case_number} has been reopened by ${profile?.full_name} and requires further action.`,
+        { key: 'case_reopened', params: { caseNo: kcase!.case_number ?? '', actor: profile?.full_name ?? '' } },
       )
 
       toast.success(lang === 'th' ? 'เปิดเคสใหม่แล้ว' : 'Case reopened.')
@@ -715,6 +731,8 @@ export function CaseDetailPage() {
               title: `${profile.full_name} mentioned you in ${kcase?.case_number}`,
               message: preview,
               notification_type: 'mention',
+              title_key: 'case_mentioned',
+              body_params: { actor: profile.full_name, caseNo: kcase?.case_number ?? '', text: preview },
             }))
           )
         }
@@ -754,6 +772,7 @@ export function CaseDetailPage() {
         { departments: [addDeptValue], roles: ['manager', 'staff'] },
         'Case Assigned to Your Department',
         `Case ${kcase?.case_number} has been additionally assigned to your department by Super Admin.`,
+        { key: 'case_dept_assigned', params: { caseNo: kcase?.case_number ?? '' } },
       )
 
       toast.success(lang === 'th' ? `เพิ่ม ${DEPARTMENT_LABELS[addDeptValue]} เข้าเคสแล้ว` : `${DEPARTMENT_LABELS[addDeptValue]} added to the case.`)
@@ -849,6 +868,7 @@ export function CaseDetailPage() {
         { departments: depts, roles: ['manager'] },
         'Case Priority Changed',
         t.caseDetail.priorityChangedNotif(kcase?.case_number || '', priorityLabel),
+        { key: 'case_priority_changed', params: { caseNo: kcase?.case_number ?? '', priority: selectedPriority } },
       )
 
       toast.success(t.caseDetail.priorityChanged(priorityLabel))

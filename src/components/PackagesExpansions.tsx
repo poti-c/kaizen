@@ -357,7 +357,7 @@ export function PackagesExpansions() {
                   {!purchased && (
                     <div className="flex flex-wrap items-center gap-2 mt-2">
                       <button onClick={() => openPay({ kind: 'addon', target: a.key, label: a.name, amount: price[a.key] ?? 0 })} className={`h-8 px-3 rounded-lg text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap flex-shrink-0 ${upgradeLocked ? 'bg-gray-100 text-gray-400' : 'bg-[var(--brand-primary)] text-white hover:opacity-90'}`}>{upgradeLocked && <Lock className="h-3 w-3" />}{lang === 'th' ? 'สมัครเลย' : 'Subscribe now'}</button>
-                      {trialLeft == null && !trialUsed && (
+                      {a.key === 'pms' && trialLeft == null && !trialUsed && (
                         <button onClick={startPmsTrial} disabled={busy} className={`h-8 px-3 rounded-lg text-xs font-semibold disabled:opacity-50 flex items-center gap-1.5 whitespace-nowrap flex-shrink-0 border ${upgradeLocked ? 'border-gray-200 text-gray-400' : 'border-[var(--brand-primary)] text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/5'}`}>
                           {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : upgradeLocked ? <Lock className="h-3 w-3" /> : <Sparkles className="h-3.5 w-3.5" />}{lang === 'th' ? 'ทดลองใช้ฟรี 7 วัน' : 'Try free for 7 days'}
                         </button>

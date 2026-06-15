@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { ChevronLeft, ChevronRight, Wrench, ClipboardList } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Wrench, ClipboardList, DoorOpen } from 'lucide-react'
+import { unitOne, DEFAULT_UNIT, type UnitNoun } from '@/lib/roomUnit'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useCompany } from '@/contexts/CompanyContext'
@@ -24,7 +25,14 @@ function isoKey(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 }
 
-type Entry = { kind: 'case'; case: KaizenCase } | { kind: 'pm'; task: PMTask } | { kind: 'rr'; order: RrOrder }
+type RoomOrderCal = { id: string; order_date: string; status: 'draft' | 'submitted'; room_statuses: Record<string, string> }
+type Entry = { kind: 'case'; case: KaizenCase } | { kind: 'pm'; task: PMTask } | { kind: 'rr'; order: RrOrder } | { kind: 'roomorder'; ro: RoomOrderCal }
+
+// Room-order chip/dot tone by submission status.
+const ROOMORDER_TONE: Record<string, { chip: string; dot: string }> = {
+  draft:     { chip: 'bg-amber-50 text-amber-700 border-amber-200', dot: 'bg-amber-500' },
+  submitted: { chip: 'bg-green-50 text-green-700 border-green-200', dot: 'bg-green-500' },
+}
 
 // Routine-order chip/dot tones by workflow status (matches the roster page pills).
 const RR_TONES: Record<string, { chip: string; dot: string }> = {
@@ -47,6 +55,8 @@ export function CasesCalendarPage() {
   const [cases, setCases] = useState<KaizenCase[]>([])
   const [pmTasks, setPmTasks] = useState<PMTask[]>([])
   const [rrOrders, setRrOrders] = useState<RrOrder[]>([])
+  const [rrRoomOrders, setRrRoomOrders] = useState<RoomOrderCal[]>([])
+  const [roomUnit, setRoomUnit] = useState<UnitNoun>(DEFAULT_UNIT)
   const [loading, setLoading] = useState(true)
   const [selectedKey, setSelectedKey] = useState<string>(isoKey(today))
   const [deptFilter, setDeptFilter] = useState<Department | 'all'>(
@@ -75,6 +85,15 @@ export function CasesCalendarPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profile, activeCompany, viewMonth, viewYear, mode])
 
+  // Configurable room-order noun (Room / Hut / Resort …) for the calendar label.
+  useEffect(() => {
+    if (!rrEnabled || !activeCompany) return
+    let stale = false
+    supabase.from('kaizen_settings').select('value').eq('company_id', activeCompany.id).eq('key', 'rr_room_config').maybeSingle()
+      .then(({ data }) => { const u = (data?.value as { unit?: UnitNoun } | undefined)?.unit; if (!stale && u) setRoomUnit(u) })
+    return () => { stale = true }
+  }, [rrEnabled, activeCompany])
+
   async function fetchData() {
     if (!activeCompany) return
     setLoading(true)
@@ -102,14 +121,22 @@ export function CasesCalendarPage() {
     } else { setPmTasks([]) }
 
     if (showRrData) {
+      const monthEnd = isoKey(new Date(viewYear, viewMonth + 1, 0))
       jobs.push((async () => {
         const { data } = await supabase.from('kaizen_rr_orders')
           .select('*')
           .eq('company_id', activeCompany.id).neq('status', 'cancelled')
-          .gte('order_date', isoKey(start)).lte('order_date', isoKey(new Date(viewYear, viewMonth + 1, 0)))
+          .gte('order_date', isoKey(start)).lte('order_date', monthEnd)
         setRrOrders((data as RrOrder[]) ?? [])
       })())
-    } else { setRrOrders([]) }
+      jobs.push((async () => {
+        const { data } = await supabase.from('kaizen_rr_room_orders')
+          .select('id, order_date, status, room_statuses')
+          .eq('company_id', activeCompany.id)
+          .gte('order_date', isoKey(start)).lte('order_date', monthEnd)
+        setRrRoomOrders((data as RoomOrderCal[]) ?? [])
+      })())
+    } else { setRrOrders([]); setRrRoomOrders([]) }
 
     await Promise.all(jobs)
     setLoading(false)
@@ -144,6 +171,16 @@ export function CasesCalendarPage() {
   })
   if (showPmData) pmTasks.forEach(tk => { (byDay[tk.due_date] ||= []).push({ kind: 'pm', task: tk }) })
   if (showRrData) rrOrders.forEach(o => { (byDay[o.order_date] ||= []).push({ kind: 'rr', order: o }) })
+  if (showRrData) rrRoomOrders.forEach(ro => { (byDay[ro.order_date] ||= []).push({ kind: 'roomorder', ro }) })
+
+  const roomNoun = unitOne(roomUnit, lang)
+  const roomOrderLabel = lang === 'th' ? `ใบสั่ง${roomNoun}` : `${roomNoun} order`
+  const ooCount = (ro: RoomOrderCal) => Object.values(ro.room_statuses ?? {}).filter(s => s === 'oo').length
+  const roomOrderSub = (ro: RoomOrderCal) => {
+    const status = ro.status === 'submitted' ? (lang === 'th' ? 'ส่งแล้ว' : 'Submitted') : (lang === 'th' ? 'ฉบับร่าง' : 'Draft')
+    const oo = ooCount(ro)
+    return oo > 0 ? `${status} · ${oo} ${lang === 'th' ? 'งดใช้งาน' : 'OO'}` : status
+  }
 
   function isToday(date: Date) {
     return date.getDate() === today.getDate() && date.getMonth() === today.getMonth() && date.getFullYear() === today.getFullYear()
@@ -243,10 +280,14 @@ export function CasesCalendarPage() {
                       <button key={'p' + e.task.id} onClick={(ev) => { ev.stopPropagation(); setOpenTask(e.task) }}
                         className={`w-full text-left px-1.5 py-0.5 rounded border text-[10px] font-medium truncate flex items-center gap-1 leading-4 ${taskTone(e.task).chip}`}
                         title={e.task.asset?.name}><Wrench className="h-2.5 w-2.5 flex-shrink-0" /><span className="truncate">{e.task.asset?.name ?? 'Asset'}</span></button>
-                    ) : (
+                    ) : e.kind === 'rr' ? (
                       <button key={'r' + e.order.id} onClick={(ev) => { ev.stopPropagation(); navigate('/routine-roster') }}
                         className={`w-full text-left px-1.5 py-0.5 rounded border text-[10px] font-medium truncate flex items-center gap-1 leading-4 ${(RR_TONES[e.order.status] ?? RR_TONES.pending).chip}`}
                         title={e.order.title}><ClipboardList className="h-2.5 w-2.5 flex-shrink-0" /><span className="truncate">{e.order.title}</span></button>
+                    ) : (
+                      <button key={'ro' + e.ro.id} onClick={(ev) => { ev.stopPropagation(); navigate('/routine-roster', { state: { rrView: 'rooms', roomDate: e.ro.order_date } }) }}
+                        className={`w-full text-left px-1.5 py-0.5 rounded border text-[10px] font-medium truncate flex items-center gap-1 leading-4 ${(ROOMORDER_TONE[e.ro.status] ?? ROOMORDER_TONE.draft).chip}`}
+                        title={roomOrderLabel}><DoorOpen className="h-2.5 w-2.5 flex-shrink-0" /><span className="truncate">{roomOrderLabel}</span></button>
                     ))}
                     {entries.length > 3 && <p className="text-[10px] text-gray-400 pl-1 leading-4">+{entries.length - 3} {t.calendar.more}</p>}
                   </div>
@@ -283,12 +324,20 @@ export function CasesCalendarPage() {
                     <p className="text-xs text-gray-400">{t.pm[taskStatusKey(e.task)]}{e.task.asset?.location ? ` · ${e.task.asset.location}` : ''}</p>
                   </div>
                 </button>
-              ) : (
+              ) : e.kind === 'rr' ? (
                 <button key={'r' + e.order.id} onClick={() => navigate('/routine-roster')} className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 text-left">
                   <span className={cn('w-2.5 h-2.5 rounded-full flex-shrink-0', (RR_TONES[e.order.status] ?? RR_TONES.pending).dot)} />
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-gray-900 truncate flex items-center gap-1.5"><ClipboardList className="h-3 w-3 text-gray-400" />{e.order.title}{e.order.item_label ? ` · ${e.order.item_label}` : ''}</p>
                     <p className="text-xs text-gray-400">{rrStatusLabel(e.order.status)}</p>
+                  </div>
+                </button>
+              ) : (
+                <button key={'ro' + e.ro.id} onClick={() => navigate('/routine-roster', { state: { rrView: 'rooms', roomDate: e.ro.order_date } })} className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 text-left">
+                  <span className={cn('w-2.5 h-2.5 rounded-full flex-shrink-0', (ROOMORDER_TONE[e.ro.status] ?? ROOMORDER_TONE.draft).dot)} />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-900 truncate flex items-center gap-1.5"><DoorOpen className="h-3 w-3 text-gray-400" />{roomOrderLabel}</p>
+                    <p className="text-xs text-gray-400">{roomOrderSub(e.ro)}</p>
                   </div>
                 </button>
               ))}

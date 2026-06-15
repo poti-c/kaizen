@@ -6,12 +6,13 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useLanguage } from '@/contexts/LanguageContext'
 import { Button } from '@/components/ui/button'
 import { formatDateTime } from '@/lib/utils'
+import { localizeNotif } from '@/lib/i18nDynamic'
 import type { KaizenNotification } from '@/types'
 import { cn } from '@/lib/utils'
 
 export function NotificationsPage() {
   const { profile } = useAuth()
-  const { t } = useLanguage()
+  const { t, lang } = useLanguage()
   const navigate = useNavigate()
   const [notifications, setNotifications] = useState<KaizenNotification[]>([])
   const [loading, setLoading] = useState(true)
@@ -135,8 +136,10 @@ export function NotificationsPage() {
                   >
                     <div className={cn('w-2.5 h-2.5 rounded-full mt-2 flex-shrink-0', typeColors[n.notification_type] || 'bg-gray-400', n.is_read && 'opacity-30')} />
                     <div className="flex-1 min-w-0">
-                      <p className={cn('text-sm font-medium', n.is_read ? 'text-gray-600' : 'text-gray-900')}>{n.title}</p>
-                      <p className="text-sm text-gray-500 mt-0.5 leading-relaxed">{n.message}</p>
+                      {(() => { const loc = localizeNotif(n, lang); return (<>
+                        <p className={cn('text-sm font-medium', n.is_read ? 'text-gray-600' : 'text-gray-900')}>{loc.title}</p>
+                        <p className="text-sm text-gray-500 mt-0.5 leading-relaxed">{loc.message}</p>
+                      </>) })()}
                       <p className="text-xs text-gray-400 mt-1.5">{formatDateTime(n.created_at)}</p>
                     </div>
                     {!n.is_read && <div className="w-2 h-2 rounded-full bg-blue-500 mt-2 flex-shrink-0" />}

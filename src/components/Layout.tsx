@@ -3,6 +3,7 @@ import { Sidebar } from './Sidebar'
 import { Header } from './Header'
 import { BottomNav } from './BottomNav'
 import { TrialBanner, PmsTrialBanner } from './TrialBanner'
+import { FeedbackWidget } from './FeedbackWidget'
 import { useAuth } from '@/contexts/AuthContext'
 import { useViewMode } from '@/contexts/ViewModeContext'
 import { useLanguage } from '@/contexts/LanguageContext'
@@ -56,6 +57,9 @@ export function Layout() {
 
       {/* Bottom nav — only shown in auto/mobile mode */}
       {showBottomNav && <BottomNav />}
+
+      {/* App-wide feedback affordance (trial friction capture) */}
+      <FeedbackWidget />
     </div>
   )
 }

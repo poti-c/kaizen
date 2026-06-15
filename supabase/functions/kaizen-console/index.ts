@@ -261,6 +261,38 @@ Deno.serve(async (req) => {
     return json({ success: true });
   }
 
+  if (action === "list_feedback") {
+    const { data } = await admin.from("kaizen_feedback")
+      .select("id, company_id, user_name, role, route, message, lang, status, created_at, kaizen_companies(name)")
+      .order("created_at", { ascending: false }).limit(200);
+    const feedback = (data ?? []).map((f) => {
+      const co = f.kaizen_companies;
+      const company_name = Array.isArray(co) ? (co[0]?.name ?? null) : (co?.name ?? null);
+      const { kaizen_companies: _omit, ...rest } = f;
+      return { ...rest, company_name };
+    });
+    return json({ feedback });
+  }
+
+  if (action === "update_feedback_status") {
+    const feedback_id = String(body.feedback_id ?? "");
+    const status = String(body.status ?? "");
+    if (!feedback_id || !["new", "triaged", "done"].includes(status)) return json({ error: "feedback_id and valid status required" }, 400);
+    const { error } = await admin.from("kaizen_feedback").update({ status }).eq("id", feedback_id);
+    if (error) return json({ error: error.message }, 400);
+    await audit("update_feedback_status", { feedback_id, status }, ip, true);
+    return json({ success: true });
+  }
+
+  if (action === "delete_feedback") {
+    const feedback_id = String(body.feedback_id ?? "");
+    if (!feedback_id) return json({ error: "feedback_id required" }, 400);
+    const { error } = await admin.from("kaizen_feedback").delete().eq("id", feedback_id);
+    if (error) return json({ error: error.message }, 400);
+    await audit("delete_feedback", { feedback_id }, ip, true);
+    return json({ success: true });
+  }
+
   if (action === "add_admin") {
     const username = normUser(body.username);
     const password = String(body.password ?? "");

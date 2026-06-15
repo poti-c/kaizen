@@ -149,15 +149,15 @@ export function PreventiveMaintenancePage() {
           <h1 className="text-lg font-bold text-gray-900">{tr.pm.scheduler}</h1>
         </div>
         <div className="flex items-center gap-2">
+          {canManage && (
+            <button onClick={() => setEditor('new')} className="flex items-center gap-1.5 bg-[var(--brand-primary)] text-white text-sm font-medium px-3 py-2 rounded-lg">
+              <Plus className="h-4 w-4" />{tr.pm.addAsset}
+            </button>
+          )}
           {canSeeReport && (
             <button onClick={() => setShowReport(true)}
               className="flex items-center gap-1.5 border border-[var(--brand-primary)] text-[var(--brand-primary)] text-sm font-medium px-3 py-2 rounded-lg hover:bg-[var(--brand-primary)]/5">
               <FileBarChart className="h-4 w-4" />{tr.pmReport.button}
-            </button>
-          )}
-          {canManage && (
-            <button onClick={() => setEditor('new')} className="flex items-center gap-1.5 bg-[var(--brand-primary)] text-white text-sm font-medium px-3 py-2 rounded-lg">
-              <Plus className="h-4 w-4" />{tr.pm.addAsset}
             </button>
           )}
         </div>

@@ -111,6 +111,15 @@ serve(async (req) => {
       if (department !== callerDept) return json({ error: "Managers can only create staff in their own department" }, 403);
     }
 
+    // A super_admin may only create users in a company they actually manage (own + granted),
+    // not in any arbitrary company id passed in the body.
+    if (callerRole === "super_admin") {
+      const targetCo = company_id ?? callerCompany;
+      if (!targetCo || !(await accessibleCompanies()).has(targetCo)) {
+        return json({ error: "You can only create users in companies you manage." }, 403);
+      }
+    }
+
     // Enforce the company package's user limits (Top Management / managers / staff).
     const limitCompany = company_id ?? callerCompany;
     if ((role === "super_admin" || role === "manager" || role === "staff") && limitCompany) {
@@ -343,10 +352,10 @@ serve(async (req) => {
     const { userId, password } = body;
     if (!userId || !password) return json({ error: "userId and password are required" }, 400);
 
-    if (callerRole === "manager") {
-      const check = await assertCanManage(userId);
-      if (!check.ok) return json({ error: check.error }, 403);
-    }
+    // Authorize EVERY caller (assertCanManage scopes super_admins to their accessible
+    // companies too) — previously a super_admin could reset any user's password anywhere.
+    const check = await assertCanManage(userId);
+    if (!check.ok) return json({ error: check.error }, 403);
 
     const { error: pwErr } = await supabaseAdmin.auth.admin.updateUserById(userId, { password });
     if (pwErr) return json({ error: pwErr.message }, 400);

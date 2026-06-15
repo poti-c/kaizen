@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState } from 'react'
+import { supabase } from '@/lib/supabase'
 
 export type Lang = 'en' | 'th'
 
@@ -872,6 +873,12 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
   function setLang(l: Lang) {
     setLangState(l)
     localStorage.setItem('kaizen-lang', l)
+    // Best-effort: persist to the profile so server-side push notifications can be
+    // localized to this recipient. No-op (RLS) when signed out, e.g. on the Login screen.
+    supabase.auth.getUser().then(({ data }) => {
+      const uid = data.user?.id
+      if (uid) supabase.from('kaizen_profiles').update({ preferred_lang: l }).eq('id', uid)
+    }).catch(() => {})
   }
   const t = lang === 'th' ? th : en
   return <LangContext.Provider value={{ lang, setLang, t }}>{children}</LangContext.Provider>

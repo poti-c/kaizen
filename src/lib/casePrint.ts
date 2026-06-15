@@ -1,10 +1,16 @@
-import { DEPARTMENT_LABELS } from '@/types'
+import { deptLabel } from '@/types'
+import { timelineActionLabel } from '@/lib/i18nDynamic'
 import type { KaizenCase, KaizenProfile, KaizenCaseTimeline, KaizenCasePhoto } from '@/types'
 
 export const CATEGORY_LABELS_EN: Record<string, string> = {
   maintenance: 'Maintenance', cleanliness: 'Cleanliness', safety: 'Safety',
   guest_complaint: 'Guest Complaint', equipment: 'Equipment', other: 'Other',
   preventive_maintenance: 'Preventive Maintenance',
+}
+const CATEGORY_LABELS_TH: Record<string, string> = {
+  maintenance: 'งานซ่อมบำรุง', cleanliness: 'ความสะอาด', safety: 'ความปลอดภัย',
+  guest_complaint: 'ข้อร้องเรียนจากแขก', equipment: 'อุปกรณ์', other: 'อื่นๆ',
+  preventive_maintenance: 'บำรุงรักษาเชิงป้องกัน',
 }
 
 /**
@@ -15,15 +21,35 @@ export function buildCasePrintHtml(
   kcase: KaizenCase,
   photos: KaizenCasePhoto[],
   timeline: KaizenCaseTimeline[],
+  lang: 'en' | 'th' = 'en',
 ): string {
   const problemPhotosList = photos.filter((p) => p.photo_type === 'problem')
   const resolutionPhotosList = photos.filter((p) => p.photo_type === 'resolution')
+  const th = lang === 'th'
+  const loc = th ? 'th-TH' : 'en-GB'
+  const L = {
+    brand: th ? 'ระบบไคเซ็น นา นิรันดร์' : 'Na Nirand Kaizen System',
+    recurring: th ? 'เกิดซ้ำ' : 'Recurring',
+    department: th ? 'แผนก' : 'Department',
+    created: th ? 'วันที่สร้าง' : 'Created',
+    dueDate: th ? 'วันครบกำหนด' : 'Due Date',
+    reporter: th ? 'ผู้แจ้ง' : 'Reporter',
+    unknown: th ? 'ไม่ทราบ' : 'Unknown',
+    description: th ? 'รายละเอียด' : 'Description',
+    proposedSolution: th ? 'แนวทางแก้ไขที่เสนอ' : 'Proposed Solution',
+    assignedDepartments: th ? 'แผนกที่ได้รับมอบหมาย' : 'Assigned Departments',
+    problemPhotos: th ? 'รูปปัญหา' : 'Problem Photos',
+    resolutionPhotos: th ? 'รูปการแก้ไข' : 'Resolution Photos',
+    timeline: th ? 'ไทม์ไลน์' : 'Timeline',
+    printed: th ? 'พิมพ์เมื่อ' : 'Printed',
+  }
+  const catLabel = kcase.category ? ((th ? CATEGORY_LABELS_TH[kcase.category] : CATEGORY_LABELS_EN[kcase.category]) || kcase.category) : ''
 
   return `
     <!DOCTYPE html>
     <html>
     <head>
-      <title>Case ${kcase.case_number} — Na Nirand Kaizen</title>
+      <title>${th ? 'เคส' : 'Case'} ${kcase.case_number} — Na Nirand Kaizen</title>
       <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #111; padding: 40px; font-size: 13px; }
@@ -50,43 +76,43 @@ export function buildCasePrintHtml(
     </head>
     <body>
       <div class="header">
-        <div class="brand">Na Nirand Kaizen System</div>
+        <div class="brand">${L.brand}</div>
         <h1>${kcase.title}</h1>
         <div>
           <span class="badge">${kcase.case_number}</span>
           <span class="badge">${kcase.priority.toUpperCase()}</span>
           <span class="badge">${kcase.status.replace(/_/g, ' ').toUpperCase()}</span>
-          ${kcase.category ? `<span class="badge">${CATEGORY_LABELS_EN[kcase.category] || kcase.category}</span>` : ''}
-          ${kcase.is_recurring ? `<span class="badge">Recurring</span>` : ''}
+          ${catLabel ? `<span class="badge">${catLabel}</span>` : ''}
+          ${kcase.is_recurring ? `<span class="badge">${L.recurring}</span>` : ''}
         </div>
         <div class="meta">
-          <div class="meta-item"><span class="meta-label">Department</span><span class="meta-value">${DEPARTMENT_LABELS[kcase.department]}</span></div>
-          <div class="meta-item"><span class="meta-label">Created</span><span class="meta-value">${new Date(kcase.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}</span></div>
-          ${kcase.due_date ? `<div class="meta-item"><span class="meta-label">Due Date</span><span class="meta-value">${new Date(kcase.due_date).toLocaleDateString('en-GB')}</span></div>` : ''}
-          <div class="meta-item"><span class="meta-label">Reporter</span><span class="meta-value">${(kcase.creator as KaizenProfile)?.full_name || 'Unknown'}</span></div>
+          <div class="meta-item"><span class="meta-label">${L.department}</span><span class="meta-value">${deptLabel(kcase.department, lang)}</span></div>
+          <div class="meta-item"><span class="meta-label">${L.created}</span><span class="meta-value">${new Date(kcase.created_at).toLocaleDateString(loc, { day: 'numeric', month: 'long', year: 'numeric' })}</span></div>
+          ${kcase.due_date ? `<div class="meta-item"><span class="meta-label">${L.dueDate}</span><span class="meta-value">${new Date(kcase.due_date).toLocaleDateString(loc)}</span></div>` : ''}
+          <div class="meta-item"><span class="meta-label">${L.reporter}</span><span class="meta-value">${(kcase.creator as KaizenProfile)?.full_name || L.unknown}</span></div>
         </div>
       </div>
 
       <div class="section">
-        <h2>Description</h2>
+        <h2>${L.description}</h2>
         <p>${kcase.description.replace(/\n/g, '<br>')}</p>
       </div>
 
       ${kcase.proposed_solution ? `
       <div class="section">
-        <h2>Proposed Solution</h2>
+        <h2>${L.proposedSolution}</h2>
         <p>${kcase.proposed_solution.replace(/\n/g, '<br>')}</p>
       </div>` : ''}
 
       ${kcase.assigned_departments && kcase.assigned_departments.length > 0 ? `
       <div class="section">
-        <h2>Assigned Departments</h2>
-        <p>${kcase.assigned_departments.map((d) => DEPARTMENT_LABELS[d]).join(', ')}</p>
+        <h2>${L.assignedDepartments}</h2>
+        <p>${kcase.assigned_departments.map((d) => deptLabel(d, lang)).join(', ')}</p>
       </div>` : ''}
 
       ${problemPhotosList.length > 0 ? `
       <div class="section">
-        <h2>Problem Photos</h2>
+        <h2>${L.problemPhotos}</h2>
         <div class="photos">
           ${problemPhotosList.map((p) => `<img src="${p.photo_url}" alt="Problem photo" />`).join('')}
         </div>
@@ -94,7 +120,7 @@ export function buildCasePrintHtml(
 
       ${resolutionPhotosList.length > 0 ? `
       <div class="section">
-        <h2>Resolution Photos</h2>
+        <h2>${L.resolutionPhotos}</h2>
         <div class="photos">
           ${resolutionPhotosList.map((p) => `<img src="${p.photo_url}" alt="Resolution photo" />`).join('')}
         </div>
@@ -102,22 +128,22 @@ export function buildCasePrintHtml(
 
       ${timeline.length > 0 ? `
       <div class="section">
-        <h2>Timeline</h2>
+        <h2>${L.timeline}</h2>
         ${timeline.map((e) => `
           <div class="timeline-item">
             <div class="timeline-dot"></div>
             <div class="timeline-content">
-              <p class="action">${e.action.replace(/_/g, ' ')}</p>
+              <p class="action">${timelineActionLabel(e.action, lang)}</p>
               ${e.description ? `<p>${e.description}</p>` : ''}
-              <p class="time">${new Date(e.created_at).toLocaleString('en-GB')}</p>
+              <p class="time">${new Date(e.created_at).toLocaleString(loc)}</p>
             </div>
           </div>
         `).join('')}
       </div>` : ''}
 
       <div class="footer">
-        <span>Case ${kcase.case_number} — Na Nirand Kaizen System</span>
-        <span>Printed: ${new Date().toLocaleString('en-GB')}</span>
+        <span>${th ? 'เคส' : 'Case'} ${kcase.case_number} — ${L.brand}</span>
+        <span>${L.printed}: ${new Date().toLocaleString(loc)}</span>
       </div>
     </body>
     </html>

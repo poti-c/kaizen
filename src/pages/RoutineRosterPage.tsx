@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { useLocation } from 'react-router-dom'
 import {
   ClipboardList, ChevronLeft, ChevronRight, Loader2, X, Check, Trash2, Pencil,
   Plus, Send, PackageCheck, CircleCheck, ArrowRight, Clock, BedDouble, Ban, ChevronDown,
@@ -10,15 +11,27 @@ import { useCompany } from '@/contexts/CompanyContext'
 import { useAuth } from '@/contexts/AuthContext'
 import { useLanguage } from '@/contexts/LanguageContext'
 import {
-  DEPARTMENT_LABELS,
+  DEPARTMENT_LABELS, deptLabel,
   type Department, type RrTemplate, type RrOrder, type RrOrderItem, type RrOrderStatus,
   type RrOrderType, type RrVariant, type RrEvent,
 } from '@/types'
+import type { RrItem } from '@/components/RRSettings'
+import { RoomOrderView } from '@/components/RoomOrderView'
+import { unitOne, DEFAULT_UNIT, type UnitNoun } from '@/lib/roomUnit'
+import { resolveDeptRecipients } from '@/lib/rrNotify'
+import { useRrFoAccess } from '@/hooks/useRrFoAccess'
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 const WEEKDAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const
-const EDIT_WEEKDAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const
+const RUN_WD = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const
+const WD_LABEL_EN: Record<string, string> = { mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat', sun: 'Sun' }
+const WD_LABEL_TH: Record<string, string> = { mon: 'จ', tue: 'อ', wed: 'พ', thu: 'พฤ', fri: 'ศ', sat: 'ส', sun: 'อา' }
+/** Does this template run on the given date? (run_weekdays null = every day) */
+function runsOnDate(tp: RrTemplate, date: string): boolean {
+  if (!tp.run_weekdays || tp.run_weekdays.length === 0) return true
+  return tp.run_weekdays.includes(WEEKDAY_KEYS[new Date(date + 'T00:00:00').getDay()])
+}
 
 /** Local (not UTC) yyyy-mm-dd — the hotel runs on local time. */
 function dateKey(d: Date): string {
@@ -80,12 +93,26 @@ export function RoutineRosterPage() {
   const { t: tr, lang } = useLanguage()
   const companyId = activeCompany?.id ?? null
   const canManage = profile?.role === 'super_admin' || profile?.role === 'manager'
+  const rrFo = useRrFoAccess()
 
-  const [view, setView] = useState<'board' | 'templates' | 'report'>('board')
+  const [view, setView] = useState<'board' | 'rooms' | 'templates' | 'report'>('board')
+  const [fulfillingDepts, setFulfillingDepts] = useState<Set<string>>(new Set()) // depts used as a fulfilling dept in the room recipes
+  // Managers + authorized Front Office can place/inspect; staff in a fulfilling department see their own fulfil board.
+  const canRooms = canManage
+    || (profile?.department === 'front_office' && rrFo.allowed)
+    || (!!profile?.department && fulfillingDepts.has(profile.department))
+
+  // Deep-link from the calendar's room-order chip: open the Room order tab at that date.
+  const location = useLocation()
+  const nav = location.state as { rrView?: string; roomDate?: string } | null
+  useEffect(() => {
+    if (nav?.rrView === 'rooms' && canRooms) setView('rooms')
+  }, [nav?.rrView, canRooms])
   const [date, setDate] = useState(() => dateKey(new Date()))
   const [templates, setTemplates] = useState<RrTemplate[]>([])
   const [orders, setOrders] = useState<RrOrder[]>([])
   const [rooms, setRooms] = useState<string[]>([])
+  const [unit, setUnit] = useState<UnitNoun>(DEFAULT_UNIT) // configurable noun (Room / Hut / Resort …)
   const [mutes, setMutes] = useState<Set<string>>(new Set()) // template_ids muted by me
   const [loading, setLoading] = useState(true)
   const today = dateKey(new Date())
@@ -106,6 +133,23 @@ export function RoutineRosterPage() {
         if (stale) return
         const v = data?.value
         setRooms(Array.isArray(v) ? (v as string[]) : [])
+      })
+    supabase.from('kaizen_settings').select('value')
+      .eq('company_id', companyId).eq('key', 'rr_room_config').maybeSingle()
+      .then(({ data }) => {
+        if (stale) return
+        const u = (data?.value as { unit?: UnitNoun } | undefined)?.unit
+        if (u) setUnit(u)
+      })
+    // Which departments actually fulfil room orders (for staff fulfil-board access).
+    supabase.from('kaizen_settings').select('value')
+      .eq('company_id', companyId).eq('key', 'rr_room_recipes').maybeSingle()
+      .then(({ data }) => {
+        if (stale) return
+        const recipes = (data?.value as Record<string, { fulfill_department?: string }[]> | undefined) ?? {}
+        const set = new Set<string>()
+        Object.values(recipes).forEach((lines) => (lines ?? []).forEach((l) => { if (l.fulfill_department) set.add(l.fulfill_department) }))
+        setFulfillingDepts(set)
       })
     return () => { stale = true }
   }, [companyId])
@@ -142,7 +186,7 @@ export function RoutineRosterPage() {
     const reach = (tp: RrTemplate) => shiftDate(today, leadOf(tp))
     if (date >= today) {
       const have = new Set(((res.data as RrOrder[]) ?? []).map((o) => o.template_id))
-      const missing = tplList.filter((tp) => tp.active && !have.has(tp.id) && date <= reach(tp))
+      const missing = tplList.filter((tp) => tp.active && !have.has(tp.id) && date <= reach(tp) && runsOnDate(tp, date))
       if (missing.length > 0) {
         const rows = missing.map((tp) => ({
           company_id: companyId, template_id: tp.id, order_date: date,
@@ -170,14 +214,18 @@ export function RoutineRosterPage() {
   // a staff PIC for that template is never skipped (they're responsible).
   const notifyDept = useCallback(async (
     dept: Department, title: string, message: string,
-    opts?: { templateId?: string | null; picMode?: string | null; picIds?: string[] | null },
+    opts?: { templateId?: string | null; picMode?: string | null; picIds?: string[] | null; useDeptConfig?: boolean },
   ) => {
     if (!companyId || !profile) return
     const picMode = opts?.picMode
     const picIds = (opts?.picIds ?? []).filter(Boolean)
 
     let rows: { id: string; role: string }[] = []
-    if (picMode === 'users' && picIds.length > 0) {
+    if (opts?.useDeptConfig) {
+      // Fulfilling-department alert — honour the shared notify policy
+      // (Manager only / Whole dept / Specific staff; default = managers).
+      rows = await resolveDeptRecipients(companyId, dept)
+    } else if (picMode === 'users' && picIds.length > 0) {
       // Assigned people + the department's managers/super_admins.
       const [pickedRes, mgrRes] = await Promise.all([
         supabase.from('kaizen_profiles').select('id, role').eq('company_id', companyId).eq('is_active', true).in('id', picIds),
@@ -270,6 +318,17 @@ export function RoutineRosterPage() {
   const dateLabel = new Date(date + 'T00:00:00').toLocaleDateString(
     lang === 'th' ? 'th-TH' : 'en-GB', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })
 
+  // Front-office staff not on the authorized list can't access the Routine Roster.
+  if (!rrFo.loading && !rrFo.allowed) {
+    return (
+      <div className="max-w-3xl mx-auto px-4 py-16 text-center">
+        <ClipboardList className="h-8 w-8 text-gray-300 mx-auto mb-2" />
+        <p className="text-sm text-gray-500">{lang === 'th' ? 'คุณไม่มีสิทธิ์เข้าถึงตารางงานประจำ' : "You don't have access to the Routine Roster."}</p>
+        <p className="text-xs text-gray-400 mt-1">{lang === 'th' ? 'โปรดติดต่อผู้จัดการเพื่อขอสิทธิ์' : 'Ask a manager to authorize your access.'}</p>
+      </div>
+    )
+  }
+
   return (
     <div className="max-w-3xl mx-auto px-4 py-6">
       <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
@@ -277,20 +336,23 @@ export function RoutineRosterPage() {
           <ClipboardList className="h-5 w-5 text-[var(--brand-primary)]" />
           <h1 className="text-lg font-bold text-gray-900">{tr.rr.title}</h1>
         </div>
-        <div className="flex rounded-lg border border-gray-300 overflow-hidden text-xs font-medium">
-          {([...(['board'] as const), ...(canManage ? (['templates'] as const) : []), ...(['report'] as const)]).map((v) => (
+        <div className="flex rounded-lg border border-gray-300 overflow-x-auto max-w-full text-xs font-medium">
+          {([...(['board'] as const), ...(canRooms ? (['rooms'] as const) : []), ...(canManage ? (['templates'] as const) : []), ...(canManage ? (['report'] as const) : [])]).map((v) => (
             <button key={v} onClick={() => setView(v)}
-              className={`px-3 h-8 transition-colors ${view === v ? 'bg-[var(--brand-primary)] text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
-              {v === 'board' ? tr.rr.boardTab : v === 'templates' ? tr.rr.templatesTab : tr.rr.reportTab}
+              className={`px-3 h-8 whitespace-nowrap flex-shrink-0 transition-colors ${view === v ? 'bg-[var(--brand-primary)] text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
+              {v === 'board' ? tr.rr.boardTab : v === 'rooms' ? (lang === 'th' ? `ใบสั่ง${unitOne(unit, lang)}` : `${unitOne(unit, lang)} order`) : v === 'templates' ? tr.rr.templatesTab : tr.rr.reportTab}
             </button>
           ))}
         </div>
       </div>
 
-      {view === 'templates' && canManage && companyId ? (
+      {view === 'rooms' && canRooms && companyId ? (
+        <RoomOrderView companyId={companyId} initialDate={nav?.roomDate}
+          initialMode={nav?.rrView === 'rooms' && !(profile?.role === 'super_admin' || profile?.department === 'front_office') ? 'fulfil' : undefined} />
+      ) : view === 'templates' && canManage && companyId ? (
         <TemplatesView companyId={companyId} templates={templates}
           mutes={mutes} onMuteToggle={loadMutes} canManage={canManage} onChanged={load} />
-      ) : view === 'report' && companyId ? (
+      ) : view === 'report' && canManage && companyId ? (
         <ReportView companyId={companyId} companyName={activeCompany?.org_title || activeCompany?.name || ''}
           generatedBy={profile?.full_name ?? ''} statusLabel={statusLabel} templates={templates} />
       ) : (
@@ -412,7 +474,7 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
   muted: boolean
   onMuteToggle: () => void
   notifyDept: (dept: Department, title: string, message: string,
-    opts?: { templateId?: string | null; picMode?: string | null; picIds?: string[] | null }) => Promise<void>
+    opts?: { templateId?: string | null; picMode?: string | null; picIds?: string[] | null; useDeptConfig?: boolean }) => Promise<void>
   onChanged: () => void
 }) {
   const { t: tr, lang } = useLanguage()
@@ -436,7 +498,7 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
   const onFulfill = canManage || profile?.department === o.fulfill_department
   const items = (o.items ?? []).slice().sort((a, b) => a.room_no.localeCompare(b.room_no, undefined, { numeric: true }))
   const deliveredCount = items.filter((i) => i.delivered).length
-  const deptArrow = `${DEPARTMENT_LABELS[o.request_department] ?? o.request_department} → ${DEPARTMENT_LABELS[o.fulfill_department] ?? o.fulfill_department}`
+  const deptArrow = `${deptLabel(o.request_department, lang)} → ${deptLabel(o.fulfill_department, lang)}`
   const dueLabel = o.due_at ? fmtTime(o.due_at) : ''
   const unitOf = (n: number) => (o.unit_label ? `${n} ${o.unit_label}` : String(n))
   // The per-room checklist is shown while delivering, and as a read-only recap after.
@@ -486,7 +548,7 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
   }
 
   async function update(patch: Partial<RrOrder>, okMsg: string, ev: { action: string; detail: string | null },
-    notify?: { dept: Department; title: string; message: string }) {
+    notify?: { dept: Department; title: string; message: string; useDeptConfig?: boolean }) {
     if (!profile) return
     setBusy(true)
     const { error } = await supabase.from('kaizen_rr_orders').update(patch).eq('id', o.id)
@@ -494,7 +556,7 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
     await logEvent(ev.action, ev.detail)
     setBusy(false)
     if (notify) await notifyDept(notify.dept, notify.title, notify.message,
-      { templateId: o.template_id, picMode, picIds })
+      { templateId: o.template_id, picMode, picIds, useDeptConfig: notify.useDeptConfig })
     toast.success(okMsg)
     onChanged()
   }
@@ -508,7 +570,11 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
         { status: 'sent', quantity: n, note: note.trim() || null, sent_by: profile.id, sent_at: now() },
         tr.rr.orderSent,
         { action: 'sent', detail: `${unitOf(n)}${itemSuffix}` },
-        { dept: o.fulfill_department, title: 'Routine order received', message: `"${o.title}"${itemSuffix} — ${unitOf(n)} requested by ${DEPARTMENT_LABELS[o.request_department]}` },
+        { dept: o.fulfill_department, useDeptConfig: true,
+          title: lang === 'th' ? 'มีออเดอร์ประจำเข้ามาใหม่' : 'Routine order received',
+          message: lang === 'th'
+            ? `"${o.title}"${itemSuffix} — ${unitOf(n)} จากแผนก ${deptLabel(o.request_department, lang)}`
+            : `"${o.title}"${itemSuffix} — ${unitOf(n)} requested by ${deptLabel(o.request_department, lang)}` },
       )
     } else if (isPerRoom) {
       // Room grid: keys present in `grid` are the selected rooms; value is the variant code.
@@ -523,12 +589,17 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
       )
       if (ins.error) { setBusy(false); toast.error(ins.error.message); return }
       setBusy(false)
-      const detail = hasVariants ? `${variantBreakdown(picked.map((r) => ({ variant: grid[r] } as RrOrderItem)), variants, lang)} · ${picked.length} rooms` : `${picked.length} rooms`
+      const roomsWord = lang === 'th' ? 'ห้อง' : 'rooms'
+      const detail = hasVariants ? `${variantBreakdown(picked.map((r) => ({ variant: grid[r] } as RrOrderItem)), variants, lang)} · ${picked.length} ${roomsWord}` : `${picked.length} ${roomsWord}`
       await update(
         { status: 'sent', quantity: picked.length, note: note.trim() || null, sent_by: profile.id, sent_at: now() },
         tr.rr.orderSent,
         { action: 'sent', detail },
-        { dept: o.fulfill_department, title: 'Routine order received', message: `"${o.title}"${itemSuffix} — ${picked.length} rooms, requested by ${DEPARTMENT_LABELS[o.request_department]}` },
+        { dept: o.fulfill_department, useDeptConfig: true,
+          title: lang === 'th' ? 'มีออเดอร์ประจำเข้ามาใหม่' : 'Routine order received',
+          message: lang === 'th'
+            ? `"${o.title}"${itemSuffix} — ${picked.length} ห้อง จากแผนก ${deptLabel(o.request_department, lang)}`
+            : `"${o.title}"${itemSuffix} — ${picked.length} rooms, requested by ${deptLabel(o.request_department, lang)}` },
       )
     }
   }
@@ -538,7 +609,11 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
       { status: 'accepted', accepted_by: profile!.id, accepted_at: now() },
       tr.rr.orderAccepted,
       { action: 'accepted', detail: null },
-      { dept: o.request_department, title: 'Routine order accepted', message: `"${o.title}"${itemSuffix} was accepted by ${DEPARTMENT_LABELS[o.fulfill_department]}` },
+      { dept: o.request_department,
+        title: lang === 'th' ? 'รับออเดอร์แล้ว' : 'Routine order accepted',
+        message: lang === 'th'
+          ? `"${o.title}"${itemSuffix} รับงานโดยแผนก ${deptLabel(o.fulfill_department, lang)}`
+          : `"${o.title}"${itemSuffix} was accepted by ${deptLabel(o.fulfill_department, lang)}` },
     )
   }
 
@@ -547,7 +622,11 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
       { status: 'delivered', delivered_by: profile!.id, delivered_at: now() },
       tr.rr.orderDelivered,
       { action: 'delivered', detail: null },
-      { dept: o.request_department, title: 'Routine order delivered', message: `"${o.title}"${itemSuffix} was delivered by ${DEPARTMENT_LABELS[o.fulfill_department]}` },
+      { dept: o.request_department,
+        title: lang === 'th' ? 'จัดส่งออเดอร์แล้ว' : 'Routine order delivered',
+        message: lang === 'th'
+          ? `"${o.title}"${itemSuffix} จัดส่งโดยแผนก ${deptLabel(o.fulfill_department, lang)}`
+          : `"${o.title}"${itemSuffix} was delivered by ${deptLabel(o.fulfill_department, lang)}` },
     )
   }
 
@@ -556,13 +635,27 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
       { status: 'confirmed', confirmed_by: profile!.id, confirmed_at: now() },
       tr.rr.orderConfirmed,
       { action: 'confirmed', detail: null },
-      { dept: o.fulfill_department, title: 'Routine order confirmed', message: `"${o.title}"${itemSuffix} receipt was confirmed by ${DEPARTMENT_LABELS[o.request_department]}` },
+      { dept: o.fulfill_department, useDeptConfig: true,
+        title: lang === 'th' ? 'ยืนยันการรับออเดอร์แล้ว' : 'Routine order confirmed',
+        message: lang === 'th'
+          ? `"${o.title}"${itemSuffix} ยืนยันการรับโดยแผนก ${deptLabel(o.request_department, lang)}`
+          : `"${o.title}"${itemSuffix} receipt was confirmed by ${deptLabel(o.request_department, lang)}` },
     )
   }
 
   async function cancelOrder() {
     if (!confirm(tr.rr.confirmCancelOrder)) return
     await update({ status: 'cancelled' }, tr.rr.orderCancelled, { action: 'cancelled', detail: null })
+  }
+
+  async function deleteOrder() {
+    if (!confirm(lang === 'th' ? 'ลบออเดอร์นี้? (สำหรับงานประจำที่ยังเปิดอยู่ ระบบอาจสร้างใหม่)' : 'Delete this order? (For an active routine it may regenerate — turn the template off to stop it.)')) return
+    setBusy(true)
+    const { error } = await supabase.from('kaizen_rr_orders').delete().eq('id', o.id)
+    setBusy(false)
+    if (error) { toast.error(error.message); return }
+    toast.success(lang === 'th' ? 'ลบแล้ว' : 'Order deleted')
+    onChanged()
   }
 
   async function toggleRoom(it: RrOrderItem) {
@@ -583,8 +676,11 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
       if (e2) toast.error(e2.message)
       else {
         await logEvent('delivered', null)
-        await notifyDept(o.request_department, 'Routine order delivered',
-          `"${o.title}"${itemSuffix} — all ${items.length} rooms done by ${DEPARTMENT_LABELS[o.fulfill_department]}`,
+        await notifyDept(o.request_department,
+          lang === 'th' ? 'จัดส่งออเดอร์แล้ว' : 'Routine order delivered',
+          lang === 'th'
+            ? `"${o.title}"${itemSuffix} — ครบทั้ง ${items.length} ห้อง โดยแผนก ${deptLabel(o.fulfill_department, lang)}`
+            : `"${o.title}"${itemSuffix} — all ${items.length} rooms done by ${deptLabel(o.fulfill_department, lang)}`,
           { templateId: o.template_id, picMode, picIds })
         toast.success(tr.rr.orderDelivered)
       }
@@ -617,7 +713,7 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
   // PIC label for the meta line.
   const picLabel = picMode === 'users'
     ? (picNames.length > 0 ? picNames.join(', ') : tr.rr.personInCharge)
-    : (DEPARTMENT_LABELS[o.request_department] ?? o.request_department)
+    : deptLabel(o.request_department, lang)
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-3">
@@ -661,6 +757,13 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
             <button onClick={toggleMute} disabled={busy} title={muted ? tr.rr.unmuteRoutine : tr.rr.muteRoutine}
               className={`p-1.5 -m-1 rounded-lg hover:bg-gray-100 ${muted ? 'text-amber-500' : 'text-gray-400 hover:text-gray-600'}`}>
               {muted ? <BellOff className="h-4 w-4" /> : <Bell className="h-4 w-4" />}
+            </button>
+          )}
+          {/* Delete order — managers / super_admin only */}
+          {canManage && (
+            <button onClick={deleteOrder} disabled={busy} title={lang === 'th' ? 'ลบออเดอร์' : 'Delete order'}
+              className="p-1.5 -m-1 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50">
+              <Trash2 className="h-4 w-4" />
             </button>
           )}
           {/* expand toggle for finished per-room checklists */}
@@ -794,8 +897,12 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
     await update(
       { status: 'sent', quantity: parsed.length, note: note.trim() || null, sent_by: profile.id, sent_at: now() },
       tr.rr.orderSent,
-      { action: 'sent', detail: `${parsed.length} rooms` },
-      { dept: o.fulfill_department, title: 'Routine order received', message: `"${o.title}"${itemSuffix} — ${parsed.length} rooms, requested by ${DEPARTMENT_LABELS[o.request_department]}` },
+      { action: 'sent', detail: `${parsed.length} ${lang === 'th' ? 'ห้อง' : 'rooms'}` },
+      { dept: o.fulfill_department,
+        title: lang === 'th' ? 'มีออเดอร์ประจำเข้ามาใหม่' : 'Routine order received',
+        message: lang === 'th'
+          ? `"${o.title}"${itemSuffix} — ${parsed.length} ห้อง จากแผนก ${deptLabel(o.request_department, lang)}`
+          : `"${o.title}"${itemSuffix} — ${parsed.length} rooms, requested by ${deptLabel(o.request_department, lang)}` },
     )
   }
 }
@@ -844,7 +951,7 @@ function RoomGrid({ rooms, grid, setGrid, variants }: {
       const parts = codes.filter((c) => counts.get(c)).map((c) => `${labelFor(c)}×${counts.get(c)}`).join(' · ')
       return tr.rr.roomGridSummary(parts || '—', selected.length)
     }
-    return `${selected.length} ${selected.length === 1 ? 'room' : 'rooms'}`
+    return `${selected.length} ${lang === 'th' ? 'ห้อง' : (selected.length === 1 ? 'room' : 'rooms')}`
   })()
 
   return (
@@ -987,10 +1094,13 @@ function TemplatesView({ companyId, templates, mutes, onMuteToggle, canManage, o
                   {!tpl.active && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-red-50 border border-red-200 text-red-400">{tr.rr.inactiveBadge}</span>}
                 </div>
                 <p className="text-[11px] text-gray-500 truncate mt-0.5 flex items-center gap-1">
-                  {DEPARTMENT_LABELS[tpl.request_department] ?? tpl.request_department}
+                  {deptLabel(tpl.request_department, lang)}
                   <ArrowRight className="h-3 w-3" />
-                  {DEPARTMENT_LABELS[tpl.fulfill_department] ?? tpl.fulfill_department}
+                  {deptLabel(tpl.fulfill_department, lang)}
                   <span>· {tr.rr.due} {(tpl.due_time || '').slice(0, 5)}</span>
+                  {tpl.run_weekdays && tpl.run_weekdays.length > 0 && tpl.run_weekdays.length < 7 && (
+                    <span>· {RUN_WD.filter((d) => tpl.run_weekdays!.includes(d)).map((d) => (lang === 'th' ? WD_LABEL_TH : WD_LABEL_EN)[d]).join(' ')}</span>
+                  )}
                   {tpl.default_item && <span>· {tpl.default_item}</span>}
                 </p>
               </div>
@@ -1020,21 +1130,15 @@ function TemplateEditor({ companyId, template, sortNext, onClose, onSaved }: {
   companyId: string; template: RrTemplate | null; sortNext: number
   onClose: () => void; onSaved: () => void
 }) {
-  const { t: tr } = useLanguage()
+  const { t: tr, lang } = useLanguage()
   const [busy, setBusy] = useState(false)
-  const [showWeekdays, setShowWeekdays] = useState(
-    !!template?.item_by_weekday && Object.keys(template.item_by_weekday).length > 0)
   const [f, setF] = useState({
     name: template?.name ?? '', name_th: template?.name_th ?? '',
     request_department: template?.request_department ?? ('front_office' as Department),
     fulfill_department: template?.fulfill_department ?? ('restaurant' as Department),
-    order_type: (template?.order_type ?? 'bulk') as RrOrderType,
     due_time: (template?.due_time ?? '12:00').slice(0, 5),
-    default_item: template?.default_item ?? '',
-    weekdays: Object.fromEntries(EDIT_WEEKDAYS.map((d) => [d, template?.item_by_weekday?.[d] ?? ''])) as Record<string, string>,
+    run_weekdays: (template?.run_weekdays && template.run_weekdays.length > 0) ? template.run_weekdays : [...RUN_WD],
     active: template?.active ?? true,
-    // new fields
-    unit_label: template?.unit_label ?? '',
     lead_days: template?.lead_days ?? 0,
     order_open: hhmm(template?.order_open) || '20:00',
     order_close: hhmm(template?.order_close) || '22:00',
@@ -1042,16 +1146,21 @@ function TemplateEditor({ companyId, template, sortNext, onClose, onSaved }: {
     pic_mode: (template?.pic_mode ?? 'department') as 'department' | 'users',
     pic_ids: template?.pic_ids ?? [],
   })
-  const [variants, setVariants] = useState<RrVariant[]>(template?.variants ?? [])
   const [picCandidates, setPicCandidates] = useState<{ id: string; full_name: string; role: string; job_title: string | null }[]>([])
+  const [rrItems, setRrItems] = useState<RrItem[]>([])
+  const [catalogItems, setCatalogItems] = useState<{ label: string; unit: string }[]>(template?.catalog_items ?? [])
   const set = (patch: Partial<typeof f>) => setF((prev) => ({ ...prev, ...patch }))
-  const weekdayLabel: Record<string, string> = {
-    mon: tr.rr.mon, tue: tr.rr.tue, wed: tr.rr.wed, thu: tr.rr.thu, fri: tr.rr.fri, sat: tr.rr.sat, sun: tr.rr.sun,
-  }
-  const isVariants = f.order_type === 'per_room_variants'
-  const isBulk = f.order_type === 'bulk'
-  const isWeekdayType = f.order_type === 'per_room' // per-room without variants keeps the weekday item
 
+  // Load RR item catalog from settings once.
+  useEffect(() => {
+    let stale = false
+    supabase.from('kaizen_settings').select('value').eq('company_id', companyId).eq('key', 'rr_items').maybeSingle()
+      .then(({ data }) => {
+        if (stale) return
+        setRrItems(Array.isArray(data?.value) ? (data!.value as RrItem[]) : [])
+      })
+    return () => { stale = true }
+  }, [companyId])
   // PIC candidates = active staff/managers in the REQUESTING department, minus Owner.
   useEffect(() => {
     let stale = false
@@ -1071,28 +1180,25 @@ function TemplateEditor({ companyId, template, sortNext, onClose, onSaved }: {
   async function save() {
     if (!f.name.trim()) { toast.error(tr.rr.nameRequired); return }
     if (f.request_department === f.fulfill_department) { toast.error(tr.rr.sameDeptError); return }
-    const cleanVariants = variants
-      .map((v) => ({ code: v.code.trim(), label: v.label.trim(), label_th: v.label_th.trim() }))
-      .filter((v) => v.code)
-    if (isVariants && cleanVariants.length === 0) { toast.error(tr.rr.variantsRequired); return }
     const cleanPics = f.pic_ids.filter((id) => picCandidates.some((c) => c.id === id))
     if (f.pic_mode === 'users' && cleanPics.length === 0) { toast.error(tr.rr.picNoneSelected); return }
+    if (f.run_weekdays.length === 0) { toast.error(lang === 'th' ? 'เลือกอย่างน้อยหนึ่งวัน' : 'Select at least one day'); return }
     setBusy(true)
-    const byWeekday = Object.fromEntries(
-      Object.entries(f.weekdays).map(([k, v]) => [k, v.trim()]).filter(([, v]) => v))
     const row = {
       company_id: companyId, name: f.name.trim(), name_th: f.name_th.trim() || null,
       request_department: f.request_department, fulfill_department: f.fulfill_department,
-      order_type: f.order_type, due_time: f.due_time || '12:00',
-      default_item: f.default_item.trim() || null,
-      item_by_weekday: isWeekdayType && showWeekdays && Object.keys(byWeekday).length > 0 ? byWeekday : null,
+      order_type: 'bulk' as RrOrderType, due_time: f.due_time || '12:00',
+      default_item: null,
+      catalog_items: catalogItems.length > 0 ? catalogItems : null,
+      item_by_weekday: null,
+      run_weekdays: f.run_weekdays.length === 7 ? null : f.run_weekdays,
       active: f.active, sort_order: template?.sort_order ?? sortNext,
-      unit_label: isBulk ? (f.unit_label.trim() || null) : null,
+      unit_label: null,
       lead_days: f.lead_days,
       order_open: f.lead_days > 0 ? (f.order_open || null) : null,
       order_close: f.lead_days > 0 ? (f.order_close || null) : null,
       remind_at: f.remind_at || null,
-      variants: isVariants ? cleanVariants : null,
+      variants: null,
       pic_mode: f.pic_mode,
       pic_ids: f.pic_mode === 'users' ? cleanPics : null,
     }
@@ -1131,83 +1237,59 @@ function TemplateEditor({ companyId, template, sortNext, onClose, onSaved }: {
           <div className="grid grid-cols-2 gap-2.5">
             <Field label={tr.rr.requestDept}>
               <select value={f.request_department} onChange={(e) => set({ request_department: e.target.value as Department })} className={inputCls}>
-                {(Object.keys(DEPARTMENT_LABELS) as Department[]).map((d) => <option key={d} value={d}>{DEPARTMENT_LABELS[d]}</option>)}
+                {(Object.keys(DEPARTMENT_LABELS) as Department[]).map((d) => <option key={d} value={d}>{deptLabel(d, lang)}</option>)}
               </select>
             </Field>
             <Field label={tr.rr.fulfillDept}>
               <select value={f.fulfill_department} onChange={(e) => set({ fulfill_department: e.target.value as Department })} className={inputCls}>
-                {(Object.keys(DEPARTMENT_LABELS) as Department[]).map((d) => <option key={d} value={d}>{DEPARTMENT_LABELS[d]}</option>)}
+                {(Object.keys(DEPARTMENT_LABELS) as Department[]).map((d) => <option key={d} value={d}>{deptLabel(d, lang)}</option>)}
               </select>
             </Field>
           </div>
-          <div className="grid grid-cols-2 gap-2.5">
-            <Field label={tr.rr.orderType}>
-              <select value={f.order_type} onChange={(e) => set({ order_type: e.target.value as RrOrderType })} className={inputCls}>
-                <option value="bulk">{tr.rr.bulk}</option>
-                <option value="per_room">{tr.rr.perRoom}</option>
-                <option value="per_room_variants">{tr.rr.perRoomVariants}</option>
-              </select>
-            </Field>
-            <Field label={tr.rr.dueTime}>
-              <input type="time" value={f.due_time} onChange={(e) => set({ due_time: e.target.value })} className={inputCls} />
-            </Field>
-          </div>
 
-          {/* Bulk unit */}
-          {isBulk && (
-            <Field label={tr.rr.unitLabel}>
-              <input value={f.unit_label} onChange={(e) => set({ unit_label: e.target.value })} className={inputCls} placeholder={tr.rr.unitLabelPh} />
-            </Field>
-          )}
-
-          <Field label={tr.rr.defaultItem}>
-            <input value={f.default_item} onChange={(e) => set({ default_item: e.target.value })} className={inputCls} placeholder={tr.rr.defaultItemPh} />
+          <Field label={tr.rr.dueTime}>
+            <input type="time" value={f.due_time} onChange={(e) => set({ due_time: e.target.value })} className={inputCls + ' max-w-[160px]'} />
           </Field>
 
-          {/* Variants editor (per-room-with-variants only) */}
-          {isVariants && (
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-gray-500">{tr.rr.variantsEditor} *</label>
-              {variants.map((v, i) => (
-                <div key={i} className="flex items-center gap-1.5">
-                  <input value={v.code} onChange={(e) => setVariants((p) => p.map((x, j) => j === i ? { ...x, code: e.target.value } : x))}
-                    className={inputCls + ' h-8 w-16'} placeholder={tr.rr.variantCode} />
-                  <input value={v.label} onChange={(e) => setVariants((p) => p.map((x, j) => j === i ? { ...x, label: e.target.value } : x))}
-                    className={inputCls + ' h-8'} placeholder={tr.rr.variantLabel} />
-                  <input value={v.label_th} onChange={(e) => setVariants((p) => p.map((x, j) => j === i ? { ...x, label_th: e.target.value } : x))}
-                    className={inputCls + ' h-8'} placeholder={tr.rr.variantLabelTh} />
-                  <button onClick={() => setVariants((p) => p.filter((_, j) => j !== i))}
-                    className="p-1.5 rounded text-gray-400 hover:text-red-500 hover:bg-gray-100 flex-shrink-0"><X className="h-3.5 w-3.5" /></button>
-                </div>
-              ))}
-              <button onClick={() => setVariants((p) => [...p, { code: `V${p.length + 1}`, label: '', label_th: '' }])}
-                className="flex items-center gap-1 text-xs font-medium text-[var(--brand-primary)]">
-                <Plus className="h-3.5 w-3.5" />{tr.rr.addVariant}
+          {/* Run on which days — controls how often the routine generates an order */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-medium text-gray-500">{lang === 'th' ? 'ทำในวัน' : 'Runs on'}</label>
+              <button type="button"
+                onClick={() => set({ run_weekdays: f.run_weekdays.length === 7 ? [] : [...RUN_WD] })}
+                className="text-[11px] font-medium text-[var(--brand-primary)] hover:underline">
+                {f.run_weekdays.length === 7 ? (lang === 'th' ? 'ล้างทั้งหมด' : 'Clear') : (lang === 'th' ? 'ทุกวัน' : 'Every day')}
               </button>
             </div>
-          )}
+            <div className="flex gap-1">
+              {RUN_WD.map((d) => {
+                const on = f.run_weekdays.includes(d)
+                return (
+                  <button key={d} type="button"
+                    onClick={() => set({ run_weekdays: on ? f.run_weekdays.filter((x) => x !== d) : [...f.run_weekdays, d] })}
+                    className={`flex-1 h-8 rounded-lg text-xs font-medium border transition-colors ${on ? 'bg-[var(--brand-primary)] text-white border-[var(--brand-primary)]' : 'bg-white text-gray-500 border-gray-300 hover:bg-gray-50'}`}>
+                    {(lang === 'th' ? WD_LABEL_TH : WD_LABEL_EN)[d]}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
 
-          {/* Per-room without variants: weekday item calendar */}
-          {isWeekdayType && (
-            <div>
-              <button onClick={() => setShowWeekdays((v) => !v)}
-                className="flex items-center gap-1 text-xs font-medium text-[var(--brand-primary)]">
-                <ChevronDown className={`h-3.5 w-3.5 transition-transform ${showWeekdays ? 'rotate-180' : ''}`} />
-                {tr.rr.itemByWeekday}
-              </button>
-              {showWeekdays && (
-                <div className="mt-2 space-y-1.5">
-                  {EDIT_WEEKDAYS.map((d) => (
-                    <div key={d} className="flex items-center gap-2">
-                      <span className="w-10 text-xs text-gray-500 flex-shrink-0">{weekdayLabel[d]}</span>
-                      <input value={f.weekdays[d]} onChange={(e) => set({ weekdays: { ...f.weekdays, [d]: e.target.value } })}
-                        className={inputCls + ' h-8'} placeholder={f.default_item || tr.rr.defaultItemPh} />
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
+          {/* Department item catalog — add items with unit */}
+          {(() => {
+            const deptItems = rrItems.filter((it) => it.department === f.fulfill_department)
+            if (deptItems.length === 0) return null
+            return (
+              <DeptItemPicker
+                items={deptItems}
+                catalogItems={catalogItems}
+                onAdd={(label) => setCatalogItems((prev) => [...prev, { label, unit: '' }])}
+                onRemove={(idx) => setCatalogItems((prev) => prev.filter((_, i) => i !== idx))}
+                lang={lang}
+                deptLabel={deptLabel(f.fulfill_department, lang)}
+              />
+            )
+          })()}
 
           {/* Order-ahead scheduling */}
           <div className="grid grid-cols-2 gap-2.5">
@@ -1284,6 +1366,76 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   return <div className="space-y-1"><label className="text-xs font-medium text-gray-500">{label}</label>{children}</div>
 }
 
+// ── Dept item picker — add catalog items ──────────────────────────────────────
+
+function DeptItemPicker({ items, catalogItems, onAdd, onRemove, lang, deptLabel }: {
+  items: import('@/components/RRSettings').RrItem[]
+  catalogItems: { label: string; unit: string }[]
+  onAdd: (label: string) => void
+  onRemove: (index: number) => void
+  lang: 'en' | 'th'
+  deptLabel: string
+}) {
+  const [pick, setPick] = useState('')
+
+  useEffect(() => { setPick('') }, [deptLabel])
+
+  function handleAdd() {
+    if (!pick) return
+    if (!catalogItems.some((c) => c.label === pick)) onAdd(pick)
+    setPick('')
+  }
+
+  return (
+    <div className="rounded-lg border border-gray-200 bg-gray-50/50 p-3 space-y-2">
+      <p className="text-[11px] font-medium text-gray-500">
+        {lang === 'th' ? 'รายการจากแผนก' : 'Items from'} {deptLabel}
+      </p>
+      <div className="flex gap-2">
+        <select
+          value={pick}
+          onChange={(e) => setPick(e.target.value)}
+          className="flex-1 h-9 rounded-lg border border-gray-300 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/40 bg-white"
+        >
+          <option value="">{lang === 'th' ? '— เลือกรายการ —' : '— Select item —'}</option>
+          {items.map((it, i) => {
+            const label = it.code ? `${it.code} — ${it.description}` : it.description
+            return (
+              <option key={i} value={label} disabled={catalogItems.some((c) => c.label === label)}>
+                {it.code ? `${it.code}  ${it.description}` : it.description}
+              </option>
+            )
+          })}
+        </select>
+        <button
+          type="button"
+          disabled={!pick}
+          onClick={handleAdd}
+          className="h-9 px-3 rounded-lg bg-[var(--brand-primary)] text-white text-sm font-medium disabled:opacity-40 flex-shrink-0"
+        >
+          {lang === 'th' ? 'เพิ่ม' : 'Add'}
+        </button>
+      </div>
+      {catalogItems.length > 0 && (
+        <div className="space-y-1.5 pt-1 border-t border-gray-200 mt-2">
+          {catalogItems.map((item, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <span className="flex-1 text-xs text-gray-700 truncate">{item.label}</span>
+              <button
+                type="button"
+                onClick={() => onRemove(i)}
+                className="h-8 px-2.5 rounded-md text-red-500 text-xs font-medium hover:bg-red-50 flex-shrink-0"
+              >
+                {lang === 'th' ? 'ลบ' : 'Remove'}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Generate Report — period summary of requested items, for Accounting ──────
 
 function startOfWeek(key: string): string {
@@ -1305,6 +1457,10 @@ function ReportView({ companyId, companyName, generatedBy, statusLabel, template
   const [anchor, setAnchor] = useState(() => dateKey(new Date()))
   const [rows, setRows] = useState<RrOrder[]>([])
   const [loading, setLoading] = useState(true)
+  // Room-order data for the same period.
+  const [roomLines, setRoomLines] = useState<{ item: string | null; fulfill_department: string; status: string }[]>([])
+  const [roomStatusCounts, setRoomStatusCounts] = useState<Record<string, number>>({})
+  const [roomDays, setRoomDays] = useState(0)
 
   const from = mode === 'daily' ? anchor : startOfWeek(anchor)
   const to = mode === 'daily' ? anchor : shiftDate(startOfWeek(anchor), 6)
@@ -1322,6 +1478,31 @@ function ReportView({ companyId, companyName, generatedBy, statusLabel, template
       if (error) toast.error(error.message)
       setRows((data as RrOrder[]) ?? [])
       setLoading(false)
+    })()
+    return () => { stale = true }
+  }, [companyId, from, to])
+
+  // Room-order aggregation for the period: submitted orders → status breakdown + per-dept items.
+  useEffect(() => {
+    let stale = false
+    ;(async () => {
+      const { data: orders } = await supabase.from('kaizen_rr_room_orders')
+        .select('id, room_statuses').eq('company_id', companyId).eq('status', 'submitted')
+        .gte('order_date', from).lte('order_date', to)
+      const oList = (orders as { id: string; room_statuses: Record<string, string> | null }[]) ?? []
+      const sc: Record<string, number> = { checkin: 0, occupied: 0, empty: 0, oo: 0 }
+      oList.forEach((o) => Object.values(o.room_statuses ?? {}).forEach((s) => { if (sc[s] !== undefined) sc[s]++ }))
+      let lines: { item: string | null; fulfill_department: string; status: string }[] = []
+      if (oList.length > 0) {
+        const { data } = await supabase.from('kaizen_rr_room_lines')
+          .select('item, fulfill_department, status').in('room_order_id', oList.map((o) => o.id))
+          .eq('active', true).in('approval_status', ['approved', 'auto'])
+        lines = (data as typeof lines) ?? []
+      }
+      if (stale) return
+      setRoomStatusCounts(sc)
+      setRoomLines(lines)
+      setRoomDays(oList.length)
     })()
     return () => { stale = true }
   }, [companyId, from, to])
@@ -1346,6 +1527,25 @@ function ReportView({ companyId, companyName, generatedBy, statusLabel, template
     lang === 'th' ? 'th-TH' : 'en-GB', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })
   const periodLabel = mode === 'daily' ? fmtDay(from) : `${fmtDay(from)} – ${fmtDay(to)}`
 
+  // Room-order aggregation: items per department (with delivered count) + status names.
+  const roomItemsTmp: Record<string, Record<string, { total: number; done: number }>> = {}
+  roomLines.forEach((l) => {
+    const item = (l.item && l.item.trim()) || '—'
+    const byItem = (roomItemsTmp[l.fulfill_department] ||= {})
+    const cell = (byItem[item] ||= { total: 0, done: 0 })
+    cell.total++
+    if (l.status === 'done') cell.done++
+  })
+  const roomItemsByDept: Record<string, { item: string; total: number; done: number }[]> = {}
+  Object.entries(roomItemsTmp).forEach(([dept, items]) => {
+    roomItemsByDept[dept] = Object.entries(items).map(([item, v]) => ({ item, ...v })).sort((a, b) => b.total - a.total)
+  })
+  const roomDeptKeys = (Object.keys(roomItemsByDept) as Department[]).sort((a, b) => deptLabel(a, lang).localeCompare(deptLabel(b, lang)))
+  const hasRoomData = roomDays > 0
+  const roomStatusName = (s: string) => lang === 'th'
+    ? ({ checkin: 'เช็คอิน', occupied: 'มีผู้เข้าพัก', empty: 'ว่าง', oo: 'งดใช้งาน' } as Record<string, string>)[s] ?? s
+    : ({ checkin: 'Check-in', occupied: 'Occupied', empty: 'Empty', oo: 'Out of order' } as Record<string, string>)[s] ?? s
+
   function printReport() {
     const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     const rowsHtml = rows.map((o) => `
@@ -1355,12 +1555,30 @@ function ReportView({ companyId, companyName, generatedBy, statusLabel, template
         <td>${esc(o.item_label ?? '—')}</td>
         <td style="text-align:right">${esc(qtyText(o))}</td>
         <td>${esc(variantText(o))}</td>
-        <td>${esc(DEPARTMENT_LABELS[o.request_department] ?? o.request_department)}</td>
-        <td>${esc(DEPARTMENT_LABELS[o.fulfill_department] ?? o.fulfill_department)}</td>
+        <td>${esc(deptLabel(o.request_department, lang))}</td>
+        <td>${esc(deptLabel(o.fulfill_department, lang))}</td>
         <td>${esc(statusLabel(o.status))}</td>
       </tr>`).join('')
     const summaryHtml = Object.entries(summary).map(([k, v]) =>
       `<tr><td>${esc(k)}</td><td style="text-align:right">${v}</td></tr>`).join('')
+    const routineHtml = rows.length > 0 ? `
+      <table><thead><tr>
+        <th>${esc(tr.rr.reportDate)}</th><th>${esc(tr.rr.reportRoutine)}</th><th>${esc(tr.rr.reportItem)}</th>
+        <th style="text-align:right">${esc(tr.rr.reportQty)}</th><th>${esc(tr.rr.reportVariants)}</th><th>${esc(tr.rr.reportFrom)}</th>
+        <th>${esc(tr.rr.reportTo)}</th><th>${esc(tr.rr.reportStatus)}</th>
+      </tr></thead><tbody>${rowsHtml}</tbody></table>
+      <h2>${esc(tr.rr.reportSummary)}</h2>
+      <table style="max-width:380px"><thead><tr><th>${esc(tr.rr.reportItem)}</th><th style="text-align:right">${esc(tr.rr.reportTotal)}</th></tr></thead>
+      <tbody>${summaryHtml}</tbody></table>` : ''
+    // Room-order section
+    const roomHtml = hasRoomData ? `
+      <h2>${esc(lang === 'th' ? 'ใบสั่งห้อง' : 'Room orders')} <span style="font-weight:400;color:#888;font-size:12px">(${roomDays} ${esc(lang === 'th' ? 'วัน' : 'days')})</span></h2>
+      <table style="max-width:420px"><thead><tr><th>${esc(lang === 'th' ? 'สถานะห้อง' : 'Room status')}</th><th style="text-align:right">${esc(tr.rr.reportTotal)}</th></tr></thead>
+      <tbody>${(['checkin', 'occupied', 'empty', 'oo'] as const).map((s) => `<tr><td>${esc(roomStatusName(s))}</td><td style="text-align:right">${roomStatusCounts[s] ?? 0}</td></tr>`).join('')}</tbody></table>
+      ${roomDeptKeys.map((dept) => `
+        <h3 style="font-size:12px;margin:14px 0 4px;color:#444">${esc(deptLabel(dept, lang))}</h3>
+        <table style="max-width:420px"><thead><tr><th>${esc(tr.rr.reportItem)}</th><th style="text-align:right">${esc(tr.rr.reportTotal)}</th><th style="text-align:right">${esc(lang === 'th' ? 'เสร็จ' : 'Done')}</th></tr></thead>
+        <tbody>${roomItemsByDept[dept].map((it) => `<tr><td>${esc(it.item)}</td><td style="text-align:right">${it.total}</td><td style="text-align:right">${it.done}</td></tr>`).join('')}</tbody></table>`).join('')}` : ''
     const w = window.open('', '_blank')
     if (!w) return
     w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${esc(tr.rr.reportTitle)}</title>
@@ -1376,14 +1594,8 @@ function ReportView({ companyId, companyName, generatedBy, statusLabel, template
       </style></head><body>
       <h1>${esc(companyName)} — ${esc(tr.rr.reportTitle)}</h1>
       <p class="sub">${esc(tr.rr.reportPeriod)}: ${esc(periodLabel)} · ${esc(tr.rr.reportForAccounting)}</p>
-      <table><thead><tr>
-        <th>${esc(tr.rr.reportDate)}</th><th>${esc(tr.rr.reportRoutine)}</th><th>${esc(tr.rr.reportItem)}</th>
-        <th style="text-align:right">${esc(tr.rr.reportQty)}</th><th>${esc(tr.rr.reportVariants)}</th><th>${esc(tr.rr.reportFrom)}</th>
-        <th>${esc(tr.rr.reportTo)}</th><th>${esc(tr.rr.reportStatus)}</th>
-      </tr></thead><tbody>${rowsHtml}</tbody></table>
-      <h2>${esc(tr.rr.reportSummary)}</h2>
-      <table style="max-width:380px"><thead><tr><th>${esc(tr.rr.reportItem)}</th><th style="text-align:right">${esc(tr.rr.reportTotal)}</th></tr></thead>
-      <tbody>${summaryHtml}</tbody></table>
+      ${routineHtml}
+      ${roomHtml}
       <p class="foot">${esc(tr.rr.reportGeneratedBy)}: ${esc(generatedBy)} · ${esc(tr.rr.reportGeneratedAt)}: ${new Date().toLocaleString(lang === 'th' ? 'th-TH' : 'en-GB')}</p>
       <script>window.onload = () => window.print()</` + `script></body></html>`)
     w.document.close()
@@ -1404,7 +1616,7 @@ function ReportView({ companyId, companyName, generatedBy, statusLabel, template
         <input type="date" value={anchor} onChange={(e) => e.target.value && setAnchor(e.target.value)}
           className="h-8 rounded-lg border border-gray-300 px-2 text-sm" />
         <span className="text-xs text-gray-500 flex-1 min-w-[120px]">{periodLabel}</span>
-        <button onClick={printReport} disabled={loading || rows.length === 0}
+        <button onClick={printReport} disabled={loading || (rows.length === 0 && !hasRoomData)}
           className="h-8 px-3 rounded-lg bg-[var(--brand-primary)] text-white text-xs font-semibold disabled:opacity-40">
           {tr.rr.reportPrint}
         </button>
@@ -1412,10 +1624,12 @@ function ReportView({ companyId, companyName, generatedBy, statusLabel, template
 
       {loading ? (
         <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-gray-400" /></div>
-      ) : rows.length === 0 ? (
+      ) : (rows.length === 0 && !hasRoomData) ? (
         <div className="text-center py-16 bg-white rounded-xl border border-gray-200 text-sm text-gray-400">{tr.rr.reportNoData}</div>
       ) : (
         <>
+          {rows.length > 0 && (
+          <>
           {/* Orders table */}
           <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
             <table className="w-full text-sm min-w-[560px]">
@@ -1439,8 +1653,8 @@ function ReportView({ companyId, companyName, generatedBy, statusLabel, template
                     <td className="px-3 py-2 text-gray-600">{o.item_label ?? '—'}</td>
                     <td className="px-3 py-2 text-right text-gray-900 font-medium">{qtyText(o)}</td>
                     <td className="px-3 py-2 text-gray-600">{variantText(o)}</td>
-                    <td className="px-3 py-2 text-gray-600">{DEPARTMENT_LABELS[o.request_department] ?? o.request_department}</td>
-                    <td className="px-3 py-2 text-gray-600">{DEPARTMENT_LABELS[o.fulfill_department] ?? o.fulfill_department}</td>
+                    <td className="px-3 py-2 text-gray-600">{deptLabel(o.request_department, lang)}</td>
+                    <td className="px-3 py-2 text-gray-600">{deptLabel(o.fulfill_department, lang)}</td>
                     <td className="px-3 py-2">
                       <span className={`inline-block px-2 py-0.5 rounded-full border text-[11px] font-medium ${STATUS_PILL[o.status]}`}>{statusLabel(o.status)}</span>
                     </td>
@@ -1462,6 +1676,47 @@ function ReportView({ companyId, companyName, generatedBy, statusLabel, template
               ))}
             </div>
           </div>
+          </>
+          )}
+
+          {/* ── Room orders ── */}
+          {hasRoomData && (
+            <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-4">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="text-sm font-semibold text-gray-900">{lang === 'th' ? 'ใบสั่งห้อง' : 'Room orders'}</h3>
+                <span className="text-[11px] text-gray-400">{roomDays} {lang === 'th' ? 'วัน' : roomDays === 1 ? 'day' : 'days'}</span>
+              </div>
+
+              {/* Room-status breakdown */}
+              <div className="flex flex-wrap gap-2">
+                {(['checkin', 'occupied', 'empty', 'oo'] as const).map((s) => (
+                  <div key={s} className="flex items-center gap-1.5 rounded-lg border border-gray-200 px-2.5 py-1">
+                    <span className={`h-2 w-2 rounded-full ${s === 'oo' ? 'bg-red-400' : s === 'empty' ? 'bg-gray-400' : s === 'occupied' ? 'bg-blue-400' : 'bg-green-400'}`} />
+                    <span className="text-xs text-gray-600">{roomStatusName(s)}</span>
+                    <span className="text-xs font-semibold text-gray-900">{roomStatusCounts[s] ?? 0}</span>
+                  </div>
+                ))}
+              </div>
+
+              {/* Items prepared, per department */}
+              {roomDeptKeys.map((dept) => (
+                <div key={dept}>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">{deptLabel(dept, lang)}</p>
+                  <div className="divide-y divide-gray-100">
+                    {roomItemsByDept[dept].map((it) => (
+                      <div key={it.item} className="flex items-center justify-between py-1.5 text-sm">
+                        <span className="text-gray-600">{it.item}</span>
+                        <span className="text-gray-900">
+                          <span className="font-semibold">{it.total}</span>
+                          <span className="text-[11px] text-gray-400 ml-2">{it.done}/{it.total} {lang === 'th' ? 'เสร็จ' : 'done'}</span>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </>
       )}
     </div>
