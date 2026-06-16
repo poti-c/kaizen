@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useLocation } from 'react-router-dom'
 import {
-  ClipboardList, ChevronLeft, ChevronRight, Loader2, X, Check, Trash2, Pencil,
+  ClipboardList, Loader2, X, Check, Trash2, Pencil,
   Plus, Send, PackageCheck, CircleCheck, ArrowRight, Clock, BedDouble, Ban, ChevronDown,
   Bell, BellOff, History, Users,
 } from 'lucide-react'
@@ -11,8 +11,8 @@ import { useCompany } from '@/contexts/CompanyContext'
 import { useAuth } from '@/contexts/AuthContext'
 import { useLanguage } from '@/contexts/LanguageContext'
 import {
-  DEPARTMENT_LABELS, DEPARTMENTS, deptLabel,
-  type Department, type RrTemplate, type RrOrder, type RrOrderItem, type RrOrderStatus,
+  DEPARTMENTS, deptLabel,
+  type Department, type KaizenProfile, type RrTemplate, type RrOrder, type RrOrderItem, type RrOrderStatus,
   type RrOrderType, type RrVariant, type RrEvent,
 } from '@/types'
 import type { RrItem } from '@/components/RRSettings'
@@ -109,16 +109,15 @@ export function RoutineRosterPage() {
   useEffect(() => {
     if (nav?.rrView === 'rooms' && canRooms) setView('rooms')
   }, [nav?.rrView, canRooms])
-  const [date, setDate] = useState(() => dateKey(new Date()))
   const [templates, setTemplates] = useState<RrTemplate[]>([])
   const [orders, setOrders] = useState<RrOrder[]>([])
   const [rooms, setRooms] = useState<string[]>([])
   const [unit, setUnit] = useState<UnitNoun>(DEFAULT_UNIT) // configurable noun (Room / Hut / Resort …)
   const [mutes, setMutes] = useState<Set<string>>(new Set()) // template_ids muted by me
   const [loading, setLoading] = useState(true)
+  const [placeTpl, setPlaceTpl] = useState<RrTemplate | null>(null) // template being ordered in the popup
   const today = dateKey(new Date())
   const tomorrow = shiftDate(today, 1)
-  const readOnly = date !== today
 
   const statusLabel = (s: RrOrderStatus) =>
     ({ pending: tr.rr.pending, sent: tr.rr.sentStatus, accepted: tr.rr.acceptedStatus,
@@ -183,40 +182,17 @@ export function RoutineRosterPage() {
     const tplList = (tpls.data as RrTemplate[]) ?? []
     setTemplates(tplList)
 
-    const fetchOrders = () => supabase.from('kaizen_rr_orders')
+    // Orders are now placed on demand (click a template → popup → 'sent'); we no
+    // longer auto-materialize 'pending' rows. The board shows today + tomorrow's
+    // service dates together, so the date is carried per-order, not by a tab.
+    const res = await supabase.from('kaizen_rr_orders')
       .select('*, items:kaizen_rr_order_items(*)')
-      .eq('company_id', companyId).eq('order_date', date)
+      .eq('company_id', companyId).in('order_date', [today, tomorrow])
       .order('due_at', { ascending: true, nullsFirst: false })
-    let res = await fetchOrders()
-
-    // Materialize pending orders for the selected SERVICE date when that date is
-    // within the template's ordering reach: [today, today + lead_days]. So a
-    // lead_days=1 routine's order for tomorrow's service appears tonight, and a
-    // same-day routine appears only on its own day.
-    // Upsert + ignoreDuplicates makes this race-safe across devices.
-    const leadOf = (tp: RrTemplate) => Math.max(0, tp.lead_days ?? 0)
-    const reach = (tp: RrTemplate) => shiftDate(today, leadOf(tp))
-    if (date >= today) {
-      const have = new Set(((res.data as RrOrder[]) ?? []).map((o) => o.template_id))
-      const missing = tplList.filter((tp) => tp.active && !have.has(tp.id) && date <= reach(tp) && runsOnDate(tp, date))
-      if (missing.length > 0) {
-        const rows = missing.map((tp) => ({
-          company_id: companyId, template_id: tp.id, order_date: date,
-          title: tp.name, request_department: tp.request_department, fulfill_department: tp.fulfill_department,
-          order_type: tp.order_type, item_label: itemFor(tp, date), status: 'pending',
-          unit_label: tp.order_type === 'bulk' ? tp.unit_label : null,
-          due_at: new Date(`${date}T${tp.due_time || '12:00'}`).toISOString(),
-        }))
-        const up = await supabase.from('kaizen_rr_orders')
-          .upsert(rows, { onConflict: 'template_id,order_date', ignoreDuplicates: true })
-        if (up.error) toast.error(up.error.message)
-        res = await fetchOrders()
-      }
-    }
     if (res.error) toast.error(res.error.message)
     setOrders((res.data as RrOrder[]) ?? [])
     setLoading(false)
-  }, [companyId, date, today])
+  }, [companyId, today, tomorrow])
   useEffect(() => { load() }, [load])
 
   // PIC-aware notification. Targets:
@@ -296,39 +272,28 @@ export function RoutineRosterPage() {
     return true
   }, [profile, canManage, tplOf])
 
-  // Whose turn is it? pending/delivered → requesting side; sent/accepted → fulfilling side.
+  // Whose turn is it? delivered → requesting side; sent/accepted → fulfilling side.
   const needsMyAction = useCallback((o: RrOrder) => {
-    if (!profile || readOnly) return false
+    if (!profile) return false
     const onFulfill = canManage || profile.department === o.fulfill_department
     if (o.status === 'pending' || o.status === 'delivered') return onRequestSide(o)
     if (o.status === 'sent' || o.status === 'accepted') return onFulfill
     return false
-  }, [profile, canManage, readOnly, onRequestSide])
+  }, [profile, canManage, onRequestSide])
 
   const mine = orders.filter(needsMyAction)
   const rest = orders.filter((o) => !needsMyAction(o))
 
-  // Prompt banner (today's board only): count pending orders to PLACE for the
-  // next service date — i.e. lead_days>0 routines whose tomorrow order is pending
-  // and the current user is on the request side.
-  const [tomorrowToPlace, setTomorrowToPlace] = useState(0)
-  useEffect(() => {
-    if (!companyId || !profile) { setTomorrowToPlace(0); return }
-    let stale = false
-    supabase.from('kaizen_rr_orders').select('*').eq('company_id', companyId)
-      .eq('order_date', tomorrow).eq('status', 'pending')
-      .then(({ data }) => {
-        if (stale) return
-        const list = (data as RrOrder[]) ?? []
-        const n = list.filter((o) => onRequestSide(o)).length
-        setTomorrowToPlace(n)
-      })
-    return () => { stale = true }
-  }, [companyId, profile, tomorrow, orders, templates, onRequestSide])
-  const showBanner = !readOnly && date === today && tomorrowToPlace > 0
-
-  const dateLabel = new Date(date + 'T00:00:00').toLocaleDateString(
-    lang === 'th' ? 'th-TH' : 'en-GB', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })
+  // Templates this user may place an order for (request side). Managers can place
+  // any; staff only their own department's routines (honouring pic_mode 'users').
+  const canRequestTemplate = useCallback((tp: RrTemplate) => {
+    if (!profile) return false
+    if (canManage) return true
+    if (profile.department !== tp.request_department) return false
+    if (tp.pic_mode === 'users') return (tp.pic_ids ?? []).includes(profile.id)
+    return true
+  }, [profile, canManage])
+  const menuTemplates = templates.filter((tp) => tp.active && canRequestTemplate(tp))
 
   // Front-office staff not on the authorized list can't access the Routine Roster.
   if (!rrFo.loading && !rrFo.allowed) {
@@ -367,106 +332,277 @@ export function RoutineRosterPage() {
       ) : view === 'report' && canManage && companyId ? (
         <ReportView companyId={companyId} companyName={activeCompany?.org_title || activeCompany?.name || ''}
           generatedBy={profile?.full_name ?? ''} statusLabel={statusLabel} templates={templates} />
+      ) : loading ? (
+        <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-gray-400" /></div>
+      ) : templates.length === 0 ? (
+        <div className="text-center py-16 bg-white rounded-xl border border-gray-200 px-6">
+          <ClipboardList className="h-8 w-8 text-gray-300 mx-auto mb-2" />
+          <p className="text-sm text-gray-500">{tr.rr.noTemplates}</p>
+          <p className="text-xs text-gray-400 mt-1">{tr.rr.noTemplatesHint}</p>
+          {canManage && (
+            <button onClick={() => setView('templates')} className="mt-3 text-sm text-[var(--brand-primary)] font-medium">
+              {tr.rr.setupTemplates}
+            </button>
+          )}
+        </div>
       ) : (
-        <>
-          {/* Date picker row: ◀ Today ▶ */}
-          <div className="flex items-center justify-between gap-2 mb-3">
-            <button onClick={() => setDate(shiftDate(date, -1))}
-              className="h-9 w-9 flex items-center justify-center rounded-lg border border-gray-300 bg-white text-gray-600 hover:border-gray-400">
-              <ChevronLeft className="h-4 w-4" />
-            </button>
-            <div className="flex-1 text-center">
-              <p className="text-sm font-semibold text-gray-900">{dateLabel}</p>
-              {readOnly ? (
-                <button onClick={() => setDate(today)} className="text-[11px] text-[var(--brand-primary)] hover:underline">
-                  {tr.rr.readOnlyHint} · {tr.rr.todayBtn} →
-                </button>
-              ) : date === tomorrow ? (
-                <p className="text-[11px] text-gray-400">{tr.rr.tomorrowBtn}</p>
-              ) : (
-                <p className="text-[11px] text-gray-400">{tr.rr.todayBtn}</p>
-              )}
-            </div>
-            <button onClick={() => setDate(shiftDate(date, 1))}
-              className="h-9 w-9 flex items-center justify-center rounded-lg border border-gray-300 bg-white text-gray-600 hover:border-gray-400">
-              <ChevronRight className="h-4 w-4" />
-            </button>
-          </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* ── Left: order menu — click a routine to place an order ── */}
+          <section>
+            <h2 className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-2">
+              {lang === 'th' ? 'สั่งออเดอร์' : 'Place an order'}
+            </h2>
+            {menuTemplates.length === 0 ? (
+              <div className="text-center py-10 bg-white rounded-xl border border-gray-200 text-xs text-gray-400 px-4">
+                {lang === 'th' ? 'ไม่มีงานประจำให้สั่งสำหรับแผนกของคุณ' : 'No routines to order for your department.'}
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {menuTemplates.map((tp) => {
+                  const lead = Math.max(0, tp.lead_days ?? 0)
+                  const targetDate = lead >= 1 ? tomorrow : today
+                  const ordered = orders.some((o) => o.template_id === tp.id && o.order_date === targetDate && o.status !== 'cancelled')
+                  const scheduled = runsOnDate(tp, targetDate)
+                  const name = lang === 'th' && tp.name_th ? tp.name_th : tp.name
+                  return (
+                    <button key={tp.id} onClick={() => setPlaceTpl(tp)}
+                      className="w-full flex items-center gap-2.5 rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-left hover:border-[var(--brand-primary)]/50 hover:bg-gray-50 transition-colors">
+                      <ClipboardList className="h-4 w-4 flex-shrink-0 text-[var(--brand-primary)]" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-gray-900 truncate">{name}</p>
+                        <p className="text-[11px] text-gray-400 truncate">
+                          → {deptLabel(tp.fulfill_department, lang)}{tp.due_time ? ` · ${lang === 'th' ? 'ก่อน' : 'by'} ${hhmm(tp.due_time)}` : ''}
+                        </p>
+                      </div>
+                      {ordered ? (
+                        <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 flex items-center gap-1 flex-shrink-0">
+                          <Check className="h-3 w-3" />{lang === 'th' ? 'สั่งแล้ว' : 'Ordered'}
+                        </span>
+                      ) : scheduled ? (
+                        <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 flex-shrink-0">
+                          {lead >= 1 ? (lang === 'th' ? 'สำหรับพรุ่งนี้' : 'For tomorrow') : (lang === 'th' ? 'สำหรับวันนี้' : 'For today')}
+                        </span>
+                      ) : null}
+                      <Plus className="h-4 w-4 flex-shrink-0 text-gray-400" />
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+          </section>
 
-          {/* Quick chips: Today · Tomorrow */}
-          <div className="flex items-center gap-2 mb-4">
-            {([['today', today, tr.rr.todayBtn], ['tomorrow', tomorrow, tr.rr.tomorrowBtn]] as const).map(([k, d, label]) => (
-              <button key={k} onClick={() => setDate(d)}
-                className={`px-3 h-7 rounded-full border text-xs font-medium transition-colors ${
-                  date === d ? 'bg-[var(--brand-primary)] text-white border-[var(--brand-primary)]'
-                             : 'bg-white text-gray-600 border-gray-300 hover:border-gray-400'}`}>
-                {label}
-              </button>
-            ))}
-          </div>
-
-          {/* Prompt banner: orders to place for tomorrow */}
-          {showBanner && (
-            <button onClick={() => setDate(tomorrow)}
-              className="w-full mb-4 flex items-center justify-between gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-left hover:bg-amber-100/70 transition-colors">
-              <span className="text-sm font-medium text-amber-800">{tr.rr.toPlaceForTomorrow(tomorrowToPlace)}</span>
-              <ArrowRight className="h-4 w-4 text-amber-700 flex-shrink-0" />
-            </button>
-          )}
-
-          {loading ? (
-            <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-gray-400" /></div>
-          ) : templates.length === 0 && orders.length === 0 ? (
-            <div className="text-center py-16 bg-white rounded-xl border border-gray-200 px-6">
-              <ClipboardList className="h-8 w-8 text-gray-300 mx-auto mb-2" />
-              <p className="text-sm text-gray-500">{tr.rr.noTemplates}</p>
-              <p className="text-xs text-gray-400 mt-1">{tr.rr.noTemplatesHint}</p>
-              {canManage && (
-                <button onClick={() => setView('templates')} className="mt-3 text-sm text-[var(--brand-primary)] font-medium">
-                  {tr.rr.setupTemplates}
-                </button>
-              )}
-            </div>
-          ) : orders.length === 0 ? (
-            <div className="text-center py-16 bg-white rounded-xl border border-gray-200 text-sm text-gray-400">{tr.rr.noOrders}</div>
-          ) : (
-            <div className="space-y-5">
-              {mine.length > 0 && (
-                <section>
-                  <h2 className="text-base font-semibold text-[var(--brand-primary)] mb-2">
-                    {tr.rr.needsMyAction}<span className="ml-2 text-sm font-normal opacity-60">{mine.length}</span>
-                  </h2>
-                  <div className="space-y-2">
-                    {mine.map((o) => (
-                      <OrderCard key={o.id} order={o} title={displayTitle(o)} template={tplOf(o)}
-                        rooms={rooms} statusLabel={statusLabel} readOnly={readOnly} canManage={canManage}
-                        onRequestSide={onRequestSide(o)} muted={o.template_id ? mutes.has(o.template_id) : false}
-                        onMuteToggle={loadMutes} notifyDept={notifyDept} onChanged={load} />
-                    ))}
+          {/* ── Right: orders already placed (today + tomorrow) ── */}
+          <section>
+            <h2 className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-2">
+              {lang === 'th' ? 'ออเดอร์ที่สั่งแล้ว' : 'Orders placed'}
+            </h2>
+            {orders.length === 0 ? (
+              <div className="text-center py-10 bg-white rounded-xl border border-gray-200 text-xs text-gray-400 px-4">
+                {lang === 'th' ? 'ยังไม่มีออเดอร์ — เลือกงานประจำทางซ้ายเพื่อสั่ง' : 'No orders yet — pick a routine on the left to start.'}
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {mine.length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold text-[var(--brand-primary)] mb-2">
+                      {tr.rr.needsMyAction}<span className="ml-1.5 font-normal opacity-60">{mine.length}</span>
+                    </p>
+                    <div className="space-y-2">
+                      {mine.map((o) => (
+                        <OrderCard key={o.id} order={o} title={displayTitle(o)} template={tplOf(o)}
+                          rooms={rooms} statusLabel={statusLabel} readOnly={false} canManage={canManage}
+                          onRequestSide={onRequestSide(o)} muted={o.template_id ? mutes.has(o.template_id) : false}
+                          onMuteToggle={loadMutes} notifyDept={notifyDept} onChanged={load} />
+                      ))}
+                    </div>
                   </div>
-                </section>
-              )}
-              {rest.length > 0 && (
-                <section>
-                  {mine.length > 0 && (
-                    <h2 className="text-base font-semibold text-gray-500 mb-2">
-                      {tr.rr.otherOrders}<span className="ml-2 text-sm font-normal opacity-60">{rest.length}</span>
-                    </h2>
-                  )}
-                  <div className="space-y-2">
-                    {rest.map((o) => (
-                      <OrderCard key={o.id} order={o} title={displayTitle(o)} template={tplOf(o)}
-                        rooms={rooms} statusLabel={statusLabel} readOnly={readOnly} canManage={canManage}
-                        onRequestSide={onRequestSide(o)} muted={o.template_id ? mutes.has(o.template_id) : false}
-                        onMuteToggle={loadMutes} notifyDept={notifyDept} onChanged={load} />
-                    ))}
+                )}
+                {rest.length > 0 && (
+                  <div>
+                    {mine.length > 0 && (
+                      <p className="text-xs font-semibold text-gray-500 mb-2">
+                        {tr.rr.otherOrders}<span className="ml-1.5 font-normal opacity-60">{rest.length}</span>
+                      </p>
+                    )}
+                    <div className="space-y-2">
+                      {rest.map((o) => (
+                        <OrderCard key={o.id} order={o} title={displayTitle(o)} template={tplOf(o)}
+                          rooms={rooms} statusLabel={statusLabel} readOnly={false} canManage={canManage}
+                          onRequestSide={onRequestSide(o)} muted={o.template_id ? mutes.has(o.template_id) : false}
+                          onMuteToggle={loadMutes} notifyDept={notifyDept} onChanged={load} />
+                      ))}
+                    </div>
                   </div>
-                </section>
-              )}
-            </div>
-          )}
-        </>
+                )}
+              </div>
+            )}
+          </section>
+        </div>
       )}
+
+      {placeTpl && companyId && profile && (
+        <PlaceOrderModal template={placeTpl} companyId={companyId} profile={profile}
+          today={today} tomorrow={tomorrow} rooms={rooms} notifyDept={notifyDept}
+          onClose={() => setPlaceTpl(null)} onPlaced={load} />
+      )}
+    </div>
+  )
+}
+
+// ── place-order popup (click a routine → quantity / rooms + ready-by → sent) ───
+
+function PlaceOrderModal({ template: tp, companyId, profile, today, tomorrow, rooms, notifyDept, onClose, onPlaced }: {
+  template: RrTemplate
+  companyId: string
+  profile: KaizenProfile
+  today: string
+  tomorrow: string
+  rooms: string[]
+  notifyDept: (dept: Department, title: string, message: string,
+    opts?: { templateId?: string | null; picMode?: string | null; picIds?: string[] | null; useDeptConfig?: boolean }) => Promise<void>
+  onClose: () => void
+  onPlaced: () => void
+}) {
+  const { t: tr, lang } = useLanguage()
+  const lead = Math.max(0, tp.lead_days ?? 0)
+  const [serviceDate, setServiceDate] = useState(lead >= 1 ? tomorrow : today)
+  const [qty, setQty] = useState('')
+  const [time, setTime] = useState(hhmm(tp.due_time) || '12:00')
+  const [note, setNote] = useState('')
+  const [grid, setGrid] = useState<Record<string, string>>({})
+  const [busy, setBusy] = useState(false)
+
+  const isBulk = tp.order_type === 'bulk'
+  const hasVariants = tp.order_type === 'per_room_variants'
+  const variants = tp.variants ?? null
+  const name = lang === 'th' && tp.name_th ? tp.name_th : tp.name
+  const unitOf = (n: number) => (tp.unit_label ? `${n} ${tp.unit_label}` : String(n))
+  const dateLabel = (d: string) => new Date(d + 'T00:00:00').toLocaleDateString(
+    lang === 'th' ? 'th-TH' : 'en-GB', { weekday: 'short', day: 'numeric', month: 'short' })
+
+  async function place() {
+    const order_date = serviceDate
+    const item_label = itemFor(tp, order_date)
+    let quantity: number
+    let picked: string[] = []
+    if (isBulk) {
+      const n = Number(qty)
+      if (!qty.trim() || !Number.isFinite(n) || n <= 0) { toast.error(tr.rr.quantityRequired); return }
+      quantity = n
+    } else {
+      picked = Object.keys(grid)
+      if (picked.length === 0) { toast.error(hasVariants ? tr.rr.noVariantRooms : tr.rr.roomsRequired); return }
+      quantity = picked.length
+    }
+    setBusy(true)
+    const nowIso = new Date().toISOString()
+    const due_at = new Date(`${order_date}T${time || '12:00'}`).toISOString()
+    const { data: inserted, error } = await supabase.from('kaizen_rr_orders').insert({
+      company_id: companyId, template_id: tp.id, order_date,
+      title: tp.name, request_department: tp.request_department, fulfill_department: tp.fulfill_department,
+      order_type: tp.order_type, item_label, unit_label: isBulk ? tp.unit_label : null,
+      quantity, note: note.trim() || null, status: 'sent', due_at, sent_by: profile.id, sent_at: nowIso,
+    }).select().single()
+    if (error) {
+      setBusy(false)
+      toast.error(/duplicate|unique/i.test(error.message)
+        ? (lang === 'th' ? 'งานประจำนี้ถูกสั่งสำหรับวันดังกล่าวแล้ว' : 'This routine is already ordered for that day.')
+        : error.message)
+      return
+    }
+    if (!isBulk) {
+      const ins = await supabase.from('kaizen_rr_order_items').insert(
+        picked.map((room) => ({
+          order_id: inserted.id, company_id: companyId, room_no: room,
+          item_label, variant: hasVariants ? (grid[room] || null) : null,
+        })))
+      if (ins.error) { setBusy(false); toast.error(ins.error.message); return }
+    }
+    const roomsWord = lang === 'th' ? 'ห้อง' : 'rooms'
+    const qtyLabel = isBulk ? unitOf(quantity)
+      : hasVariants ? `${variantBreakdown(picked.map((r) => ({ variant: grid[r] } as RrOrderItem)), variants, lang)} · ${picked.length} ${roomsWord}`
+      : `${picked.length} ${roomsWord}`
+    await supabase.from('kaizen_rr_events').insert({
+      company_id: companyId, order_id: inserted.id, actor_id: profile.id, action: 'sent', detail: qtyLabel,
+    })
+    setBusy(false)
+    const itemSuffix = item_label ? ` — ${item_label}` : ''
+    await notifyDept(tp.fulfill_department,
+      lang === 'th' ? 'มีออเดอร์ประจำเข้ามาใหม่' : 'Routine order received',
+      lang === 'th'
+        ? `"${tp.name}"${itemSuffix} — ${qtyLabel} จากแผนก ${deptLabel(tp.request_department, lang)}`
+        : `"${tp.name}"${itemSuffix} — ${qtyLabel} requested by ${deptLabel(tp.request_department, lang)}`,
+      { templateId: tp.id, picMode: tp.pic_mode, picIds: tp.pic_ids, useDeptConfig: true })
+    toast.success(tr.rr.orderSent)
+    onPlaced()
+    onClose()
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/40" onClick={busy ? undefined : onClose} />
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm max-h-[90vh] flex flex-col">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
+          <div className="min-w-0">
+            <h3 className="font-semibold text-gray-900 truncate">{name}</h3>
+            <p className="text-[11px] text-gray-400">{lang === 'th' ? 'ส่งไปยัง' : 'To'} {deptLabel(tp.fulfill_department, lang)}</p>
+          </div>
+          <button onClick={onClose} className="p-1 rounded text-gray-400 hover:bg-gray-100"><X className="h-4 w-4" /></button>
+        </div>
+        <div className="px-5 py-4 space-y-4 overflow-y-auto">
+          {/* Quantity (bulk) or room grid (per-room) */}
+          {isBulk ? (
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-gray-500">{tp.unit_label ? tr.rr.quantityUnit(tp.unit_label) : tr.rr.quantity}</label>
+              <div className="flex items-center gap-2">
+                <input value={qty} onChange={(e) => setQty(e.target.value.replace(/[^0-9]/g, ''))} inputMode="numeric"
+                  placeholder={tr.rr.quantityPh} className={inputCls + ' max-w-[120px]'} autoFocus />
+                {tp.unit_label && <span className="text-sm text-gray-500">{tp.unit_label}</span>}
+              </div>
+            </div>
+          ) : rooms.length > 0 ? (
+            <RoomGrid rooms={rooms} grid={grid} setGrid={setGrid} variants={hasVariants ? variants : null} />
+          ) : (
+            <p className="text-xs text-amber-600">{lang === 'th' ? 'ยังไม่ได้ตั้งค่ารายการห้อง โปรดติดต่อผู้จัดการ' : 'No rooms configured — ask a manager to set up the room list.'}</p>
+          )}
+
+          {/* Ready-by date — replaces the old Today/Tomorrow tab */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-gray-500">{lang === 'th' ? 'ต้องการก่อน' : 'Ready by'}</label>
+            <div className="flex items-center gap-2 flex-wrap">
+              {([[today, lang === 'th' ? 'วันนี้' : 'Today'], [tomorrow, lang === 'th' ? 'พรุ่งนี้' : 'Tomorrow']] as const).map(([d, label]) => (
+                <button key={d} type="button" onClick={() => setServiceDate(d)}
+                  className={`px-3 h-8 rounded-full border text-xs font-medium transition-colors ${
+                    serviceDate === d ? 'bg-[var(--brand-primary)] text-white border-[var(--brand-primary)]'
+                                      : 'bg-white text-gray-600 border-gray-300 hover:border-gray-400'}`}>
+                  {label}
+                </button>
+              ))}
+              <input type="time" value={time} onChange={(e) => setTime(e.target.value)}
+                className="h-8 rounded-lg border border-gray-300 px-2 text-xs focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/40" />
+            </div>
+            {serviceDate !== today && serviceDate !== tomorrow && (
+              <p className="text-[11px] text-gray-400">{dateLabel(serviceDate)}</p>
+            )}
+          </div>
+
+          {/* Note */}
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-gray-500">{lang === 'th' ? 'หมายเหตุ (ถ้ามี)' : 'Note (optional)'}</label>
+            <input value={note} onChange={(e) => setNote(e.target.value)} placeholder={tr.rr.notePh} className={inputCls} />
+          </div>
+        </div>
+        <div className="px-5 py-3 border-t border-gray-200 flex items-center justify-end gap-2">
+          <button onClick={onClose} disabled={busy} className="px-3 h-9 rounded-lg text-sm text-gray-500 hover:text-gray-700">
+            {lang === 'th' ? 'ยกเลิก' : 'Cancel'}
+          </button>
+          <button onClick={place} disabled={busy}
+            className="flex items-center gap-1.5 h-9 px-4 rounded-lg bg-[var(--brand-primary)] text-white text-sm font-semibold disabled:opacity-50">
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+            {lang === 'th' ? `ส่งไปยัง${deptLabel(tp.fulfill_department, lang)}` : `Send to ${deptLabel(tp.fulfill_department, lang)}`}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
