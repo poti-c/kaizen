@@ -358,12 +358,13 @@ export function RoutineRosterPage() {
                     <button key={tp.id} onClick={() => setPlaceTpl(tp)}
                       title={`${deptLabel(tp.request_department, lang)} → ${deptLabel(tp.fulfill_department, lang)}${tp.due_time ? ` · ${hhmm(tp.due_time)}` : ''}`}
                       className="flex flex-col gap-0.5 rounded-lg border border-gray-200 bg-white px-2.5 py-2 text-left hover:border-[var(--brand-primary)]/50 hover:bg-gray-50 transition-colors">
-                      <div className="flex items-center gap-1.5">
-                        <ClipboardList className="h-3.5 w-3.5 flex-shrink-0 text-[var(--brand-primary)]" />
-                        <p className="text-[13px] font-medium text-gray-900 truncate flex-1 leading-tight">{name}</p>
+                      <div className="flex items-start gap-1.5">
+                        <ClipboardList className="h-3.5 w-3.5 flex-shrink-0 text-[var(--brand-primary)] mt-0.5" />
+                        {/* Mobile: truncate to keep cards compact. Desktop: wrap so the full name is readable. */}
+                        <p className="text-[13px] font-medium text-gray-900 flex-1 leading-tight truncate md:whitespace-normal md:overflow-visible">{name}</p>
                         {ordered
-                          ? <Check className="h-3.5 w-3.5 flex-shrink-0 text-[var(--brand-primary)]" />
-                          : <Plus className="h-3.5 w-3.5 flex-shrink-0 text-gray-300" />}
+                          ? <Check className="h-3.5 w-3.5 flex-shrink-0 text-[var(--brand-primary)] mt-0.5" />
+                          : <Plus className="h-3.5 w-3.5 flex-shrink-0 text-gray-300 mt-0.5" />}
                       </div>
                       <p className="text-[10px] text-gray-400 truncate pl-5">
                         {deptLabel(tp.request_department, lang)} → {deptLabel(tp.fulfill_department, lang)}{tp.due_time ? ` · ${hhmm(tp.due_time)}` : ''}
