@@ -125,7 +125,7 @@ export function CasesPage() {
     return saved ? JSON.parse(saved) : false
   })
   const [advFilters, setAdvFilters] = useState<{
-    statuses: CaseStatus[]
+    statuses: (CaseStatus | 'overdue')[]
     departments: Department[]
     priorities: CasePriority[]
     categories: string[]
@@ -139,11 +139,12 @@ export function CasesPage() {
   // filters even with advanced search on (which otherwise ignores the URL params).
   useEffect(() => {
     if (!advancedSearchEnabled) return
-    const statuses: CaseStatus[] =
+    const statuses: (CaseStatus | 'overdue')[] =
       groupFilter === 'open' ? ['open', 'reopened']
       : groupFilter === 'in_progress' ? ['assigned', 'in_progress']
       : groupFilter === 'pending' ? ['pending_manager_approval', 'pending_admin_approval']
       : groupFilter === 'resolved' ? ['closed']
+      : groupFilter === 'overdue' ? ['overdue']
       : statusFilter !== 'all' ? [statusFilter]
       : []
     const priorities = priorityFilter !== 'all' ? [priorityFilter] : []
@@ -249,9 +250,12 @@ export function CasesPage() {
 
     // Advanced filters (if enabled)
     if (advancedSearchEnabled) {
-      // Status filter: OR logic (show if status matches ANY selected)
+      // Status filter: OR logic (show if status matches ANY selected). "Overdue"
+      // isn't a real status — it matches any SLA-breached case.
       if (advFilters.statuses.length > 0) {
-        result = result.filter((c) => advFilters.statuses.includes(c.status))
+        const wantOverdue = advFilters.statuses.includes('overdue')
+        const realStatuses = advFilters.statuses.filter((s) => s !== 'overdue') as CaseStatus[]
+        result = result.filter((c) => realStatuses.includes(c.status) || (wantOverdue && isSLABreached(c)))
       }
       // Department filter: OR logic
       if (advFilters.departments.length > 0) {
@@ -282,8 +286,8 @@ export function CasesPage() {
       if (categoryFilter !== 'all') result = result.filter((c) => c.category === categoryFilter)
     }
 
-    // Overdue deep-link — applies in both modes (it's a cross-cutting flag, not a status).
-    if (overdueOnly) result = result.filter((c) => isSLABreached(c))
+    // Overdue deep-link in simple mode (advanced mode handles it via the 'overdue' status).
+    if (overdueOnly && !advancedSearchEnabled) result = result.filter((c) => isSLABreached(c))
 
     // Date filter
     if (selectedMonths.size > 0) {
@@ -358,7 +362,9 @@ export function CasesPage() {
   const activeCases       = sortCases(filtered.filter(c => !['closed','pending_manager_approval','pending_admin_approval'].includes(c.status)))
 
   // ── Active-filter indicator ("Filtered: …" chip) ──────────────────────────
-  const statusLabel = (s: CaseStatus) => (lang === 'th' ? STATUS_FILTER_LABELS_TH[s] : STATUS_FILTER_LABELS[s]) ?? t.status[s]
+  const statusLabel = (s: CaseStatus | 'overdue') =>
+    s === 'overdue' ? (lang === 'th' ? 'เกินกำหนด' : 'Overdue')
+    : (lang === 'th' ? STATUS_FILTER_LABELS_TH[s] : STATUS_FILTER_LABELS[s]) ?? t.status[s]
   const filterTokens: string[] = (advancedSearchEnabled
     ? [
         ...advFilters.statuses.map(statusLabel),
@@ -375,7 +381,7 @@ export function CasesPage() {
         priorityFilter !== 'all' ? t.priority[priorityFilter] : null,
         categoryFilter !== 'all' ? categoryLabel(categoryFilter, lang) : null,
       ].filter(Boolean) as string[])
-  if (overdueOnly) filterTokens.push(lang === 'th' ? 'เกินกำหนด' : 'Overdue')
+  if (overdueOnly && !advancedSearchEnabled) filterTokens.push(lang === 'th' ? 'เกินกำหนด' : 'Overdue')
 
   function clearFilters() {
     const empty = { statuses: [], departments: [], priorities: [], categories: [] }
@@ -822,10 +828,13 @@ export function CasesPage() {
                 {
                   key: 'status' as const, label: lang === 'th' ? 'สถานะ' : 'Status',
                   count: advFilters.statuses.length, advKey: 'statuses' as const,
-                  options: STATUS_FILTERS.filter(s => s !== 'all').map(s => ({
-                    value: s as string, checked: advFilters.statuses.includes(s as CaseStatus),
-                    label: (lang === 'th' ? STATUS_FILTER_LABELS_TH[s as CaseStatus] : STATUS_FILTER_LABELS[s as CaseStatus]) ?? t.status[s as CaseStatus],
-                  })),
+                  options: [
+                    ...STATUS_FILTERS.filter(s => s !== 'all').map(s => ({
+                      value: s as string, checked: advFilters.statuses.includes(s as CaseStatus),
+                      label: (lang === 'th' ? STATUS_FILTER_LABELS_TH[s as CaseStatus] : STATUS_FILTER_LABELS[s as CaseStatus]) ?? t.status[s as CaseStatus],
+                    })),
+                    { value: 'overdue', checked: advFilters.statuses.includes('overdue'), label: lang === 'th' ? 'เกินกำหนด' : 'Overdue' },
+                  ],
                 },
                 {
                   key: 'department' as const, label: lang === 'th' ? 'แผนก' : 'Department',

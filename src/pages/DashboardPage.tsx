@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import { FolderOpen, Clock, AlertTriangle, PlusCircle, CheckCircle2, ChevronDown, ChevronUp, CalendarDays } from 'lucide-react'
+import { Clock, AlertTriangle, PlusCircle, CheckCircle2, ChevronDown, ChevronUp, CalendarDays } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useCompany } from '@/contexts/CompanyContext'
@@ -440,54 +440,30 @@ export function DashboardPage() {
 
       </div>
 
-      {/* Preventive Maintenance summary (PMS add-on only) */}
-      {companyHasAddon(activeCompany, 'pms') && <PMSummaryCard />}
-
-      {/* KPI stat cards */}
+      {/* Avg Resolution + Resolution Rate — one line, under the overview cards */}
       <div className="grid grid-cols-2 gap-4 mb-6">
-        <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm flex flex-col gap-3">
-          <div>
-            <div className="flex items-center gap-1.5 mb-1">
-              <div className="w-6 h-6 rounded-md bg-purple-50 flex items-center justify-center flex-shrink-0">
-                <Clock className="h-3.5 w-3.5 text-purple-600" />
-              </div>
-              <p className="text-xs font-medium text-gray-500">{t.dashboard.avgResolution}</p>
+        <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
+          <div className="flex items-center gap-1.5 mb-1">
+            <div className="w-6 h-6 rounded-md bg-purple-50 flex items-center justify-center flex-shrink-0">
+              <Clock className="h-3.5 w-3.5 text-purple-600" />
             </div>
-            <p className="text-2xl font-bold text-gray-900">{formatResolution(avgResolutionHours)}</p>
+            <p className="text-xs font-medium text-gray-500">{t.dashboard.avgResolution}</p>
           </div>
-          <div className="h-px bg-gray-100" />
-          <div>
-            <div className="flex items-center gap-1.5 mb-1">
-              <div className="w-6 h-6 rounded-md bg-green-50 flex items-center justify-center flex-shrink-0">
-                <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />
-              </div>
-              <p className="text-xs font-medium text-gray-500">{t.dashboard.resolutionRate}</p>
-            </div>
-            <p className="text-2xl font-bold text-gray-900">{resolutionRate}%</p>
-          </div>
+          <p className="text-2xl font-bold text-gray-900">{formatResolution(avgResolutionHours)}</p>
         </div>
-        <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm flex flex-col gap-3">
-          <div>
-            <div className="flex items-center gap-1.5 mb-1">
-              <div className="w-6 h-6 rounded-md bg-blue-50 flex items-center justify-center flex-shrink-0">
-                <FolderOpen className="h-3.5 w-3.5 text-blue-600" />
-              </div>
-              <p className="text-xs font-medium text-gray-500">{t.dashboard.casesThisMonth}</p>
+        <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
+          <div className="flex items-center gap-1.5 mb-1">
+            <div className="w-6 h-6 rounded-md bg-green-50 flex items-center justify-center flex-shrink-0">
+              <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />
             </div>
-            <p className="text-2xl font-bold text-gray-900">{filteredCases.length}</p>
+            <p className="text-xs font-medium text-gray-500">{t.dashboard.resolutionRate}</p>
           </div>
-          <div className="h-px bg-gray-100" />
-          <div>
-            <div className="flex items-center gap-1.5 mb-1">
-              <div className="w-6 h-6 rounded-md bg-red-50 flex items-center justify-center flex-shrink-0">
-                <AlertTriangle className="h-3.5 w-3.5 text-red-600" />
-              </div>
-              <p className="text-xs font-medium text-gray-500">{t.dashboard.overdueSLA}</p>
-            </div>
-            <p className={`text-2xl font-bold ${overdueCases.length > 0 ? 'text-red-600' : 'text-gray-900'}`}>{overdueCases.length}</p>
-          </div>
+          <p className="text-2xl font-bold text-gray-900">{resolutionRate}%</p>
         </div>
       </div>
+
+      {/* Preventive Maintenance summary (PMS add-on only) */}
+      {companyHasAddon(activeCompany, 'pms') && <PMSummaryCard />}
 
       {/* Banners */}
       {criticalCases.length > 0 && (
