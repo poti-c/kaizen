@@ -357,7 +357,15 @@ export function CasesCalendarPage() {
                   <span className={cn('w-2.5 h-2.5 rounded-full flex-shrink-0', (RR_TONES[e.order.status] ?? RR_TONES.pending).dot)} />
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-gray-900 truncate flex items-center gap-1.5"><ClipboardList className="h-3 w-3 text-gray-400" />{e.order.title}{e.order.item_label ? ` · ${e.order.item_label}` : ''}</p>
-                    <p className="text-xs text-gray-400">{rrStatusLabel(e.order.status)}</p>
+                    <p className="text-xs text-gray-400 truncate">
+                      {[
+                        `${deptLabel(e.order.request_department, lang)} → ${deptLabel(e.order.fulfill_department, lang)}`,
+                        e.order.order_type === 'bulk'
+                          ? (e.order.unit_label ? `${e.order.quantity ?? 0} ${e.order.unit_label}` : (e.order.quantity != null ? String(e.order.quantity) : ''))
+                          : (e.order.quantity != null ? `${e.order.quantity} ${lang === 'th' ? 'ห้อง' : 'rooms'}` : ''),
+                        rrStatusLabel(e.order.status),
+                      ].filter(Boolean).join(' · ')}
+                    </p>
                   </div>
                 </button>
               ) : (
