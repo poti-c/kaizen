@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase'
 import { useCompany } from '@/contexts/CompanyContext'
 import { useAuth } from '@/contexts/AuthContext'
 import { useLanguage } from '@/contexts/LanguageContext'
-import { DEPARTMENT_LABELS, type Department } from '@/types'
+import { DEPARTMENT_LABELS, DEPARTMENTS, type Department } from '@/types'
 import { FREQUENCIES, freqLabel, addInterval, assetStatus, STATUS_META, type FreqUnit, type AssetStatus } from '@/lib/pm'
 import { LOCATIONS } from '@/lib/utils'
 import { PMTaskModal, taskTone, taskStatusKey, type PMTask } from '@/components/pm/PMSchedule'
@@ -68,6 +68,7 @@ export function PreventiveMaintenancePage() {
   const [openTask, setOpenTask] = useState<PMTask | null>(null)
   const [detailAsset, setDetailAsset] = useState<Asset | null>(null)
   const [locations, setLocations] = useState<string[]>([...LOCATIONS] as string[])
+  const [allDepts, setAllDepts] = useState<{ value: string; label: string }[]>([...DEPARTMENTS])
   const [reportManagerIds, setReportManagerIds] = useState<string[]>([])
   const [showReport, setShowReport] = useState(false)
   // Report access = Top Management (always) OR a manager explicitly granted in PM settings.
@@ -80,13 +81,14 @@ export function PreventiveMaintenancePage() {
     try { await supabase.rpc('kaizen_pm_sync') } catch { /* materialize tasks; ignore if it fails */ }
     const taskSel = '*, asset:kaizen_pm_assets(name, location, notes, checklist, department, type:kaizen_pm_equipment_types(name))'
     const monthStartKey = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10)
-    const [a, t, s, openT, doneT, loc] = await Promise.all([
+    const [a, t, s, openT, doneT, loc, depts] = await Promise.all([
       supabase.from('kaizen_pm_assets').select('*, type:kaizen_pm_equipment_types(name, category)').eq('company_id', companyId).order('next_maintenance_date', { ascending: true, nullsFirst: false }),
       supabase.from('kaizen_pm_equipment_types').select('id, name, category, is_active').eq('company_id', companyId).eq('is_active', true).order('category').order('name'),
       supabase.from('kaizen_pm_settings').select('due_soon_days, report_manager_ids').eq('company_id', companyId).maybeSingle(),
       supabase.from('kaizen_pm_tasks').select(taskSel).eq('company_id', companyId).in('status', ['scheduled', 'in_progress', 'pending_approval']),
       supabase.from('kaizen_pm_tasks').select(taskSel).eq('company_id', companyId).in('status', ['done', 'approved']).gte('performed_at', monthStartKey),
       supabase.from('kaizen_settings').select('value').eq('company_id', companyId).eq('key', 'custom_locations').maybeSingle(),
+      supabase.from('kaizen_settings').select('value').eq('company_id', companyId).eq('key', 'custom_departments').maybeSingle(),
     ])
     if (a.error) toast.error(a.error.message)
     setAssets((a.data as Asset[]) ?? [])
@@ -95,6 +97,11 @@ export function PreventiveMaintenancePage() {
     setReportManagerIds((s.data as { report_manager_ids?: string[] } | null)?.report_manager_ids ?? [])
     const locList = loc.data?.value as string[] | undefined
     setLocations(Array.isArray(locList) && locList.length ? locList : [...LOCATIONS] as string[])
+    if (depts.data?.value) {
+      const labelToSlug = Object.fromEntries(DEPARTMENTS.map((d) => [d.label, d.value])) as Record<string, string>
+      const labels = depts.data.value as string[]
+      setAllDepts(labels.map((label) => ({ value: labelToSlug[label] ?? label, label })))
+    }
     setPmTasks((openT.data as unknown as PMTask[]) ?? [])
     setPmDoneTasks((doneT.data as unknown as PMTask[]) ?? [])
     setLoading(false)
@@ -334,7 +341,7 @@ export function PreventiveMaintenancePage() {
 
       {editor && companyId && (
         <AssetEditor companyId={companyId} types={types} locations={locations} asset={editor === 'new' ? null : editor}
-          onClose={() => setEditor(null)} onSaved={() => { setEditor(null); load() }} />
+          onClose={() => setEditor(null)} onSaved={() => { setEditor(null); load() }} allDepts={allDepts} />
       )}
 
       {showReport && (
@@ -466,8 +473,9 @@ function AssetDetailModal({ asset, dueSoonDays, canManage, onClose, onEdit }: {
 
 const inputCls = 'w-full h-9 rounded-lg border border-gray-300 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/40'
 
-function AssetEditor({ companyId, types, locations, asset, onClose, onSaved }: {
+function AssetEditor({ companyId, types, locations, asset, onClose, onSaved, allDepts }: {
   companyId: string; types: EqType[]; locations: string[]; asset: Asset | null; onClose: () => void; onSaved: () => void
+  allDepts: { value: string; label: string }[]
 }) {
   const { t: tr, lang } = useLanguage()
   const freqIdx0 = asset ? FREQUENCIES.findIndex((f) => f.unit === asset.freq_unit && f.interval === asset.freq_interval) : 3
@@ -570,7 +578,7 @@ function AssetEditor({ companyId, types, locations, asset, onClose, onSaved }: {
           <Field label={tr.pm.responsibleDept}>
             <select value={f.department} onChange={(e) => set({ department: e.target.value })} className={inputCls}>
               <option value="">{tr.pm.none}</option>
-              {(Object.keys(DEPARTMENT_LABELS) as Department[]).map((d) => <option key={d} value={d}>{DEPARTMENT_LABELS[d]}</option>)}
+              {allDepts.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
             </select>
           </Field>
           <div className="grid grid-cols-2 gap-2.5">

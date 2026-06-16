@@ -105,9 +105,8 @@ export function CasesPage() {
             setCustomLocations(row.value as string[])
           }
           if (row.key === 'custom_departments') {
-            const vals = (row.value as string[])
-              .map(label => DEPARTMENTS.find(d => d.label === label)?.value)
-              .filter(Boolean) as string[]
+            const labelToSlug = Object.fromEntries(DEPARTMENTS.map((d) => [d.label, d.value]))
+            const vals = (row.value as string[]).map(label => labelToSlug[label] ?? label)
             if (vals.length > 0) setValidDeptValues(vals)
           }
           if (row.key === 'custom_categories') {

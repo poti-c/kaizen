@@ -490,7 +490,7 @@ export function SettingsPage() {
           {/* Department — read only */}
           <div>
             <p className="text-gray-500 text-xs mb-1">{t.settings.dept}</p>
-            <p className="font-medium text-gray-900">{profile ? DEPARTMENT_LABELS[profile.department] : ''}</p>
+            <p className="font-medium text-gray-900">{profile ? (DEPARTMENT_LABELS[profile.department] ?? profile.department) : ''}</p>
           </div>
 
           {/* Username — editable for staff */}

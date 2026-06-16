@@ -11,7 +11,7 @@ import { useCompany } from '@/contexts/CompanyContext'
 import { useAuth } from '@/contexts/AuthContext'
 import { useLanguage } from '@/contexts/LanguageContext'
 import {
-  DEPARTMENT_LABELS, deptLabel,
+  DEPARTMENT_LABELS, DEPARTMENTS, deptLabel,
   type Department, type RrTemplate, type RrOrder, type RrOrderItem, type RrOrderStatus,
   type RrOrderType, type RrVariant, type RrEvent,
 } from '@/types'
@@ -97,6 +97,7 @@ export function RoutineRosterPage() {
 
   const [view, setView] = useState<'board' | 'rooms' | 'templates' | 'report'>('board')
   const [fulfillingDepts, setFulfillingDepts] = useState<Set<string>>(new Set()) // depts used as a fulfilling dept in the room recipes
+  const [allDepts, setAllDepts] = useState<{ value: string; label: string }[]>([...DEPARTMENTS])
   // Managers + authorized Front Office can place/inspect; staff in a fulfilling department see their own fulfil board.
   const canRooms = canManage
     || (profile?.department === 'front_office' && rrFo.allowed)
@@ -150,6 +151,17 @@ export function RoutineRosterPage() {
         const set = new Set<string>()
         Object.values(recipes).forEach((lines) => (lines ?? []).forEach((l) => { if (l.fulfill_department) set.add(l.fulfill_department) }))
         setFulfillingDepts(set)
+      })
+    // Company department list (built-in + custom)
+    const labelToSlug = Object.fromEntries(DEPARTMENTS.map((d) => [d.label, d.value])) as Record<string, string>
+    supabase.from('kaizen_settings').select('value')
+      .eq('company_id', companyId).eq('key', 'custom_departments').maybeSingle()
+      .then(({ data }) => {
+        if (stale) return
+        if (data?.value) {
+          const labels = data.value as string[]
+          setAllDepts(labels.map((label) => ({ value: labelToSlug[label] ?? label, label })))
+        }
       })
     return () => { stale = true }
   }, [companyId])
@@ -351,7 +363,7 @@ export function RoutineRosterPage() {
           initialMode={nav?.rrView === 'rooms' && !(profile?.role === 'super_admin' || profile?.department === 'front_office') ? 'fulfil' : undefined} />
       ) : view === 'templates' && canManage && companyId ? (
         <TemplatesView companyId={companyId} templates={templates}
-          mutes={mutes} onMuteToggle={loadMutes} canManage={canManage} onChanged={load} />
+          mutes={mutes} onMuteToggle={loadMutes} canManage={canManage} onChanged={load} allDepts={allDepts} />
       ) : view === 'report' && canManage && companyId ? (
         <ReportView companyId={companyId} companyName={activeCompany?.org_title || activeCompany?.name || ''}
           generatedBy={profile?.full_name ?? ''} statusLabel={statusLabel} templates={templates} />
@@ -1036,9 +1048,10 @@ function OrderTimeline({ orderId }: { orderId: string }) {
 
 // ── templates view (managers) ────────────────────────────────────────────────
 
-function TemplatesView({ companyId, templates, mutes, onMuteToggle, canManage, onChanged }: {
+function TemplatesView({ companyId, templates, mutes, onMuteToggle, canManage, onChanged, allDepts }: {
   companyId: string; templates: RrTemplate[]
   mutes: Set<string>; onMuteToggle: () => void; canManage: boolean; onChanged: () => void
+  allDepts: { value: string; label: string }[]
 }) {
   const { t: tr, lang } = useLanguage()
   const { profile } = useAuth()
@@ -1120,15 +1133,16 @@ function TemplatesView({ companyId, templates, mutes, onMuteToggle, canManage, o
       )}
       {editor && (
         <TemplateEditor companyId={companyId} template={editor === 'new' ? null : editor} sortNext={templates.length}
-          onClose={() => setEditor(null)} onSaved={() => { setEditor(null); onChanged() }} />
+          onClose={() => setEditor(null)} onSaved={() => { setEditor(null); onChanged() }} allDepts={allDepts} />
       )}
     </div>
   )
 }
 
-function TemplateEditor({ companyId, template, sortNext, onClose, onSaved }: {
+function TemplateEditor({ companyId, template, sortNext, onClose, onSaved, allDepts }: {
   companyId: string; template: RrTemplate | null; sortNext: number
   onClose: () => void; onSaved: () => void
+  allDepts: { value: string; label: string }[]
 }) {
   const { t: tr, lang } = useLanguage()
   const [busy, setBusy] = useState(false)
@@ -1240,12 +1254,12 @@ function TemplateEditor({ companyId, template, sortNext, onClose, onSaved }: {
           <div className="grid grid-cols-2 gap-2.5">
             <Field label={tr.rr.requestDept}>
               <select value={f.request_department} onChange={(e) => set({ request_department: e.target.value as Department })} className={inputCls}>
-                {(Object.keys(DEPARTMENT_LABELS) as Department[]).map((d) => <option key={d} value={d}>{deptLabel(d, lang)}</option>)}
+                {allDepts.map((d) => <option key={d.value} value={d.value}>{deptLabel(d.value, lang)}</option>)}
               </select>
             </Field>
             <Field label={tr.rr.fulfillDept}>
               <select value={f.fulfill_department} onChange={(e) => set({ fulfill_department: e.target.value as Department })} className={inputCls}>
-                {(Object.keys(DEPARTMENT_LABELS) as Department[]).map((d) => <option key={d} value={d}>{deptLabel(d, lang)}</option>)}
+                {allDepts.map((d) => <option key={d.value} value={d.value}>{deptLabel(d.value, lang)}</option>)}
               </select>
             </Field>
           </div>
