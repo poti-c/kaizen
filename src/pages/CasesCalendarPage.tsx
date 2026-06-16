@@ -25,7 +25,7 @@ function isoKey(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 }
 
-type RoomOrderCal = { id: string; order_date: string; status: 'draft' | 'submitted'; room_statuses: Record<string, string> }
+type RoomOrderCal = { id: string; order_date: string; status: 'draft' | 'submitted'; submitted_by: string | null; room_statuses: Record<string, string> }
 type Entry = { kind: 'case'; case: KaizenCase } | { kind: 'casedue'; case: KaizenCase } | { kind: 'pm'; task: PMTask } | { kind: 'rr'; order: RrOrder } | { kind: 'roomorder'; ro: RoomOrderCal }
 
 // Room-order chip/dot tone by submission status.
@@ -96,6 +96,17 @@ export function CasesCalendarPage() {
     return () => { stale = true }
   }, [rrEnabled, activeCompany])
 
+  // Resolve a batch of profile ids → names and merge into actorNames (used for
+  // "Confirmed by …" on routine orders and "Submitted by …" on room orders).
+  async function resolveNames(ids: (string | null | undefined)[]) {
+    const uniq = [...new Set(ids.filter(Boolean) as string[])]
+    if (!uniq.length) return
+    const { data } = await supabase.from('kaizen_profiles').select('id, full_name').in('id', uniq)
+    const map: Record<string, string> = {}
+    ;((data as { id: string; full_name: string }[]) ?? []).forEach(p => { map[p.id] = p.full_name })
+    setActorNames(prev => ({ ...prev, ...map }))
+  }
+
   async function fetchData() {
     if (!activeCompany) return
     setLoading(true)
@@ -140,20 +151,16 @@ export function CasesCalendarPage() {
         const list = (data as RrOrder[]) ?? []
         setRrOrders(list)
         // Resolve actor names so rows can show "Confirmed by …", "Accepted by …", etc.
-        const ids = [...new Set(list.flatMap(o => [o.sent_by, o.accepted_by, o.delivered_by, o.confirmed_by]).filter(Boolean) as string[])]
-        if (ids.length) {
-          const { data: profs } = await supabase.from('kaizen_profiles').select('id, full_name').in('id', ids)
-          const map: Record<string, string> = {}
-          ;((profs as { id: string; full_name: string }[]) ?? []).forEach(p => { map[p.id] = p.full_name })
-          setActorNames(map)
-        } else { setActorNames({}) }
+        await resolveNames(list.flatMap(o => [o.sent_by, o.accepted_by, o.delivered_by, o.confirmed_by]))
       })())
       jobs.push((async () => {
         const { data } = await supabase.from('kaizen_rr_room_orders')
-          .select('id, order_date, status, room_statuses')
+          .select('id, order_date, status, submitted_by, room_statuses')
           .eq('company_id', activeCompany.id)
           .gte('order_date', isoKey(start)).lte('order_date', monthEnd)
-        setRrRoomOrders((data as RoomOrderCal[]) ?? [])
+        const list = (data as RoomOrderCal[]) ?? []
+        setRrRoomOrders(list)
+        await resolveNames(list.map(ro => ro.submitted_by))
       })())
     } else { setRrOrders([]); setRrRoomOrders([]) }
 
@@ -196,18 +203,21 @@ export function CasesCalendarPage() {
 
   const roomNoun = unitOne(roomUnit, lang)
   const roomOrderLabel = lang === 'th' ? `ใบสั่ง${roomNoun}` : `${roomNoun} order`
-  // Room-order breakdown: how many rooms in each state (check-in / occupied / empty / OO).
+  // Room-order summary: who submitted + how many rooms in each state, numbers in brackets.
   const roomOrderSub = (ro: RoomOrderCal) => {
-    const status = ro.status === 'submitted' ? (lang === 'th' ? 'ส่งแล้ว' : 'Submitted') : (lang === 'th' ? 'ฉบับร่าง' : 'Draft')
+    const who = ro.submitted_by ? actorNames[ro.submitted_by] : null
+    const head = ro.status === 'submitted'
+      ? (who ? `${lang === 'th' ? 'ส่งโดย' : 'Submitted by'} ${who}` : (lang === 'th' ? 'ส่งแล้ว' : 'Submitted'))
+      : (lang === 'th' ? 'ฉบับร่าง' : 'Draft')
     const c = { checkin: 0, occupied: 0, empty: 0, oo: 0 }
     Object.values(ro.room_statuses ?? {}).forEach(s => { if (s in c) c[s as keyof typeof c]++ })
     const breakdown = [
-      `${lang === 'th' ? 'เช็คอิน' : 'Check-in'} ${c.checkin}`,
-      `${lang === 'th' ? 'พักต่อ' : 'Occupied'} ${c.occupied}`,
-      `${lang === 'th' ? 'ว่าง' : 'Empty'} ${c.empty}`,
-      `OO ${c.oo}`,
+      `${lang === 'th' ? 'เช็คอิน' : 'Check-in'} [${c.checkin}]`,
+      `${lang === 'th' ? 'พักต่อ' : 'Occupied'} [${c.occupied}]`,
+      `${lang === 'th' ? 'ว่าง' : 'Empty'} [${c.empty}]`,
+      `O/O [${c.oo}]`,
     ].join(' · ')
-    return `${status} · ${breakdown}`
+    return `${head} · ${breakdown}`
   }
 
   function isToday(date: Date) {
@@ -398,7 +408,7 @@ export function CasesCalendarPage() {
                   <span className={cn('w-2.5 h-2.5 rounded-full flex-shrink-0', (ROOMORDER_TONE[e.ro.status] ?? ROOMORDER_TONE.draft).dot)} />
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-gray-900 truncate flex items-center gap-1.5"><DoorOpen className="h-3 w-3 text-gray-400" />{roomOrderLabel}</p>
-                    <p className="text-xs text-gray-400">{roomOrderSub(e.ro)}</p>
+                    <p className="text-xs text-gray-400 truncate">{roomOrderSub(e.ro)}</p>
                   </div>
                 </button>
               ))}
