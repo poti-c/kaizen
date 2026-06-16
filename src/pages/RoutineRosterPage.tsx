@@ -661,6 +661,21 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
     return () => { stale = true }
   }, [picMode, picIds.join(',')]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Names of the people who acted on this order (submitted / accepted / delivered / confirmed).
+  const [actorNames, setActorNames] = useState<Record<string, string>>({})
+  useEffect(() => {
+    const ids = [...new Set([o.sent_by, o.accepted_by, o.delivered_by, o.confirmed_by].filter(Boolean) as string[])]
+    if (ids.length === 0) { setActorNames({}); return }
+    let stale = false
+    supabase.from('kaizen_profiles').select('id, full_name').in('id', ids).then(({ data }) => {
+      if (stale) return
+      const map: Record<string, string> = {}
+      ;((data as { id: string; full_name: string }[]) ?? []).forEach((p) => { map[p.id] = p.full_name })
+      setActorNames(map)
+    })
+    return () => { stale = true }
+  }, [o.sent_by, o.accepted_by, o.delivered_by, o.confirmed_by])
+
   const now = () => new Date().toISOString()
   const itemSuffix = o.item_label ? ` — ${o.item_label}` : ''
 
@@ -825,13 +840,19 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
     onMuteToggle()
   }
 
-  // Timestamps line — only what happened.
+  // Timestamps line — what happened, by whom (submitter, accepter, …).
+  const byWord = lang === 'th' ? 'โดย' : 'by'
+  const stampOf = (label: string, actorId: string | null, at: string | null) => {
+    if (!at) return null
+    const who = actorId ? actorNames[actorId] : ''
+    return who ? `${label} ${byWord} ${who} · ${fmtTime(at)}` : `${label} ${fmtTime(at)}`
+  }
   const stamps = [
-    o.sent_at && `${tr.rr.sentAt} ${fmtTime(o.sent_at)}`,
-    o.accepted_at && `${tr.rr.acceptedAt} ${fmtTime(o.accepted_at)}`,
-    o.delivered_at && `${tr.rr.deliveredAt} ${fmtTime(o.delivered_at)}`,
-    o.confirmed_at && `${tr.rr.confirmedAt} ${fmtTime(o.confirmed_at)}`,
-  ].filter(Boolean).join(' · ')
+    stampOf(tr.rr.sentAt, o.sent_by, o.sent_at),
+    stampOf(tr.rr.acceptedAt, o.accepted_by, o.accepted_at),
+    stampOf(tr.rr.deliveredAt, o.delivered_by, o.delivered_at),
+    stampOf(tr.rr.confirmedAt, o.confirmed_by, o.confirmed_at),
+  ].filter(Boolean).join('  ·  ')
 
   const actionBtnCls = 'flex items-center justify-center gap-1.5 h-9 px-4 rounded-lg bg-[var(--brand-primary)] text-white text-sm font-semibold disabled:opacity-50'
 

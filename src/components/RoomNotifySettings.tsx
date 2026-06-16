@@ -13,9 +13,9 @@ const DEPT_ORDER = DEPARTMENTS.map((d) => d.value)
 
 /**
  * Who gets notified when an order (bulk routine or room order) is sent to a
- * fulfilling department. "Manager only" → the department's managers (default);
- * "Whole department" → every active member; "Specific staff" → the picked people
- * (used to cover when a department manager is away).
+ * fulfilling department. "Whole department" → every active member (default, so
+ * both staff and managers see it); "Manager only" → the department's managers;
+ * "Specific staff" → the picked people (used to cover when a manager is away).
  */
 export function RoomNotifySettings() {
   const { activeCompany } = useCompany()
@@ -55,7 +55,7 @@ export function RoomNotifySettings() {
   }, [companyId, profile])
   useEffect(() => { load() }, [load])
 
-  const deptCfg = (d: Department): DeptNotifyCfg => config[d] ?? { mode: 'manager', ids: [] }
+  const deptCfg = (d: Department): DeptNotifyCfg => config[d] ?? { mode: 'department', ids: [] }
   const setMode = (d: Department, mode: NotifyMode) => setConfig((c) => ({ ...c, [d]: { ...deptCfg(d), mode } }))
   const toggleUser = (d: Department, id: string) => setConfig((c) => {
     const cur = config[d] ?? { mode: 'users' as const, ids: [] }
@@ -84,8 +84,8 @@ export function RoomNotifySettings() {
         </div>
         <p className="text-xs text-gray-500">
           {lang === 'th'
-            ? 'เลือกผู้รับการแจ้งเตือนเมื่อมีการส่งออเดอร์ (ทั้งใบสั่งประจำและออเดอร์ห้อง) ไปยังแต่ละแผนกผู้ดำเนินการ ปกติแจ้งเฉพาะผู้จัดการ แต่สามารถเลือกแจ้งทั้งแผนกหรือเฉพาะบางคน (เช่น เมื่อผู้จัดการลาหยุด)'
-            : 'Choose who gets alerted when an order is sent to a fulfilling department — covers both bulk routines and room orders. By default only the manager is notified; you can switch to the whole department, or pick specific staff to cover when a manager is away.'}
+            ? 'เลือกผู้รับการแจ้งเตือนเมื่อมีการส่งออเดอร์ (ทั้งใบสั่งประจำและออเดอร์ห้อง) ไปยังแต่ละแผนกผู้ดำเนินการ ปกติแจ้งทั้งแผนก (ทั้งพนักงานและผู้จัดการ) แต่สามารถเลือกแจ้งเฉพาะผู้จัดการหรือเฉพาะบางคน (เช่น เมื่อผู้จัดการลาหยุด)'
+            : 'Choose who gets alerted when an order is sent to a fulfilling department — covers both bulk routines and room orders. By default the whole department is notified (both staff and managers); you can narrow it to managers only, or pick specific staff to cover when a manager is away.'}
         </p>
       </div>
 

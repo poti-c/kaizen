@@ -1,8 +1,8 @@
 import { supabase } from '@/lib/supabase'
 
 // Per-fulfilling-department notification policy, shared by bulk routines and room orders.
-// 'manager'    → the department's managers only (default — "the manager normally receives it")
-// 'department' → every active member of the department
+// 'department' → every active member of the department (default — staff + managers all see it)
+// 'manager'    → the department's managers only
 // 'users'      → a hand-picked set of staff (e.g. cover while a manager is away)
 export type NotifyMode = 'manager' | 'department' | 'users'
 export interface DeptNotifyCfg { mode: NotifyMode; ids: string[] }
@@ -18,7 +18,7 @@ export async function loadNotifyRecipients(companyId: string): Promise<NotifyRec
 export async function resolveDeptRecipients(companyId: string, dept: string): Promise<{ id: string; role: string }[]> {
   const cfg = await loadNotifyRecipients(companyId)
   const dc = cfg[dept]
-  const mode: NotifyMode = dc?.mode ?? 'manager'
+  const mode: NotifyMode = dc?.mode ?? 'department'
   if (mode === 'users' && dc?.ids?.length) {
     const { data } = await supabase.from('kaizen_profiles').select('id, role')
       .eq('company_id', companyId).eq('is_active', true).in('id', dc.ids)
