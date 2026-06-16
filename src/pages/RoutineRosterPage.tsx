@@ -24,14 +24,6 @@ import { useRrFoAccess } from '@/hooks/useRrFoAccess'
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 const WEEKDAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const
-const RUN_WD = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const
-const WD_LABEL_EN: Record<string, string> = { mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat', sun: 'Sun' }
-const WD_LABEL_TH: Record<string, string> = { mon: 'จ', tue: 'อ', wed: 'พ', thu: 'พฤ', fri: 'ศ', sat: 'ส', sun: 'อา' }
-/** Does this template run on the given date? (run_weekdays null = every day) */
-function runsOnDate(tp: RrTemplate, date: string): boolean {
-  if (!tp.run_weekdays || tp.run_weekdays.length === 0) return true
-  return tp.run_weekdays.includes(WEEKDAY_KEYS[new Date(date + 'T00:00:00').getDay()])
-}
 
 /** Local (not UTC) yyyy-mm-dd — the hotel runs on local time. */
 function dateKey(d: Date): string {
@@ -362,7 +354,6 @@ export function RoutineRosterPage() {
                   const lead = Math.max(0, tp.lead_days ?? 0)
                   const targetDate = lead >= 1 ? tomorrow : today
                   const ordered = orders.some((o) => o.template_id === tp.id && o.order_date === targetDate && o.status !== 'cancelled')
-                  const scheduled = runsOnDate(tp, targetDate)
                   const name = lang === 'th' && tp.name_th ? tp.name_th : tp.name
                   return (
                     <button key={tp.id} onClick={() => setPlaceTpl(tp)}
@@ -374,15 +365,11 @@ export function RoutineRosterPage() {
                           → {deptLabel(tp.fulfill_department, lang)}{tp.due_time ? ` · ${lang === 'th' ? 'ก่อน' : 'by'} ${hhmm(tp.due_time)}` : ''}
                         </p>
                       </div>
-                      {ordered ? (
+                      {ordered && (
                         <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 flex items-center gap-1 flex-shrink-0">
                           <Check className="h-3 w-3" />{lang === 'th' ? 'สั่งแล้ว' : 'Ordered'}
                         </span>
-                      ) : scheduled ? (
-                        <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 flex-shrink-0">
-                          {lead >= 1 ? (lang === 'th' ? 'สำหรับพรุ่งนี้' : 'For tomorrow') : (lang === 'th' ? 'สำหรับวันนี้' : 'For today')}
-                        </span>
-                      ) : null}
+                      )}
                       <Plus className="h-4 w-4 flex-shrink-0 text-gray-400" />
                     </button>
                   )
@@ -1237,9 +1224,6 @@ function TemplatesView({ companyId, templates, mutes, onMuteToggle, canManage, o
                   <ArrowRight className="h-3 w-3" />
                   {deptLabel(tpl.fulfill_department, lang)}
                   <span>· {tr.rr.due} {(tpl.due_time || '').slice(0, 5)}</span>
-                  {tpl.run_weekdays && tpl.run_weekdays.length > 0 && tpl.run_weekdays.length < 7 && (
-                    <span>· {RUN_WD.filter((d) => tpl.run_weekdays!.includes(d)).map((d) => (lang === 'th' ? WD_LABEL_TH : WD_LABEL_EN)[d]).join(' ')}</span>
-                  )}
                   {tpl.default_item && <span>· {tpl.default_item}</span>}
                 </p>
               </div>
@@ -1277,7 +1261,6 @@ function TemplateEditor({ companyId, template, sortNext, onClose, onSaved, allDe
     request_department: template?.request_department ?? ('front_office' as Department),
     fulfill_department: template?.fulfill_department ?? ('restaurant' as Department),
     due_time: (template?.due_time ?? '12:00').slice(0, 5),
-    run_weekdays: (template?.run_weekdays && template.run_weekdays.length > 0) ? template.run_weekdays : [...RUN_WD],
     active: template?.active ?? true,
     lead_days: template?.lead_days ?? 0,
     pic_mode: (template?.pic_mode ?? 'department') as 'department' | 'users',
@@ -1319,7 +1302,6 @@ function TemplateEditor({ companyId, template, sortNext, onClose, onSaved, allDe
     if (f.request_department === f.fulfill_department) { toast.error(tr.rr.sameDeptError); return }
     const cleanPics = f.pic_ids.filter((id) => picCandidates.some((c) => c.id === id))
     if (f.pic_mode === 'users' && cleanPics.length === 0) { toast.error(tr.rr.picNoneSelected); return }
-    if (f.run_weekdays.length === 0) { toast.error(lang === 'th' ? 'เลือกอย่างน้อยหนึ่งวัน' : 'Select at least one day'); return }
     setBusy(true)
     const row = {
       company_id: companyId, name: f.name.trim(), name_th: f.name_th.trim() || null,
@@ -1331,7 +1313,8 @@ function TemplateEditor({ companyId, template, sortNext, onClose, onSaved, allDe
       default_item: catalogItems[0]?.label ?? null,
       catalog_items: catalogItems.length > 0 ? catalogItems : null,
       item_by_weekday: null,
-      run_weekdays: f.run_weekdays.length === 7 ? null : f.run_weekdays,
+      // Per-weekday scheduling removed with the click-to-order redesign — routines are orderable any day.
+      run_weekdays: null,
       active: f.active, sort_order: template?.sort_order ?? sortNext,
       unit_label: catalogItems[0]?.unit || null,
       lead_days: f.lead_days,
@@ -1391,30 +1374,6 @@ function TemplateEditor({ companyId, template, sortNext, onClose, onSaved, allDe
           <Field label={tr.rr.dueTime}>
             <input type="time" value={f.due_time} onChange={(e) => set({ due_time: e.target.value })} className={inputCls + ' max-w-[160px]'} />
           </Field>
-
-          {/* Run on which days — controls how often the routine generates an order */}
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-medium text-gray-500">{lang === 'th' ? 'ทำในวัน' : 'Runs on'}</label>
-              <button type="button"
-                onClick={() => set({ run_weekdays: f.run_weekdays.length === 7 ? [] : [...RUN_WD] })}
-                className="text-[11px] font-medium text-[var(--brand-primary)] hover:underline">
-                {f.run_weekdays.length === 7 ? (lang === 'th' ? 'ล้างทั้งหมด' : 'Clear') : (lang === 'th' ? 'ทุกวัน' : 'Every day')}
-              </button>
-            </div>
-            <div className="flex gap-1">
-              {RUN_WD.map((d) => {
-                const on = f.run_weekdays.includes(d)
-                return (
-                  <button key={d} type="button"
-                    onClick={() => set({ run_weekdays: on ? f.run_weekdays.filter((x) => x !== d) : [...f.run_weekdays, d] })}
-                    className={`flex-1 h-8 rounded-lg text-xs font-medium border transition-colors ${on ? 'bg-[var(--brand-primary)] text-white border-[var(--brand-primary)]' : 'bg-white text-gray-500 border-gray-300 hover:bg-gray-50'}`}>
-                    {(lang === 'th' ? WD_LABEL_TH : WD_LABEL_EN)[d]}
-                  </button>
-                )
-              })}
-            </div>
-          </div>
 
           {/* Department item catalog — add items with unit */}
           {(() => {
