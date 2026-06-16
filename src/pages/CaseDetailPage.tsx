@@ -133,7 +133,8 @@ export function CaseDetailPage() {
           if (!Array.isArray(row.value) || row.value.length === 0) return
           if (row.key === 'custom_departments') {
             setCustomDeptLabels(row.value as string[])
-            const vals = (row.value as string[]).map(l => DEPARTMENTS.find(d => d.label === l)?.value).filter(Boolean) as string[]
+            // Built-in depts map label → slug; custom depts (e.g. "Spa") store the label AS the value.
+            const vals = (row.value as string[]).map(l => DEPARTMENTS.find(d => d.label === l)?.value ?? l)
             if (vals.length) setValidDeptValues(vals)
           }
           if (row.key === 'custom_locations') {
@@ -1113,8 +1114,8 @@ export function CaseDetailPage() {
                       </SelectTrigger>
                       <SelectContent>
                         {customDeptLabels.map(label => {
-                          const val = DEPARTMENTS.find(d => d.label === label)?.value
-                          return val ? <SelectItem key={val} value={val}>{label}</SelectItem> : null
+                          const val = DEPARTMENTS.find(d => d.label === label)?.value ?? label
+                          return <SelectItem key={val} value={val}>{label}</SelectItem>
                         })}
                       </SelectContent>
                     </Select>
