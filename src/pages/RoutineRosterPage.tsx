@@ -827,10 +827,10 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
 
   const actionBtnCls = 'flex items-center justify-center gap-1.5 h-9 px-4 rounded-lg bg-[var(--brand-primary)] text-white text-sm font-semibold disabled:opacity-50'
 
-  // PIC label for the meta line.
-  const picLabel = picMode === 'users'
-    ? (picNames.length > 0 ? picNames.join(', ') : tr.rr.personInCharge)
-    : deptLabel(o.request_department, lang)
+  // PIC label for the meta line — only when specific people are named. With
+  // whole-department mode it would just repeat the request dept ("Spa → … · Spa"),
+  // so it's hidden in that case.
+  const picLabel = picMode === 'users' && picNames.length > 0 ? picNames.join(', ') : ''
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-3">
@@ -847,7 +847,7 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
           </div>
           <p className="text-[11px] text-gray-500 mt-0.5 flex items-center gap-1 flex-wrap">
             <span>{deptArrow}</span>
-            <span className="flex items-center gap-0.5">· <Users className="h-3 w-3" /> {picLabel}</span>
+            {picLabel && <span className="flex items-center gap-0.5">· <Users className="h-3 w-3" /> {picLabel}</span>}
             {o.quantity != null && o.order_type === 'bulk' && <span>· {tr.rr.qty} {unitOf(o.quantity)}</span>}
             {isPerRoom && items.length > 0 && (
               <span className="flex items-center gap-0.5">· <BedDouble className="h-3 w-3" /> {tr.rr.roomsDone(deliveredCount, items.length)}</span>
