@@ -187,9 +187,6 @@ export interface RrTemplate {
   active: boolean
   sort_order: number
   created_at: string
-  // ── order-ahead scheduling ──
-  /** 0 = same-day, 1 = order placed the day before the service date, etc. */
-  lead_days: number
   // ── bulk unit ──
   /** Bulk unit label, e.g. "gallon". */
   unit_label: string | null

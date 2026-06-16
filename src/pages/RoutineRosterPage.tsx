@@ -351,9 +351,8 @@ export function RoutineRosterPage() {
             ) : (
               <div className="space-y-2">
                 {menuTemplates.map((tp) => {
-                  const lead = Math.max(0, tp.lead_days ?? 0)
-                  const targetDate = lead >= 1 ? tomorrow : today
-                  const ordered = orders.some((o) => o.template_id === tp.id && o.order_date === targetDate && o.status !== 'cancelled')
+                  // "Ordered" once an active order exists for this routine today or tomorrow (the board's window).
+                  const ordered = orders.some((o) => o.template_id === tp.id && o.status !== 'cancelled')
                   const name = lang === 'th' && tp.name_th ? tp.name_th : tp.name
                   return (
                     <button key={tp.id} onClick={() => setPlaceTpl(tp)}
@@ -451,8 +450,8 @@ function PlaceOrderModal({ template: tp, companyId, profile, today, tomorrow, ro
   onPlaced: () => void
 }) {
   const { t: tr, lang } = useLanguage()
-  const lead = Math.max(0, tp.lead_days ?? 0)
-  const [serviceDate, setServiceDate] = useState(lead >= 1 ? tomorrow : today)
+  // Routine orders are placed ahead by default; staff can switch to Today in the picker.
+  const [serviceDate, setServiceDate] = useState(tomorrow)
   const [qty, setQty] = useState('')
   const [time, setTime] = useState(hhmm(tp.due_time) || '12:00')
   const [note, setNote] = useState('')
@@ -1216,7 +1215,6 @@ function TemplatesView({ companyId, templates, mutes, onMuteToggle, canManage, o
                   <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 border border-gray-200 text-gray-600">
                     {orderTypeLabel(tpl.order_type)}
                   </span>
-                  {(tpl.lead_days ?? 0) > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-50 border border-blue-200 text-blue-600">{tr.rr.leadDayBefore}</span>}
                   {!tpl.active && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-red-50 border border-red-200 text-red-400">{tr.rr.inactiveBadge}</span>}
                 </div>
                 <p className="text-[11px] text-gray-500 truncate mt-0.5 flex items-center gap-1">
@@ -1262,7 +1260,6 @@ function TemplateEditor({ companyId, template, sortNext, onClose, onSaved, allDe
     fulfill_department: template?.fulfill_department ?? ('restaurant' as Department),
     due_time: (template?.due_time ?? '12:00').slice(0, 5),
     active: template?.active ?? true,
-    lead_days: template?.lead_days ?? 0,
     pic_mode: (template?.pic_mode ?? 'department') as 'department' | 'users',
     pic_ids: template?.pic_ids ?? [],
   })
@@ -1315,7 +1312,6 @@ function TemplateEditor({ companyId, template, sortNext, onClose, onSaved, allDe
       item_by_weekday: null,
       active: f.active, sort_order: template?.sort_order ?? sortNext,
       unit_label: catalogItems[0]?.unit || null,
-      lead_days: f.lead_days,
       variants: null,
       pic_mode: f.pic_mode,
       pic_ids: f.pic_mode === 'users' ? cleanPics : null,
@@ -1385,14 +1381,6 @@ function TemplateEditor({ companyId, template, sortNext, onClose, onSaved, allDe
               />
             )
           })()}
-
-          {/* When the item is usually needed — sets the default "ready by" date in the order popup. */}
-          <Field label={tr.rr.leadDays}>
-            <select value={String(f.lead_days)} onChange={(e) => set({ lead_days: Number(e.target.value) })} className={inputCls}>
-              <option value="0">{tr.rr.leadSameDay}</option>
-              <option value="1">{tr.rr.leadDayBefore}</option>
-            </select>
-          </Field>
 
           {/* Person in charge (request side) */}
           <div className="space-y-1.5">
