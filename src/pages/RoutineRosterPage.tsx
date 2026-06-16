@@ -1424,11 +1424,6 @@ function TemplateEditor({ companyId, template, sortNext, onClose, onSaved, allDe
               </div>
             )}
           </div>
-
-          <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
-            <input type="checkbox" checked={f.active} onChange={(e) => set({ active: e.target.checked })} className="accent-[var(--brand-primary)]" />
-            {tr.rr.activeLabel}
-          </label>
         </div>
         <div className="flex items-center gap-2 px-5 py-4 border-t border-gray-200">
           <button onClick={save} disabled={busy} className="flex items-center gap-1.5 bg-[var(--brand-primary)] text-white text-sm font-semibold px-4 h-9 rounded-lg disabled:opacity-50">
