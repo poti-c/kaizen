@@ -154,6 +154,31 @@ export function CasesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Compact filter pills: which group's dropdown is open + outside-click close.
+  const [openFilter, setOpenFilter] = useState<'status' | 'department' | 'priority' | 'category' | null>(null)
+  const filterBarRef = React.useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!openFilter) return
+    const handler = (e: MouseEvent) => {
+      if (filterBarRef.current && !filterBarRef.current.contains(e.target as Node)) setOpenFilter(null)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [openFilter])
+
+  function toggleAdv(key: 'statuses' | 'departments' | 'priorities' | 'categories', value: string, checked: boolean) {
+    const cur = advFilters[key] as string[]
+    const next = checked ? [...cur, value] : cur.filter((x) => x !== value)
+    const nf = { ...advFilters, [key]: next } as typeof advFilters
+    setAdvFilters(nf)
+    localStorage.setItem('kaizen-adv-filters', JSON.stringify(nf))
+  }
+  function clearAdvFilters() {
+    const empty = { statuses: [], departments: [], priorities: [], categories: [] }
+    setAdvFilters(empty)
+    localStorage.setItem('kaizen-adv-filters', JSON.stringify(empty))
+  }
+
   // ── Date filter ───────────────────────────────────────────────────────────
   const [datePickerOpen, setDatePickerOpen] = useState(false)
   const [selectedMonths, setSelectedMonths] = useState<Set<string>>(new Set()) // empty = all
@@ -789,118 +814,69 @@ export function CasesPage() {
           </label>
         </div>
 
-        {/* Advanced Filters (shown when enabled) */}
+        {/* Advanced Filters — compact dropdown pills (shown when enabled) */}
         {advancedSearchEnabled && (
-          <div className="p-3 space-y-2.5">
-            {/* Status Checkboxes */}
-            <div>
-              <p className="text-xs font-semibold text-gray-700 uppercase mb-1.5">{lang === 'th' ? 'สถานะ' : 'Status'}</p>
-              <div className="flex flex-wrap gap-x-3 gap-y-1.5">
-                {STATUS_FILTERS.filter(s => s !== 'all').map((s) => (
-                  <label key={s} className="flex items-center gap-1.5 cursor-pointer text-xs">
-                    <Checkbox
-                      checked={advFilters.statuses.includes(s as CaseStatus)}
-                      onCheckedChange={(checked) => {
-                        const newStatuses = checked
-                          ? [...advFilters.statuses, s as CaseStatus]
-                          : advFilters.statuses.filter(x => x !== s)
-                        const newFilters = { ...advFilters, statuses: newStatuses }
-                        setAdvFilters(newFilters)
-                        localStorage.setItem('kaizen-adv-filters', JSON.stringify(newFilters))
-                      }}
-                    />
-                    <span className="text-gray-600">{(lang === 'th' ? STATUS_FILTER_LABELS_TH[s as CaseStatus] : STATUS_FILTER_LABELS[s as CaseStatus]) ?? t.status[s as CaseStatus]}</span>
-                  </label>
-                ))}
-              </div>
+          <div className="p-3" ref={filterBarRef}>
+            <div className="flex flex-wrap items-center gap-2">
+              {([
+                {
+                  key: 'status' as const, label: lang === 'th' ? 'สถานะ' : 'Status',
+                  count: advFilters.statuses.length, advKey: 'statuses' as const,
+                  options: STATUS_FILTERS.filter(s => s !== 'all').map(s => ({
+                    value: s as string, checked: advFilters.statuses.includes(s as CaseStatus),
+                    label: (lang === 'th' ? STATUS_FILTER_LABELS_TH[s as CaseStatus] : STATUS_FILTER_LABELS[s as CaseStatus]) ?? t.status[s as CaseStatus],
+                  })),
+                },
+                {
+                  key: 'department' as const, label: lang === 'th' ? 'แผนก' : 'Department',
+                  count: advFilters.departments.length, advKey: 'departments' as const,
+                  options: DEPARTMENTS.filter(d => d.value !== 'top_management').map(d => ({
+                    value: d.value as string, label: d.label, checked: advFilters.departments.includes(d.value as Department),
+                  })),
+                },
+                {
+                  key: 'priority' as const, label: lang === 'th' ? 'ความสำคัญ' : 'Priority',
+                  count: advFilters.priorities.length, advKey: 'priorities' as const,
+                  options: (['critical', 'high', 'medium', 'low'] as CasePriority[]).map(p => ({
+                    value: p as string, label: t.priority[p], checked: advFilters.priorities.includes(p),
+                  })),
+                },
+                {
+                  key: 'category' as const, label: lang === 'th' ? 'หมวดหมู่' : 'Category',
+                  count: advFilters.categories.length, advKey: 'categories' as const,
+                  options: categoryOptions.map(c => ({
+                    value: c, label: categoryLabel(c, lang), checked: advFilters.categories.includes(c),
+                  })),
+                },
+              ]).map(group => (
+                <div key={group.key} className="relative">
+                  <button onClick={() => setOpenFilter(o => o === group.key ? null : group.key)}
+                    className={cn('flex items-center gap-1.5 px-3 h-8 rounded-full border text-xs font-medium transition-colors',
+                      group.count > 0
+                        ? 'bg-[var(--brand-primary)]/10 border-[var(--brand-primary)] text-[var(--brand-primary)]'
+                        : 'bg-white border-gray-300 text-gray-600 hover:border-gray-400')}>
+                    <span>{group.label}{group.count > 0 ? ` · ${group.count}` : ''}</span>
+                    <ChevronDown className={cn('h-3 w-3 transition-transform', openFilter === group.key && 'rotate-180')} />
+                  </button>
+                  {openFilter === group.key && (
+                    <div className="absolute left-0 top-9 z-20 bg-white rounded-xl border border-gray-200 shadow-lg p-1.5 min-w-[180px] max-h-64 overflow-y-auto">
+                      {group.options.map(opt => (
+                        <label key={opt.value} className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-gray-50 cursor-pointer text-xs">
+                          <Checkbox checked={opt.checked} onCheckedChange={(c) => toggleAdv(group.advKey, opt.value, c as boolean)} />
+                          <span className="text-gray-700">{opt.label}</span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+              {(advFilters.statuses.length + advFilters.departments.length + advFilters.priorities.length + advFilters.categories.length) > 0 && (
+                <button onClick={clearAdvFilters}
+                  className="flex items-center gap-1 px-2 h-8 text-xs font-medium text-gray-400 hover:text-gray-600 transition-colors">
+                  <X className="h-3 w-3" />{lang === 'th' ? 'ล้าง' : 'Clear'}
+                </button>
+              )}
             </div>
-
-            {/* Department Checkboxes */}
-            <div>
-              <p className="text-xs font-semibold text-gray-700 uppercase mb-1.5">{lang === 'th' ? 'แผนก' : 'Department'}</p>
-              <div className="flex flex-wrap gap-x-3 gap-y-1.5">
-                {DEPARTMENTS.filter(d => d.value !== 'top_management').map((d) => (
-                  <label key={d.value} className="flex items-center gap-1.5 cursor-pointer text-xs">
-                    <Checkbox
-                      checked={advFilters.departments.includes(d.value as Department)}
-                      onCheckedChange={(checked) => {
-                        const newDepts = checked
-                          ? [...advFilters.departments, d.value as Department]
-                          : advFilters.departments.filter(x => x !== d.value)
-                        const newFilters = { ...advFilters, departments: newDepts }
-                        setAdvFilters(newFilters)
-                        localStorage.setItem('kaizen-adv-filters', JSON.stringify(newFilters))
-                      }}
-                    />
-                    <span className="text-gray-600">{d.label}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-
-            {/* Priority Checkboxes */}
-            <div>
-              <p className="text-xs font-semibold text-gray-700 uppercase mb-1.5">{lang === 'th' ? 'ความสำคัญ' : 'Priority'}</p>
-              <div className="flex flex-wrap gap-x-3 gap-y-1.5">
-                {(['critical', 'high', 'medium', 'low'] as CasePriority[]).map((p) => (
-                  <label key={p} className="flex items-center gap-1.5 cursor-pointer text-xs">
-                    <Checkbox
-                      checked={advFilters.priorities.includes(p)}
-                      onCheckedChange={(checked) => {
-                        const newPriorities = checked
-                          ? [...advFilters.priorities, p]
-                          : advFilters.priorities.filter(x => x !== p)
-                        const newFilters = { ...advFilters, priorities: newPriorities }
-                        setAdvFilters(newFilters)
-                        localStorage.setItem('kaizen-adv-filters', JSON.stringify(newFilters))
-                      }}
-                    />
-                    <span className="text-gray-600">{t.priority[p]}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-
-            {/* Category Checkboxes */}
-            <div>
-              <p className="text-xs font-semibold text-gray-700 uppercase mb-1.5">{lang === 'th' ? 'หมวดหมู่' : 'Category'}</p>
-              <div className="flex flex-wrap gap-x-3 gap-y-1.5">
-                {categoryOptions.map((c) => (
-                  <label key={c} className="flex items-center gap-1.5 cursor-pointer text-xs">
-                    <Checkbox
-                      checked={advFilters.categories.includes(c)}
-                      onCheckedChange={(checked) => {
-                        const newCategories = checked
-                          ? [...advFilters.categories, c]
-                          : advFilters.categories.filter(x => x !== c)
-                        const newFilters = { ...advFilters, categories: newCategories }
-                        setAdvFilters(newFilters)
-                        localStorage.setItem('kaizen-adv-filters', JSON.stringify(newFilters))
-                      }}
-                    />
-                    <span className="text-gray-600">{categoryLabel(c, lang)}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-
-            {/* Clear Filters Button */}
-            {(advFilters.statuses.length > 0 || advFilters.departments.length > 0 || advFilters.priorities.length > 0 || advFilters.categories.length > 0) && (
-              <div className="pt-2 border-t border-gray-100">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setAdvFilters({ statuses: [], departments: [], priorities: [], categories: [] })
-                    localStorage.setItem('kaizen-adv-filters', JSON.stringify({ statuses: [], departments: [], priorities: [], categories: [] }))
-                  }}
-                  className="gap-1"
-                >
-                  <X className="h-3.5 w-3.5" />
-                  {lang === 'th' ? 'ล้างตัวกรอง' : 'Clear Filters'}
-                </Button>
-              </div>
-            )}
           </div>
         )}
       </div>
