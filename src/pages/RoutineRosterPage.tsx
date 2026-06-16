@@ -1185,9 +1185,6 @@ function TemplatesView({ companyId, templates, mutes, onMuteToggle, canManage, o
   const { profile } = useAuth()
   const [editor, setEditor] = useState<RrTemplate | 'new' | null>(null)
 
-  const orderTypeLabel = (t: RrOrderType) =>
-    t === 'per_room_variants' ? tr.rr.perRoomVariantsShort : t === 'per_room' ? tr.rr.perRoomShort : tr.rr.bulkShort
-
   async function toggleActive(tpl: RrTemplate) {
     const { error } = await supabase.from('kaizen_rr_templates').update({ active: !tpl.active }).eq('id', tpl.id)
     if (error) toast.error(error.message); else onChanged()
@@ -1228,9 +1225,6 @@ function TemplatesView({ companyId, templates, mutes, onMuteToggle, canManage, o
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
                   <p className="text-sm font-semibold text-gray-900 truncate">{lang === 'th' && tpl.name_th ? tpl.name_th : tpl.name}</p>
-                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 border border-gray-200 text-gray-600">
-                    {orderTypeLabel(tpl.order_type)}
-                  </span>
                   {!tpl.active && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-red-50 border border-red-200 text-red-400">{tr.rr.inactiveBadge}</span>}
                 </div>
                 <p className="text-[11px] text-gray-500 truncate mt-0.5 flex items-center gap-1">
