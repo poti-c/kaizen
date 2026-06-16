@@ -5,6 +5,7 @@ import { useCompany } from '@/contexts/CompanyContext'
 import { useAuth } from '@/contexts/AuthContext'
 import { useLanguage } from '@/contexts/LanguageContext'
 import { toast } from 'sonner'
+import { type Department, getEffectiveDepts } from '@/types'
 
 export interface PMTask {
   id: string; company_id: string; asset_id: string; due_date: string; status: string
@@ -138,7 +139,7 @@ export function PMTaskModal({ task, onClose, onDone }: { task: PMTask; onClose: 
   const finished = task.status === 'done' || task.status === 'approved'
   const recorded = finished || pending // execution already captured
   // Approver = Top Management, or the responsible department's manager.
-  const isApprover = profile?.role === 'super_admin' || (profile?.role === 'manager' && !!profile?.department && profile.department === task.asset?.department)
+  const isApprover = profile?.role === 'super_admin' || (profile?.role === 'manager' && !!profile && getEffectiveDepts(profile).includes(task.asset?.department as Department))
   const [results, setResults] = useState<Record<string, string>>(() => {
     const init: Record<string, string> = {}
     if (recorded) for (const r of task.checklist_results ?? []) init[r.item] = r.result

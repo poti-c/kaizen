@@ -13,7 +13,7 @@ import { PMTaskModal, taskTone, taskStatusKey, type PMTask } from '@/components/
 import { formatRelativeTime, formatDuration, isSLABreached, CATEGORIES, LOCATIONS, companyHasAddon } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 import type { KaizenCase, CaseStatus, CasePriority, Department } from '@/types'
-import { DEPARTMENTS, DEPARTMENT_LABELS, categoryLabel } from '@/types'
+import { DEPARTMENTS, DEPARTMENT_LABELS, categoryLabel, getEffectiveDepts } from '@/types'
 
 const STATUS_FILTERS: (CaseStatus | 'all')[] = ['all', 'open', 'assigned', 'in_progress', 'pending_manager_approval', 'pending_admin_approval', 'closed', 'reopened']
 

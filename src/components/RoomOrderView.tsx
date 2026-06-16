@@ -361,6 +361,7 @@ function RoomOrderBuild({ companyId, unit, requireApproval, initialDate }: { com
   const [roomStatuses, setRoomStatuses] = useState<Record<string, RoomStatus>>({})
   const [blankRooms, setBlankRooms] = useState<string[]>([]) // submit-time validation: rooms with no order
   const [blankPrompt, setBlankPrompt] = useState<string[] | null>(null) // unassigned-rooms confirm dialog
+  const [confirmReset, setConfirmReset] = useState(false)
   const [events, setEvents] = useState<RoomEvent[]>([])
   const [showHistory, setShowHistory] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -615,7 +616,7 @@ function RoomOrderBuild({ companyId, unit, requireApproval, initialDate }: { com
 
   // Wipe everything for this date and start over.
   async function resetAll() {
-    if (!confirm(lang === 'th' ? 'ล้างใบสั่งทั้งหมดของวันนี้?' : 'Reset all orders for this date? This clears every room.')) return
+    setConfirmReset(false)
     setBusy(true)
     if (orderId) {
       const { error } = await supabase.from('kaizen_rr_room_orders').delete().eq('id', orderId)
@@ -766,8 +767,8 @@ function RoomOrderBuild({ companyId, unit, requireApproval, initialDate }: { com
       {/* Quick actions — only order-placers (Top Management / Front Office) can change the order.
           The three buttons share the row equally (flex-1) so they always fit on one line
           regardless of screen width; labels shrink to icon-friendly sizes on narrow screens. */}
-      {canPlace ? (
-        <div className="flex items-stretch gap-2 pt-2 border-t border-gray-100">
+      <div className="flex items-stretch gap-2 pt-2 border-t border-gray-100">
+        {canPlace && (<>
           <button onClick={submit} disabled={busy}
             className="flex-1 min-w-0 flex items-center justify-center gap-1 bg-[var(--brand-primary)] text-white text-xs sm:text-sm font-semibold px-2 h-9 rounded-lg disabled:opacity-50">
             {busy ? <Loader2 className="h-4 w-4 flex-shrink-0 animate-spin" /> : <Send className="h-4 w-4 flex-shrink-0 hidden sm:block" />}
@@ -777,13 +778,14 @@ function RoomOrderBuild({ companyId, unit, requireApproval, initialDate }: { com
             className="flex-1 min-w-0 flex items-center justify-center gap-1 border border-gray-300 text-gray-600 hover:bg-gray-50 text-xs sm:text-sm font-medium px-2 h-9 rounded-lg disabled:opacity-50">
             <DoorClosed className="h-4 w-4 flex-shrink-0 hidden sm:block" /><span className="truncate">{lang === 'th' ? 'ที่เหลือ = ว่าง' : 'Empty the rest'}</span>
           </button>
-          <button onClick={resetAll} disabled={busy}
-            className="flex-1 min-w-0 flex items-center justify-center gap-1 border border-gray-300 text-red-500 hover:bg-red-50 text-xs sm:text-sm font-medium px-2 h-9 rounded-lg disabled:opacity-50">
-            <RotateCcw className="h-4 w-4 flex-shrink-0 hidden sm:block" /><span className="truncate">{lang === 'th' ? 'ล้าง' : 'Reset'}</span>
-          </button>
-        </div>
-      ) : (
-        <div className="flex items-center gap-1.5 pt-2 border-t border-gray-100 text-[12px] text-gray-400">
+        </>)}
+        <button onClick={() => setConfirmReset(true)} disabled={busy}
+          className="flex-1 min-w-0 flex items-center justify-center gap-1 border border-gray-300 text-red-500 hover:bg-red-50 text-xs sm:text-sm font-medium px-2 h-9 rounded-lg disabled:opacity-50">
+          <RotateCcw className="h-4 w-4 flex-shrink-0 hidden sm:block" /><span className="truncate">{lang === 'th' ? 'ล้าง' : 'Reset'}</span>
+        </button>
+      </div>
+      {!canPlace && (
+        <div className="flex items-center gap-1.5 pt-1 text-[12px] text-gray-400">
           <Eye className="h-3.5 w-3.5 flex-shrink-0" />
           {lang === 'th' ? 'มุมมองอย่างเดียว — เฉพาะแผนกต้อนรับและผู้บริหารระดับสูงสามารถสั่งได้' : 'View only — orders are placed by Front Office or Top Management.'}
         </div>
@@ -805,6 +807,38 @@ function RoomOrderBuild({ companyId, unit, requireApproval, initialDate }: { com
           />
         )
       })()}
+
+      {/* Reset confirmation dialog */}
+      {confirmReset && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4" onClick={() => setConfirmReset(false)}>
+          <div className="w-full max-w-sm rounded-2xl bg-white shadow-xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="px-5 pt-5 pb-3">
+              <div className="flex items-center gap-2 mb-1">
+                <RotateCcw className="h-5 w-5 text-red-500 flex-shrink-0" />
+                <h3 className="text-base font-bold text-gray-900">
+                  {lang === 'th' ? 'ล้างใบสั่งทั้งหมด?' : 'Reset all orders?'}
+                </h3>
+              </div>
+              <p className="text-sm text-gray-500">
+                {lang === 'th'
+                  ? 'การดำเนินการนี้จะลบรายการสั่งของทุกห้องในวันนี้ทั้งหมด ไม่สามารถกู้คืนได้'
+                  : 'This will clear every room order for this date. This action cannot be undone.'}
+              </p>
+            </div>
+            <div className="flex items-center gap-2 px-5 py-4 bg-gray-50 border-t border-gray-100">
+              <button onClick={() => setConfirmReset(false)} disabled={busy}
+                className="flex-1 h-10 rounded-lg border border-gray-300 bg-white text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50">
+                {lang === 'th' ? 'ยกเลิก' : 'Cancel'}
+              </button>
+              <button onClick={resetAll} disabled={busy}
+                className="flex-1 h-10 rounded-lg bg-red-500 text-sm font-semibold text-white hover:bg-red-600 disabled:opacity-50 flex items-center justify-center gap-1.5">
+                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
+                {lang === 'th' ? 'ล้างทั้งหมด' : 'Reset all'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Unassigned-rooms confirmation: assign them, or mark Empty and submit */}
       {blankPrompt && blankPrompt.length > 0 && (

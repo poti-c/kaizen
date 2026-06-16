@@ -15,7 +15,7 @@ import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
 import { getInitials, formatDate, activityLabel } from '@/lib/utils'
 import { usePresence } from '@/contexts/PresenceContext'
 import { cn } from '@/lib/utils'
-import { DEPARTMENTS, DEPARTMENT_LABELS } from '@/types'
+import { DEPARTMENTS, DEPARTMENT_LABELS, getEffectiveDepts } from '@/types'
 import type { KaizenProfile, Role, Department } from '@/types'
 import { toast } from 'sonner'
 import { Navigate, Link } from 'react-router-dom'
@@ -41,7 +41,7 @@ export function UsersPage() {
   const [newPassword, setNewPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [newRole, setNewRole] = useState<Role>('staff')
-  const [newDepartment, setNewDepartment] = useState<Department>('front_office')
+  const [newDepartment, setNewDepartment] = useState<string>('front_office')
 
   // Edit modal
   const [showEdit, setShowEdit] = useState(false)
@@ -50,7 +50,7 @@ export function UsersPage() {
   const [editPosition, setEditPosition] = useState('')
   const [editUsername, setEditUsername] = useState('')
   const [editEmail, setEditEmail] = useState('')
-  const [editDepartment, setEditDepartment] = useState<Department>('front_office')
+  const [editDepartment, setEditDepartment] = useState<string>('front_office')
   const [editRole, setEditRole] = useState<Role>('staff')
   const [editNewPassword, setEditNewPassword] = useState('')
   const [showEditPassword, setShowEditPassword] = useState(false)
@@ -74,8 +74,23 @@ export function UsersPage() {
   }>>([])
   const [loadingLog, setLoadingLog] = useState(false)
 
-  const [deptFilter, setDeptFilter] = useState<Department | 'all'>('all')
-  const [staffDeptFilter, setStaffDeptFilter] = useState<Department | 'all'>('all')
+  const [deptFilter, setDeptFilter] = useState<string>('all')
+  const [staffDeptFilter, setStaffDeptFilter] = useState<string>('all')
+  // Full company department list (built-in + custom), loaded from kaizen_settings
+  const [allDepts, setAllDepts] = useState<{ value: string; label: string }[]>([...DEPARTMENTS])
+
+  // Load company departments (built-in + custom) from settings
+  useEffect(() => {
+    if (!activeCompany) return
+    const labelToSlug = Object.fromEntries(DEPARTMENTS.map((d) => [d.label, d.value])) as Record<string, string>
+    supabase.from('kaizen_settings').select('value').eq('company_id', activeCompany.id).eq('key', 'custom_departments').maybeSingle()
+      .then(({ data }) => {
+        if (data?.value) {
+          const labels = data.value as string[]
+          setAllDepts(labels.map((label) => ({ value: labelToSlug[label] ?? label, label })))
+        }
+      })
+  }, [activeCompany])
 
   const isHRManager = profile?.role === 'manager' && profile?.department === 'human_resource'
   const isOwner = profile?.role === 'super_admin' && profile?.job_title === 'Owner'
@@ -92,7 +107,7 @@ export function UsersPage() {
     let query = supabase.from('kaizen_profiles').select('*').is('deleted_at', null).order('role').order('department').order('full_name')
     if (activeCompany) query = query.eq('company_id', activeCompany.id)
     if (profile?.role === 'manager' && !isHRManager) {
-      query = query.eq('department', profile.department).eq('role', 'staff')
+      query = query.in('department', getEffectiveDepts(profile)).eq('role', 'staff')
     } else if (isHRManager) {
       query = query.neq('role', 'super_admin')
     }
@@ -304,11 +319,11 @@ export function UsersPage() {
     finally { setActioning(null) }
   }
 
-  const activeDepts = DEPARTMENTS.filter(d => users.some(u => u.department === d.value))
+  const activeDepts = allDepts.filter(d => users.some(u => u.department === d.value))
   const MD_EMAIL = 'poti@nanirand.com'
   const visibleUsers = (deptFilter === 'all' ? users : users.filter(u => u.department === deptFilter))
     .filter(u => u.email !== MD_EMAIL || profile?.email === MD_EMAIL)
-  const staffDepts = DEPARTMENTS.filter(d => users.some(u => u.role === 'staff' && u.department === d.value))
+  const staffDepts = allDepts.filter(d => users.some(u => u.role === 'staff' && u.department === d.value))
 
   const roleGroups = {
     super_admin: visibleUsers.filter(u => u.role === 'super_admin'),
@@ -384,7 +399,7 @@ export function UsersPage() {
 
       {!loading && profile?.role === 'super_admin' && (
         <div className="mb-5">
-          <Select value={deptFilter} onValueChange={(v) => setDeptFilter(v as Department | 'all')}>
+          <Select value={deptFilter} onValueChange={setDeptFilter}>
             <SelectTrigger className="h-9 w-full text-sm"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">{t.calendar.allDepts} ({users.length})</SelectItem>
@@ -415,7 +430,7 @@ export function UsersPage() {
                   <h2 className="font-semibold text-gray-700 text-sm">{roleLabels[role]}</h2>
                   {role === 'staff' && staffDepts.length > 1 && (
                     <div className="ml-auto mr-2">
-                      <Select value={staffDeptFilter} onValueChange={(v) => setStaffDeptFilter(v as Department | 'all')}>
+                      <Select value={staffDeptFilter} onValueChange={setStaffDeptFilter}>
                         <SelectTrigger className="h-7 text-xs border-gray-200 bg-white px-2 w-auto min-w-[110px]"><SelectValue /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="all">{lang === 'th' ? 'ทุกแผนก' : 'All Depts'} ({users.filter(u => u.role === 'staff').length})</SelectItem>
@@ -467,6 +482,11 @@ export function UsersPage() {
                                 {user.username && <span className="text-xs text-gray-400">@{user.username}</span>}
                                 {user.email && <span className="text-xs text-gray-400">{user.email}</span>}
                                 <DepartmentBadge department={user.department} />
+                                {user.role === 'manager' && (user.managed_departments ?? []).map((d) => (
+                                  <span key={d} className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-purple-100 text-purple-800">
+                                    {allDepts.find(x => x.value === d)?.label ?? d}
+                                  </span>
+                                ))}
                               </div>
                               <div className="mt-1 flex items-center gap-1.5">
                                 <span className={cn('w-1.5 h-1.5 rounded-full flex-shrink-0', isOnline(user.id) ? 'bg-green-500' : 'bg-gray-300')} />
@@ -489,6 +509,11 @@ export function UsersPage() {
                               <div className="mt-0.5 flex items-center gap-2 flex-wrap">
                                 {user.username && <span className="text-xs text-gray-400">@{user.username}</span>}
                                 <DepartmentBadge department={user.department} />
+                                {user.role === 'manager' && (user.managed_departments ?? []).map((d) => (
+                                  <span key={d} className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-purple-100 text-purple-800">
+                                    {allDepts.find(x => x.value === d)?.label ?? d}
+                                  </span>
+                                ))}
                               </div>
                               <div className="mt-1 flex items-center gap-1.5">
                                 <span className={cn('w-1.5 h-1.5 rounded-full flex-shrink-0', isOnline(user.id) ? 'bg-green-500' : 'bg-gray-300')} />
@@ -551,12 +576,20 @@ export function UsersPage() {
             {newRole !== 'super_admin' && (
               <div className="space-y-1.5">
                 <Label>{t.users.dept} *</Label>
-                {profile?.role === 'manager' ? (
-                  <Input value={DEPARTMENTS.find(d => d.value === profile.department)?.label || profile.department} disabled className="bg-gray-50 text-gray-500" />
-                ) : (
-                  <Select value={newDepartment} onValueChange={(v) => setNewDepartment(v as Department)}>
+                {profile?.role === 'manager' ? (() => {
+                  const effectiveDepts = getEffectiveDepts(profile).map(v => allDepts.find(d => d.value === v) ?? { value: v, label: v })
+                  return effectiveDepts.length > 1 ? (
+                    <Select value={newDepartment} onValueChange={setNewDepartment}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>{effectiveDepts.map((d) => <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>)}</SelectContent>
+                    </Select>
+                  ) : (
+                    <Input value={effectiveDepts[0]?.label ?? profile.department} disabled className="bg-gray-50 text-gray-500" />
+                  )
+                })() : (
+                  <Select value={newDepartment} onValueChange={setNewDepartment}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>{DEPARTMENTS.filter(d => d.value !== 'top_management').map((d) => <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>)}</SelectContent>
+                    <SelectContent>{allDepts.filter(d => d.value !== 'top_management').map((d) => <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>)}</SelectContent>
                   </Select>
                 )}
               </div>
@@ -578,8 +611,8 @@ export function UsersPage() {
               <div className="flex items-start gap-2 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-xs px-3 py-2">
                 <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" />
                 <span>{lang === 'th'
-                  ? `แผนก${DEPARTMENT_LABELS[newDepartment]}มีผู้จัดการอยู่แล้ว (${existingDeptManagers.map(m => m.full_name).join(', ')})`
-                  : `${DEPARTMENT_LABELS[newDepartment]} already has a manager (${existingDeptManagers.map(m => m.full_name).join(', ')}).`}</span>
+                  ? `แผนก${allDepts.find(d => d.value === newDepartment)?.label ?? newDepartment}มีผู้จัดการอยู่แล้ว (${existingDeptManagers.map(m => m.full_name).join(', ')})`
+                  : `${allDepts.find(d => d.value === newDepartment)?.label ?? newDepartment} already has a manager (${existingDeptManagers.map(m => m.full_name).join(', ')}).`}</span>
               </div>
             )}
           </div>
@@ -600,8 +633,8 @@ export function UsersPage() {
             </DialogTitle>
             <DialogDescription className="text-left pt-1">
               {lang === 'th'
-                ? `แผนก${DEPARTMENT_LABELS[newDepartment]}มีผู้จัดการอยู่แล้ว (${existingDeptManagers.map(m => m.full_name).join(', ')}) คุณแน่ใจหรือไม่ว่าต้องการเพิ่มผู้จัดการอีกคน?`
-                : `${DEPARTMENT_LABELS[newDepartment]} already has a manager (${existingDeptManagers.map(m => m.full_name).join(', ')}). Are you sure you want to add another manager?`}
+                ? `แผนก${allDepts.find(d => d.value === newDepartment)?.label ?? newDepartment}มีผู้จัดการอยู่แล้ว (${existingDeptManagers.map(m => m.full_name).join(', ')}) คุณแน่ใจหรือไม่ว่าต้องการเพิ่มผู้จัดการอีกคน?`
+                : `${allDepts.find(d => d.value === newDepartment)?.label ?? newDepartment} already has a manager (${existingDeptManagers.map(m => m.full_name).join(', ')}). Are you sure you want to add another manager?`}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -644,9 +677,9 @@ export function UsersPage() {
               <>
                 <div className="space-y-1.5">
                   <Label>{t.users.dept}</Label>
-                  <Select value={editDepartment} onValueChange={(v) => setEditDepartment(v as Department)}>
+                  <Select value={editDepartment} onValueChange={setEditDepartment}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>{DEPARTMENTS.filter(d => d.value !== 'top_management').map((d) => <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>)}</SelectContent>
+                    <SelectContent>{allDepts.filter(d => d.value !== 'top_management').map((d) => <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>)}</SelectContent>
                   </Select>
                 </div>
                 <div className="space-y-1.5">

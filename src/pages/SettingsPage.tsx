@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Eye, EyeOff, Loader2, Palette, Lock, Info, Scale, Pencil, Check, X, Bell, BellOff, BellRing, Plus, Trash2, Building2, AlertTriangle, LifeBuoy, HelpCircle, MessageSquare, Smartphone, Mail, ChevronRight, ChevronDown, UserX, Camera, Sparkles, Wrench, SlidersHorizontal, ClipboardList } from 'lucide-react'
+import { Eye, EyeOff, Loader2, Palette, Lock, Info, Scale, Pencil, Check, X, Bell, BellOff, BellRing, Plus, Trash2, Building2, AlertTriangle, LifeBuoy, HelpCircle, MessageSquare, Smartphone, Mail, ChevronRight, ChevronDown, UserX, Camera, Sparkles, Wrench, SlidersHorizontal, ClipboardList, Users } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useCompany } from '@/contexts/CompanyContext'
@@ -10,8 +10,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
-import { DEPARTMENT_LABELS, DEPARTMENTS } from '@/types'
-import type { KaizenCompany } from '@/types'
+import { DEPARTMENT_LABELS, DEPARTMENTS, getEffectiveDepts } from '@/types'
+import type { KaizenCompany, KaizenProfile, Department } from '@/types'
 import { CATEGORIES, LOCATIONS, getInitials, companyHasFeature, companyHasAddon } from '@/lib/utils'
 import { PMEquipmentTypes } from '@/components/PMEquipmentTypes'
 import { PMSettings } from '@/components/PMSettings'
@@ -862,6 +862,13 @@ export function SettingsPage() {
         </CollapsibleCard>
       )}
 
+      {/* ── Multi-Department Manager — super_admin only ── */}
+      {profile?.role === 'super_admin' && (
+        <CollapsibleCard icon={Users} title={lang === 'th' ? 'ผู้จัดการหลายแผนก' : 'Multi-Department Managers'}>
+          <MultiDeptManagersSection companyId={activeCompany?.id ?? null} />
+        </CollapsibleCard>
+      )}
+
       {/* Theme settings — super admin only, and only if the package includes it */}
       {profile?.role === 'super_admin' && companyHasFeature(activeCompany, 'custom_theme') && (
       <CollapsibleCard icon={Palette} title={t.settings.theme}>
@@ -1123,6 +1130,97 @@ export function SettingsPage() {
         Kaizen System V.1 by NNR-Solutions {new Date().getFullYear()} ©
       </p>
 
+    </div>
+  )
+}
+
+// ── MultiDeptManagersSection ─────────────────────────────────────────────────
+// label→slug map for converting custom_departments label strings back to Department slugs
+const LABEL_TO_DEPT_VALUE = Object.fromEntries(DEPARTMENTS.map((d) => [d.label, d.value])) as Record<string, string>
+
+function MultiDeptManagersSection({ companyId }: { companyId: string | null }) {
+  const [managers, setManagers] = React.useState<KaizenProfile[]>([])
+  const [saving, setSaving] = React.useState<string | null>(null)
+  // Full company department list (built-in + custom). value is the DB-stored identifier.
+  const [allDepts, setAllDepts] = React.useState<{ value: string; label: string }[]>([...DEPARTMENTS])
+
+  React.useEffect(() => {
+    if (!companyId) return
+    Promise.all([
+      supabase.from('kaizen_profiles').select('*').eq('company_id', companyId).eq('role', 'manager').is('deleted_at', null).order('full_name'),
+      supabase.from('kaizen_settings').select('value').eq('company_id', companyId).eq('key', 'custom_departments').maybeSingle(),
+    ]).then(([mgrsRes, deptsRes]) => {
+      setManagers((mgrsRes.data ?? []) as KaizenProfile[])
+      if (deptsRes.data?.value) {
+        const labels = deptsRes.data.value as string[]
+        setAllDepts(labels.map((label) => ({ value: LABEL_TO_DEPT_VALUE[label] ?? label, label })))
+      }
+    })
+  }, [companyId])
+
+  async function toggle(mgr: KaizenProfile, deptValue: string) {
+    if (deptValue === mgr.department) return
+    setSaving(mgr.id)
+    const extras = (mgr.managed_departments ?? []) as string[]
+    const next = extras.includes(deptValue)
+      ? extras.filter((d) => d !== deptValue)
+      : [...extras, deptValue]
+    const { error } = await supabase.from('kaizen_profiles').update({ managed_departments: next }).eq('id', mgr.id)
+    if (error) {
+      toast.error('Failed to save')
+    } else {
+      setManagers((prev) => prev.map((m) => (m.id === mgr.id ? { ...m, managed_departments: next as Department[] } : m)))
+    }
+    setSaving(null)
+  }
+
+  if (managers.length === 0) {
+    return <p className="text-sm text-gray-400 py-2">No managers found in this company.</p>
+  }
+
+  return (
+    <div className="space-y-4">
+      <p className="text-xs text-gray-500">
+        Assign extra departments to a manager so they can approve cases, PM tasks, and view staff across those departments in addition to their primary one.
+      </p>
+      {managers.map((mgr) => {
+        const effective = (mgr.managed_departments ?? []) as string[]
+        return (
+          <div key={mgr.id} className="border border-gray-100 rounded-lg p-3">
+            <div className="flex items-center gap-2 mb-2">
+              <Users className="w-4 h-4 text-gray-400 shrink-0" />
+              <span className="font-medium text-sm">{mgr.full_name}</span>
+              <span className="text-xs text-gray-400 ml-1">
+                ({DEPARTMENT_LABELS[mgr.department] ?? mgr.department})
+              </span>
+              {saving === mgr.id && <Loader2 className="w-3 h-3 animate-spin ml-auto text-gray-400" />}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {allDepts.map(({ value, label }) => {
+                const isPrimary = value === mgr.department
+                const isChecked = isPrimary || effective.includes(value)
+                return (
+                  <button
+                    key={value}
+                    disabled={isPrimary || saving === mgr.id}
+                    onClick={() => toggle(mgr, value)}
+                    className={[
+                      'text-xs px-2 py-1 rounded-full border transition-colors',
+                      isPrimary
+                        ? 'bg-blue-100 border-blue-300 text-blue-700 cursor-default'
+                        : isChecked
+                        ? 'bg-green-100 border-green-300 text-green-700 hover:bg-green-200'
+                        : 'bg-gray-50 border-gray-200 text-gray-500 hover:bg-gray-100',
+                    ].join(' ')}
+                  >
+                    {isPrimary ? '★ ' : isChecked ? '✓ ' : ''}{label}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )
+      })}
     </div>
   )
 }

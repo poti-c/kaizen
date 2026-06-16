@@ -53,6 +53,7 @@ export interface KaizenProfile {
   email: string | null
   role: Role
   department: Department
+  managed_departments: Department[]
   company_id: string | null
   is_active: boolean
   avatar_url: string | null
@@ -64,6 +65,12 @@ export interface KaizenProfile {
   deleted_at?: string | null
   created_at: string
   updated_at: string
+}
+
+/** All departments a manager is responsible for (primary + any extras). */
+export function getEffectiveDepts(profile: Pick<KaizenProfile, 'department' | 'managed_departments'>): Department[] {
+  const extras = profile.managed_departments ?? []
+  return [profile.department, ...extras.filter((d) => d !== profile.department)] as Department[]
 }
 
 export interface KaizenCase {

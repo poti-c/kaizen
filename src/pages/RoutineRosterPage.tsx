@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useLocation } from 'react-router-dom'
 import {
   ClipboardList, ChevronLeft, ChevronRight, Loader2, X, Check, Trash2, Pencil,
@@ -1460,6 +1460,8 @@ function ReportView({ companyId, companyName, generatedBy, statusLabel, template
   const [anchor, setAnchor] = useState(() => dateKey(new Date()))
   const [rows, setRows] = useState<RrOrder[]>([])
   const [loading, setLoading] = useState(true)
+  const [previewHtml, setPreviewHtml] = useState<string | null>(null)
+  const iframeRef = useRef<HTMLIFrameElement>(null)
   // Room-order data for the same period.
   const [roomLines, setRoomLines] = useState<{ item: string | null; fulfill_department: string; status: string }[]>([])
   const [roomStatusCounts, setRoomStatusCounts] = useState<Record<string, number>>({})
@@ -1549,7 +1551,7 @@ function ReportView({ companyId, companyName, generatedBy, statusLabel, template
     ? ({ checkin: 'เช็คอิน', occupied: 'มีผู้เข้าพัก', empty: 'ว่าง', oo: 'งดใช้งาน' } as Record<string, string>)[s] ?? s
     : ({ checkin: 'Check-in', occupied: 'Occupied', empty: 'Empty', oo: 'Out of order' } as Record<string, string>)[s] ?? s
 
-  function printReport() {
+  function buildReportHtml() {
     const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     const rowsHtml = rows.map((o) => `
       <tr>
@@ -1573,7 +1575,6 @@ function ReportView({ companyId, companyName, generatedBy, statusLabel, template
       <h2>${esc(tr.rr.reportSummary)}</h2>
       <table style="max-width:380px"><thead><tr><th>${esc(tr.rr.reportItem)}</th><th style="text-align:right">${esc(tr.rr.reportTotal)}</th></tr></thead>
       <tbody>${summaryHtml}</tbody></table>` : ''
-    // Room-order section
     const roomHtml = hasRoomData ? `
       <h2>${esc(lang === 'th' ? 'ใบสั่งห้อง' : 'Room orders')} <span style="font-weight:400;color:#888;font-size:12px">(${roomDays} ${esc(lang === 'th' ? 'วัน' : 'days')})</span></h2>
       <table style="max-width:420px"><thead><tr><th>${esc(lang === 'th' ? 'สถานะห้อง' : 'Room status')}</th><th style="text-align:right">${esc(tr.rr.reportTotal)}</th></tr></thead>
@@ -1582,9 +1583,7 @@ function ReportView({ companyId, companyName, generatedBy, statusLabel, template
         <h3 style="font-size:12px;margin:14px 0 4px;color:#444">${esc(deptLabel(dept, lang))}</h3>
         <table style="max-width:420px"><thead><tr><th>${esc(tr.rr.reportItem)}</th><th style="text-align:right">${esc(tr.rr.reportTotal)}</th><th style="text-align:right">${esc(lang === 'th' ? 'เสร็จ' : 'Done')}</th></tr></thead>
         <tbody>${roomItemsByDept[dept].map((it) => `<tr><td>${esc(it.item)}</td><td style="text-align:right">${it.total}</td><td style="text-align:right">${it.done}</td></tr>`).join('')}</tbody></table>`).join('')}` : ''
-    const w = window.open('', '_blank')
-    if (!w) return
-    w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${esc(tr.rr.reportTitle)}</title>
+    return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${esc(tr.rr.reportTitle)}</title>
       <style>
         body{font-family:'Sarabun','Helvetica Neue',sans-serif;font-size:13px;color:#111;padding:32px;max-width:800px;margin:0 auto}
         h1{font-size:18px;margin:0 0 2px} .sub{color:#666;font-size:12px;margin-bottom:18px}
@@ -1600,8 +1599,15 @@ function ReportView({ companyId, companyName, generatedBy, statusLabel, template
       ${routineHtml}
       ${roomHtml}
       <p class="foot">${esc(tr.rr.reportGeneratedBy)}: ${esc(generatedBy)} · ${esc(tr.rr.reportGeneratedAt)}: ${new Date().toLocaleString(lang === 'th' ? 'th-TH' : 'en-GB')}</p>
-      <script>window.onload = () => window.print()</` + `script></body></html>`)
-    w.document.close()
+      </body></html>`
+  }
+
+  function handlePreview() {
+    setPreviewHtml(buildReportHtml())
+  }
+
+  function handlePrint() {
+    iframeRef.current?.contentWindow?.print()
   }
 
   return (
@@ -1619,7 +1625,7 @@ function ReportView({ companyId, companyName, generatedBy, statusLabel, template
         <input type="date" value={anchor} onChange={(e) => e.target.value && setAnchor(e.target.value)}
           className="h-8 rounded-lg border border-gray-300 px-2 text-sm" />
         <span className="text-xs text-gray-500 flex-1 min-w-[120px]">{periodLabel}</span>
-        <button onClick={printReport} disabled={loading || (rows.length === 0 && !hasRoomData)}
+        <button onClick={handlePreview} disabled={loading || (rows.length === 0 && !hasRoomData)}
           className="h-8 px-3 rounded-lg bg-[var(--brand-primary)] text-white text-xs font-semibold disabled:opacity-40">
           {tr.rr.reportPrint}
         </button>
@@ -1721,6 +1727,37 @@ function ReportView({ companyId, companyName, generatedBy, statusLabel, template
             </div>
           )}
         </>
+      )}
+
+      {/* Report preview modal */}
+      {previewHtml && (
+        <div className="fixed inset-0 z-50 flex flex-col" style={{ background: 'rgba(15,23,42,0.7)' }}>
+          {/* Modal header */}
+          <div className="flex items-center justify-between bg-white px-4 h-12 border-b border-gray-200 shadow-sm flex-shrink-0">
+            <span className="text-sm font-semibold text-gray-700">{tr.rr.reportTitle} — {companyName}</span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handlePrint}
+                className="h-8 px-4 rounded-lg bg-[var(--brand-primary)] text-white text-xs font-semibold hover:opacity-90 transition-opacity"
+              >
+                {tr.rr.reportPrint}
+              </button>
+              <button
+                onClick={() => setPreviewHtml(null)}
+                className="h-8 px-4 rounded-lg border border-gray-300 text-xs font-medium text-gray-600 hover:bg-gray-50 transition-colors"
+              >
+                {lang === 'th' ? 'ปิด' : 'Close'}
+              </button>
+            </div>
+          </div>
+          {/* iframe preview */}
+          <iframe
+            ref={iframeRef}
+            srcDoc={previewHtml}
+            className="flex-1 w-full bg-white"
+            title="Report Preview"
+          />
+        </div>
       )}
     </div>
   )
