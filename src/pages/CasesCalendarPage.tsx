@@ -212,11 +212,11 @@ export function CasesCalendarPage() {
     const c = { checkin: 0, occupied: 0, empty: 0, oo: 0 }
     Object.values(ro.room_statuses ?? {}).forEach(s => { if (s in c) c[s as keyof typeof c]++ })
     const breakdown = [
-      `${lang === 'th' ? 'เช็คอิน' : 'Check-in'} [${c.checkin}]`,
-      `${lang === 'th' ? 'พักต่อ' : 'Occupied'} [${c.occupied}]`,
+      `${lang === 'th' ? 'เช็คอิน' : 'C/I'} [${c.checkin}]`,
+      `${lang === 'th' ? 'พักต่อ' : 'Occ'} [${c.occupied}]`,
       `${lang === 'th' ? 'ว่าง' : 'Empty'} [${c.empty}]`,
       `O/O [${c.oo}]`,
-    ].join(' · ')
+    ].join(' - ')
     return `${head} · ${breakdown}`
   }
 
