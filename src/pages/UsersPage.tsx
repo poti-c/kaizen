@@ -448,7 +448,7 @@ export function UsersPage() {
                     const canViewProfile =
                       (profile?.role === 'super_admin' && user.role !== 'super_admin') ||
                       (isHRManager && (user.role === 'manager' || user.role === 'staff')) ||
-                      (profile?.role === 'manager' && !isHRManager && (user.id === profile.id || (user.role === 'staff' && user.department === profile.department)))
+                      (profile?.role === 'manager' && !isHRManager && (user.id === profile.id || (user.role === 'staff' && getEffectiveDepts(profile).includes(user.department as Department))))
 
                     // Who can manage (edit/suspend) this user
                     const canManage =
@@ -457,7 +457,7 @@ export function UsersPage() {
                         // Super admin manages managers + staff (not other super admins unless Owner)
                         (profile?.role === 'super_admin' && (user.role !== 'super_admin' || isOwner) && user.job_title !== 'Owner') ||
                         // Regular manager: staff in own dept
-                        (profile?.role === 'manager' && !isHRManager && user.role === 'staff' && user.department === profile.department) ||
+                        (profile?.role === 'manager' && !isHRManager && user.role === 'staff' && getEffectiveDepts(profile).includes(user.department as Department)) ||
                         // HR manager: all staff + managers
                         (isHRManager && (user.role === 'staff' || user.role === 'manager'))
                       )
