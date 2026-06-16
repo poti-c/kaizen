@@ -374,7 +374,7 @@ const en = {
     // ── order-ahead scheduling ──
     tomorrowBtn: 'Tomorrow',
     orderByOn: (close: string, day: string) => `Order by ${close} ${day}`,
-    deliverByOn: (due: string, day: string) => `deliver by ${due} ${day}`,
+    readyByOn: (due: string, day: string) => `Ready by ${due} ${day}`,
     today: 'today', tomorrow: 'tomorrow',
     windowPassed: 'Order window passed',
     lateTag: 'Late',
@@ -808,7 +808,7 @@ const th: Translations = {
     // ── order-ahead scheduling ──
     tomorrowBtn: 'พรุ่งนี้',
     orderByOn: (close: string, day: string) => `สั่งภายใน ${close} ${day}`,
-    deliverByOn: (due: string, day: string) => `จัดส่งภายใน ${due} ${day}`,
+    readyByOn: (due: string, day: string) => `ต้องการก่อน ${due} ${day}`,
     today: 'วันนี้', tomorrow: 'พรุ่งนี้',
     windowPassed: 'เลยเวลาสั่งแล้ว',
     lateTag: 'ล่าช้า',

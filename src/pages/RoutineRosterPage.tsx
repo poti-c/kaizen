@@ -644,7 +644,7 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
 
   // Deliver-by label — the date is carried by the order itself (today / tomorrow service).
   const dayWord = o.order_date > dateKey(new Date()) ? tr.rr.tomorrow : tr.rr.today
-  const deliverLabel = dueLabel ? tr.rr.deliverByOn(dueLabel, dayWord) : ''
+  const deliverLabel = dueLabel ? tr.rr.readyByOn(dueLabel, dayWord) : ''
   // "Late": delivered/confirmed after the due time.
   const lateAt = (ts: string | null) => !!(o.due_at && ts && new Date(ts).getTime() > new Date(o.due_at).getTime())
   const isLate = (o.status === 'delivered' || o.status === 'confirmed') &&
