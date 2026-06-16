@@ -11,6 +11,12 @@ const Checkbox = React.forwardRef<HTMLInputElement, CheckboxProps>(
   ({ className, checked, onCheckedChange, ...props }, ref) => {
     const [isChecked, setIsChecked] = React.useState(checked === true)
 
+    // Reflect controlled `checked` prop changes (e.g. a parent clearing filters).
+    // Skip when uncontrolled (checked undefined) so internal state still works.
+    React.useEffect(() => {
+      if (checked !== undefined) setIsChecked(checked === true)
+    }, [checked])
+
     return (
       <div className="relative inline-flex items-center">
         <input

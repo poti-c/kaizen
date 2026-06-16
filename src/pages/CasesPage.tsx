@@ -63,14 +63,15 @@ export function CasesPage() {
   const [filtered, setFiltered] = useState<KaizenCase[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState(searchParams.get('q') || '')
-  const [statusFilter] = useState<CaseStatus | 'all'>(
+  const [statusFilter, setStatusFilter] = useState<CaseStatus | 'all'>(
     (searchParams.get('status') as CaseStatus) || 'all'
   )
-  const [groupFilter] = useState<string>(searchParams.get('group') || '')
-  const [priorityFilter] = useState<CasePriority | 'all'>(
+  const [groupFilter, setGroupFilter] = useState<string>(searchParams.get('group') || '')
+  const [priorityFilter, setPriorityFilter] = useState<CasePriority | 'all'>(
     (searchParams.get('priority') as CasePriority) || 'all'
   )
-  const [categoryFilter] = useState<string>(searchParams.get('category') || 'all')
+  const [categoryFilter, setCategoryFilter] = useState<string>(searchParams.get('category') || 'all')
+  const [overdueOnly, setOverdueOnly] = useState<boolean>(searchParams.get('group') === 'overdue')
   const [sortKey, setSortKey] = useState<SortKey | null>(null)
   const [sortDir, setSortDir] = useState<SortDir>('asc')
   const [pageActive, setPageActive] = useState(1)
@@ -132,6 +133,26 @@ export function CasesPage() {
     const saved = localStorage.getItem('kaizen-adv-filters')
     return saved ? JSON.parse(saved) : { statuses: [], departments: [], priorities: [], categories: [] }
   })
+
+  // Translate a Dashboard deep-link (?status=/?group=/?priority=/?category=) into the
+  // advanced filters once on arrival, so the matching boxes tick and the list actually
+  // filters even with advanced search on (which otherwise ignores the URL params).
+  useEffect(() => {
+    if (!advancedSearchEnabled) return
+    const statuses: CaseStatus[] =
+      groupFilter === 'open' ? ['open', 'reopened']
+      : groupFilter === 'in_progress' ? ['assigned', 'in_progress']
+      : groupFilter === 'pending' ? ['pending_manager_approval', 'pending_admin_approval']
+      : groupFilter === 'resolved' ? ['closed']
+      : statusFilter !== 'all' ? [statusFilter]
+      : []
+    const priorities = priorityFilter !== 'all' ? [priorityFilter] : []
+    const categories = categoryFilter !== 'all' ? [categoryFilter] : []
+    if (statuses.length || priorities.length || categories.length) {
+      setAdvFilters({ statuses, departments: [], priorities, categories })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // ── Date filter ───────────────────────────────────────────────────────────
   const [datePickerOpen, setDatePickerOpen] = useState(false)
@@ -229,14 +250,15 @@ export function CasesPage() {
         result = result.filter((c) => ['pending_manager_approval', 'pending_admin_approval'].includes(c.status))
       } else if (groupFilter === 'resolved') {
         result = result.filter((c) => c.status === 'closed')
-      } else if (groupFilter === 'overdue') {
-        result = result.filter((c) => isSLABreached(c))
       } else if (statusFilter !== 'all') {
         result = result.filter((c) => c.status === statusFilter)
       }
       if (priorityFilter !== 'all') result = result.filter((c) => c.priority === priorityFilter)
       if (categoryFilter !== 'all') result = result.filter((c) => c.category === categoryFilter)
     }
+
+    // Overdue deep-link — applies in both modes (it's a cross-cutting flag, not a status).
+    if (overdueOnly) result = result.filter((c) => isSLABreached(c))
 
     // Date filter
     if (selectedMonths.size > 0) {
@@ -249,7 +271,7 @@ export function CasesPage() {
     setFiltered(result)
     setPageActive(1)
     setPageClosed(1)
-  }, [cases, search, statusFilter, groupFilter, priorityFilter, categoryFilter, advancedSearchEnabled, advFilters, selectedMonths])
+  }, [cases, search, statusFilter, groupFilter, priorityFilter, categoryFilter, overdueOnly, advancedSearchEnabled, advFilters, selectedMonths])
 
   async function fetchCases() {
     if (!profile) return
@@ -309,6 +331,34 @@ export function CasesPage() {
 
   // Split into active, two pending levels, and closed
   const activeCases       = sortCases(filtered.filter(c => !['closed','pending_manager_approval','pending_admin_approval'].includes(c.status)))
+
+  // ── Active-filter indicator ("Filtered: …" chip) ──────────────────────────
+  const statusLabel = (s: CaseStatus) => (lang === 'th' ? STATUS_FILTER_LABELS_TH[s] : STATUS_FILTER_LABELS[s]) ?? t.status[s]
+  const filterTokens: string[] = (advancedSearchEnabled
+    ? [
+        ...advFilters.statuses.map(statusLabel),
+        ...advFilters.departments.map(d => DEPARTMENT_LABELS[d] ?? d),
+        ...advFilters.priorities.map(p => t.priority[p]),
+        ...advFilters.categories.map(c => categoryLabel(c, lang)),
+      ]
+    : [
+        groupFilter === 'open' ? statusLabel('open')
+          : groupFilter === 'in_progress' ? t.dashboard.inProgress
+          : groupFilter === 'pending' ? t.dashboard.waitingApproval
+          : groupFilter === 'resolved' ? t.dashboard.resolved
+          : statusFilter !== 'all' ? statusLabel(statusFilter) : null,
+        priorityFilter !== 'all' ? t.priority[priorityFilter] : null,
+        categoryFilter !== 'all' ? categoryLabel(categoryFilter, lang) : null,
+      ].filter(Boolean) as string[])
+  if (overdueOnly) filterTokens.push(lang === 'th' ? 'เกินกำหนด' : 'Overdue')
+
+  function clearFilters() {
+    const empty = { statuses: [], departments: [], priorities: [], categories: [] }
+    setAdvFilters(empty)
+    localStorage.setItem('kaizen-adv-filters', JSON.stringify(empty))
+    setStatusFilter('all'); setGroupFilter(''); setPriorityFilter('all'); setCategoryFilter('all')
+    setOverdueOnly(false)
+  }
   const pendingMgrCases   = sortCases(filtered.filter(c => c.status === 'pending_manager_approval'))
   const pendingAdminCases = sortCases(filtered.filter(c => c.status === 'pending_admin_approval'))
   const closedCases       = sortCases(filtered.filter(c => c.status === 'closed'))
@@ -938,10 +988,21 @@ export function CasesPage() {
           {/* ── Active Cases ── */}
           {activeTab === 'active' && showActive && (
             <div>
-              <div className="flex items-center justify-between mb-3">
-                <h2 className="text-base font-semibold text-gray-800">
-                  {lang === 'th' ? 'เคสที่ดำเนินการ' : 'Active Cases'}
-                  <span className="ml-2 text-sm font-normal text-gray-400">{activeCases.length}</span>
+              <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
+                <h2 className="text-base font-semibold text-gray-800 flex items-center gap-2 flex-wrap">
+                  <span>
+                    {lang === 'th' ? 'เคสที่ดำเนินการ' : 'Active Cases'}
+                    <span className="ml-2 text-sm font-normal text-gray-400">{activeCases.length}</span>
+                  </span>
+                  {filterTokens.length > 0 && (
+                    <span className="inline-flex items-center gap-1 text-xs font-medium text-[var(--brand-primary)] bg-[var(--brand-primary)]/10 rounded-full pl-2.5 pr-1 py-0.5">
+                      <span>{lang === 'th' ? 'กรอง' : 'Filtered'}: {filterTokens.join(', ')}</span>
+                      <button onClick={clearFilters} title={lang === 'th' ? 'ล้างตัวกรอง' : 'Clear filter'}
+                        className="h-4 w-4 flex items-center justify-center rounded-full hover:bg-[var(--brand-primary)]/20">
+                        <X className="h-3 w-3" />
+                      </button>
+                    </span>
+                  )}
                 </h2>
               </div>
 
