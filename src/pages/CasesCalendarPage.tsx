@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { ChevronLeft, ChevronRight, Wrench, ClipboardList, DoorOpen } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Wrench, ClipboardList, DoorOpen, Flag } from 'lucide-react'
 import { unitOne, DEFAULT_UNIT, type UnitNoun } from '@/lib/roomUnit'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useCompany } from '@/contexts/CompanyContext'
 import { useLanguage } from '@/contexts/LanguageContext'
-import { cn, companyHasAddon } from '@/lib/utils'
+import { cn, companyHasAddon, formatDueBy } from '@/lib/utils'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import type { KaizenCase, Department, RrOrder } from '@/types'
 import { DEPARTMENTS, deptLabel } from '@/types'
@@ -26,7 +26,7 @@ function isoKey(date: Date) {
 }
 
 type RoomOrderCal = { id: string; order_date: string; status: 'draft' | 'submitted'; room_statuses: Record<string, string> }
-type Entry = { kind: 'case'; case: KaizenCase } | { kind: 'pm'; task: PMTask } | { kind: 'rr'; order: RrOrder } | { kind: 'roomorder'; ro: RoomOrderCal }
+type Entry = { kind: 'case'; case: KaizenCase } | { kind: 'casedue'; case: KaizenCase } | { kind: 'pm'; task: PMTask } | { kind: 'rr'; order: RrOrder } | { kind: 'roomorder'; ro: RoomOrderCal }
 
 // Room-order chip/dot tone by submission status.
 const ROOMORDER_TONE: Record<string, { chip: string; dot: string }> = {
@@ -53,6 +53,7 @@ export function CasesCalendarPage() {
   const [viewYear, setViewYear] = useState(today.getFullYear())
   const [viewMonth, setViewMonth] = useState(today.getMonth())
   const [cases, setCases] = useState<KaizenCase[]>([])
+  const [dueCases, setDueCases] = useState<KaizenCase[]>([]) // open cases whose DUE DATE falls in this month
   const [pmTasks, setPmTasks] = useState<PMTask[]>([])
   const [rrOrders, setRrOrders] = useState<RrOrder[]>([])
   const [rrRoomOrders, setRrRoomOrders] = useState<RoomOrderCal[]>([])
@@ -106,7 +107,15 @@ export function CasesCalendarPage() {
         .gte('created_at', start.toISOString()).lte('created_at', end.toISOString())
       if (profile?.role === 'staff' && profile.department) q = q.eq('department', profile.department)
       jobs.push(q.then(({ data }) => setCases((data || []) as KaizenCase[])))
-    } else { setCases([]) }
+
+      // Open cases whose DEADLINE falls in this month — plotted on the due day (may have
+      // been created in an earlier month, so this is a separate query from the one above).
+      let dq = supabase.from('kaizen_cases').select('*').eq('company_id', activeCompany.id)
+        .not('due_date', 'is', null).neq('status', 'closed')
+        .gte('due_date', start.toISOString()).lte('due_date', end.toISOString())
+      if (profile?.role === 'staff' && profile.department) dq = dq.eq('department', profile.department)
+      jobs.push(dq.then(({ data }) => setDueCases((data || []) as KaizenCase[])))
+    } else { setCases([]); setDueCases([]) }
 
     if (showPmData) {
       jobs.push((async () => {
@@ -146,11 +155,10 @@ export function CasesCalendarPage() {
   function nextMonth() { if (viewMonth === 11) { setViewMonth(0); setViewYear(y => y + 1) } else setViewMonth(m => m + 1) }
   function goToday() { setViewMonth(today.getMonth()); setViewYear(today.getFullYear()); setSelectedKey(isoKey(today)) }
 
-  const filteredCases = cases.filter(c => {
-    if (profile?.role === 'staff') return true
-    if (deptFilter === 'all') return true
-    return c.department === deptFilter
-  })
+  const deptOk = (c: KaizenCase) => profile?.role === 'staff' || deptFilter === 'all' || c.department === deptFilter
+  const filteredCases = cases.filter(deptOk)
+  const filteredDueCases = dueCases.filter(deptOk)
+  const isOverdue = (c: KaizenCase) => !!c.due_date && new Date(c.due_date) < new Date()
 
   // Monday-first grid
   const firstDayOfMonth = new Date(viewYear, viewMonth, 1).getDay()
@@ -168,6 +176,9 @@ export function CasesCalendarPage() {
   const byDay: Record<string, Entry[]> = {}
   if (showCaseData) filteredCases.forEach(c => {
     const k = isoKey(new Date(c.created_at)); (byDay[k] ||= []).push({ kind: 'case', case: c })
+  })
+  if (showCaseData) filteredDueCases.forEach(c => {
+    const k = isoKey(new Date(c.due_date!)); (byDay[k] ||= []).push({ kind: 'casedue', case: c })
   })
   if (showPmData) pmTasks.forEach(tk => { (byDay[tk.due_date] ||= []).push({ kind: 'pm', task: tk }) })
   if (showRrData) rrOrders.forEach(o => { (byDay[o.order_date] ||= []).push({ kind: 'rr', order: o }) })
@@ -276,6 +287,10 @@ export function CasesCalendarPage() {
                       <button key={'c' + e.case.id} onClick={(ev) => { ev.stopPropagation(); navigate(`/cases/${e.case.id}`) }}
                         className={`w-full text-left px-1.5 py-0.5 rounded text-[10px] font-medium truncate block leading-4 ${caseColor(e.case)} hover:opacity-75`}
                         title={`${e.case.case_number} · ${e.case.title}`}>{e.case.case_number}</button>
+                    ) : e.kind === 'casedue' ? (
+                      <button key={'cd' + e.case.id} onClick={(ev) => { ev.stopPropagation(); navigate(`/cases/${e.case.id}`) }}
+                        className={`w-full text-left px-1.5 py-0.5 rounded border text-[10px] font-medium truncate flex items-center gap-1 leading-4 hover:opacity-75 ${isOverdue(e.case) ? 'bg-red-50 text-red-700 border-red-300' : 'bg-amber-50 text-amber-700 border-amber-200'}`}
+                        title={`${lang === 'th' ? 'ครบกำหนด' : 'Due'} ${formatDueBy(e.case.due_date, lang)} · ${e.case.case_number} · ${e.case.title}`}><Flag className="h-2.5 w-2.5 flex-shrink-0" /><span className="truncate">{e.case.case_number}</span></button>
                     ) : e.kind === 'pm' ? (
                       <button key={'p' + e.task.id} onClick={(ev) => { ev.stopPropagation(); setOpenTask(e.task) }}
                         className={`w-full text-left px-1.5 py-0.5 rounded border text-[10px] font-medium truncate flex items-center gap-1 leading-4 ${taskTone(e.task).chip}`}
@@ -314,6 +329,19 @@ export function CasesCalendarPage() {
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-gray-900 truncate">{e.case.title}</p>
                     <p className="text-xs text-gray-400">{e.case.case_number} · {deptLabel(e.case.department, lang)}</p>
+                  </div>
+                </div>
+              ) : e.kind === 'casedue' ? (
+                <div key={'cd' + e.case.id} onClick={() => navigate(`/cases/${e.case.id}`)} className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 cursor-pointer">
+                  <span className={cn('w-2.5 h-2.5 rounded-full flex-shrink-0', isOverdue(e.case) ? 'bg-red-500' : 'bg-amber-500')} />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-900 truncate flex items-center gap-1.5">
+                      <Flag className={cn('h-3 w-3 flex-shrink-0', isOverdue(e.case) ? 'text-red-500' : 'text-amber-500')} />
+                      {lang === 'th' ? 'ครบกำหนด' : 'Due'}: {e.case.title}
+                    </p>
+                    <p className={cn('text-xs', isOverdue(e.case) ? 'text-red-500 font-medium' : 'text-gray-400')}>
+                      {formatDueBy(e.case.due_date, lang)}{isOverdue(e.case) ? ` · ${lang === 'th' ? 'เลยกำหนด' : 'overdue'}` : ''} · {e.case.case_number}
+                    </p>
                   </div>
                 </div>
               ) : e.kind === 'pm' ? (
@@ -356,6 +384,9 @@ export function CasesCalendarPage() {
             <Legend color="bg-orange-500" label={t.priority.high} />
             <Legend color="bg-red-500" label={t.priority.critical} />
             <Legend color="bg-gray-200 border border-gray-300" label={t.status.closed} />
+            <span className="text-gray-300">|</span>
+            <Legend color="bg-amber-100 border border-amber-300" label={lang === 'th' ? '⚑ ครบกำหนด' : '⚑ Due'} />
+            <Legend color="bg-red-100 border border-red-300" label={lang === 'th' ? 'เลยกำหนด' : 'Overdue'} />
           </div>
         )}
         {showPmData && (
