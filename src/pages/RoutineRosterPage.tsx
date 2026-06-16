@@ -1379,6 +1379,7 @@ function TemplateEditor({ companyId, template, sortNext, onClose, onSaved, allDe
                 catalogItems={catalogItems}
                 onAdd={(label) => setCatalogItems((prev) => [...prev, { label, unit: '' }])}
                 onRemove={(idx) => setCatalogItems((prev) => prev.filter((_, i) => i !== idx))}
+                onUnitChange={(idx, unit) => setCatalogItems((prev) => prev.map((c, i) => i === idx ? { ...c, unit } : c))}
                 lang={lang}
                 deptLabel={deptLabel(f.fulfill_department, lang)}
               />
@@ -1447,11 +1448,12 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 // ── Dept item picker — add catalog items ──────────────────────────────────────
 
-function DeptItemPicker({ items, catalogItems, onAdd, onRemove, lang, deptLabel }: {
+function DeptItemPicker({ items, catalogItems, onAdd, onRemove, onUnitChange, lang, deptLabel }: {
   items: import('@/components/RRSettings').RrItem[]
   catalogItems: { label: string; unit: string }[]
   onAdd: (label: string) => void
   onRemove: (index: number) => void
+  onUnitChange: (index: number, unit: string) => void
   lang: 'en' | 'th'
   deptLabel: string
 }) {
@@ -1500,6 +1502,13 @@ function DeptItemPicker({ items, catalogItems, onAdd, onRemove, lang, deptLabel 
           {catalogItems.map((item, i) => (
             <div key={i} className="flex items-center gap-2">
               <span className="flex-1 text-xs text-gray-700 truncate">{item.label}</span>
+              {/* Unit the order is counted in (e.g. gallon, bottle, pcs) — shown as "Quantity (gallon)" when ordering. */}
+              <input
+                value={item.unit}
+                onChange={(e) => onUnitChange(i, e.target.value)}
+                placeholder={lang === 'th' ? 'หน่วย' : 'unit'}
+                className="w-24 h-8 rounded-md border border-gray-300 px-2 text-xs focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/40 flex-shrink-0"
+              />
               <button
                 type="button"
                 onClick={() => onRemove(i)}
