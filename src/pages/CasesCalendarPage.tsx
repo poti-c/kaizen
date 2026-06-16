@@ -408,7 +408,8 @@ export function CasesCalendarPage() {
                   <span className={cn('w-2.5 h-2.5 rounded-full flex-shrink-0', (ROOMORDER_TONE[e.ro.status] ?? ROOMORDER_TONE.draft).dot)} />
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-gray-900 truncate flex items-center gap-1.5"><DoorOpen className="h-3 w-3 text-gray-400" />{roomOrderLabel}</p>
-                    <p className="text-xs text-gray-400 truncate">{roomOrderSub(e.ro)}</p>
+                    {/* Allow wrapping to a 2nd line so the full breakdown stays readable on mobile. */}
+                    <p className="text-xs text-gray-400">{roomOrderSub(e.ro)}</p>
                   </div>
                 </button>
               ))}
