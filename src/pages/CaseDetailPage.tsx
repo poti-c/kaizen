@@ -22,7 +22,7 @@ import { PhotoUpload, PhotoGallery } from '@/components/PhotoUpload'
 import { ResolutionCard } from '@/components/case/ResolutionCard'
 import { TranslatableSection } from '@/components/TranslatableSection'
 import { CaseTimeline } from '@/components/case/CaseTimeline'
-import { formatDateTime, formatDuration, LOCATIONS, CATEGORIES } from '@/lib/utils'
+import { formatDateTime, formatDuration, LOCATIONS, CATEGORIES, formatDueBy, toDateTimeLocal, fromDateTimeLocal } from '@/lib/utils'
 import { DEPARTMENTS, DEPARTMENT_LABELS, categoryLabel } from '@/types'
 import type { KaizenCase, KaizenProfile, KaizenCaseTimeline, KaizenCasePhoto, Department, CasePriority, CaseStatus } from '@/types'
 import { toast } from 'sonner'
@@ -299,7 +299,7 @@ export function CaseDetailPage() {
     try {
       const { error: dueErr } = await supabase.from('kaizen_cases').update({ due_date: newDueDate, updated_at: new Date().toISOString() }).eq('id', id!)
       if (dueErr) { toast.error(lang === 'th' ? 'กำหนดวันครบกำหนดไม่สำเร็จ' : 'Failed to set due date.'); return }
-      await addTimeline('due_date_set', `Due date set to ${new Date(newDueDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`)
+      await addTimeline('due_date_set', `Due date set to ${formatDueBy(newDueDate, 'en')}`)
       setShowDueDateEditor(false)
       setNewDueDate('')
       fetchCase()
@@ -1014,7 +1014,7 @@ export function CaseDetailPage() {
               </div>
               <div>
                 <Label className="mb-1.5 block">{lang === 'th' ? 'วันครบกำหนดใหม่' : 'New due date'} <span className="text-gray-400 font-normal">{lang === 'th' ? '(ไม่บังคับ)' : '(optional)'}</span></Label>
-                <Input type="date" value={promptDue} onChange={(e) => setPromptDue(e.target.value)} />
+                <Input type="datetime-local" value={toDateTimeLocal(promptDue)} onChange={(e) => setPromptDue(fromDateTimeLocal(e.target.value))} />
               </div>
             </div>
             <DialogFooter>
@@ -1322,8 +1322,8 @@ export function CaseDetailPage() {
               <Calendar className="h-3.5 w-3.5 flex-shrink-0 text-gray-400" />
               {showDueDateEditor ? (
                 <div className="flex items-center gap-1">
-                  <Input type="date" value={newDueDate} onChange={e => setNewDueDate(e.target.value)}
-                    className="h-6 text-xs w-32 px-1.5" />
+                  <Input type="datetime-local" value={toDateTimeLocal(newDueDate)} onChange={e => setNewDueDate(fromDateTimeLocal(e.target.value))}
+                    className="h-6 text-xs w-44 px-1.5" />
                   <button onClick={saveManagerDueDate} disabled={savingDueDate || !newDueDate}
                     className="text-[var(--brand-primary)] font-semibold hover:opacity-75 flex-shrink-0 text-xs">
                     {savingDueDate ? <Loader2 className="h-3 w-3 animate-spin" /> : (lang === 'th' ? 'บันทึก' : 'Save')}
@@ -1335,11 +1335,11 @@ export function CaseDetailPage() {
               ) : kcase.due_date ? (
                 <span className="flex items-center gap-1">
                   <span className={cn(new Date(kcase.due_date) < new Date() && kcase.status !== 'closed' ? 'text-red-500 font-semibold' : '')}>
-                    {t.caseDetail.dueLabel} {new Date(kcase.due_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                    {t.caseDetail.dueLabel} {formatDueBy(kcase.due_date, lang)}
                     {new Date(kcase.due_date) < new Date() && kcase.status !== 'closed' && ' ⚠️'}
                   </span>
                   {canEditDueDate && (
-                    <button onClick={() => { setNewDueDate(kcase.due_date!.split('T')[0]); setShowDueDateEditor(true) }}
+                    <button onClick={() => { setNewDueDate(kcase.due_date!); setShowDueDateEditor(true) }}
                       className="text-gray-400 hover:text-[var(--brand-primary)] transition-colors" title={lang === 'th' ? 'แก้ไขวันครบกำหนด' : 'Edit due date'}>
                       <Pencil className="h-3 w-3" />
                     </button>
@@ -1791,9 +1791,9 @@ export function CaseDetailPage() {
               <div className="space-y-1.5">
                 <Label>{t.caseDetail.fieldDueDate} <span className="text-gray-400 font-normal">{t.createCase.optional}</span></Label>
                 <Input
-                  type="date"
-                  value={editDueDate}
-                  onChange={(e) => setEditDueDate(e.target.value)}
+                  type="datetime-local"
+                  value={toDateTimeLocal(editDueDate)}
+                  onChange={(e) => setEditDueDate(fromDateTimeLocal(e.target.value))}
                 />
               </div>
             </div>

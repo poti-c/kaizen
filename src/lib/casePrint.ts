@@ -1,4 +1,5 @@
 import { deptLabel } from '@/types'
+import { formatDueBy } from '@/lib/utils'
 import { timelineActionLabel } from '@/lib/i18nDynamic'
 import type { KaizenCase, KaizenProfile, KaizenCaseTimeline, KaizenCasePhoto } from '@/types'
 
@@ -88,7 +89,7 @@ export function buildCasePrintHtml(
         <div class="meta">
           <div class="meta-item"><span class="meta-label">${L.department}</span><span class="meta-value">${deptLabel(kcase.department, lang)}</span></div>
           <div class="meta-item"><span class="meta-label">${L.created}</span><span class="meta-value">${new Date(kcase.created_at).toLocaleDateString(loc, { day: 'numeric', month: 'long', year: 'numeric' })}</span></div>
-          ${kcase.due_date ? `<div class="meta-item"><span class="meta-label">${L.dueDate}</span><span class="meta-value">${new Date(kcase.due_date).toLocaleDateString(loc)}</span></div>` : ''}
+          ${kcase.due_date ? `<div class="meta-item"><span class="meta-label">${L.dueDate}</span><span class="meta-value">${formatDueBy(kcase.due_date, lang)}</span></div>` : ''}
           <div class="meta-item"><span class="meta-label">${L.reporter}</span><span class="meta-value">${(kcase.creator as KaizenProfile)?.full_name || L.unknown}</span></div>
         </div>
       </div>

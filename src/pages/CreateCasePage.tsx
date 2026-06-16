@@ -11,11 +11,20 @@ import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { PhotoUpload } from '@/components/PhotoUpload'
-import { generateCaseNumber, CATEGORIES, LOCATIONS, companyHasAddon } from '@/lib/utils'
+import { generateCaseNumber, CATEGORIES, LOCATIONS, companyHasAddon, formatDueBy, toDateTimeLocal, fromDateTimeLocal } from '@/lib/utils'
 import { DEPARTMENTS, CATEGORY_LABELS_EN, categoryLabel } from '@/types'
 import type { CasePriority, Department } from '@/types'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
+
+// Quick deadline presets for urgent cases. `at()` returns a fresh ISO timestamp.
+const DUE_PRESETS: { key: string; en: string; th: string; at: () => string }[] = [
+  { key: '30m', en: 'In 30 min', th: 'ใน 30 นาที', at: () => new Date(Date.now() + 30 * 60_000).toISOString() },
+  { key: '1h', en: 'In 1 hour', th: 'ใน 1 ชม.', at: () => new Date(Date.now() + 60 * 60_000).toISOString() },
+  { key: '2h', en: 'In 2 hours', th: 'ใน 2 ชม.', at: () => new Date(Date.now() + 120 * 60_000).toISOString() },
+  { key: '4h', en: 'In 4 hours', th: 'ใน 4 ชม.', at: () => new Date(Date.now() + 240 * 60_000).toISOString() },
+  { key: 'eod', en: 'End of today', th: 'สิ้นวันนี้', at: () => { const d = new Date(); d.setHours(23, 59, 0, 0); return d.toISOString() } },
+]
 
 export function CreateCasePage() {
   const navigate = useNavigate()
@@ -312,7 +321,27 @@ export function CreateCasePage() {
 
           <div className="space-y-1.5">
             <Label>{t.createCase.dueDate} <span className="text-gray-400 text-xs font-normal">{t.createCase.optional}</span></Label>
-            <Input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} min={new Date().toISOString().split('T')[0]} />
+            {/* Quick presets for urgent cases (due within minutes/hours) + a precise date+time picker. */}
+            <div className="flex flex-wrap gap-1.5">
+              {DUE_PRESETS.map((p) => (
+                <button key={p.key} type="button" onClick={() => setDueDate(p.at())}
+                  className="px-2.5 h-8 rounded-lg border bg-white text-gray-600 border-gray-300 hover:border-[var(--brand-primary)] hover:text-[var(--brand-primary)] text-xs font-medium transition-colors">
+                  {lang === 'th' ? p.th : p.en}
+                </button>
+              ))}
+              {dueDate && (
+                <button type="button" onClick={() => setDueDate('')}
+                  className="px-2.5 h-8 rounded-lg text-xs font-medium text-gray-400 hover:text-gray-600">
+                  {lang === 'th' ? 'ล้าง' : 'Clear'}
+                </button>
+              )}
+            </div>
+            <Input type="datetime-local" value={toDateTimeLocal(dueDate)}
+              onChange={(e) => setDueDate(fromDateTimeLocal(e.target.value))}
+              min={toDateTimeLocal(new Date().toISOString())} />
+            {dueDate && (
+              <p className="text-xs text-gray-500">{lang === 'th' ? 'ครบกำหนด' : 'Due by'} {formatDueBy(dueDate, lang)}</p>
+            )}
           </div>
 
           {/* Recurring toggle */}

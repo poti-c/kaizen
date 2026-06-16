@@ -288,6 +288,39 @@ export function isSLABreached(kcase: KaizenCase): boolean {
   return getSLARemaining(kcase) < 0
 }
 
+// ── Due-by (deadline) formatting ──────────────────────────────────────────────
+// Case due dates are timestamps. A "date-only" deadline is stored at end-of-day
+// (23:59); anything else carries a specific time the user picked (e.g. urgent
+// "due in 30 minutes"). Show the time only when it's meaningful.
+export function dueIsDateOnly(due: string): boolean {
+  const d = new Date(due)
+  if (isNaN(d.getTime())) return true
+  const hm = d.getHours() * 60 + d.getMinutes()
+  return hm === 23 * 60 + 59 || hm === 0 // end-of-day sentinel or midnight
+}
+
+export function formatDueBy(due: string | null | undefined, lang = 'en'): string {
+  if (!due) return ''
+  const d = new Date(due)
+  if (isNaN(d.getTime())) return String(due)
+  const loc = lang === 'th' ? 'th-TH' : 'en-GB'
+  const dateStr = d.toLocaleDateString(loc, { day: 'numeric', month: 'short', year: 'numeric' })
+  if (dueIsDateOnly(due)) return dateStr
+  return `${dateStr}, ${d.toLocaleTimeString(loc, { hour: '2-digit', minute: '2-digit' })}`
+}
+
+// Bind an ISO timestamp to / from an <input type="datetime-local"> (local wall clock).
+export function toDateTimeLocal(iso: string | null | undefined): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return ''
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+export function fromDateTimeLocal(v: string): string {
+  return v ? new Date(v).toISOString() : ''
+}
+
 export function getInitials(name: string): string {
   return name
     .split(' ')
