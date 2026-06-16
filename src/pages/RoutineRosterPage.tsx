@@ -349,27 +349,25 @@ export function RoutineRosterPage() {
                 {lang === 'th' ? 'ไม่มีงานประจำให้สั่งสำหรับแผนกของคุณ' : 'No routines to order for your department.'}
               </div>
             ) : (
-              <div className="space-y-2">
+              <div className="grid grid-cols-2 gap-2">
                 {menuTemplates.map((tp) => {
                   // "Ordered" once an active order exists for this routine today or tomorrow (the board's window).
                   const ordered = orders.some((o) => o.template_id === tp.id && o.status !== 'cancelled')
                   const name = lang === 'th' && tp.name_th ? tp.name_th : tp.name
                   return (
                     <button key={tp.id} onClick={() => setPlaceTpl(tp)}
-                      className="w-full flex items-center gap-2.5 rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-left hover:border-[var(--brand-primary)]/50 hover:bg-gray-50 transition-colors">
-                      <ClipboardList className="h-4 w-4 flex-shrink-0 text-[var(--brand-primary)]" />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-gray-900 truncate">{name}</p>
-                        <p className="text-[11px] text-gray-400 truncate">
-                          {deptLabel(tp.request_department, lang)} → {deptLabel(tp.fulfill_department, lang)}{tp.due_time ? ` · ${lang === 'th' ? 'ก่อน' : 'by'} ${hhmm(tp.due_time)}` : ''}
-                        </p>
+                      title={`${deptLabel(tp.request_department, lang)} → ${deptLabel(tp.fulfill_department, lang)}${tp.due_time ? ` · ${hhmm(tp.due_time)}` : ''}`}
+                      className="flex flex-col gap-0.5 rounded-lg border border-gray-200 bg-white px-2.5 py-2 text-left hover:border-[var(--brand-primary)]/50 hover:bg-gray-50 transition-colors">
+                      <div className="flex items-center gap-1.5">
+                        <ClipboardList className="h-3.5 w-3.5 flex-shrink-0 text-[var(--brand-primary)]" />
+                        <p className="text-[13px] font-medium text-gray-900 truncate flex-1 leading-tight">{name}</p>
+                        {ordered
+                          ? <Check className="h-3.5 w-3.5 flex-shrink-0 text-[var(--brand-primary)]" />
+                          : <Plus className="h-3.5 w-3.5 flex-shrink-0 text-gray-300" />}
                       </div>
-                      {ordered && (
-                        <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 flex items-center gap-1 flex-shrink-0">
-                          <Check className="h-3 w-3" />{lang === 'th' ? 'สั่งแล้ว' : 'Ordered'}
-                        </span>
-                      )}
-                      <Plus className="h-4 w-4 flex-shrink-0 text-gray-400" />
+                      <p className="text-[10px] text-gray-400 truncate pl-5">
+                        {deptLabel(tp.request_department, lang)} → {deptLabel(tp.fulfill_department, lang)}{tp.due_time ? ` · ${hhmm(tp.due_time)}` : ''}
+                      </p>
                     </button>
                   )
                 })}
