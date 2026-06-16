@@ -991,7 +991,7 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
           <History className="h-3 w-3" />{tr.rr.timeline}
           <ChevronDown className={`h-3 w-3 transition-transform ${showTimeline ? 'rotate-180' : ''}`} />
         </button>
-        {showTimeline && <OrderTimeline orderId={o.id} />}
+        {showTimeline && <OrderTimeline order={o} />}
       </div>
     </div>
   )
@@ -1102,24 +1102,37 @@ function RoomGrid({ rooms, grid, setGrid, variants }: {
 
 // ── order acknowledgement timeline ────────────────────────────────────────────
 
-function OrderTimeline({ orderId }: { orderId: string }) {
+function OrderTimeline({ order: o }: { order: RrOrder }) {
   const { t: tr } = useLanguage()
   const [events, setEvents] = useState<(RrEvent & { actor?: { full_name: string } | null })[]>([])
+  const [names, setNames] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
 
+  // The order's own columns are the source of truth for the lifecycle (who placed /
+  // accepted / delivered / confirmed). Events add finer detail (per-room, reassign)
+  // but may be absent — so the milestones below never depend on them.
+  const actorIds = [o.sent_by, o.accepted_by, o.delivered_by, o.confirmed_by].filter(Boolean) as string[]
   useEffect(() => {
     let stale = false
     ;(async () => {
       setLoading(true)
-      const { data } = await supabase.from('kaizen_rr_events')
-        .select('*, actor:kaizen_profiles!kaizen_rr_events_actor_id_fkey(full_name)')
-        .eq('order_id', orderId).order('created_at', { ascending: false })
+      const [evRes, npRes] = await Promise.all([
+        supabase.from('kaizen_rr_events')
+          .select('*, actor:kaizen_profiles!kaizen_rr_events_actor_id_fkey(full_name)')
+          .eq('order_id', o.id).order('created_at', { ascending: true }),
+        actorIds.length
+          ? supabase.from('kaizen_profiles').select('id, full_name').in('id', [...new Set(actorIds)])
+          : Promise.resolve({ data: [] as { id: string; full_name: string }[] }),
+      ])
       if (stale) return
-      setEvents((data as (RrEvent & { actor?: { full_name: string } | null })[]) ?? [])
+      setEvents((evRes.data as (RrEvent & { actor?: { full_name: string } | null })[]) ?? [])
+      const map: Record<string, string> = {}
+      ;((npRes.data as { id: string; full_name: string }[]) ?? []).forEach((p) => { map[p.id] = p.full_name })
+      setNames(map)
       setLoading(false)
     })()
     return () => { stale = true }
-  }, [orderId])
+  }, [o.id, o.sent_by, o.accepted_by, o.delivered_by, o.confirmed_by, o.sent_at, o.accepted_at, o.delivered_at, o.confirmed_at]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const actionLabel = (a: string): string => ({
     sent: tr.rr.evSent, accepted: tr.rr.evAccepted, delivered: tr.rr.evDelivered,
@@ -1127,25 +1140,36 @@ function OrderTimeline({ orderId }: { orderId: string }) {
     pic_changed: tr.rr.evPicChanged,
   } as Record<string, string>)[a] ?? a
 
+  const nm = (id: string | null) => (id && names[id]) || tr.rr.someone
+  const qtyDetail = o.order_type === 'bulk' && o.quantity != null
+    ? (o.unit_label ? `${o.quantity} ${o.unit_label}` : `${o.quantity}`) : ''
+
+  // Milestones from the order columns (always reliable) …
+  type Row = { key: string; at: string; text: string }
+  const rows: Row[] = [
+    o.sent_at && { key: 'sent', at: o.sent_at, text: `${nm(o.sent_by)} ${tr.rr.evSent}${qtyDetail ? ` · ${qtyDetail}` : ''}` },
+    o.accepted_at && { key: 'accepted', at: o.accepted_at, text: `${nm(o.accepted_by)} ${tr.rr.evAccepted}` },
+    o.delivered_at && { key: 'delivered', at: o.delivered_at, text: `${nm(o.delivered_by)} ${tr.rr.evDelivered}` },
+    o.confirmed_at && { key: 'confirmed', at: o.confirmed_at, text: `${nm(o.confirmed_by)} ${tr.rr.evConfirmed}` },
+  ].filter(Boolean) as Row[]
+  // … plus the extra detail events the columns don't capture (per-room ticks, reassignments, cancellation).
+  events.filter((e) => ['room_delivered', 'pic_changed', 'cancelled'].includes(e.action)).forEach((e) => {
+    rows.push({ key: e.id, at: e.created_at, text: `${e.actor?.full_name || tr.rr.someone} ${actionLabel(e.action)}${e.detail ? ` ${e.detail}` : ''}` })
+  })
+  rows.sort((a, b) => a.at.localeCompare(b.at))
+
   if (loading) return <div className="mt-1.5 flex justify-center py-2"><Loader2 className="h-4 w-4 animate-spin text-gray-300" /></div>
-  if (events.length === 0) return <p className="mt-1.5 text-[11px] text-gray-400">{tr.rr.timelineEmpty}</p>
+  if (rows.length === 0) return <p className="mt-1.5 text-[11px] text-gray-400">{tr.rr.timelineEmpty}</p>
 
   return (
     <ul className="mt-1.5 space-y-1">
-      {events.map((e) => {
-        const who = e.actor?.full_name || tr.rr.someone
-        const verb = actionLabel(e.action)
-        const what = e.action === 'room_delivered' && e.detail
-          ? `${who} ${verb} ${e.detail}`
-          : `${who} ${verb}${e.detail ? ` ${e.detail}` : ''}`
-        return (
-          <li key={e.id} className="text-[11px] text-gray-500 flex items-baseline gap-1.5">
-            <span className="w-1 h-1 rounded-full bg-gray-300 flex-shrink-0 mt-1.5" />
-            <span className="flex-1">{what}</span>
-            <span className="text-gray-400 flex-shrink-0">{fmtTime(e.created_at)}</span>
-          </li>
-        )
-      })}
+      {rows.map((row) => (
+        <li key={row.key} className="text-[11px] text-gray-500 flex items-baseline gap-1.5">
+          <span className="w-1 h-1 rounded-full bg-gray-300 flex-shrink-0 mt-1.5" />
+          <span className="flex-1">{row.text}</span>
+          <span className="text-gray-400 flex-shrink-0">{fmtTime(row.at)}</span>
+        </li>
+      ))}
     </ul>
   )
 }
