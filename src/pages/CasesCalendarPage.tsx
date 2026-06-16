@@ -56,6 +56,7 @@ export function CasesCalendarPage() {
   const [dueCases, setDueCases] = useState<KaizenCase[]>([]) // open cases whose DUE DATE falls in this month
   const [pmTasks, setPmTasks] = useState<PMTask[]>([])
   const [rrOrders, setRrOrders] = useState<RrOrder[]>([])
+  const [actorNames, setActorNames] = useState<Record<string, string>>({}) // id → full_name for order actors
   const [rrRoomOrders, setRrRoomOrders] = useState<RoomOrderCal[]>([])
   const [roomUnit, setRoomUnit] = useState<UnitNoun>(DEFAULT_UNIT)
   const [loading, setLoading] = useState(true)
@@ -136,7 +137,16 @@ export function CasesCalendarPage() {
           .select('*')
           .eq('company_id', activeCompany.id).neq('status', 'cancelled')
           .gte('order_date', isoKey(start)).lte('order_date', monthEnd)
-        setRrOrders((data as RrOrder[]) ?? [])
+        const list = (data as RrOrder[]) ?? []
+        setRrOrders(list)
+        // Resolve actor names so rows can show "Confirmed by …", "Accepted by …", etc.
+        const ids = [...new Set(list.flatMap(o => [o.sent_by, o.accepted_by, o.delivered_by, o.confirmed_by]).filter(Boolean) as string[])]
+        if (ids.length) {
+          const { data: profs } = await supabase.from('kaizen_profiles').select('id, full_name').in('id', ids)
+          const map: Record<string, string> = {}
+          ;((profs as { id: string; full_name: string }[]) ?? []).forEach(p => { map[p.id] = p.full_name })
+          setActorNames(map)
+        } else { setActorNames({}) }
       })())
       jobs.push((async () => {
         const { data } = await supabase.from('kaizen_rr_room_orders')
@@ -186,11 +196,18 @@ export function CasesCalendarPage() {
 
   const roomNoun = unitOne(roomUnit, lang)
   const roomOrderLabel = lang === 'th' ? `ใบสั่ง${roomNoun}` : `${roomNoun} order`
-  const ooCount = (ro: RoomOrderCal) => Object.values(ro.room_statuses ?? {}).filter(s => s === 'oo').length
+  // Room-order breakdown: how many rooms in each state (check-in / occupied / empty / OO).
   const roomOrderSub = (ro: RoomOrderCal) => {
     const status = ro.status === 'submitted' ? (lang === 'th' ? 'ส่งแล้ว' : 'Submitted') : (lang === 'th' ? 'ฉบับร่าง' : 'Draft')
-    const oo = ooCount(ro)
-    return oo > 0 ? `${status} · ${oo} ${lang === 'th' ? 'งดใช้งาน' : 'OO'}` : status
+    const c = { checkin: 0, occupied: 0, empty: 0, oo: 0 }
+    Object.values(ro.room_statuses ?? {}).forEach(s => { if (s in c) c[s as keyof typeof c]++ })
+    const breakdown = [
+      `${lang === 'th' ? 'เช็คอิน' : 'Check-in'} ${c.checkin}`,
+      `${lang === 'th' ? 'พักต่อ' : 'Occupied'} ${c.occupied}`,
+      `${lang === 'th' ? 'ว่าง' : 'Empty'} ${c.empty}`,
+      `OO ${c.oo}`,
+    ].join(' · ')
+    return `${status} · ${breakdown}`
   }
 
   function isToday(date: Date) {
@@ -205,6 +222,14 @@ export function CasesCalendarPage() {
     pending: t.rr.pending, sent: t.rr.sentStatus, accepted: t.rr.acceptedStatus,
     delivered: t.rr.deliveredStatus, confirmed: t.rr.confirmedStatus, cancelled: t.rr.cancelledStatus,
   } as Record<string, string>)[s] ?? s
+
+  // Status + who did it: "Confirmed by Panomwan", "Accepted by Manode", "Sent by Wiboonchai".
+  const rrStatusWithActor = (o: RrOrder) => {
+    const id = o.status === 'confirmed' ? o.confirmed_by : o.status === 'delivered' ? o.delivered_by
+      : o.status === 'accepted' ? o.accepted_by : o.status === 'sent' ? o.sent_by : null
+    const who = id ? actorNames[id] : null
+    return who ? `${rrStatusLabel(o.status)} ${lang === 'th' ? 'โดย' : 'by'} ${who}` : rrStatusLabel(o.status)
+  }
 
   const showDeptFilter = (profile?.role === 'super_admin' || profile?.role === 'manager') && showCaseData
   const selectedDate = selectedKey ? new Date(selectedKey + 'T00:00:00') : null
@@ -363,7 +388,7 @@ export function CasesCalendarPage() {
                         e.order.order_type === 'bulk'
                           ? (e.order.unit_label ? `${e.order.quantity ?? 0} ${e.order.unit_label}` : (e.order.quantity != null ? String(e.order.quantity) : ''))
                           : (e.order.quantity != null ? `${e.order.quantity} ${lang === 'th' ? 'ห้อง' : 'rooms'}` : ''),
-                        rrStatusLabel(e.order.status),
+                        rrStatusWithActor(e.order),
                       ].filter(Boolean).join(' · ')}
                     </p>
                   </div>
