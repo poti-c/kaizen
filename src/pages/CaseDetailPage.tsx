@@ -470,8 +470,8 @@ export function CaseDetailPage() {
   function renderCommentWithMentions(content: string) {
     const names = [...mentionUsers].sort((a, b) => b.full_name.length - a.full_name.length)
     const namePart = names.map(u => `@${u.full_name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`).join('|')
-    const pattern = `(@all)${namePart ? `|(${namePart})` : ''}`
-    const splitRegex = new RegExp(`(${pattern})`, 'gi')
+    // One capture group only — extra groups make String.split emit each match twice.
+    const splitRegex = new RegExp(`(@all${namePart ? `|${namePart}` : ''})`, 'gi')
     const parts = content.split(splitRegex).filter(p => p !== undefined && p !== '')
     return parts.map((part, i) =>
       /^@all$/i.test(part) ? (

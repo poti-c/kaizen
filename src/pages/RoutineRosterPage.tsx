@@ -361,7 +361,7 @@ export function RoutineRosterPage() {
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-gray-900 truncate">{name}</p>
                         <p className="text-[11px] text-gray-400 truncate">
-                          → {deptLabel(tp.fulfill_department, lang)}{tp.due_time ? ` · ${lang === 'th' ? 'ก่อน' : 'by'} ${hhmm(tp.due_time)}` : ''}
+                          {deptLabel(tp.request_department, lang)} → {deptLabel(tp.fulfill_department, lang)}{tp.due_time ? ` · ${lang === 'th' ? 'ก่อน' : 'by'} ${hhmm(tp.due_time)}` : ''}
                         </p>
                       </div>
                       {ordered && (
