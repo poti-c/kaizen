@@ -214,7 +214,9 @@ export function UsersPage() {
           position: newPosition.trim() || undefined,
           username: newUsername.trim() || undefined,
           email: newEmail.trim() || undefined,
-          department: profile?.role === 'manager' ? profile.department : newRole === 'super_admin' ? 'top_management' : newDepartment,
+          department: profile?.role === 'manager'
+            ? (getEffectiveDepts(profile).length > 1 ? newDepartment : profile.department)
+            : newRole === 'super_admin' ? 'top_management' : newDepartment,
           password: newPassword,
           company_id: activeCompany?.id ?? null,
         }),
