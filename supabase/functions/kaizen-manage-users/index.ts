@@ -36,13 +36,14 @@ serve(async (req) => {
 
   const { data: callerProfile } = await supabaseAdmin
     .from("kaizen_profiles")
-    .select("role, department, company_id")
+    .select("role, department, managed_departments, company_id")
     .eq("id", user.id)
     .single();
 
   const callerRole = callerProfile?.role;
   const callerDept = callerProfile?.department;
   const callerCompany = callerProfile?.company_id;
+  const callerEffectiveDepts: string[] = [callerDept, ...(callerProfile?.managed_departments ?? [])].filter(Boolean);
 
   if (callerRole !== "super_admin" && callerRole !== "manager") {
     return json({ error: "Forbidden" }, 403);
@@ -108,7 +109,7 @@ serve(async (req) => {
 
     if (callerRole === "manager") {
       if (role !== "staff") return json({ error: "Managers can only create staff accounts" }, 403);
-      if (department !== callerDept) return json({ error: "Managers can only create staff in their own department" }, 403);
+      if (!callerEffectiveDepts.includes(department)) return json({ error: "Managers can only create staff in their own department" }, 403);
     }
 
     // A super_admin may only create users in a company they actually manage (own + granted),
