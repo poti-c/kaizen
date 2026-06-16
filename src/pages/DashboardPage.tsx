@@ -26,6 +26,7 @@ export function DashboardPage() {
   const { activeCompany } = useCompany()
   const { t, lang } = useLanguage()
   const [allCases, setAllCases] = useState<KaizenCase[]>([])
+  const [catList, setCatList] = useState<{ slug: string; label: string }[]>([]) // company's categories (custom)
   const [loading, setLoading] = useState(true)
 
   // ── Date filter ────────────────────────────────────────────────────────────
@@ -153,15 +154,20 @@ export function DashboardPage() {
   }, [allCases])
 
   // ── Category data (from catFilteredCases) ─────────────────────────────────
+  // Use the company's own category list (falls back to the built-in defaults).
+  const effectiveCats = useMemo(
+    () => catList.length ? catList : CATEGORIES.map(c => ({ slug: c, label: t.categories[c as keyof typeof t.categories] || c })),
+    [catList, t],
+  )
   const categoryData = useMemo(() => {
     const catMap: Record<string, number> = {}
-    CATEGORIES.forEach(c => { catMap[c] = 0 })
+    effectiveCats.forEach(c => { catMap[c.slug] = 0 })
     catFilteredCases.forEach(c => {
       const slug = (c.category || '').toLowerCase().replace(/ /g, '_')
       if (slug in catMap) catMap[slug]++
     })
     return catMap
-  }, [catFilteredCases])
+  }, [catFilteredCases, effectiveCats])
 
   useEffect(() => {
     if (!profile || !activeCompany) return
@@ -176,6 +182,14 @@ export function DashboardPage() {
     if (profile.role === 'staff') query = query.eq('department', profile.department)
     const { data } = await query.order('created_at', { ascending: false })
     setAllCases((data || []) as KaizenCase[])
+    // The company's own category list — so the chart matches New Case / Cases,
+    // not the built-in defaults (e.g. a removed "Maintenance" shouldn't appear).
+    if (activeCompany) {
+      const { data: catRow } = await supabase.from('kaizen_settings').select('value')
+        .eq('company_id', activeCompany.id).eq('key', 'custom_categories').maybeSingle()
+      const labels = Array.isArray(catRow?.value) ? (catRow!.value as string[]) : []
+      setCatList(labels.map(l => ({ slug: l.toLowerCase().replace(/ /g, '_'), label: l })))
+    }
     setLoading(false)
   }
 
@@ -203,6 +217,7 @@ export function DashboardPage() {
     maintenance: '#3b82f6', cleanliness: '#14b8a6', safety: '#ef4444',
     guest_complaint: '#a855f7', equipment: '#f97316', other: '#6b7280',
   }
+  const CAT_FALLBACK = ['#0ea5e9', '#8b5cf6', '#f59e0b', '#10b981', '#ec4899', '#6366f1']
 
   const pieData = [
     { name: t.dashboard.open,             value: stats.open,       color: PIE_COLORS.open,       group: 'open' },
@@ -212,11 +227,11 @@ export function DashboardPage() {
     { name: t.status.reopened,            value: stats.reopened,   color: PIE_COLORS.reopened,    group: 'reopened' },
   ].filter(d => d.value > 0)
 
-  const catPieData = CATEGORIES.map(cat => ({
-    name:     t.categories[cat as keyof typeof t.categories] || cat,
-    value:    categoryData[cat] ?? 0,
-    color:    CATEGORY_PIE_COLORS[cat] || '#9ca3af',
-    category: cat,
+  const catPieData = effectiveCats.map((c, i) => ({
+    name:     c.label,
+    value:    categoryData[c.slug] ?? 0,
+    color:    CATEGORY_PIE_COLORS[c.slug] || CAT_FALLBACK[i % CAT_FALLBACK.length],
+    category: c.slug,
   }))
   const catTotal = catPieData.reduce((s, d) => s + d.value, 0)
   const catPieSlices = catPieData.filter(d => d.value > 0)
@@ -347,8 +362,7 @@ export function DashboardPage() {
                 { label: t.dashboard.open,            count: stats.open,       color: PIE_COLORS.open,       to: '/cases?status=open',       hover: 'hover:bg-orange-50' },
                 { label: t.dashboard.inProgress,      count: stats.inProgress, color: PIE_COLORS.inProgress, to: '/cases?group=in_progress', hover: 'hover:bg-blue-50' },
                 { label: t.dashboard.waitingApproval, count: stats.pending,    color: PIE_COLORS.pending,    to: '/cases?group=pending',     hover: 'hover:bg-amber-50' },
-                { label: t.dashboard.resolved,        count: stats.closed,     color: PIE_COLORS.resolved,   to: '/cases?group=resolved',    hover: 'hover:bg-green-50' },
-                { label: t.status.reopened,           count: stats.reopened,   color: PIE_COLORS.reopened,   to: '/cases?status=reopened',   hover: 'hover:bg-red-50' },
+                { label: t.dashboard.overdue,         count: overdueCases.length, color: '#dc2626',          to: '/cases?group=overdue',     hover: 'hover:bg-red-50' },
               ].map(({ label, count, color, to, hover }) => (
                 <Link key={to} to={to} className={`flex items-center justify-between px-2 py-1 rounded-lg ${hover} transition-colors group`}>
                   <div className="flex items-center gap-2 min-w-0">

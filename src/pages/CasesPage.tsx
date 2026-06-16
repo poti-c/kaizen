@@ -229,6 +229,8 @@ export function CasesPage() {
         result = result.filter((c) => ['pending_manager_approval', 'pending_admin_approval'].includes(c.status))
       } else if (groupFilter === 'resolved') {
         result = result.filter((c) => c.status === 'closed')
+      } else if (groupFilter === 'overdue') {
+        result = result.filter((c) => isSLABreached(c))
       } else if (statusFilter !== 'all') {
         result = result.filter((c) => c.status === statusFilter)
       }
