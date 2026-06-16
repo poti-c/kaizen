@@ -1007,9 +1007,8 @@ function LineRow({ line: l, items, lang, onPatch, onRemove, onToggle, special, r
   special?: boolean
   readOnly?: boolean
 }) {
-  // Default lines pick from the dept's Default catalog; special requests from its Special catalog.
-  const wantKind = l.source === 'special' ? 'special' : 'default'
-  const deptItems = items.filter((it) => it.department === l.fulfill_department && (it.kind ?? 'default') === wantKind)
+  // Both regular and special-request lines pick from the dept's single item list.
+  const deptItems = items.filter((it) => it.department === l.fulfill_department)
   return (
     <div className={`rounded-lg border border-gray-100 p-2.5 space-y-2 transition-opacity ${l.active ? 'bg-gray-50/50' : 'bg-gray-100/40 opacity-55'}`}>
       <div className="flex items-center gap-2">

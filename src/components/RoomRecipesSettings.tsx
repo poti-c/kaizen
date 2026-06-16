@@ -210,8 +210,8 @@ function RecipeModal({ category, lines, items, lang, onClose, onSave }: {
             </p>
           )}
           {local.map((line) => {
-            // Recipes are the default setup → only the dept's Default catalog items.
-            const deptItems = items.filter((it) => it.department === line.fulfill_department && (it.kind ?? 'default') === 'default')
+            // Pick from the dept's single item list.
+            const deptItems = items.filter((it) => it.department === line.fulfill_department)
             return (
               <div key={line.id} className="rounded-lg border border-gray-150 bg-gray-50/50 p-2.5 space-y-2">
                 {/* Row 1: slot + remove */}

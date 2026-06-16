@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Plus, Trash2, Loader2, Check, ClipboardList, ArrowRight, ArrowLeftRight, X, ChevronDown } from 'lucide-react'
+import { Plus, Trash2, Loader2, Check, ClipboardList, ArrowRight, X, ChevronDown } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useCompany } from '@/contexts/CompanyContext'
 import { useAuth } from '@/contexts/AuthContext'
@@ -186,8 +186,8 @@ function DeptModal({ dept, allItems, lang, onClose, onSave }: {
     return () => document.removeEventListener('mousedown', handler)
   }, [transferIdx])
 
-  function addRow(kind: 'default' | 'special' = 'default') {
-    setLocal((prev) => [...prev, { department: dept, code: '', description: '', kind }])
+  function addRow() {
+    setLocal((prev) => [...prev, { department: dept, code: '', description: '' }])
     // Let the new row appear before scrolling
     setTimeout(() => {
       const el = document.getElementById('rr-item-list-bottom')
@@ -197,11 +197,6 @@ function DeptModal({ dept, allItems, lang, onClose, onSave }: {
 
   function patch(globalIdx: number, field: keyof RrItem, value: string) {
     setLocal((prev) => prev.map((it, i) => i === globalIdx ? { ...it, [field]: value } : it))
-  }
-
-  function moveKind(globalIdx: number) {
-    setLocal((prev) => prev.map((it, i) => i === globalIdx
-      ? { ...it, kind: (it.kind ?? 'default') === 'default' ? 'special' : 'default' } : it))
   }
 
   function remove(globalIdx: number) {
@@ -244,67 +239,50 @@ function DeptModal({ dept, allItems, lang, onClose, onSave }: {
           </button>
         </div>
 
-        {/* Items — grouped into Default and Special request */}
-        <div className="flex-1 overflow-y-auto px-5 py-3 space-y-5">
-          {([['default', lang === 'th' ? 'ค่าเริ่มต้น' : 'Default'], ['special', lang === 'th' ? 'คำขอพิเศษ' : 'Special request']] as const).map(([kind, label]) => {
-            const rows = local.map((it, i) => ({ it, i })).filter(({ it }) => it.department === dept && (it.kind ?? 'default') === kind)
-            return (
-              <div key={kind}>
-                <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">
-                  {label} <span className="text-gray-300 font-normal">· {rows.length}</span>
-                </p>
-                <div className="space-y-1.5">
-                  {rows.map(({ it, i }) => (
-                    <div key={i} className="flex items-center gap-1.5 rounded-lg border border-gray-100 bg-gray-50/40 px-2.5 py-2">
-                      <input value={it.code} onChange={(e) => patch(i, 'code', e.target.value)} placeholder="—"
-                        className="w-14 h-8 rounded-md border border-gray-200 px-2 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-[var(--brand-primary)]/40 bg-white flex-shrink-0" />
-                      <input value={it.description} onChange={(e) => patch(i, 'description', e.target.value)}
-                        placeholder={lang === 'th' ? 'คำอธิบาย' : 'Description'}
-                        className="flex-1 min-w-0 h-8 rounded-md border border-gray-200 px-2 text-sm focus:outline-none focus:ring-1 focus:ring-[var(--brand-primary)]/40 bg-white" />
+        {/* Items — one flat list for this department */}
+        <div className="flex-1 overflow-y-auto px-5 py-3">
+          <div className="space-y-1.5">
+            {deptRows.map(({ it, i }) => (
+              <div key={i} className="flex items-center gap-1.5 rounded-lg border border-gray-100 bg-gray-50/40 px-2.5 py-2">
+                <input value={it.code} onChange={(e) => patch(i, 'code', e.target.value)} placeholder="—"
+                  className="w-14 h-8 rounded-md border border-gray-200 px-2 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-[var(--brand-primary)]/40 bg-white flex-shrink-0" />
+                <input value={it.description} onChange={(e) => patch(i, 'description', e.target.value)}
+                  placeholder={lang === 'th' ? 'คำอธิบาย' : 'Description'}
+                  className="flex-1 min-w-0 h-8 rounded-md border border-gray-200 px-2 text-sm focus:outline-none focus:ring-1 focus:ring-[var(--brand-primary)]/40 bg-white" />
 
-                      {/* Move between Default / Special */}
-                      <button onClick={() => moveKind(i)}
-                        title={kind === 'default' ? (lang === 'th' ? 'ย้ายไปคำขอพิเศษ' : 'Move to Special request') : (lang === 'th' ? 'ย้ายไปค่าเริ่มต้น' : 'Move to Default')}
-                        className="h-8 w-8 flex items-center justify-center rounded-md text-gray-300 hover:text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/5 transition-colors flex-shrink-0">
-                        <ArrowLeftRight className="h-3.5 w-3.5" />
-                      </button>
-
-                      {/* Transfer to another department */}
-                      <div className="relative flex-shrink-0" ref={transferIdx === i ? transferRef : undefined}>
-                        <button onClick={() => setTransferIdx(transferIdx === i ? null : i)}
-                          title={lang === 'th' ? 'ย้ายไปแผนกอื่น' : 'Transfer to another dept'}
-                          className="h-8 w-8 flex items-center justify-center rounded-md text-gray-300 hover:text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/5 transition-colors">
-                          <ArrowRight className="h-4 w-4" />
-                        </button>
-                        {transferIdx === i && (
-                          <div className="absolute right-0 top-9 z-20 bg-white rounded-xl border border-gray-200 shadow-lg py-1 min-w-[160px] max-w-[calc(100vw-3rem)]">
-                            <p className="px-3 py-1 text-[11px] font-semibold text-gray-400 uppercase">{lang === 'th' ? 'ย้ายไป' : 'Move to'}</p>
-                            {otherDepts.map((d) => (
-                              <button key={d.value} onClick={() => transfer(i, d.value)}
-                                className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 hover:text-[var(--brand-primary)]">{deptLabel(d.value, lang)}</button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Delete */}
-                      <button onClick={() => remove(i)}
-                        className="h-8 w-8 flex items-center justify-center rounded-md text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors flex-shrink-0">
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  ))}
-                  {rows.length === 0 && (
-                    <p className="text-xs text-gray-400 py-1.5 px-1">{lang === 'th' ? 'ยังไม่มีรายการ' : 'None yet.'}</p>
-                  )}
-                  <button onClick={() => addRow(kind)}
-                    className="w-full flex items-center justify-center gap-1.5 h-9 rounded-lg border border-dashed border-gray-200 text-sm text-gray-400 hover:border-[var(--brand-primary)] hover:text-[var(--brand-primary)] transition-colors">
-                    <Plus className="h-4 w-4" />{lang === 'th' ? 'เพิ่มรายการ' : 'Add item'}
+                {/* Transfer to another department */}
+                <div className="relative flex-shrink-0" ref={transferIdx === i ? transferRef : undefined}>
+                  <button onClick={() => setTransferIdx(transferIdx === i ? null : i)}
+                    title={lang === 'th' ? 'ย้ายไปแผนกอื่น' : 'Transfer to another dept'}
+                    className="h-8 w-8 flex items-center justify-center rounded-md text-gray-300 hover:text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/5 transition-colors">
+                    <ArrowRight className="h-4 w-4" />
                   </button>
+                  {transferIdx === i && (
+                    <div className="absolute right-0 top-9 z-20 bg-white rounded-xl border border-gray-200 shadow-lg py-1 min-w-[160px] max-w-[calc(100vw-3rem)]">
+                      <p className="px-3 py-1 text-[11px] font-semibold text-gray-400 uppercase">{lang === 'th' ? 'ย้ายไป' : 'Move to'}</p>
+                      {otherDepts.map((d) => (
+                        <button key={d.value} onClick={() => transfer(i, d.value)}
+                          className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 hover:text-[var(--brand-primary)]">{deptLabel(d.value, lang)}</button>
+                      ))}
+                    </div>
+                  )}
                 </div>
+
+                {/* Delete */}
+                <button onClick={() => remove(i)}
+                  className="h-8 w-8 flex items-center justify-center rounded-md text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors flex-shrink-0">
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
               </div>
-            )
-          })}
+            ))}
+            {deptRows.length === 0 && (
+              <p className="text-xs text-gray-400 py-1.5 px-1">{lang === 'th' ? 'ยังไม่มีรายการ' : 'None yet.'}</p>
+            )}
+            <button onClick={() => addRow()}
+              className="w-full flex items-center justify-center gap-1.5 h-9 rounded-lg border border-dashed border-gray-200 text-sm text-gray-400 hover:border-[var(--brand-primary)] hover:text-[var(--brand-primary)] transition-colors">
+              <Plus className="h-4 w-4" />{lang === 'th' ? 'เพิ่มรายการ' : 'Add item'}
+            </button>
+          </div>
           <div id="rr-item-list-bottom" />
         </div>
 
