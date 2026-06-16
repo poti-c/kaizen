@@ -316,8 +316,9 @@ export const DEPARTMENT_LABELS_TH: Record<Department, string> = {
 }
 
 /** Department label in the given UI language (falls back to English). */
-export function deptLabel(dept: Department, lang?: string): string {
-  return lang === 'th' ? (DEPARTMENT_LABELS_TH[dept] ?? DEPARTMENT_LABELS[dept]) : DEPARTMENT_LABELS[dept]
+export function deptLabel(dept: string, lang?: string): string {
+  const d = dept as Department
+  return (lang === 'th' ? (DEPARTMENT_LABELS_TH[d] ?? DEPARTMENT_LABELS[d]) : DEPARTMENT_LABELS[d]) ?? dept
 }
 
 // Built-in case-category labels (custom company categories carry their own label).

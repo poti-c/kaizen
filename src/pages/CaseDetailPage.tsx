@@ -458,16 +458,25 @@ export function CaseDetailPage() {
     commentRef.current?.focus()
   }
 
+  function insertAllMention() {
+    const lastAt = newComment.lastIndexOf('@')
+    const before = newComment.slice(0, lastAt)
+    const after = newComment.slice(lastAt).replace(/@\S*/, '@all ')
+    setNewComment(before + after)
+    setShowMentions(false)
+    commentRef.current?.focus()
+  }
+
   function renderCommentWithMentions(content: string) {
-    // Build regex from known user names (longest first to avoid partial matches)
     const names = [...mentionUsers].sort((a, b) => b.full_name.length - a.full_name.length)
-    if (names.length === 0) return <span>{content}</span>
-    const pattern = names.map(u => `@${u.full_name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`).join('|')
-    const splitRegex = new RegExp(`(${pattern})`, 'gi')  // for splitting
-    const testRegex = new RegExp(`^(${pattern})$`, 'i')   // stateless, for testing each part
-    const parts = content.split(splitRegex)
+    const namePart = names.map(u => `@${u.full_name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`).join('|')
+    const pattern = `(@all)${namePart ? `|(${namePart})` : ''}`
+    const splitRegex = new RegExp(`(${pattern})`, 'gi')
+    const parts = content.split(splitRegex).filter(p => p !== undefined && p !== '')
     return parts.map((part, i) =>
-      testRegex.test(part) ? (
+      /^@all$/i.test(part) ? (
+        <span key={i} className="text-purple-600 font-semibold">{part}</span>
+      ) : names.some(u => part.toLowerCase() === `@${u.full_name.toLowerCase()}`) ? (
         <span key={i} className="text-blue-600 font-medium">{part}</span>
       ) : (
         <span key={i}>{part}</span>
@@ -478,6 +487,8 @@ export function CaseDetailPage() {
   const filteredMentionUsers = mentionUsers.filter(u =>
     u.full_name.toLowerCase().includes(mentionQuery.toLowerCase())
   )
+  // Show @all as the first option when the query matches "all" or is empty
+  const showAllOption = 'all'.startsWith(mentionQuery.toLowerCase())
 
   // Print / PDF
   function handlePrint() {
@@ -719,24 +730,49 @@ export function CaseDetailPage() {
       // Parse @mentions: check which known users are mentioned by name
       if (profile) {
         const commentLower = newComment.toLowerCase()
-        const mentionedUserIds = mentionUsers
-          .filter(u => commentLower.includes(`@${u.full_name.toLowerCase()}`))
-          .map(u => u.id)
-          .filter(uid => uid !== profile.id)
+        const preview = newComment.trim().length > 80 ? newComment.trim().slice(0, 80) + '…' : newComment.trim()
 
-        if (mentionedUserIds.length > 0) {
-          const preview = newComment.trim().length > 80 ? newComment.trim().slice(0, 80) + '…' : newComment.trim()
-          await supabase.from('kaizen_notifications').insert(
-            mentionedUserIds.map((uid) => ({
-              user_id: uid,
-              case_id: id!,
-              title: `${profile.full_name} mentioned you in ${kcase?.case_number}`,
-              message: preview,
-              notification_type: 'mention',
-              title_key: 'case_mentioned',
-              body_params: { actor: profile.full_name, caseNo: kcase?.case_number ?? '', text: preview },
-            }))
-          )
+        // @all — notify every person in charge + assigned staff on this case
+        if (commentLower.includes('@all')) {
+          const picIds = kcase?.pic_ids?.length
+            ? kcase.pic_ids
+            : kcase?.person_in_charge ? [kcase.person_in_charge] : []
+          const assignedIds = (kcase?.assignments ?? [])
+            .map(a => a.assigned_staff).filter(Boolean) as string[]
+          const allIds = [...new Set([...picIds, ...assignedIds])].filter(uid => uid !== profile.id)
+          if (allIds.length > 0) {
+            await supabase.from('kaizen_notifications').insert(
+              allIds.map((uid) => ({
+                user_id: uid,
+                case_id: id!,
+                title: `${profile.full_name} mentioned everyone in ${kcase?.case_number}`,
+                message: preview,
+                notification_type: 'mention',
+                title_key: 'case_mentioned_all',
+                body_params: { actor: profile.full_name, caseNo: kcase?.case_number ?? '', text: preview },
+              }))
+            )
+          }
+        } else {
+          // Individual @name mentions
+          const mentionedUserIds = mentionUsers
+            .filter(u => commentLower.includes(`@${u.full_name.toLowerCase()}`))
+            .map(u => u.id)
+            .filter(uid => uid !== profile.id)
+
+          if (mentionedUserIds.length > 0) {
+            await supabase.from('kaizen_notifications').insert(
+              mentionedUserIds.map((uid) => ({
+                user_id: uid,
+                case_id: id!,
+                title: `${profile.full_name} mentioned you in ${kcase?.case_number}`,
+                message: preview,
+                notification_type: 'mention',
+                title_key: 'case_mentioned',
+                body_params: { actor: profile.full_name, caseNo: kcase?.case_number ?? '', text: preview },
+              }))
+            )
+          }
         }
       }
 
@@ -1399,8 +1435,18 @@ export function CaseDetailPage() {
                   onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleAddComment() }}
                 />
                 {/* @mention dropdown */}
-                {showMentions && filteredMentionUsers.length > 0 && (
+                {showMentions && (showAllOption || filteredMentionUsers.length > 0) && (
                   <div className="absolute bottom-full left-0 mb-1 w-64 bg-white border border-gray-200 rounded-lg shadow-lg z-50 max-h-40 overflow-y-auto">
+                    {showAllOption && (
+                      <button
+                        type="button"
+                        onMouseDown={(e) => { e.preventDefault(); insertAllMention() }}
+                        className="w-full text-left px-3 py-2 text-sm hover:bg-purple-50 flex items-center gap-2 border-b border-gray-100"
+                      >
+                        <span className="font-semibold text-purple-700">@all</span>
+                        <span className="text-xs text-gray-400">{lang === 'th' ? 'แจ้งทุกคนที่รับผิดชอบ' : 'Notify all persons in charge'}</span>
+                      </button>
+                    )}
                     {filteredMentionUsers.slice(0, 8).map((u) => (
                       <button
                         key={u.id}

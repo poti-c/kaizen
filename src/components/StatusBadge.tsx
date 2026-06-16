@@ -21,10 +21,10 @@ export function PriorityBadge({ priority }: { priority: CasePriority }) {
   )
 }
 
-export function DepartmentBadge({ department }: { department: Department }) {
+export function DepartmentBadge({ department }: { department: string }) {
   const { lang } = useLanguage()
   return (
-    <span className={cn('inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium', getDepartmentColor(department))}>
+    <span className={cn('inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium', getDepartmentColor(department as Department))}>
       {deptLabel(department, lang)}
     </span>
   )
