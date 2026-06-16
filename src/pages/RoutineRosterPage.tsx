@@ -655,18 +655,9 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
     (expanded || (o.status === 'accepted' && onFulfill && !readOnly))
   const canTickRooms = !readOnly && onFulfill && o.status === 'accepted'
 
-  // Order-window labels (lead_days > 0 routines).
-  const leadDays = Math.max(0, tpl?.lead_days ?? 0)
-  const dayWord = leadDays > 0 ? tr.rr.tomorrow : tr.rr.today
-  const closeLabel = tpl?.order_close ? tr.rr.orderByOn(hhmm(tpl.order_close), tr.rr.today) : ''
+  // Deliver-by label — the date is carried by the order itself (today / tomorrow service).
+  const dayWord = o.order_date > dateKey(new Date()) ? tr.rr.tomorrow : tr.rr.today
   const deliverLabel = dueLabel ? tr.rr.deliverByOn(dueLabel, dayWord) : ''
-  // "Order window passed": now is past order_close on the placing day and still pending.
-  const windowPassed = (() => {
-    if (o.status !== 'pending' || !tpl?.order_close || leadDays === 0) return false
-    const placeDay = shiftDate(o.order_date, -leadDays) // the day the order should be placed
-    const closeTs = new Date(`${placeDay}T${tpl.order_close}`).getTime()
-    return Date.now() > closeTs
-  })()
   // "Late": delivered/confirmed after the due time.
   const lateAt = (ts: string | null) => !!(o.due_at && ts && new Date(ts).getTime() > new Date(o.due_at).getTime())
   const isLate = (o.status === 'delivered' || o.status === 'confirmed') &&
@@ -884,12 +875,11 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
               <span className="flex items-center gap-0.5">· <BedDouble className="h-3 w-3" /> {tr.rr.roomsDone(deliveredCount, items.length)}</span>
             )}
           </p>
-          {/* Order window + delivery deadline */}
-          {(closeLabel || deliverLabel) && (
+          {/* Delivery deadline */}
+          {deliverLabel && (
             <p className="text-[11px] text-gray-400 mt-0.5 flex items-center gap-1 flex-wrap">
               <Clock className="h-3 w-3" />
-              <span>{[closeLabel, deliverLabel].filter(Boolean).join(' · ')}</span>
-              {windowPassed && <span className="text-amber-600">· {tr.rr.windowPassed}</span>}
+              <span>{deliverLabel}</span>
             </p>
           )}
           {/* Variant breakdown summary on sent+ variant orders */}
@@ -1290,9 +1280,6 @@ function TemplateEditor({ companyId, template, sortNext, onClose, onSaved, allDe
     run_weekdays: (template?.run_weekdays && template.run_weekdays.length > 0) ? template.run_weekdays : [...RUN_WD],
     active: template?.active ?? true,
     lead_days: template?.lead_days ?? 0,
-    order_open: hhmm(template?.order_open) || '20:00',
-    order_close: hhmm(template?.order_close) || '22:00',
-    remind_at: hhmm(template?.remind_at),
     pic_mode: (template?.pic_mode ?? 'department') as 'department' | 'users',
     pic_ids: template?.pic_ids ?? [],
   })
@@ -1348,9 +1335,10 @@ function TemplateEditor({ companyId, template, sortNext, onClose, onSaved, allDe
       active: f.active, sort_order: template?.sort_order ?? sortNext,
       unit_label: catalogItems[0]?.unit || null,
       lead_days: f.lead_days,
-      order_open: f.lead_days > 0 ? (f.order_open || null) : null,
-      order_close: f.lead_days > 0 ? (f.order_close || null) : null,
-      remind_at: f.remind_at || null,
+      // Order window + reminder removed with the click-to-order redesign — clear any stale values.
+      order_open: null,
+      order_close: null,
+      remind_at: null,
       variants: null,
       pic_mode: f.pic_mode,
       pic_ids: f.pic_mode === 'users' ? cleanPics : null,
@@ -1444,28 +1432,13 @@ function TemplateEditor({ companyId, template, sortNext, onClose, onSaved, allDe
             )
           })()}
 
-          {/* Order-ahead scheduling */}
-          <div className="grid grid-cols-2 gap-2.5">
-            <Field label={tr.rr.leadDays}>
-              <select value={String(f.lead_days)} onChange={(e) => set({ lead_days: Number(e.target.value) })} className={inputCls}>
-                <option value="0">{tr.rr.leadSameDay}</option>
-                <option value="1">{tr.rr.leadDayBefore}</option>
-              </select>
-            </Field>
-            <Field label={tr.rr.remindAt}>
-              <input type="time" value={f.remind_at} onChange={(e) => set({ remind_at: e.target.value })} className={inputCls} />
-            </Field>
-          </div>
-          {f.lead_days > 0 && (
-            <div className="grid grid-cols-2 gap-2.5">
-              <Field label={tr.rr.orderOpen}>
-                <input type="time" value={f.order_open} onChange={(e) => set({ order_open: e.target.value })} className={inputCls} />
-              </Field>
-              <Field label={tr.rr.orderClose}>
-                <input type="time" value={f.order_close} onChange={(e) => set({ order_close: e.target.value })} className={inputCls} />
-              </Field>
-            </div>
-          )}
+          {/* When the item is usually needed — sets the default "ready by" date in the order popup. */}
+          <Field label={tr.rr.leadDays}>
+            <select value={String(f.lead_days)} onChange={(e) => set({ lead_days: Number(e.target.value) })} className={inputCls}>
+              <option value="0">{tr.rr.leadSameDay}</option>
+              <option value="1">{tr.rr.leadDayBefore}</option>
+            </select>
+          </Field>
 
           {/* Person in charge (request side) */}
           <div className="space-y-1.5">
