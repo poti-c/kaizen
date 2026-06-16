@@ -183,8 +183,6 @@ export interface RrTemplate {
   default_item: string | null
   /** Per-weekday item override, keys 'mon'..'sun' (e.g. turndown gift of the day) */
   item_by_weekday: Record<string, string> | null
-  /** Weekdays the routine runs ('mon'..'sun'); null = every day. */
-  run_weekdays: string[] | null
   due_time: string
   active: boolean
   sort_order: number
@@ -192,11 +190,6 @@ export interface RrTemplate {
   // ── order-ahead scheduling ──
   /** 0 = same-day, 1 = order placed the day before the service date, etc. */
   lead_days: number
-  /** Evening order window open time (HH:MM[:SS]) when lead_days > 0. */
-  order_open: string | null
-  order_close: string | null
-  /** Reminder time (HH:MM[:SS]) — optional. */
-  remind_at: string | null
   // ── bulk unit ──
   /** Bulk unit label, e.g. "gallon". */
   unit_label: string | null

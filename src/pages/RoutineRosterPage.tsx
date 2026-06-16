@@ -1313,15 +1313,9 @@ function TemplateEditor({ companyId, template, sortNext, onClose, onSaved, allDe
       default_item: catalogItems[0]?.label ?? null,
       catalog_items: catalogItems.length > 0 ? catalogItems : null,
       item_by_weekday: null,
-      // Per-weekday scheduling removed with the click-to-order redesign — routines are orderable any day.
-      run_weekdays: null,
       active: f.active, sort_order: template?.sort_order ?? sortNext,
       unit_label: catalogItems[0]?.unit || null,
       lead_days: f.lead_days,
-      // Order window + reminder removed with the click-to-order redesign — clear any stale values.
-      order_open: null,
-      order_close: null,
-      remind_at: null,
       variants: null,
       pic_mode: f.pic_mode,
       pic_ids: f.pic_mode === 'users' ? cleanPics : null,
