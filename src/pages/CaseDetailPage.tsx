@@ -947,6 +947,11 @@ export function CaseDetailPage() {
     profile?.role === 'super_admin' ||
     (profile?.role === 'manager' && profile?.department === kcase.department)
   )
+  const canEditPic = kcase.status !== 'closed' && !isHRManager && (
+    profile?.role === 'super_admin' ||
+    (profile?.role === 'manager' && profile?.department === kcase.department) ||
+    profile?.role === 'staff'
+  )
   const canEditDueDate    = kcase.status !== 'closed' && (
     profile?.role === 'super_admin' ||
     (profile?.role === 'manager' && !isHRManager && profile?.department === kcase.department)
@@ -1292,7 +1297,7 @@ export function CaseDetailPage() {
                     ) : (
                       <span className="font-medium text-gray-700">{(kcase.creator as KaizenProfile)?.full_name || 'Unknown'}</span>
                     )}
-                    {canManagerAssign && kcase.status !== 'closed' && (
+                    {canEditPic && (
                       <button
                         onClick={() => { loadPicCandidates(); setShowPicEditor(true) }}
                         className="text-gray-400 hover:text-[var(--brand-primary)] flex-shrink-0"
