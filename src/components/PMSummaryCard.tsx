@@ -11,6 +11,13 @@ function isoDate(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
+// Calendar date of a timestamp in the hotel's timezone (Asia/Bangkok), so on-time
+// comparisons against a stored `date` (performed_at::timestamptz vs due_date::date)
+// are stable for every viewer, not the browser's local day. en-CA → YYYY-MM-DD.
+function bangkokDate(d: Date) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d)
+}
+
 interface AssetRow { next_maintenance_date: string | null; is_active: boolean; department: string | null }
 interface TaskRow { due_date: string; status: string; performed_at: string | null; asset?: { department: string | null } | null }
 
@@ -76,7 +83,7 @@ export function PMSummaryCard() {
   const completedTasks = tasks.filter(t => t.status === 'done' || t.status === 'approved')
   const monthPrefix = todayKey.slice(0, 7)
   const completedThisMonth = completedTasks.filter(t => t.performed_at && t.performed_at.slice(0, 7) === monthPrefix).length
-  const onTime = completedTasks.filter(t => t.performed_at && isoDate(new Date(t.performed_at)) <= t.due_date).length
+  const onTime = completedTasks.filter(t => t.performed_at && bangkokDate(new Date(t.performed_at)) <= t.due_date).length
   const onTimeRate = completedTasks.length === 0 ? null : Math.round((onTime / completedTasks.length) * 100)
   const pendingApproval = tasks.filter(t => t.status === 'pending_approval').length
 

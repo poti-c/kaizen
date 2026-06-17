@@ -839,8 +839,14 @@ export function CasesPage() {
                 {
                   key: 'department' as const, label: lang === 'th' ? 'แผนก' : 'Department',
                   count: advFilters.departments.length, advKey: 'departments' as const,
-                  options: DEPARTMENTS.filter(d => d.value !== 'top_management').map(d => ({
-                    value: d.value as string, label: d.label, checked: advFilters.departments.includes(d.value as Department),
+                  // Use the company's configured departments (custom depts store their LABEL
+                  // as the value) so custom-dept cases can be filtered; fall back to built-ins.
+                  options: (validDeptValues.length > 0
+                    ? validDeptValues
+                    : DEPARTMENTS.filter(d => d.value !== 'top_management').map(d => d.value as string)
+                  ).map(val => ({
+                    value: val, label: DEPARTMENTS.find(d => d.value === val)?.label ?? val,
+                    checked: advFilters.departments.includes(val as Department),
                   })),
                 },
                 {
@@ -927,16 +933,11 @@ export function CasesPage() {
         <div className="flex items-center justify-center py-16">
           <div className="w-8 h-8 border-2 border-[var(--brand-primary)] border-t-transparent rounded-full animate-spin" />
         </div>
-      ) : filtered.length === 0 ? (
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm py-16 text-center">
-          <div className="text-gray-300 text-5xl mb-3">📋</div>
-          <p className="text-gray-500 font-medium">{t.cases.noFound}</p>
-          <p className="text-gray-400 text-sm mt-1">{t.cases.adjustFilters}</p>
-          <Link to="/cases/new" className="inline-block mt-4">
-            <Button size="sm"><PlusCircle className="h-4 w-4" />{t.cases.newCase}</Button>
-          </Link>
-        </div>
       ) : (
+        // Always render the tabbed region so the PMS tab (and its overdue tasks,
+        // which are independent of the case filter) stays reachable even when the
+        // current case filter matches zero cases. Each tab body shows its own
+        // empty state below.
         <div className="space-y-5">
 
           {/* ── Tabs ── */}
@@ -992,8 +993,13 @@ export function CasesPage() {
               </div>
 
               {activeCases.length === 0 ? (
-                <div className="bg-white rounded-xl border border-gray-200 shadow-sm py-10 text-center">
-                  <p className="text-gray-400 text-sm">{lang === 'th' ? 'ไม่มีเคสที่ดำเนินการ' : 'No active cases'}</p>
+                <div className="bg-white rounded-xl border border-gray-200 shadow-sm py-12 text-center">
+                  <div className="text-gray-300 text-5xl mb-3">📋</div>
+                  <p className="text-gray-500 font-medium">{filterTokens.length > 0 ? t.cases.noFound : (lang === 'th' ? 'ไม่มีเคสที่ดำเนินการ' : 'No active cases')}</p>
+                  {filterTokens.length > 0 && <p className="text-gray-400 text-sm mt-1">{t.cases.adjustFilters}</p>}
+                  <Link to="/cases/new" className="inline-block mt-4">
+                    <Button size="sm"><PlusCircle className="h-4 w-4" />{t.cases.newCase}</Button>
+                  </Link>
                 </div>
               ) : (
                 <>

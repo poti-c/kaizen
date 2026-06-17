@@ -350,12 +350,22 @@ export function CaseDetailPage() {
       // Fetch PIC profiles (array). Drop any ids that no longer resolve to a
       // profile (e.g. a hard-deleted user) so we never try to re-save a dead
       // person_in_charge (which would violate the foreign key).
-      const ids: string[] = data.pic_ids?.length ? data.pic_ids : (data.person_in_charge ? [data.person_in_charge] : [data.created_by])
+      //
+      // Only seed from a REAL assignment (pic_ids / person_in_charge). Do NOT fall
+      // back to created_by: picProfiles drives approval routing (approverDepts) and
+      // manager authority (isPicDeptManager), and pre-fills the "Edit In Charge"
+      // checkboxes — seeding it with the reporter would misroute approval to the
+      // reporter's department and pre-check the reporter as PIC. When unassigned the
+      // display layer already falls back to the creator's name on its own.
+      const ids: string[] = data.pic_ids?.length ? data.pic_ids : (data.person_in_charge ? [data.person_in_charge] : [])
       if (ids.length) {
         const { data: pics } = await supabase.from('kaizen_profiles').select('*').in('id', ids)
         const validProfiles = (pics || []) as KaizenProfile[]
         setPicProfiles(validProfiles)
         setSelectedPics(ids.filter(id => validProfiles.some(p => p.id === id)))
+      } else {
+        setPicProfiles([])
+        setSelectedPics([])
       }
     }
 
@@ -738,7 +748,10 @@ export function CaseDetailPage() {
           const picIds = kcase?.pic_ids?.length
             ? kcase.pic_ids
             : kcase?.person_in_charge ? [kcase.person_in_charge] : []
-          const assignedIds = (kcase?.assignments ?? [])
+          // Use the loaded `assignments` state — kcase.assignments is never populated
+          // by fetchCase (the case query has no assignments join), so reading it would
+          // silently drop every assigned staff member from the @all notification.
+          const assignedIds = assignments
             .map(a => a.assigned_staff).filter(Boolean) as string[]
           const allIds = [...new Set([...picIds, ...assignedIds])].filter(uid => uid !== profile.id)
           if (allIds.length > 0) {
@@ -846,7 +859,7 @@ export function CaseDetailPage() {
       const changes: string[] = []
       if (editTitle.trim() !== kcase?.title) changes.push(`title: "${kcase?.title}" → "${editTitle.trim()}"`)
       if (editDescription.trim() !== kcase?.description) changes.push('description updated')
-      if (editDepartment !== kcase?.department) changes.push(`department: ${DEPARTMENT_LABELS[kcase?.department as Department]} → ${DEPARTMENT_LABELS[editDepartment as Department]}`)
+      if (editDepartment !== kcase?.department) changes.push(`department: ${DEPARTMENT_LABELS[kcase?.department as Department] ?? kcase?.department} → ${DEPARTMENT_LABELS[editDepartment as Department] ?? editDepartment}`)
       if (editDueDate !== (kcase?.due_date || '')) changes.push(`due date: ${editDueDate || 'removed'}`)
       if (editStatus && editStatus !== kcase?.status) changes.push(`status: ${kcase?.status} → ${editStatus}`)
 
@@ -1782,8 +1795,15 @@ export function CaseDetailPage() {
                     <SelectValue placeholder={t.caseDetail.selectDept} />
                   </SelectTrigger>
                   <SelectContent>
-                    {DEPARTMENTS.filter(d => d.value !== 'top_management').map((d) => (
-                      <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>
+                    {/* Use the company's configured departments (custom_departments) when
+                        present — built-in depts map label→slug, custom depts (e.g. "Spa")
+                        store the label AS the value — so a custom-dept case keeps a matching
+                        option instead of rendering blank. Fall back to built-ins otherwise. */}
+                    {(customDeptLabels.length > 0
+                      ? customDeptLabels.map(label => ({ value: DEPARTMENTS.find(d => d.label === label)?.value ?? label, label }))
+                      : DEPARTMENTS.filter(d => d.value !== 'top_management').map(d => ({ value: d.value as string, label: d.label }))
+                    ).map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>

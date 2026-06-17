@@ -115,9 +115,15 @@ export function CasesCalendarPage() {
     const jobs: PromiseLike<unknown>[] = []
 
     if (showCaseData) {
+      // Staff see their own department's cases PLUS any case they are Person In Charge
+      // of (which may live in another department), matching the Cases list page. Quote
+      // the department so custom labels with spaces/punctuation stay literal.
+      const staffScope = profile?.role === 'staff' && profile.department
+        ? `department.eq."${profile.department.replace(/"/g, '\\"')}",pic_ids.cs.{${profile.id}}`
+        : null
       let q = supabase.from('kaizen_cases').select('*').eq('company_id', activeCompany.id)
         .gte('created_at', start.toISOString()).lte('created_at', end.toISOString())
-      if (profile?.role === 'staff' && profile.department) q = q.eq('department', profile.department)
+      if (staffScope) q = q.or(staffScope)
       jobs.push(q.then(({ data }) => setCases((data || []) as KaizenCase[])))
 
       // Open cases whose DEADLINE falls in this month — plotted on the due day (may have
@@ -125,7 +131,7 @@ export function CasesCalendarPage() {
       let dq = supabase.from('kaizen_cases').select('*').eq('company_id', activeCompany.id)
         .not('due_date', 'is', null).neq('status', 'closed')
         .gte('due_date', start.toISOString()).lte('due_date', end.toISOString())
-      if (profile?.role === 'staff' && profile.department) dq = dq.eq('department', profile.department)
+      if (staffScope) dq = dq.or(staffScope)
       jobs.push(dq.then(({ data }) => setDueCases((data || []) as KaizenCase[])))
     } else { setCases([]); setDueCases([]) }
 

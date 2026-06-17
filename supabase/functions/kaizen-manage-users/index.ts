@@ -86,7 +86,10 @@ serve(async (req) => {
       return { ok: true, target };
     }
     if (target.role !== "staff") return { ok: false, error: "Managers can only manage staff" };
-    if (target.department !== callerDept) return { ok: false, error: "Staff in another department" };
+    // Match the CREATE path: a manager may manage staff in their primary department OR
+    // any department assigned via managed_departments. Checking callerDept alone caused
+    // suspend/edit/delete/reset to 403 for staff a manager could legitimately create.
+    if (!callerEffectiveDepts.includes(target.department)) return { ok: false, error: "Staff in another department" };
     return { ok: true, target };
   }
 

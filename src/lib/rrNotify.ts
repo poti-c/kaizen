@@ -24,8 +24,14 @@ export async function resolveDeptRecipients(companyId: string, dept: string): Pr
       .eq('company_id', companyId).eq('is_active', true).in('id', dc.ids)
     return (data as { id: string; role: string }[]) ?? []
   }
+  // Match the department's own members PLUS any manager who covers this department
+  // via managed_departments (extra departments assigned in Settings). Without the
+  // managed_departments branch a manager covering this dept would never be notified.
+  // Quote the value so department labels containing spaces/punctuation stay literal.
+  const esc = dept.replace(/"/g, '\\"')
   let q = supabase.from('kaizen_profiles').select('id, role')
-    .eq('company_id', companyId).eq('is_active', true).eq('department', dept)
+    .eq('company_id', companyId).eq('is_active', true)
+    .or(`department.eq."${esc}",managed_departments.cs.{"${esc}"}`)
   if (mode === 'manager') q = q.eq('role', 'manager')
   const { data } = await q
   return (data as { id: string; role: string }[]) ?? []

@@ -206,18 +206,23 @@ export function RoutineRosterPage() {
       // (Manager only / Whole dept / Specific staff; default = managers).
       rows = await resolveDeptRecipients(companyId, dept)
     } else if (picMode === 'users' && picIds.length > 0) {
-      // Assigned people + the department's managers/super_admins.
+      // Assigned people + the department's managers/super_admins (including managers
+      // who cover this department via managed_departments).
+      const esc = dept.replace(/"/g, '\\"')
       const [pickedRes, mgrRes] = await Promise.all([
         supabase.from('kaizen_profiles').select('id, role').eq('company_id', companyId).eq('is_active', true).in('id', picIds),
         supabase.from('kaizen_profiles').select('id, role').eq('company_id', companyId).eq('is_active', true)
-          .eq('department', dept).in('role', ['manager', 'super_admin']),
+          .in('role', ['manager', 'super_admin']).or(`department.eq."${esc}",managed_departments.cs.{"${esc}"}`),
       ])
       const byId = new Map<string, { id: string; role: string }>()
       ;[...(pickedRes.data ?? []), ...(mgrRes.data ?? [])].forEach((p) => byId.set(p.id, p as { id: string; role: string }))
       rows = Array.from(byId.values())
     } else {
+      // Whole department — its members plus managers covering it via managed_departments.
+      const esc = dept.replace(/"/g, '\\"')
       const { data } = await supabase.from('kaizen_profiles').select('id, role')
-        .eq('company_id', companyId).eq('department', dept).eq('is_active', true)
+        .eq('company_id', companyId).eq('is_active', true)
+        .or(`department.eq."${esc}",managed_departments.cs.{"${esc}"}`)
       rows = (data as { id: string; role: string }[]) ?? []
     }
 
@@ -482,6 +487,13 @@ function PlaceOrderModal({ template: tp, companyId, profile, today, tomorrow, ro
     setBusy(true)
     const nowIso = new Date().toISOString()
     const due_at = new Date(`${order_date}T${time || '12:00'}`).toISOString()
+    // A previously-cancelled order still occupies the UNIQUE(template_id, order_date)
+    // slot. The menu treats cancelled as "not ordered" and invites a re-order, so clear
+    // the stale cancelled row first — otherwise the insert below collides and shows the
+    // misleading "already ordered for that day" toast.
+    await supabase.from('kaizen_rr_orders').delete()
+      .eq('company_id', companyId).eq('template_id', tp.id)
+      .eq('order_date', order_date).eq('status', 'cancelled')
     const { data: inserted, error } = await supabase.from('kaizen_rr_orders').insert({
       company_id: companyId, template_id: tp.id, order_date,
       title: tp.name, request_department: tp.request_department, fulfill_department: tp.fulfill_department,

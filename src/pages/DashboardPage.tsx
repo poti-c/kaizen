@@ -130,13 +130,16 @@ export function DashboardPage() {
     filteredCases.length > 0 ? Math.round((stats.closed / filteredCases.length) * 100) : 0,
   [filteredCases, stats])
 
+  // Scope to filteredCases (the selected months) so the Overdue count in the Case
+  // Overview card matches the donut Total and the other rows — which all derive from
+  // filteredCases. Using allCases let Overdue span all time and even exceed the Total.
   const overdueCases = useMemo(() =>
-    allCases.filter(c => isSLABreached(c)).map(c => ({ id: c.id, case_number: c.case_number, title: c.title })),
-  [allCases])
+    filteredCases.filter(c => isSLABreached(c)).map(c => ({ id: c.id, case_number: c.case_number, title: c.title })),
+  [filteredCases])
 
   const criticalCases = useMemo(() =>
-    allCases.filter(c => c.priority === 'critical' && c.status !== 'closed').map(c => ({ id: c.id, case_number: c.case_number, title: c.title })),
-  [allCases])
+    filteredCases.filter(c => c.priority === 'critical' && c.status !== 'closed').map(c => ({ id: c.id, case_number: c.case_number, title: c.title })),
+  [filteredCases])
 
   // ── Monthly bar data (always last 9 months of allCases) ───────────────────
   const monthlyData = useMemo(() => {
@@ -209,8 +212,11 @@ export function DashboardPage() {
 
   function formatResolution(hours: number | null): string {
     if (hours === null) return '—'
-    if (hours < 24) return `${Math.round(hours)}h`
-    return `${Math.floor(hours / 24)}d ${Math.round(hours % 24)}h`
+    // Round to whole hours FIRST, then split into days/hours so a remainder that
+    // rounds up to 24 carries into the day count (47.6h → "2d 0h", not "1d 24h").
+    const total = Math.round(hours)
+    if (total < 24) return `${total}h`
+    return `${Math.floor(total / 24)}d ${total % 24}h`
   }
 
   const PIE_COLORS = { open: '#f97316', reopened: '#ef4444', inProgress: '#3b82f6', pending: '#f59e0b', resolved: '#22c55e' }
