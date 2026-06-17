@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { formatRelativeTime, formatDuration, isSLABreached, CATEGORIES, companyHasAddon } from '@/lib/utils'
 import { PMSummaryCard } from '@/components/PMSummaryCard'
+import { RRSummaryCard } from '@/components/RRSummaryCard'
 import { deptLabel } from '@/types'
 import type { KaizenCase, Department } from '@/types'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, PieChart, Pie } from 'recharts'
@@ -464,6 +465,9 @@ export function DashboardPage() {
 
       {/* Preventive Maintenance summary (PMS add-on only) */}
       {companyHasAddon(activeCompany, 'pms') && <PMSummaryCard />}
+
+      {/* Routine Roster summary (Routine Roster add-on only) */}
+      {companyHasAddon(activeCompany, 'routine_roster') && <RRSummaryCard />}
 
       {/* Banners */}
       {criticalCases.length > 0 && (
