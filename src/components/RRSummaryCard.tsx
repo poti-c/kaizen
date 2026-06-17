@@ -121,6 +121,7 @@ export function RRSummaryCard() {
               </div>
             </div>
           )}
+          {hasToday && hasRoom && <div className="h-px bg-gray-100 my-0.5" />}
           {hasRoom && (
             <div className="grid grid-cols-4 gap-1.5">
               <Tile label="C/I" value={rc.checkin} tone="blue" />
