@@ -502,6 +502,11 @@ function RoomOrderBuild({ companyId, unit, requireApproval, initialDate }: { com
         if (l.active && prevActive.get(l.id) === false) {
           patch.status = 'pending'; patch.delivered_by = null; patch.delivered_at = null
           patch.acknowledged_by = null; patch.acknowledged_at = null
+          // Bump created_at so this freshly-resurrected line counts as NEW work on the
+          // next re-submit — notifyFulfillers filters by created_at > last-submit time,
+          // and the row otherwise keeps its original (pre-submit) timestamp and would be
+          // silently skipped, leaving the fulfilling dept with un-notified work.
+          patch.created_at = new Date().toISOString()
         }
         const { error } = await supabase.from('kaizen_rr_room_lines').update(patch).eq('id', l.id)
         if (error) { setBusy(false); toast.error(error.message); return false }
@@ -778,11 +783,14 @@ function RoomOrderBuild({ companyId, unit, requireApproval, initialDate }: { com
             className="flex-1 min-w-0 flex items-center justify-center gap-1 border border-gray-300 text-gray-600 hover:bg-gray-50 text-xs sm:text-sm font-medium px-2 h-9 rounded-lg disabled:opacity-50">
             <DoorClosed className="h-4 w-4 flex-shrink-0 hidden sm:block" /><span className="truncate">{lang === 'th' ? 'ที่เหลือ = ว่าง' : 'Empty the rest'}</span>
           </button>
+          {/* Reset DELETEs the whole order (lines + history cascade), so it must be
+              gated to order-placers too — a view-only fulfilling-dept manager must not
+              be able to destroy a submitted order. RLS is tightened to match. */}
+          <button onClick={() => setConfirmReset(true)} disabled={busy}
+            className="flex-1 min-w-0 flex items-center justify-center gap-1 border border-gray-300 text-red-500 hover:bg-red-50 text-xs sm:text-sm font-medium px-2 h-9 rounded-lg disabled:opacity-50">
+            <RotateCcw className="h-4 w-4 flex-shrink-0 hidden sm:block" /><span className="truncate">{lang === 'th' ? 'ล้าง' : 'Reset'}</span>
+          </button>
         </>)}
-        <button onClick={() => setConfirmReset(true)} disabled={busy}
-          className="flex-1 min-w-0 flex items-center justify-center gap-1 border border-gray-300 text-red-500 hover:bg-red-50 text-xs sm:text-sm font-medium px-2 h-9 rounded-lg disabled:opacity-50">
-          <RotateCcw className="h-4 w-4 flex-shrink-0 hidden sm:block" /><span className="truncate">{lang === 'th' ? 'ล้าง' : 'Reset'}</span>
-        </button>
       </div>
       {!canPlace && (
         <div className="flex items-center gap-1.5 pt-1 text-[12px] text-gray-400">

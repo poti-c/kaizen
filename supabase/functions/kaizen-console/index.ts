@@ -602,6 +602,11 @@ Deno.serve(async (req) => {
     if (prof?.email === FOUNDER && !is_active) return json({ error: "The founder account cannot be disabled." }, 403);
     const { error } = await admin.from("kaizen_profiles").update({ is_active }).eq("id", owner_id).eq("role", "super_admin");
     if (error) return json({ error: error.message }, 400);
+    // Revoke (or restore) the auth session so a suspended super_admin can't keep using
+    // a live JWT until it expires. Best-effort; is_active remains the source of truth.
+    try {
+      await admin.auth.admin.updateUserById(owner_id, { ban_duration: is_active ? "none" : "876000h" });
+    } catch (_) { /* non-fatal */ }
     await audit("set_owner_status", { owner_id, is_active }, ip, true);
     return json({ success: true });
   }

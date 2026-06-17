@@ -227,6 +227,12 @@ serve(async (req) => {
     if (!check.ok) return json({ error: check.error }, 403);
     const { error: updErr } = await supabaseAdmin.from("kaizen_profiles").update({ is_active }).eq("id", userId);
     if (updErr) return json({ error: updErr.message }, 400);
+    // Revoke (or restore) the auth session so a SUSPENDED user can't keep using a
+    // still-valid JWT until it expires. Best-effort; the is_active flag remains the
+    // source of truth (the client also re-checks it on session restore).
+    try {
+      await supabaseAdmin.auth.admin.updateUserById(userId, { ban_duration: is_active ? "none" : "876000h" });
+    } catch (_) { /* non-fatal */ }
     return json({ success: true });
   }
 

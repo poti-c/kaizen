@@ -12,7 +12,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { PhotoUpload } from '@/components/PhotoUpload'
 import { generateCaseNumber, CATEGORIES, LOCATIONS, companyHasAddon, formatDueBy, toDateTimeLocal, fromDateTimeLocal } from '@/lib/utils'
-import { DEPARTMENTS, CATEGORY_LABELS_EN, categoryLabel } from '@/types'
+import { DEPARTMENTS, CATEGORY_LABELS_EN, categoryLabel, deptLabel } from '@/types'
 import type { CasePriority, Department } from '@/types'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
@@ -78,7 +78,18 @@ export function CreateCasePage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!profile) return
-    if (!title.trim() || !description.trim()) {
+    // All four carry a red "*" in the UI, but Radix Selects don't block native submit,
+    // so enforce them here — otherwise a case could be saved with a null/blank category
+    // or location, or an "Other"/"Others" choice with no specify-text.
+    if (!title.trim() || !description.trim() || !category || !location) {
+      toast.error(t.createCase.fillRequired)
+      return
+    }
+    if (category === 'other' && !categoryOther.trim()) {
+      toast.error(t.createCase.fillRequired)
+      return
+    }
+    if (location === 'Others' && !locationOther.trim()) {
       toast.error(t.createCase.fillRequired)
       return
     }
@@ -163,7 +174,7 @@ export function CreateCasePage() {
             user_id: a.id,
             case_id: newCase.id,
             title: 'New Case Reported',
-            message: `${profile.full_name} (${DEPARTMENTS.find(d => d.value === department)?.label}) reported: "${title.trim()}" (${caseNumber})`,
+            message: `${profile.full_name} (${deptLabel(department, lang)}) reported: "${title.trim()}" (${caseNumber})`,
             notification_type: 'new_case',
             title_key: 'case_new',
             body_params: { reporter: profile.full_name, title: title.trim(), caseNo: caseNumber },

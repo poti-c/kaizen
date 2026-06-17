@@ -7,7 +7,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useLanguage } from '@/contexts/LanguageContext'
 import { DEPARTMENT_LABELS, DEPARTMENTS, type Department } from '@/types'
 import { FREQUENCIES, freqLabel, addInterval, assetStatus, STATUS_META, type FreqUnit, type AssetStatus } from '@/lib/pm'
-import { LOCATIONS } from '@/lib/utils'
+import { LOCATIONS, bangkokDate } from '@/lib/utils'
 import { PMTaskModal, taskTone, taskStatusKey, type PMTask } from '@/components/pm/PMSchedule'
 import { PMReport } from '@/pages/pm/PMReport'
 
@@ -80,7 +80,9 @@ export function PreventiveMaintenancePage() {
     setLoading(true)
     try { await supabase.rpc('kaizen_pm_sync') } catch { /* materialize tasks; ignore if it fails */ }
     const taskSel = '*, asset:kaizen_pm_assets(name, location, notes, checklist, department, type:kaizen_pm_equipment_types(name))'
-    const monthStartKey = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10)
+    // First day of the current Asia/Bangkok month (not UTC — local-midnight-of-the-1st
+    // toISOString() resolves back to the last day of the previous month at UTC+7).
+    const monthStartKey = bangkokDate().slice(0, 7) + '-01'
     const [a, t, s, openT, doneT, loc, depts] = await Promise.all([
       supabase.from('kaizen_pm_assets').select('*, type:kaizen_pm_equipment_types(name, category)').eq('company_id', companyId).order('next_maintenance_date', { ascending: true, nullsFirst: false }),
       supabase.from('kaizen_pm_equipment_types').select('id, name, category, is_active').eq('company_id', companyId).eq('is_active', true).order('category').order('name'),
@@ -114,9 +116,11 @@ export function PreventiveMaintenancePage() {
     return acc
   }, {} as Record<AssetStatus, number>)
 
-  // Task activity breakdown (search-aware) — mirrors the dashboard PM summary
-  const todayKey = new Date().toISOString().slice(0, 10)
-  const weekKey = new Date(Date.now() + dueSoonDays * 86400000).toISOString().slice(0, 10)
+  // Task activity breakdown (search-aware) — mirrors the dashboard PM summary.
+  // Use Asia/Bangkok days so these match the local-time status chips (taskStatusKey)
+  // and don't drift during the 00:00–07:00 Bangkok window the way UTC keys did.
+  const todayKey = bangkokDate()
+  const weekKey = bangkokDate(new Date(Date.now() + dueSoonDays * 86400000))
   const monthPrefix = todayKey.slice(0, 7)
   const taskMatch = (tk: PMTask) => !q || `${tk.asset?.name ?? ''} ${tk.asset?.location ?? ''} ${tk.asset?.type?.name ?? ''}`.toLowerCase().includes(q.toLowerCase())
   const dueThisWeekTasks = pmTasks.filter(tk => (tk.status === 'scheduled' || tk.status === 'in_progress') && tk.due_date >= todayKey && tk.due_date <= weekKey && taskMatch(tk))

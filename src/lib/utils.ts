@@ -321,6 +321,16 @@ export function fromDateTimeLocal(v: string): string {
   return v ? new Date(v).toISOString() : ''
 }
 
+// Calendar date (YYYY-MM-DD) of a timestamp in the hotel's timezone (Asia/Bangkok).
+// Use for any "today"/"this month" key or for comparing a timestamptz against a stored
+// `date`, so the result is stable for every viewer instead of the browser's local day
+// (raw toISOString() is UTC and lags a day during the 00:00–07:00 Bangkok window).
+export function bangkokDate(d: Date = new Date()): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Bangkok', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(d)
+}
+
 export function getInitials(name: string): string {
   return name
     .split(' ')

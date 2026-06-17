@@ -54,6 +54,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       .single()
     if (!error && data) {
       const p = data as KaizenProfile
+      // Enforce suspension on the session-restore / token-refresh path too. Interactive
+      // sign-in already blocks !is_active, but without this a user (incl. a super_admin)
+      // suspended mid-session would keep full access until they manually logged out.
+      if (!p.is_active) {
+        await supabase.auth.signOut()
+        setProfile(null)
+        return
+      }
       companyRef.current = p.company_id
       setProfile(p)
     }

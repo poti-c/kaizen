@@ -278,10 +278,14 @@ export function SettingsPage() {
         .neq('status', 'closed')
       affected = count ?? 0
     } else if (listKey === 'dept') {
+      // Cases store the built-in dept SLUG (House Keeping → house_keeping) but a custom
+      // dept's RAW LABEL (e.g. "Spa"). Blind slugify missed custom depts, so deleting one
+      // reported 0 affected cases and silently orphaned them. Map label → stored value.
+      const deptValues = items.map(i => DEPARTMENTS.find(d => d.label === i)?.value ?? i)
       const { count } = await supabase
         .from('kaizen_cases')
         .select('*', { count: 'exact', head: true })
-        .in('department', items.map(i => i.toLowerCase().replace(/ /g, '_')))
+        .in('department', deptValues)
         .neq('status', 'closed')
       affected = count ?? 0
     }

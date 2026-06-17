@@ -8,7 +8,7 @@ import { useLanguage } from '@/contexts/LanguageContext'
 import { StatusBadge, PriorityBadge } from '@/components/StatusBadge'
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
-import { getInitials, formatDateTime, isSLABreached, activityLabel, companyHasFeature, companyHasAddon } from '@/lib/utils'
+import { getInitials, formatDateTime, isSLABreached, activityLabel, companyHasFeature, companyHasAddon, bangkokDate } from '@/lib/utils'
 import { loadPerfConfig, DEFAULT_PERF_CONFIG, type PerfConfig } from '@/lib/perfConfig'
 import { cn } from '@/lib/utils'
 import { usePresence } from '@/contexts/PresenceContext'
@@ -116,7 +116,7 @@ export function PerformanceDetailPage() {
         const onTimeDone = relevant.filter(r =>
           (r.status === 'done' || r.status === 'approved') &&
           r.performed_at != null &&
-          r.performed_at.slice(0, 10) <= r.due_date  // due_date is a date; on-time means performed by end of that day
+          bangkokDate(new Date(r.performed_at)) <= r.due_date  // due_date is a Bangkok-local date; compare in the same TZ (not UTC slice)
         ).length
         setPmsValue(Math.round((onTimeDone / relevant.length) * 100))
       } else {
@@ -184,17 +184,20 @@ export function PerformanceDetailPage() {
   const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1)
   const casesThisMonth = cases.filter((c) => new Date(c.created_at) >= thisMonthStart).length
 
+  // Key buckets by YEAR-month so same-month cases from prior years don't pile into the
+  // visible bucket (cases is fetched all-time). The display label stays the month name.
+  const ym = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
   const months = Array.from({ length: 6 }, (_, i) => {
     const d = new Date(now.getFullYear(), now.getMonth() - 5 + i, 1)
-    return { label: MONTH_SHORT[d.getMonth()] }
+    return { key: ym(d), label: MONTH_SHORT[d.getMonth()] }
   })
   const monthMap: Record<string, number> = {}
-  months.forEach(({ label }) => { monthMap[label] = 0 })
+  months.forEach(({ key }) => { monthMap[key] = 0 })
   cases.forEach((c) => {
-    const key = MONTH_SHORT[new Date(c.created_at).getMonth()]
+    const key = ym(new Date(c.created_at))
     if (key in monthMap) monthMap[key]++
   })
-  const monthlyData = months.map(({ label }) => ({ month: label, count: monthMap[label] }))
+  const monthlyData = months.map(({ key, label }) => ({ month: label, count: monthMap[key] }))
 
   if (loading) return (
     <div className="flex items-center justify-center h-64">

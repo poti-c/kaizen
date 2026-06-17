@@ -681,7 +681,10 @@ export function UsersPage() {
                   <Label>{t.users.dept}</Label>
                   <Select value={editDepartment} onValueChange={setEditDepartment}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>{allDepts.filter(d => d.value !== 'top_management').map((d) => <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>)}</SelectContent>
+                    {/* Keep the Top Management option when editing a super_admin (whose
+                        department IS 'top_management') so the control shows their actual
+                        department instead of rendering blank with no matching option. */}
+                    <SelectContent>{allDepts.filter(d => d.value !== 'top_management' || editRole === 'super_admin').map((d) => <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>)}</SelectContent>
                   </Select>
                 </div>
                 <div className="space-y-1.5">

@@ -16,21 +16,32 @@ export function NotificationsPage() {
   const navigate = useNavigate()
   const [notifications, setNotifications] = useState<KaizenNotification[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [hasMore, setHasMore] = useState(false)
+
+  const PAGE_SIZE = 50
 
   useEffect(() => {
     if (profile) fetchNotifications()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profile])
 
-  async function fetchNotifications() {
+  // Paginated: a busy manager/super_admin accumulates thousands of rows over time, so
+  // load the newest PAGE_SIZE and let the user fetch older ones on demand instead of
+  // pulling the entire history into memory on every open.
+  async function fetchNotifications(offset = 0) {
     if (!profile) return
-    setLoading(true)
+    if (offset === 0) setLoading(true); else setLoadingMore(true)
     const { data } = await supabase
       .from('kaizen_notifications')
       .select('*')
       .eq('user_id', profile.id)
       .order('created_at', { ascending: false })
-    setNotifications((data || []) as KaizenNotification[])
-    setLoading(false)
+      .range(offset, offset + PAGE_SIZE - 1)
+    const page = (data || []) as KaizenNotification[]
+    setNotifications((prev) => offset === 0 ? page : [...prev, ...page])
+    setHasMore(page.length === PAGE_SIZE)
+    setLoading(false); setLoadingMore(false)
   }
 
   // Clear app icon badge when all notifications are read
@@ -149,6 +160,14 @@ export function NotificationsPage() {
               </div>
             </div>
           ))}
+          {hasMore && (
+            <div className="text-center pt-1">
+              <Button variant="outline" size="sm" disabled={loadingMore}
+                onClick={() => fetchNotifications(notifications.length)}>
+                {loadingMore ? (lang === 'th' ? 'กำลังโหลด…' : 'Loading…') : (lang === 'th' ? 'โหลดเพิ่มเติม' : 'Load more')}
+              </Button>
+            </div>
+          )}
         </div>
       )}
     </div>
