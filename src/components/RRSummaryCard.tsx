@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ClipboardList, ChevronRight, CircleCheck } from 'lucide-react'
+import { ClipboardList, ChevronRight, CircleCheck, DoorOpen } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useCompany } from '@/contexts/CompanyContext'
@@ -77,7 +77,8 @@ export function RRSummaryCard() {
   // Room composition from today's room order(s).
   const rc = { checkin: 0, occupied: 0, empty: 0, oo: 0 }
   roomOrders.forEach(r => Object.values(r.room_statuses ?? {}).forEach(s => { if (s in rc) rc[s as keyof typeof rc]++ }))
-  const hasRoom = (rc.checkin + rc.occupied + rc.empty + rc.oo) > 0
+  const totalRooms = rc.checkin + rc.occupied + rc.empty + rc.oo
+  const hasRoom = totalRooms > 0
 
   const L = {
     title: t.rr.title,
@@ -89,6 +90,7 @@ export function RRSummaryCard() {
     delivered: lang === 'th' ? 'จัดส่งแล้ว' : 'Delivered',
     confirmed: lang === 'th' ? 'ยืนยันแล้ว' : 'Confirmed',
     forTomorrow: lang === 'th' ? 'พรุ่งนี้' : 'For tomorrow',
+    rooms: lang === 'th' ? 'ใบสั่งห้อง' : 'Room order',
     none: lang === 'th' ? 'ไม่มีกิจกรรมประจำสำหรับวันนี้หรือพรุ่งนี้' : 'No routine activity today or tomorrow.',
   }
 
@@ -123,11 +125,21 @@ export function RRSummaryCard() {
           )}
           {hasToday && hasRoom && <div className="h-px bg-gray-100 my-0.5" />}
           {hasRoom && (
-            <div className="grid grid-cols-4 gap-1.5">
-              <Tile label="C/I" value={rc.checkin} tone="blue" />
-              <Tile label="OCC" value={rc.occupied} tone="teal" />
-              <Tile label="Empty" value={rc.empty} tone="slate" />
-              <Tile label="O/O" value={rc.oo} tone={rc.oo > 0 ? 'red' : 'slate'} />
+            <div className="flex items-stretch gap-2">
+              {/* Total room order hero — aligns under the Fulfillment hero */}
+              <Link to="/routine-roster" className="flex flex-col items-center justify-center rounded-lg bg-gray-50 hover:bg-gray-100 transition-colors px-3 py-1.5 w-24 flex-shrink-0">
+                <p className="text-2xl font-bold leading-none text-gray-900">{totalRooms}</p>
+                <p className="text-[10px] text-gray-500 mt-0.5 text-center leading-tight flex items-center gap-0.5"><DoorOpen className="h-3 w-3 text-gray-400" />{L.rooms}</p>
+              </Link>
+              {/* C/I · OCC · (Empty + O/O share one slot) */}
+              <div className="flex-1 grid grid-cols-3 gap-1.5">
+                <Tile label="C/I" value={rc.checkin} tone="blue" />
+                <Tile label="OCC" value={rc.occupied} tone="teal" />
+                <div className="grid grid-cols-2 gap-1.5">
+                  <Tile label="Empty" value={rc.empty} tone="slate" />
+                  <Tile label="O/O" value={rc.oo} tone={rc.oo > 0 ? 'red' : 'slate'} />
+                </div>
+              </div>
             </div>
           )}
         </div>
