@@ -169,7 +169,7 @@ export function composeAddress(a: ThaiAddress | null | undefined, lang: 'en' | '
       dist ? `${bkk ? 'Khet' : 'Amphoe'} ${dist}` : '',
       prov || '',
       a.postcode,
-      a.country && a.country !== 'Thailand' ? a.country : 'Thailand',
+      a.country && a.country !== 'Thailand' ? a.country : '',
     ].filter(Boolean)
     return parts.join(' ')
   }

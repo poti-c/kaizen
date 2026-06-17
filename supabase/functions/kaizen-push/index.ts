@@ -63,6 +63,10 @@ const TEMPLATES: Record<string, { title: (p: P, l: Lang) => string; body: (p: P,
     title: (p, l) => th(l) ? `${p.actor} กล่าวถึงคุณใน ${p.caseNo}` : `${p.actor} mentioned you in ${p.caseNo}`,
     body: (p) => `${p.text}`,
   },
+  case_mentioned_all: {
+    title: (p, l) => th(l) ? `${p.actor} กล่าวถึงทุกคนใน ${p.caseNo}` : `${p.actor} mentioned everyone in ${p.caseNo}`,
+    body: (p) => `${p.text}`,
+  },
   case_dept_assigned: {
     title: (_p, l) => th(l) ? "เคสถูกมอบหมายให้แผนกของคุณ" : "Case Assigned to Your Department",
     body: (p, l) => th(l) ? `เคส ${p.caseNo} ถูกมอบหมายเพิ่มเติมให้แผนกของคุณโดยผู้ดูแลระบบ` : `Case ${p.caseNo} additionally assigned to your department by Super Admin.`,

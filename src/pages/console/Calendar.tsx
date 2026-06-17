@@ -326,9 +326,15 @@ function AppointmentEditor({ call, companies, appt, onClose, onSaved }: {
   async function save() {
     if (!f.title.trim()) { setError('Please enter a title.'); return }
     if (!f.date) { setError('Please choose a date.'); return }
+    if (!f.all_day && f.start && f.end && f.end <= f.start) { setError('End time must be after the start time.'); return }
     setBusy(true); setError('')
     try {
-      const start_at = new Date(`${f.date}T${f.all_day ? '00:00' : f.start || '00:00'}`).toISOString()
+      // All-day events anchor to NOON Bangkok (explicit +07:00) rather than the creator's
+      // local midnight, so the stored instant lands squarely on the intended calendar day
+      // regardless of who created it or where they're viewing from.
+      const start_at = f.all_day
+        ? new Date(`${f.date}T12:00:00+07:00`).toISOString()
+        : new Date(`${f.date}T${f.start || '00:00'}`).toISOString()
       const end_at = !f.all_day && f.end ? new Date(`${f.date}T${f.end}`).toISOString() : null
       const client = companies.find(c => c.id === f.company_id)
       await call('upsert_appointment', {

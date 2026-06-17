@@ -31,7 +31,8 @@ export function Header() {
   // Today's date — e.g. "Sat. 13 - June 2026" (shown on mobile, where the sidebar is hidden)
   const _now = new Date()
   const _loc = lang === 'th' ? 'th-TH' : 'en-GB'
-  const todayLabel = `${_now.toLocaleDateString(_loc, { weekday: 'short' })}. ${_now.getDate()} - ${_now.toLocaleDateString(_loc, { month: 'long' })} ${_now.getFullYear()}`
+  const _fmt = (opts: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat(_loc, { timeZone: 'Asia/Bangkok', ...opts }).format(_now)
+  const todayLabel = `${_fmt({ weekday: 'short' })}. ${_fmt({ day: 'numeric' })} - ${_fmt({ month: 'long' })} ${_fmt({ year: 'numeric' })}`
 
   const NAV_ITEMS = [
     { to: '/dashboard',      icon: LayoutDashboard, label: t.nav.dashboard,      roles: ['super_admin', 'manager'] },

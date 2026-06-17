@@ -88,7 +88,11 @@ export function ProductsView({ call, onBack }: { call: Call; onBack: () => void 
   const customs = products.filter(p => p.kind === 'custom')
 
   function addDraft(kind: Product['kind']) {
-    setDrafts([...drafts, blankProduct(kind, products.filter(p => p.kind === kind).length + 1)])
+    // Count existing products AND unsaved drafts of this kind, so two drafts added before
+    // saving get distinct sort_order values instead of colliding on the same number.
+    const existing = products.filter(p => p.kind === kind).length
+    const pending = drafts.filter(d => d.kind === kind).length
+    setDrafts([...drafts, blankProduct(kind, existing + pending + 1)])
   }
   function removeDraft(idx: number) { setDrafts(drafts.filter((_, i) => i !== idx)) }
 

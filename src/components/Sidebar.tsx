@@ -23,7 +23,8 @@ export function Sidebar() {
   // Today's date — e.g. "Sat. 13 - June 2026"
   const now = new Date()
   const loc = lang === 'th' ? 'th-TH' : 'en-GB'
-  const todayLabel = `${now.toLocaleDateString(loc, { weekday: 'short' })}. ${now.getDate()} - ${now.toLocaleDateString(loc, { month: 'long' })} ${now.getFullYear()}`
+  const fmt = (opts: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat(loc, { timeZone: 'Asia/Bangkok', ...opts }).format(now)
+  const todayLabel = `${fmt({ weekday: 'short' })}. ${fmt({ day: 'numeric' })} - ${fmt({ month: 'long' })} ${fmt({ year: 'numeric' })}`
   const [collapsed, setCollapsed] = useState(false)
 
   const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; roles: string[]; feature?: FeatureKey; addon?: AddonKey }[] = [

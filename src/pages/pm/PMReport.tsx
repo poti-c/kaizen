@@ -4,6 +4,7 @@ import { supabase } from '@/lib/supabase'
 import { useCompany } from '@/contexts/CompanyContext'
 import { useLanguage } from '@/contexts/LanguageContext'
 import { DEPARTMENT_LABELS, type Department } from '@/types'
+import { bangkokDate } from '@/lib/utils'
 
 // ── Types for the data we query ──────────────────────────────────────────────
 interface RTask {
@@ -19,13 +20,14 @@ interface RAsset {
   type?: { name: string; category: string | null } | null
 }
 
-// ── Date helpers (local, YYYY-MM-DD) ─────────────────────────────────────────
-const pad = (n: number) => String(n).padStart(2, '0')
-const keyOf = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
-// LOCAL calendar date of a timestamp — must match PMSummaryCard (a .slice(0,10) would use
-// UTC and understate on-time/compliance for evening completions in Thailand, UTC+7).
-const perfKey = (ts: string) => keyOf(new Date(ts))
-const todayKey = keyOf(new Date())
+// ── Date helpers (Asia/Bangkok, YYYY-MM-DD) ──────────────────────────────────
+// Use the hotel's fixed timezone (matches PMSummaryCard, which uses bangkokDate) so
+// the on-time/compliance/overdue day boundaries are stable for every viewer — the
+// browser-local keyOf understated compliance for off-TZ viewers and during the
+// 00:00–07:00 Bangkok window.
+const keyOf = bangkokDate
+const perfKey = (ts: string) => bangkokDate(new Date(ts))
+const todayKey = bangkokDate()
 function addMonths(base: Date, m: number) { const d = new Date(base); d.setMonth(d.getMonth() + m); return d }
 function diffDays(a: string, b: string) {
   return Math.round((new Date(a + 'T00:00:00').getTime() - new Date(b + 'T00:00:00').getTime()) / 86400000)

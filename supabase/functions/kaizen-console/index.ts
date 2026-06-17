@@ -1269,7 +1269,7 @@ Deno.serve(async (req) => {
         qty: Number(it?.qty) || 0,
         unit_price: Number(it?.unit_price) || 0,
       }))
-      .filter((it) => it.description || it.qty || it.unit_price);
+      .filter((it) => it.description || it.unit_price); // qty alone (e.g. starter row) is not a real line
     if (cleanItems.length === 0) return json({ error: "Add at least one line item." }, 400);
 
     const vat_rate = (body.vat_rate !== undefined && body.vat_rate !== null && body.vat_rate !== "") ? Number(body.vat_rate) : 7;

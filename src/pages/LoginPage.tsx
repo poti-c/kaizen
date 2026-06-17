@@ -35,19 +35,12 @@ export function LoginPage() {
     setResetError('')
     setResetLoading(true)
     try {
-      const { data, error: lookupError } = await supabase
-        .from('kaizen_profiles')
-        .select('id')
-        .eq('email', resetEmail.trim().toLowerCase())
-        .maybeSingle()
-
-      if (lookupError) throw lookupError
-      if (!data) {
-        setResetError(t.login.emailNotRegistered)
-        return
-      }
-
-      const { error } = await supabase.auth.resetPasswordForEmail(resetEmail.trim(), {
+      // No pre-check against kaizen_profiles: on the login page the visitor is anon, so
+      // RLS returns zero rows for EVERY email — the old lookup made this always report
+      // "email not registered" and never sent the reset. Supabase's resetPasswordForEmail
+      // safely no-ops for unknown addresses (and intentionally doesn't reveal existence),
+      // so we always show the "check your email" confirmation.
+      const { error } = await supabase.auth.resetPasswordForEmail(resetEmail.trim().toLowerCase(), {
         redirectTo: `${window.location.origin}/settings`,
       })
       if (error) throw error

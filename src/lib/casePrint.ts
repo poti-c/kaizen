@@ -14,6 +14,19 @@ const CATEGORY_LABELS_TH: Record<string, string> = {
   preventive_maintenance: 'บำรุงรักษาเชิงป้องกัน',
 }
 
+// Escape user-controlled values before interpolating into the print HTML. The result
+// is fed to a same-origin window via document.write(), so an unescaped case title /
+// description / photo URL / timeline note would be stored XSS. Safe for text and
+// double-quoted attribute contexts.
+function esc(v: unknown): string {
+  return String(v ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
 /**
  * Build a standalone printable HTML document for a case.
  * Pure function — no DOM side effects; the caller handles window.open/print.
@@ -50,7 +63,7 @@ export function buildCasePrintHtml(
     <!DOCTYPE html>
     <html>
     <head>
-      <title>${th ? 'เคส' : 'Case'} ${kcase.case_number} — Na Nirand Kaizen</title>
+      <title>${th ? 'เคส' : 'Case'} ${esc(kcase.case_number)} — Na Nirand Kaizen</title>
       <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #111; padding: 40px; font-size: 13px; }
@@ -78,44 +91,44 @@ export function buildCasePrintHtml(
     <body>
       <div class="header">
         <div class="brand">${L.brand}</div>
-        <h1>${kcase.title}</h1>
+        <h1>${esc(kcase.title)}</h1>
         <div>
-          <span class="badge">${kcase.case_number}</span>
-          <span class="badge">${kcase.priority.toUpperCase()}</span>
-          <span class="badge">${kcase.status.replace(/_/g, ' ').toUpperCase()}</span>
-          ${catLabel ? `<span class="badge">${catLabel}</span>` : ''}
+          <span class="badge">${esc(kcase.case_number)}</span>
+          <span class="badge">${esc(kcase.priority.toUpperCase())}</span>
+          <span class="badge">${esc(kcase.status.replace(/_/g, ' ').toUpperCase())}</span>
+          ${catLabel ? `<span class="badge">${esc(catLabel)}</span>` : ''}
           ${kcase.is_recurring ? `<span class="badge">${L.recurring}</span>` : ''}
         </div>
         <div class="meta">
-          <div class="meta-item"><span class="meta-label">${L.department}</span><span class="meta-value">${deptLabel(kcase.department, lang)}</span></div>
+          <div class="meta-item"><span class="meta-label">${L.department}</span><span class="meta-value">${esc(deptLabel(kcase.department, lang))}</span></div>
           <div class="meta-item"><span class="meta-label">${L.created}</span><span class="meta-value">${new Date(kcase.created_at).toLocaleDateString(loc, { day: 'numeric', month: 'long', year: 'numeric' })}</span></div>
-          ${kcase.due_date ? `<div class="meta-item"><span class="meta-label">${L.dueDate}</span><span class="meta-value">${formatDueBy(kcase.due_date, lang)}</span></div>` : ''}
-          <div class="meta-item"><span class="meta-label">${L.reporter}</span><span class="meta-value">${(kcase.creator as KaizenProfile)?.full_name || L.unknown}</span></div>
+          ${kcase.due_date ? `<div class="meta-item"><span class="meta-label">${L.dueDate}</span><span class="meta-value">${esc(formatDueBy(kcase.due_date, lang))}</span></div>` : ''}
+          <div class="meta-item"><span class="meta-label">${L.reporter}</span><span class="meta-value">${esc((kcase.creator as KaizenProfile)?.full_name || L.unknown)}</span></div>
         </div>
       </div>
 
       <div class="section">
         <h2>${L.description}</h2>
-        <p>${kcase.description.replace(/\n/g, '<br>')}</p>
+        <p>${esc(kcase.description).replace(/\n/g, '<br>')}</p>
       </div>
 
       ${kcase.proposed_solution ? `
       <div class="section">
         <h2>${L.proposedSolution}</h2>
-        <p>${kcase.proposed_solution.replace(/\n/g, '<br>')}</p>
+        <p>${esc(kcase.proposed_solution).replace(/\n/g, '<br>')}</p>
       </div>` : ''}
 
       ${kcase.assigned_departments && kcase.assigned_departments.length > 0 ? `
       <div class="section">
         <h2>${L.assignedDepartments}</h2>
-        <p>${kcase.assigned_departments.map((d) => deptLabel(d, lang)).join(', ')}</p>
+        <p>${esc(kcase.assigned_departments.map((d) => deptLabel(d, lang)).join(', '))}</p>
       </div>` : ''}
 
       ${problemPhotosList.length > 0 ? `
       <div class="section">
         <h2>${L.problemPhotos}</h2>
         <div class="photos">
-          ${problemPhotosList.map((p) => `<img src="${p.photo_url}" alt="Problem photo" />`).join('')}
+          ${problemPhotosList.map((p) => `<img src="${esc(p.photo_url)}" alt="Problem photo" />`).join('')}
         </div>
       </div>` : ''}
 
@@ -123,7 +136,7 @@ export function buildCasePrintHtml(
       <div class="section">
         <h2>${L.resolutionPhotos}</h2>
         <div class="photos">
-          ${resolutionPhotosList.map((p) => `<img src="${p.photo_url}" alt="Resolution photo" />`).join('')}
+          ${resolutionPhotosList.map((p) => `<img src="${esc(p.photo_url)}" alt="Resolution photo" />`).join('')}
         </div>
       </div>` : ''}
 
@@ -134,8 +147,8 @@ export function buildCasePrintHtml(
           <div class="timeline-item">
             <div class="timeline-dot"></div>
             <div class="timeline-content">
-              <p class="action">${timelineActionLabel(e.action, lang)}</p>
-              ${e.description ? `<p>${e.description}</p>` : ''}
+              <p class="action">${esc(timelineActionLabel(e.action, lang))}</p>
+              ${e.description ? `<p>${esc(e.description)}</p>` : ''}
               <p class="time">${new Date(e.created_at).toLocaleString(loc)}</p>
             </div>
           </div>
@@ -143,7 +156,7 @@ export function buildCasePrintHtml(
       </div>` : ''}
 
       <div class="footer">
-        <span>${th ? 'เคส' : 'Case'} ${kcase.case_number} — ${L.brand}</span>
+        <span>${th ? 'เคส' : 'Case'} ${esc(kcase.case_number)} — ${L.brand}</span>
         <span>${L.printed}: ${new Date().toLocaleString(loc)}</span>
       </div>
     </body>

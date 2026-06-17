@@ -17,12 +17,27 @@ const json = (b: unknown, status = 200) => new Response(JSON.stringify(b), { sta
 
 const admin = createClient(SUPABASE_URL, SERVICE_KEY);
 
+// Hotel-local (Asia/Bangkok) calendar date — stable regardless of the server's UTC
+// clock, so subscription_end / invoice dates don't drift a day during the 00:00–07:00
+// Bangkok window the way raw toISOString() (UTC) did.
+function bangkokDate(d: Date = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Bangkok", year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(d);
+}
 function addDays(unitDays: number): string {
-  const d = new Date(); d.setUTCDate(d.getUTCDate() + unitDays);
-  return d.toISOString().slice(0, 10);
+  return bangkokDate(new Date(Date.now() + unitDays * 86400000));
+}
+
+async function sha256Hex(s: string): Promise<string> {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
+  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 // Best-effort SlipOK verification. Returns { verified, amount } or { verified:false }.
+// expectAmount is the SERVER-derived plan price (never the client's declared amount):
+// when set, the slip MUST report a matching amount, so an absent/zero SlipOK amount
+// can no longer auto-pass.
 // NOTE: finalise the exact request once a SlipOK account + branch id exist.
 async function verifySlip(proofDataUrl: string, expectAmount: number | null) {
   const key = Deno.env.get("SLIPOK_API_KEY");
@@ -43,7 +58,11 @@ async function verifySlip(proofDataUrl: string, expectAmount: number | null) {
     const ok = !!(data && (data.success === true || data?.data?.success === true));
     const amount = Number(data?.data?.amount ?? data?.amount ?? 0) || null;
     if (!ok) return { verified: false };
-    if (expectAmount && amount && Math.abs(amount - expectAmount) > 1) return { verified: false }; // amount mismatch
+    // If we know the expected price, the slip MUST carry a matching amount. A missing
+    // amount or a mismatch is NOT auto-verifiable — fall through to manual review.
+    if (expectAmount) {
+      if (!amount || Math.abs(amount - expectAmount) > 1) return { verified: false };
+    }
     return { verified: true, amount };
   } catch (_) { return { verified: false }; }
 }
@@ -68,14 +87,40 @@ Deno.serve(async (req) => {
   const { data: linked } = await admin.from("kaizen_super_admin_companies").select("company_id").eq("super_admin_id", uid).eq("company_id", company_id).maybeSingle();
   if (prof.company_id !== company_id && !linked) return json({ error: "Not authorised for this company" }, 403);
 
-  const slip = await verifySlip(proof_url, amount ?? null);
+  // The price is SERVER-authoritative — look it up from kaizen_products by key (works for
+  // both 'subscription' packages and 'addon' keys). Never trust the client-declared amount.
+  const { data: priceRow } = await admin.from("kaizen_products").select("price").eq("key", target).maybeSingle();
+  const expectedPrice = priceRow?.price != null ? Number(priceRow.price) : null;
+  // Store the authoritative price when known, so submission/invoice records can't be
+  // under-stated by the client.
+  const storedAmount = expectedPrice != null ? expectedPrice : amount;
+
+  // Idempotency: the same slip (proof) must not create a second submission / duplicate
+  // plan activation + invoice on retry or replay. Dedup on a hash of the proof.
+  const proofHash = proof_url ? await sha256Hex(String(proof_url)) : null;
+  if (proofHash) {
+    const { data: dup } = await admin.from("kaizen_payment_submissions")
+      .select("id, status").eq("company_id", company_id).eq("proof_hash", proofHash).maybeSingle();
+    if (dup) return json({ success: true, id: dup.id, status: dup.status, verified: dup.status === "approved", duplicate: true });
+  }
+
+  const slip = await verifySlip(proof_url, expectedPrice);
   const status = slip.verified ? "approved" : "pending";
 
   const { data: sub, error } = await admin.from("kaizen_payment_submissions").insert({
-    company_id, kind, target, target_label, amount, currency, proof_url, status,
+    company_id, kind, target, target_label, amount: storedAmount, currency, proof_url, proof_hash: proofHash, status,
     submitted_by: uid, reviewed_at: slip.verified ? new Date().toISOString() : null,
   }).select("id").single();
-  if (error) return json({ error: error.message }, 400);
+  if (error) {
+    // Unique-violation = a concurrent request already recorded this slip; treat as a
+    // successful no-op rather than a duplicate activation.
+    if (/duplicate key|unique/i.test(error.message) && proofHash) {
+      const { data: existing } = await admin.from("kaizen_payment_submissions")
+        .select("id, status").eq("company_id", company_id).eq("proof_hash", proofHash).maybeSingle();
+      if (existing) return json({ success: true, id: existing.id, status: existing.status, verified: existing.status === "approved", duplicate: true });
+    }
+    return json({ error: error.message }, 400);
+  }
 
   if (slip.verified) {
     if (kind === "subscription") {
@@ -93,8 +138,8 @@ Deno.serve(async (req) => {
         await admin.from("kaizen_plan_changes").insert({ company_id, from_plan: fromPlan, to_plan: target, source: "payment" });
       }
       await admin.from("kaizen_invoices").insert({
-        company_id, payee: target_label ?? target, amount, currency,
-        payment_date: new Date().toISOString().slice(0, 10), period_start: new Date().toISOString().slice(0, 10), period_end: end,
+        company_id, payee: target_label ?? target, amount: storedAmount, currency,
+        payment_date: bangkokDate(), period_start: bangkokDate(), period_end: end,
         notes: "Auto-verified PromptPay payment (SlipOK)",
       });
     } else {

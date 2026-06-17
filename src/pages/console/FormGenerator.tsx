@@ -3,6 +3,7 @@ import {
   FileText, Loader2, Plus, Trash2, ArrowLeft, Printer, X, Check, Building2, Search, Languages, Eye, ChevronLeft, ChevronRight,
 } from 'lucide-react'
 import { composeAddress, type ThaiAddress } from './BillingAddressFields'
+import { bangkokDate } from '@/lib/utils'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 export type FormType = 'quotation' | 'invoice' | 'tax_invoice_receipt' | 'receipt'
@@ -98,7 +99,7 @@ function below1000(n: number): string {
 }
 function intToWords(n: number): string {
   if (n === 0) return 'zero'
-  const units = [['trillion', 1e12], ['billion', 1e9], ['million', 1e6], ['thousand', 1e3]] as const
+  const units = [['quadrillion', 1e15], ['trillion', 1e12], ['billion', 1e9], ['million', 1e6], ['thousand', 1e3]] as const
   let s = ''
   for (const [name, val] of units) {
     if (n >= val) { s += below1000(Math.floor(n / val)) + ' ' + name + ' '; n %= val }
@@ -412,7 +413,9 @@ function FormEditor({ formType, companies, products, promos, existingForms, rese
   onView: (previewForm: GeneratedForm, payload: Record<string, unknown>) => void; call: Call
   initialCompanyId?: string; initialItems?: LineItem[]; onPrefilled?: () => void
 }) {
-  const today = new Date().toISOString().slice(0, 10)
+  // Asia/Bangkok day, not UTC — the issue date drives the document number prefix, so a
+  // UTC default would mis-date/mis-number documents created during 00:00–07:00 Bangkok.
+  const today = bangkokDate()
   const [companyId, setCompanyId] = useState<string>('')
   const [client, setClient] = useState({ name: '', address: '', tax_id: '', contact: '', phone: '', email: '' })
   const [clientBilling, setClientBilling] = useState<ClientBilling | null>(null)
@@ -499,7 +502,10 @@ function FormEditor({ formType, companies, products, promos, existingForms, rese
   // is only recorded once the admin confirms the preview.
   function openPreview() {
     setError('')
-    const valid = items.filter(it => it.description.trim() || it.qty || it.unit_price)
+    // Require a description or a price (not qty alone) — otherwise the default starter
+    // row (qty:1) or a stray qty prints a blank-description 0.00 line. Matches the
+    // item-count badge predicate so the editor count and the document agree.
+    const valid = items.filter(it => it.description.trim() || it.unit_price)
     if (valid.length === 0) { setError('Add at least one line item.'); return }
     if (!client.name.trim()) { setError('Select a company or enter a client name.'); return }
     const vatNum = Number(vatRate) || 0
