@@ -264,7 +264,7 @@ export function LoginPage() {
             {t.login.footer}
           </p>
           <p className="text-center text-[10px] text-gray-300 mt-2 relative z-10 leading-relaxed">
-            Kaizen System V.1 by NNR-Solutions {new Date().getFullYear()} ©
+            Kaizen System V.1.1 by NNR-Solutions {new Date().getFullYear()} ©
           </p>
         </div>
       </div>

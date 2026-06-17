@@ -119,8 +119,9 @@ export function CasesPage() {
       })
   }, [activeCompany])
 
-  // Advanced search state
+  // Advanced search state — auto-enable when navigated here with URL filters (e.g. from Dashboard)
   const [advancedSearchEnabled, setAdvancedSearchEnabled] = useState<boolean>(() => {
+    if (searchParams.get('group') || searchParams.get('status') || searchParams.get('priority') || searchParams.get('category')) return true
     const saved = localStorage.getItem('kaizen-advanced-search-enabled')
     return saved ? JSON.parse(saved) : false
   })

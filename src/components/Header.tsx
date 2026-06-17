@@ -338,7 +338,7 @@ export function Header() {
                 <LogOut className="h-4 w-4 flex-shrink-0" />
                 {t.nav.signOut}
               </button>
-              <p className="text-white/20 text-[10px] text-center tracking-wide">Kaizen System V.1 by NNR-Solutions</p>
+              <p className="text-white/20 text-[10px] text-center tracking-wide">Kaizen System V.1.1 by NNR-Solutions</p>
             </div>
           </div>
         </>

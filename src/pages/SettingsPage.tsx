@@ -1131,7 +1131,7 @@ export function SettingsPage() {
 
       {/* Copyright footer */}
       <p className="text-center text-[11px] text-gray-400 leading-relaxed px-4 pb-2">
-        Kaizen System V.1 by NNR-Solutions {new Date().getFullYear()} ©
+        Kaizen System V.1.1 by NNR-Solutions {new Date().getFullYear()} ©
       </p>
 
     </div>

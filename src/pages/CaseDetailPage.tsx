@@ -200,36 +200,44 @@ export function CaseDetailPage() {
     // Only keep ids that resolve to a real, selectable person (drops any
     // removed/deleted user so we never write a dead person_in_charge).
     const validPics = selectedPics.filter(id => picCandidates.some(c => c.id === id))
-    if (validPics.length === 0) { toast.error(lang === 'th' ? 'กรุณาเลือกอย่างน้อยหนึ่งคนที่ยังทำงานอยู่กับบริษัท' : 'Please select at least one person who is still with the company.'); return }
+    // Allow saving when only departments are notified (no individual PICs required).
+    if (validPics.length === 0 && notifyDepts.length === 0) {
+      toast.error(lang === 'th' ? 'กรุณาเลือกผู้รับผิดชอบหรือแผนกที่จะแจ้ง' : 'Please select a person or a department to notify.')
+      return
+    }
     setSavingPic(true)
     try {
-      // If case is open/reopened, move to assigned when PIC is set
-      const statusUpdate = ['open', 'reopened'].includes(kcase.status) ? { status: 'assigned' } : {}
-      const { error: picErr } = await supabase.from('kaizen_cases').update({
-        pic_ids: validPics,
-        person_in_charge: validPics[0],
-        updated_at: new Date().toISOString(),
-        ...(promptDue ? { due_date: promptDue } : {}),
-        ...statusUpdate,
-      }).eq('id', id!)
-      if (picErr) { toast.error(lang === 'th' ? 'อัปเดตผู้รับผิดชอบไม่สำเร็จ' : 'Failed to update In Charge.'); return }
+      let names = ''
 
-      // Create/update assignment record for the case's primary department
-      if (['open', 'reopened'].includes(kcase.status)) {
-        await supabase.from('kaizen_case_assignments').upsert({
-          case_id: id!,
-          department: kcase.department,
-          assigned_by: profile?.id,
-          status: 'pending',
-        }, { onConflict: 'case_id,department' })
-        await addTimeline('case_assigned', `Case assigned to ${DEPARTMENT_LABELS[kcase.department] ?? kcase.department}`)
+      if (validPics.length > 0) {
+        // If case is open/reopened, move to assigned when PIC is set
+        const statusUpdate = ['open', 'reopened'].includes(kcase.status) ? { status: 'assigned' } : {}
+        const { error: picErr } = await supabase.from('kaizen_cases').update({
+          pic_ids: validPics,
+          person_in_charge: validPics[0],
+          updated_at: new Date().toISOString(),
+          ...(promptDue ? { due_date: promptDue } : {}),
+          ...statusUpdate,
+        }).eq('id', id!)
+        if (picErr) { toast.error(lang === 'th' ? 'อัปเดตผู้รับผิดชอบไม่สำเร็จ' : 'Failed to update In Charge.'); return }
+
+        // Create/update assignment record for the case's primary department
+        if (['open', 'reopened'].includes(kcase.status)) {
+          await supabase.from('kaizen_case_assignments').upsert({
+            case_id: id!,
+            department: kcase.department,
+            assigned_by: profile?.id,
+            status: 'pending',
+          }, { onConflict: 'case_id,department' })
+          await addTimeline('case_assigned', `Case assigned to ${DEPARTMENT_LABELS[kcase.department] ?? kcase.department}`)
+        }
+
+        names = validPics.map(id => picCandidates.find(p => p.id === id)?.full_name || 'Unknown').join(', ')
+        await addTimeline('pic_changed', `In Charge set to: ${names}`)
       }
 
-      const names = validPics.map(id => picCandidates.find(p => p.id === id)?.full_name || 'Unknown').join(', ')
-      await addTimeline('pic_changed', `In Charge set to: ${names}`)
-
       // Notify selected PICs
-      const notifRows = validPics.map(uid => ({
+      const notifRows: { user_id: string; case_id: string; title: string; message: string; notification_type: string; title_key: string | null; body_params: Record<string, string | number> | null }[] = validPics.map(uid => ({
         user_id: uid,
         case_id: id!,
         title: 'Assigned as In Charge',
@@ -241,21 +249,25 @@ export function CaseDetailPage() {
 
       // Notify selected departments
       if (notifyDepts.length > 0) {
-        const { data: deptMembers } = await supabase
+        let deptQuery = supabase
           .from('kaizen_profiles').select('id, department')
           .eq('company_id', kcase.company_id)
           .in('department', notifyDepts)
           .eq('is_active', true)
-          .not('id', 'in', `(${validPics.join(',')})`)
+        if (validPics.length > 0) deptQuery = deptQuery.not('id', 'in', `(${validPics.join(',')})`)
+        const { data: deptMembers } = await deptQuery
+        const deptMsg = names
+          ? `${names} assigned as In Charge for case ${kcase.case_number}: "${kcase.title}"`
+          : `Your department has been involved in case ${kcase.case_number}: "${kcase.title}"`
         if (deptMembers?.length) {
           deptMembers.forEach((m: { id: string; department: string }) => notifRows.push({
             user_id: m.id,
             case_id: id!,
             title: 'Department Case Update',
-            message: `${names} assigned as In Charge for case ${kcase.case_number}: "${kcase.title}"`,
+            message: deptMsg,
             notification_type: 'info',
             title_key: 'case_dept_update',
-            body_params: { names, caseNo: kcase.case_number },
+            body_params: { names: names || kcase.case_number, caseNo: kcase.case_number },
           }))
         }
         const deptNames = notifyDepts.map(d => DEPARTMENT_LABELS[d as Department] ?? d).join(', ')
@@ -1290,7 +1302,7 @@ export function CaseDetailPage() {
                         <button onClick={() => { setShowPicEditor(false); setNotifyDepts([]) }} className="text-xs text-gray-400 hover:text-gray-600">{lang === 'th' ? 'ยกเลิก' : 'Cancel'}</button>
                         <button
                           onClick={savePic}
-                          disabled={savingPic || selectedPics.length === 0}
+                          disabled={savingPic || (selectedPics.length === 0 && notifyDepts.length === 0)}
                           className="text-xs font-semibold text-white bg-[var(--brand-primary)] px-2.5 py-1 rounded hover:opacity-90 disabled:opacity-50 flex items-center gap-1"
                         >
                           {savingPic ? <Loader2 className="h-3 w-3 animate-spin" /> : (lang === 'th' ? 'บันทึก' : 'Save')}
@@ -1301,11 +1313,24 @@ export function CaseDetailPage() {
                 ) : (
                   <span className="inline-flex items-center gap-1 flex-wrap">
                     {picProfiles.length > 0 ? (
-                      <span className="font-medium inline-flex items-center gap-1 flex-wrap">
-                        {picProfiles.map((p, i) => (
-                          <span key={p.id} className={p.deleted_at ? 'text-red-500 line-through' : 'text-gray-700'} title={p.deleted_at ? t.caseDetail.removedFromCompany : undefined}>
-                            {p.full_name}{i < picProfiles.length - 1 ? ',' : ''}
+                      <>
+                        <span className="font-medium inline-flex items-center gap-1 flex-wrap">
+                          {picProfiles.map((p, i) => (
+                            <span key={p.id} className={p.deleted_at ? 'text-red-500 line-through' : 'text-gray-700'} title={p.deleted_at ? t.caseDetail.removedFromCompany : undefined}>
+                              {p.full_name}{i < picProfiles.length - 1 ? ',' : ''}
+                            </span>
+                          ))}
+                        </span>
+                        {kcase.assigned_departments?.filter(d => d !== kcase.department && d !== 'top_management').map(d => (
+                          <span key={d} className="text-xs px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded font-medium">
+                            {DEPARTMENT_LABELS[d as Department] ?? d}
                           </span>
+                        ))}
+                      </>
+                    ) : kcase.assigned_departments?.filter(d => d !== 'top_management').length ? (
+                      <span className="font-medium text-gray-700">
+                        {kcase.assigned_departments.filter(d => d !== 'top_management').map((d, i, arr) => (
+                          <span key={d}>{DEPARTMENT_LABELS[d as Department] ?? d}{i < arr.length - 1 ? ', ' : ''}</span>
                         ))}
                       </span>
                     ) : (
