@@ -22,7 +22,7 @@ import { PhotoUpload, PhotoGallery } from '@/components/PhotoUpload'
 import { ResolutionCard } from '@/components/case/ResolutionCard'
 import { TranslatableSection } from '@/components/TranslatableSection'
 import { CaseTimeline } from '@/components/case/CaseTimeline'
-import { formatDateTime, formatDuration, LOCATIONS, CATEGORIES, formatDueBy, toDateTimeLocal, fromDateTimeLocal } from '@/lib/utils'
+import { formatDateTime, formatDuration, LOCATIONS, CATEGORIES, formatDueBy, toDateTimeLocal, fromDateTimeLocal, bangkokDate } from '@/lib/utils'
 import { DEPARTMENTS, DEPARTMENT_LABELS, categoryLabel } from '@/types'
 import type { KaizenCase, KaizenProfile, KaizenCaseTimeline, KaizenCasePhoto, Department, CasePriority, CaseStatus } from '@/types'
 import { toast } from 'sonner'
@@ -330,6 +330,16 @@ export function CaseDetailPage() {
       .then(({ data }) => setMentionUsers((data || []) as KaizenProfile[]))
   }, [])
 
+  // Pre-load PIC candidates when this is an unassigned PM auto-case (so the assign
+  // dialog has data ready when it appears, without needing a manual trigger).
+  useEffect(() => {
+    if (!kcase || pmPromptDismissed) return
+    const isPmAuto = !kcase.created_by && (kcase.case_number?.startsWith('PM-') || kcase.category === 'preventive_maintenance')
+    const hasPic = !!(kcase.pic_ids?.length) || !!kcase.person_in_charge
+    if (isPmAuto && !hasPic) loadPicCandidates()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kcase?.id, pmPromptDismissed])
+
   async function fetchCase() {
     setLoading(true)
     const { data } = await supabase
@@ -464,7 +474,7 @@ export function CaseDetailPage() {
         setShowMentions(false)
         return
       }
-      const query = afterAt.split(' ')[0]
+      const query = afterAt
       setMentionQuery(query)
       setShowMentions(true)
     } else {
@@ -1649,12 +1659,11 @@ export function CaseDetailPage() {
           {(() => {
             const openFor = formatDuration(kcase.created_at, kcase.closed_at || undefined)
             const dueDateObj = kcase.due_date ? new Date(kcase.due_date) : null
-            const todayMidnight = new Date(); todayMidnight.setHours(0,0,0,0)
             let daysLeftLabel: React.ReactNode = null
             if (dueDateObj) {
-              const dueMidnight = new Date(dueDateObj); dueMidnight.setHours(0,0,0,0)
-              const diffMs = dueMidnight.getTime() - todayMidnight.getTime()
-              const diffDays = Math.round(diffMs / 86400000)
+              const todayStr = bangkokDate()
+              const dueStr = bangkokDate(dueDateObj)
+              const diffDays = Math.round((new Date(dueStr).getTime() - new Date(todayStr).getTime()) / 86400000)
               if (diffDays === 0) {
                 daysLeftLabel = <span className="text-sm font-bold text-amber-600 bg-amber-50 border border-amber-200 px-3 py-1 rounded-full">{t.caseDetail.dueToday}</span>
               } else if (diffDays < 0) {

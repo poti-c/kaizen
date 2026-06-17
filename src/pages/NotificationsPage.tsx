@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useLanguage } from '@/contexts/LanguageContext'
 import { Button } from '@/components/ui/button'
-import { formatDateTime } from '@/lib/utils'
+import { formatDateTime, bangkokDate } from '@/lib/utils'
 import { localizeNotif } from '@/lib/i18nDynamic'
 import type { KaizenNotification } from '@/types'
 import { cn } from '@/lib/utils'
@@ -50,10 +50,11 @@ export function NotificationsPage() {
   }
 
   async function markRead(id: string) {
-    await supabase.from('kaizen_notifications').update({ is_read: true }).eq('id', id)
+    const { error } = await supabase.from('kaizen_notifications').update({ is_read: true }).eq('id', id)
+    if (error) return
     setNotifications((prev) => {
       const updated = prev.map((n) => n.id === id ? { ...n, is_read: true } : n)
-      if (updated.every((n) => n.is_read)) clearBadge()
+      if (!hasMore && updated.every((n) => n.is_read)) clearBadge()
       return updated
     })
   }
@@ -75,9 +76,9 @@ export function NotificationsPage() {
     mention: 'bg-pink-500',
   }
 
-  const todayDate = new Date()
-  const yesterday = new Date(todayDate); yesterday.setDate(todayDate.getDate() - 1)
-  const thisWeekStart = new Date(todayDate); thisWeekStart.setDate(todayDate.getDate() - 7)
+  const todayStr = bangkokDate()
+  const yesterdayStr = bangkokDate(new Date(Date.now() - 86400000))
+  const weekAgoStr = bangkokDate(new Date(Date.now() - 7 * 86400000))
 
   const GROUP_KEYS = ['Today', 'Yesterday', 'This Week', 'Older'] as const
   type GroupKey = typeof GROUP_KEYS[number]
@@ -89,10 +90,10 @@ export function NotificationsPage() {
   }
 
   function getGroup(dateStr: string): GroupKey {
-    const d = new Date(dateStr)
-    if (d.toDateString() === todayDate.toDateString()) return 'Today'
-    if (d.toDateString() === yesterday.toDateString()) return 'Yesterday'
-    if (d >= thisWeekStart) return 'This Week'
+    const d = bangkokDate(new Date(dateStr))
+    if (d === todayStr) return 'Today'
+    if (d === yesterdayStr) return 'Yesterday'
+    if (d >= weekAgoStr) return 'This Week'
     return 'Older'
   }
 

@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Checkbox } from '@/components/ui/checkbox'
 import { PMTaskModal, taskTone, taskStatusKey, type PMTask } from '@/components/pm/PMSchedule'
-import { formatRelativeTime, formatDuration, isSLABreached, CATEGORIES, LOCATIONS, companyHasAddon } from '@/lib/utils'
+import { formatRelativeTime, formatDuration, isSLABreached, CATEGORIES, LOCATIONS, companyHasAddon, bangkokDate } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 import type { KaizenCase, CaseStatus, CasePriority, Department } from '@/types'
 import { DEPARTMENTS, DEPARTMENT_LABELS, categoryLabel, getEffectiveDepts } from '@/types'
@@ -192,8 +192,9 @@ export function CasesPage() {
   const caseMonthList = React.useMemo(() => {
     const keys = new Set<string>()
     cases.forEach(c => {
-      const d = new Date(c.created_at)
-      keys.add(monthKey(d.getFullYear(), d.getMonth()))
+      const bkk = bangkokDate(new Date(c.created_at))
+      const [y, mm] = bkk.split('-').map(Number)
+      keys.add(monthKey(y, mm - 1))
     })
     return Array.from(keys)
       .map(k => { const [y, m] = k.split('-').map(Number); return { year: y, month: m, label: MONTH_SHORT_LABELS[m], key: k } })
@@ -293,8 +294,9 @@ export function CasesPage() {
     // Date filter
     if (selectedMonths.size > 0) {
       result = result.filter(c => {
-        const d = new Date(c.created_at)
-        return selectedMonths.has(monthKey(d.getFullYear(), d.getMonth()))
+        const bkk = bangkokDate(new Date(c.created_at))
+        const [y, mm] = bkk.split('-').map(Number)
+        return selectedMonths.has(monthKey(y, mm - 1))
       })
     }
 
@@ -316,7 +318,7 @@ export function CasesPage() {
     if (profile.role === 'staff') {
       // Staff see their own department's cases AND any case where they are Person in Charge
       // (a manager can assign a case across departments).
-      query = query.or(`department.eq.${profile.department},pic_ids.cs.{${profile.id}}`)
+      query = query.or(`department.eq."${profile.department}",pic_ids.cs.{${profile.id}}`)
     }
     // Managers see all cases (cross-dept view) — edit restrictions enforced in CaseDetailPage
     // HR Manager: no filter — sees all cases (read-only enforced in detail page)
@@ -508,7 +510,7 @@ export function CasesPage() {
           <td className="px-5 py-3.5"><StatusBadge status={c.status} /></td>
           <td className="px-5 py-3.5 whitespace-nowrap">
             {c.due_date ? (
-              <span className={cn('text-xs', new Date(c.due_date) < new Date() && c.status !== 'closed' ? 'text-red-500 font-medium' : 'text-gray-500')}>
+              <span className={cn('text-xs', isSLABreached(c) ? 'text-red-500 font-medium' : 'text-gray-500')}>
                 {new Date(c.due_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
               </span>
             ) : <span className="text-xs text-gray-300">—</span>}
@@ -548,7 +550,7 @@ export function CasesPage() {
                 {formatDuration(c.created_at, c.closed_at || undefined)}
               </span>
               {c.due_date && (
-                <span className={cn('text-xs', new Date(c.due_date) < new Date() && c.status !== 'closed' ? 'text-red-500 font-medium' : 'text-gray-400')}>
+                <span className={cn('text-xs', isSLABreached(c) ? 'text-red-500 font-medium' : 'text-gray-400')}>
                   {t.cases.due}: {new Date(c.due_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
                 </span>
               )}
@@ -629,7 +631,7 @@ export function CasesPage() {
     ? pmAssetsAll.filter(a => `${a.name ?? ''} ${a.serial_no ?? ''} ${a.model ?? ''} ${a.location ?? ''} ${a.type?.name ?? ''}`.toLowerCase().includes(search.toLowerCase()))
     : []
 
-  const todayKey = new Date().toISOString().slice(0, 10)
+  const todayKey = bangkokDate()
   const matchTaskSearch = (t: PMTask) => !search || `${t.asset?.name ?? ''} ${t.asset?.location ?? ''} ${t.asset?.type?.name ?? ''}`.toLowerCase().includes(search.toLowerCase())
   const overdueTasks = pmTasks.filter(t => t.due_date < todayKey && matchTaskSearch(t))
   const activeTasksAll = pmTasks.filter(t => t.due_date >= todayKey && matchTaskSearch(t))
@@ -760,8 +762,9 @@ export function CasesPage() {
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => {
-                        const now = new Date()
-                        setSelectedMonths(new Set([monthKey(now.getFullYear(), now.getMonth())]))
+                        const bkk = bangkokDate()
+                        const [y, mm] = bkk.split('-').map(Number)
+                        setSelectedMonths(new Set([monthKey(y, mm - 1)]))
                       }}
                       className="text-xs text-[var(--brand-primary)] font-medium hover:underline"
                     >

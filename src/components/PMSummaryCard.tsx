@@ -76,13 +76,13 @@ export function PMSummaryCard() {
   const scheduled = good + dueSoon + overdueAssets
   const compliance = scheduled === 0 ? null : Math.round(((scheduled - overdueAssets) / scheduled) * 100)
 
-  const todayKey = isoDate(new Date())
-  const weekKey = isoDate(new Date(Date.now() + dueSoonDays * 86400000))
+  const todayKey = bangkokDate(new Date())
+  const weekKey = bangkokDate(new Date(Date.now() + dueSoonDays * 86400000))
   const open = (s: string) => s === 'scheduled' || s === 'in_progress'
   const dueThisWeek = tasks.filter(t => open(t.status) && t.due_date >= todayKey && t.due_date <= weekKey).length
   const completedTasks = tasks.filter(t => t.status === 'done' || t.status === 'approved')
   const monthPrefix = todayKey.slice(0, 7)
-  const completedThisMonth = completedTasks.filter(t => t.performed_at && t.performed_at.slice(0, 7) === monthPrefix).length
+  const completedThisMonth = completedTasks.filter(t => t.performed_at && bangkokDate(new Date(t.performed_at)).slice(0, 7) === monthPrefix).length
   const onTime = completedTasks.filter(t => t.performed_at && bangkokDate(new Date(t.performed_at)) <= t.due_date).length
   const onTimeRate = completedTasks.length === 0 ? null : Math.round((onTime / completedTasks.length) * 100)
   const pendingApproval = tasks.filter(t => t.status === 'pending_approval').length

@@ -8,7 +8,7 @@ import { useLanguage } from '@/contexts/LanguageContext'
 import { StatusBadge, PriorityBadge } from '@/components/StatusBadge'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { formatRelativeTime, formatDuration, isSLABreached, CATEGORIES, companyHasAddon } from '@/lib/utils'
+import { formatRelativeTime, formatDuration, isSLABreached, CATEGORIES, companyHasAddon, bangkokDate } from '@/lib/utils'
 import { PMSummaryCard } from '@/components/PMSummaryCard'
 import { RRSummaryCard } from '@/components/RRSummaryCard'
 import { deptLabel } from '@/types'
@@ -32,21 +32,26 @@ export function DashboardPage() {
 
   // ── Date filter ────────────────────────────────────────────────────────────
   const now = new Date()
-  const defaultKey = monthKey(now.getFullYear(), now.getMonth())
+  const bkkNow = bangkokDate()
+  const [bkkYear, bkkMM] = bkkNow.split('-').map(Number)
+  const defaultKey = monthKey(bkkYear, bkkMM - 1)
   const [selectedMonths, setSelectedMonths] = useState<Set<string>>(new Set([defaultKey]))
   const [pickerOpen, setPickerOpen] = useState(false)
 
   // Build month list from actual case data (created_at + due_date), always include current month
   const monthList = useMemo(() => {
     const keys = new Set<string>()
-    const now = new Date()
-    keys.add(monthKey(now.getFullYear(), now.getMonth()))
+    const bkk = bangkokDate()
+    const [y0, mm0] = bkk.split('-').map(Number)
+    keys.add(monthKey(y0, mm0 - 1))
     allCases.forEach(c => {
-      const d = new Date(c.created_at)
-      keys.add(monthKey(d.getFullYear(), d.getMonth()))
+      const bkkC = bangkokDate(new Date(c.created_at))
+      const [y, mm] = bkkC.split('-').map(Number)
+      keys.add(monthKey(y, mm - 1))
       if (c.due_date) {
-        const dd = new Date(c.due_date)
-        keys.add(monthKey(dd.getFullYear(), dd.getMonth()))
+        const bkkD = bangkokDate(new Date(c.due_date))
+        const [dy, dmm] = bkkD.split('-').map(Number)
+        keys.add(monthKey(dy, dmm - 1))
       }
     })
     return Array.from(keys)
@@ -96,8 +101,9 @@ export function DashboardPage() {
   // ── Filtered cases ────────────────────────────────────────────────────────
   const filteredCases = useMemo(() =>
     allCases.filter(c => {
-      const d = new Date(c.created_at)
-      return selectedMonths.has(monthKey(d.getFullYear(), d.getMonth()))
+      const bkk = bangkokDate(new Date(c.created_at))
+      const [y, mm] = bkk.split('-').map(Number)
+      return selectedMonths.has(monthKey(y, mm - 1))
     }),
   [allCases, selectedMonths])
 
@@ -143,8 +149,10 @@ export function DashboardPage() {
 
   // ── Monthly bar data (always last 9 months of allCases) ───────────────────
   const monthlyData = useMemo(() => {
+    const bkk = bangkokDate()
+    const [bY, bMM] = bkk.split('-').map(Number)
     const months = Array.from({ length: 9 }, (_, i) => {
-      const d = new Date(now.getFullYear(), now.getMonth() - 4 + i, 1)
+      const d = new Date(bY, bMM - 1 - 4 + i, 1)
       return { year: d.getFullYear(), month: d.getMonth(), label: `${MONTH_SHORT[d.getMonth()]} ${d.getFullYear()}` }
     })
     const monthMap: Record<string, number> = {}
@@ -548,8 +556,10 @@ export function DashboardPage() {
               recentCases.map((c) => (
                 <Link key={c.id} to={`/cases/${c.id}`} className="flex items-center gap-4 px-5 py-4 hover:bg-gray-50 transition-colors">
                   <div className="flex-shrink-0 w-10 text-center">
-                    <p className="text-sm font-semibold text-gray-800 leading-none">{new Date(c.created_at).getDate()}</p>
-                    <p className="text-xs text-gray-400 mt-0.5">{new Date(c.created_at).toLocaleString('en-GB', { month: 'short' })}</p>
+                    {(() => { const [,bm,bd] = bangkokDate(new Date(c.created_at)).split('-'); return (<>
+                      <p className="text-sm font-semibold text-gray-800 leading-none">{parseInt(bd)}</p>
+                      <p className="text-xs text-gray-400 mt-0.5">{MONTH_SHORT[parseInt(bm) - 1]}</p>
+                    </>) })()}
                   </div>
                   <div className="w-px h-10 bg-gray-100 flex-shrink-0" />
                   <div className="flex-1 min-w-0">

@@ -82,7 +82,7 @@ export function PreventiveMaintenancePage() {
     const taskSel = '*, asset:kaizen_pm_assets(name, location, notes, checklist, department, type:kaizen_pm_equipment_types(name))'
     // First day of the current Asia/Bangkok month (not UTC — local-midnight-of-the-1st
     // toISOString() resolves back to the last day of the previous month at UTC+7).
-    const monthStartKey = bangkokDate().slice(0, 7) + '-01'
+    const monthStartKey = bangkokDate().slice(0, 7) + '-01T00:00:00+07:00'
     const [a, t, s, openT, doneT, loc, depts] = await Promise.all([
       supabase.from('kaizen_pm_assets').select('*, type:kaizen_pm_equipment_types(name, category)').eq('company_id', companyId).order('next_maintenance_date', { ascending: true, nullsFirst: false }),
       supabase.from('kaizen_pm_equipment_types').select('id, name, category, is_active').eq('company_id', companyId).eq('is_active', true).order('category').order('name'),
@@ -125,7 +125,7 @@ export function PreventiveMaintenancePage() {
   const taskMatch = (tk: PMTask) => !q || `${tk.asset?.name ?? ''} ${tk.asset?.location ?? ''} ${tk.asset?.type?.name ?? ''}`.toLowerCase().includes(q.toLowerCase())
   const dueThisWeekTasks = pmTasks.filter(tk => (tk.status === 'scheduled' || tk.status === 'in_progress') && tk.due_date >= todayKey && tk.due_date <= weekKey && taskMatch(tk))
   const awaitingTasks = pmTasks.filter(tk => tk.status === 'pending_approval' && taskMatch(tk))
-  const doneThisMonthTasks = pmDoneTasks.filter(tk => tk.performed_at && tk.performed_at.slice(0, 7) === monthPrefix && taskMatch(tk))
+  const doneThisMonthTasks = pmDoneTasks.filter(tk => tk.performed_at && bangkokDate(new Date(tk.performed_at)).slice(0, 7) === monthPrefix && taskMatch(tk))
 
   // Distinct option lists for the filter dropdowns.
   const typeOptions = Array.from(new Set(assets.map(a => a.type?.name).filter(Boolean) as string[])).sort()

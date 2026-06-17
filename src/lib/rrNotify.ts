@@ -32,7 +32,7 @@ export async function resolveDeptRecipients(companyId: string, dept: string): Pr
   let q = supabase.from('kaizen_profiles').select('id, role')
     .eq('company_id', companyId).eq('is_active', true)
     .or(`department.eq."${esc}",managed_departments.cs.{"${esc}"}`)
-  if (mode === 'manager') q = q.eq('role', 'manager')
+  if (mode === 'manager') q = q.in('role', ['manager', 'super_admin'])
   const { data } = await q
   return (data as { id: string; role: string }[]) ?? []
 }

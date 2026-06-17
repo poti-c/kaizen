@@ -19,6 +19,7 @@ import type { RrItem } from '@/components/RRSettings'
 import { RoomOrderView } from '@/components/RoomOrderView'
 import { unitOne, DEFAULT_UNIT, type UnitNoun } from '@/lib/roomUnit'
 import { resolveDeptRecipients } from '@/lib/rrNotify'
+import { bangkokDate } from '@/lib/utils'
 import { useRrFoAccess } from '@/hooks/useRrFoAccess'
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -108,7 +109,7 @@ export function RoutineRosterPage() {
   const [mutes, setMutes] = useState<Set<string>>(new Set()) // template_ids muted by me
   const [loading, setLoading] = useState(true)
   const [placeTpl, setPlaceTpl] = useState<RrTemplate | null>(null) // template being ordered in the popup
-  const today = dateKey(new Date())
+  const today = bangkokDate()
   const tomorrow = shiftDate(today, 1)
 
   const statusLabel = (s: RrOrderStatus) =>
@@ -486,7 +487,7 @@ function PlaceOrderModal({ template: tp, companyId, profile, today, tomorrow, ro
     }
     setBusy(true)
     const nowIso = new Date().toISOString()
-    const due_at = new Date(`${order_date}T${time || '12:00'}`).toISOString()
+    const due_at = new Date(`${order_date}T${time || '12:00'}+07:00`).toISOString()
     // A previously-cancelled order still occupies the UNIQUE(template_id, order_date)
     // slot. The menu treats cancelled as "not ordered" and invites a re-order, so clear
     // the stale cancelled row first — otherwise the insert below collides and shows the
@@ -658,7 +659,7 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
   // "Late": delivered/confirmed after the due time.
   const lateAt = (ts: string | null) => !!(o.due_at && ts && new Date(ts).getTime() > new Date(o.due_at).getTime())
   const isLate = (o.status === 'delivered' || o.status === 'confirmed') &&
-    lateAt(o.delivered_at) || lateAt(o.confirmed_at)
+    (lateAt(o.delivered_at) || lateAt(o.confirmed_at))
 
   // PIC display: department label, or assigned people's names.
   const [picNames, setPicNames] = useState<string[]>([])
@@ -724,7 +725,6 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
         }))
       )
       if (ins.error) { setBusy(false); toast.error(ins.error.message); return }
-      setBusy(false)
       const roomsWord = lang === 'th' ? 'ห้อง' : 'rooms'
       const detail = hasVariants ? `${variantBreakdown(picked.map((r) => ({ variant: grid[r] } as RrOrderItem)), variants, lang)} · ${picked.length} ${roomsWord}` : `${picked.length} ${roomsWord}`
       await update(

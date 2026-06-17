@@ -347,7 +347,7 @@ export function SettingsPage() {
 
   async function handleChangePassword() {
     if (!newPassword || !confirmPassword) {
-      toast.error(t.settings.mismatch)
+      toast.error(lang === 'th' ? 'กรุณากรอกรหัสผ่านและยืนยันรหัสผ่านให้ครบ' : 'Please fill in both password fields.')
       return
     }
     if (newPassword !== confirmPassword) {

@@ -36,7 +36,7 @@ serve(async (req) => {
 
   const { data: callerProfile } = await supabaseAdmin
     .from("kaizen_profiles")
-    .select("role, department, managed_departments, company_id")
+    .select("role, department, managed_departments, company_id, is_active, deleted_at")
     .eq("id", user.id)
     .single();
 
@@ -46,6 +46,9 @@ serve(async (req) => {
   const callerEffectiveDepts: string[] = [callerDept, ...(callerProfile?.managed_departments ?? [])].filter(Boolean);
 
   if (callerRole !== "super_admin" && callerRole !== "manager") {
+    return json({ error: "Forbidden" }, 403);
+  }
+  if (!callerProfile?.is_active || callerProfile?.deleted_at) {
     return json({ error: "Forbidden" }, 403);
   }
 
@@ -83,6 +86,7 @@ serve(async (req) => {
     const isHR = callerDept === "human_resource";
     if (isHR) {
       if (target.role === "super_admin") return { ok: false, error: "HR cannot manage Top Management" };
+      if (target.role === "manager") return { ok: false, error: "HR can only manage staff accounts" };
       return { ok: true, target };
     }
     if (target.role !== "staff") return { ok: false, error: "Managers can only manage staff" };
@@ -299,11 +303,9 @@ serve(async (req) => {
     if (!userId) return json({ error: "userId is required" }, 400);
     if (userId === user.id) return json({ error: "Cannot delete your own account" }, 400);
 
-    if (callerRole === "manager") {
-      const check = await assertCanManage(userId);
-      if (!check.ok) return json({ error: check.error }, 403);
-      if (callerDept === "human_resource") return json({ error: "HR Manager cannot delete users" }, 403);
-    }
+    const check = await assertCanManage(userId);
+    if (!check.ok) return json({ error: check.error }, 403);
+    if (callerRole === "manager" && callerDept === "human_resource") return json({ error: "HR Manager cannot delete users" }, 403);
 
     // 1) Mark the profile removed and deactivate it (blocks login via the app's is_active check).
     const nowIso = new Date().toISOString();

@@ -87,7 +87,7 @@ export function UsersPage() {
       .then(({ data }) => {
         if (data?.value) {
           const labels = data.value as string[]
-          setAllDepts(labels.map((label) => ({ value: labelToSlug[label] ?? label, label })))
+          setAllDepts([...DEPARTMENTS, ...labels.filter(label => !DEPARTMENTS.some(d => d.label === label)).map(label => ({ value: labelToSlug[label] ?? label, label }))])
         }
       })
   }, [activeCompany])
