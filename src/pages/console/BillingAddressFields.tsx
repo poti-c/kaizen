@@ -69,7 +69,8 @@ export function BillingAddressFields({ officeType, branchCode, address, onChange
   const setBranch = (v: string) => onChange({ officeType, branchCode: v, address: a })
 
   const [geo, setGeo] = useState<GeoTree | null>(cachedGeo)
-  useEffect(() => { if (!geo) loadGeo().then(setGeo) }, [geo])
+  const [geoError, setGeoError] = useState(false)
+  useEffect(() => { if (!geo) loadGeo().then(setGeo).catch(() => setGeoError(true)) }, [geo])
 
   // Resolve the current selection against the dataset, matching by English OR
   // Thai name (so records saved before the bilingual upgrade still display).
@@ -78,24 +79,36 @@ export function BillingAddressFields({ officeType, branchCode, address, onChange
   const sub = useMemo(() => dist?.s.find((s) => s.en === a.subdistrict_en || s.th === a.subdistrict) ?? null, [dist, a.subdistrict_en, a.subdistrict])
 
   const provinceOpts = useMemo(() => (geo ? geo.map((p) => ({ v: p.en, label: p.en })) : []), [geo])
-  const districtOpts = useMemo(() => (prov ? prov.d.map((d) => ({ v: d.en, label: d.en })) : []), [prov])
-  const subOpts = useMemo(() => (dist ? dist.s.map((s) => ({ v: s.en, label: s.en })) : []), [dist])
+  // Use Thai names as option values (unique within province/district) to prevent
+  // duplicate English names (e.g. two "Mueang" districts) from being unselectable.
+  const districtOpts = useMemo(() => (prov ? prov.d.map((d) => ({ v: d.th, label: d.en })) : []), [prov])
+  const subOpts = useMemo(() => (dist ? dist.s.map((s) => ({ v: s.th, label: s.en })) : []), [dist])
 
   // Cascade: picking a level fills both languages and resets everything below it.
   const onProvince = (en: string) => {
     const p = geo?.find((x) => x.en === en)
     setAddr({ province_en: p?.en ?? en, province: p?.th ?? '', district_en: '', district: '', subdistrict_en: '', subdistrict: '', postcode: '' })
   }
-  const onDistrict = (en: string) => {
-    const d = prov?.d.find((x) => x.en === en)
-    setAddr({ district_en: d?.en ?? en, district: d?.th ?? '', subdistrict_en: '', subdistrict: '', postcode: '' })
+  const onDistrict = (thName: string) => {
+    const d = prov?.d.find((x) => x.th === thName)
+    setAddr({ district_en: d?.en ?? '', district: d?.th ?? thName, subdistrict_en: '', subdistrict: '', postcode: '' })
   }
-  const onSubdistrict = (en: string) => {
-    const s = dist?.s.find((x) => x.en === en)
-    setAddr({ subdistrict_en: s?.en ?? en, subdistrict: s?.th ?? '', postcode: s?.z ?? a.postcode ?? '', country: a.country || 'Thailand' })
+  const onSubdistrict = (thName: string) => {
+    const s = dist?.s.find((x) => x.th === thName)
+    setAddr({ subdistrict_en: s?.en ?? '', subdistrict: s?.th ?? thName, postcode: s?.z ?? a.postcode ?? '', country: a.country || 'Thailand' })
   }
 
   const loading = !geo
+
+  if (geoError) {
+    return (
+      <div className="text-sm text-red-400 py-2">
+        Failed to load address data.{' '}
+        <button onClick={() => { setGeoError(false); loadGeo().then(setGeo).catch(() => setGeoError(true)) }}
+          className="underline hover:text-red-300">Retry</button>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-2.5">
@@ -110,8 +123,11 @@ export function BillingAddressFields({ officeType, branchCode, address, onChange
             </button>
           ))}
           {officeType === 'branch' && (
-            <input value={branchCode} onChange={(e) => setBranch(e.target.value.replace(/\D/g, '').slice(0, 5))}
-              placeholder="Branch code (5 digits)" className={`${inp} w-44`} inputMode="numeric" />
+            <div className="relative">
+              <input value={branchCode} onChange={(e) => setBranch(e.target.value.replace(/\D/g, '').slice(0, 5))}
+                placeholder="00000" className={`${inp} w-28 ${branchCode && branchCode.length < 5 ? 'border-red-500/60' : ''}`} inputMode="numeric" maxLength={5} />
+              {branchCode && branchCode.length < 5 && <p className="absolute text-[10px] text-red-400 mt-0.5">Must be 5 digits</p>}
+            </div>
           )}
         </div>
       </div>
@@ -131,13 +147,13 @@ export function BillingAddressFields({ officeType, branchCode, address, onChange
         </div>
         <div>
           <label className={lbl}>District <span className="text-amber-500/70">*</span></label>
-          <Select value={dist?.en ?? a.district_en ?? ''} onChange={onDistrict} placeholder={prov ? 'Select district' : 'Select province first'} options={districtOpts} disabled={loading || !prov} />
+          <Select value={dist?.th ?? a.district ?? ''} onChange={onDistrict} placeholder={prov ? 'Select district' : 'Select province first'} options={districtOpts} disabled={loading || !prov} />
         </div>
       </div>
       <div className="grid grid-cols-3 gap-2.5">
         <div className="col-span-2">
           <label className={lbl}>Sub-district <span className="text-amber-500/70">*</span></label>
-          <Select value={sub?.en ?? a.subdistrict_en ?? ''} onChange={onSubdistrict} placeholder={dist ? 'Select sub-district' : 'Select district first'} options={subOpts} disabled={loading || !dist} />
+          <Select value={sub?.th ?? a.subdistrict ?? ''} onChange={onSubdistrict} placeholder={dist ? 'Select sub-district' : 'Select district first'} options={subOpts} disabled={loading || !dist} />
         </div>
         <div>
           <label className={lbl}>Postal code</label>
@@ -179,7 +195,7 @@ export function composeAddress(a: ThaiAddress | null | undefined, lang: 'en' | '
     a.road ? `ถ.${a.road}` : '',
     a.subdistrict ? `${bkk ? 'แขวง' : 'ต.'}${a.subdistrict}` : '',
     a.district ? `${bkk ? 'เขต' : 'อ.'}${a.district}` : '',
-    a.province ? `จ.${a.province}` : '',
+    a.province ? (bkk ? a.province : `จ.${a.province}`) : '',
     a.postcode,
     a.country && a.country !== 'Thailand' ? a.country : '',
   ].filter(Boolean)

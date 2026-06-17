@@ -63,7 +63,7 @@ export function Header() {
     fetchNotifications()
 
     const channel = supabase
-      .channel('kaizen_notifications_header')
+      .channel(`kaizen_notifications_header_${profile.id}`)
       .on('postgres_changes', {
         event: '*',
         schema: 'public',
@@ -94,14 +94,16 @@ export function Header() {
 
   async function markRead(id: string) {
     const wasUnread = notifications.some((n) => n.id === id && !n.is_read)
-    await supabase.from('kaizen_notifications').update({ is_read: true }).eq('id', id)
+    const { error } = await supabase.from('kaizen_notifications').update({ is_read: true }).eq('id', id)
+    if (error) return
     setNotifications((prev) => prev.map((n) => n.id === id ? { ...n, is_read: true } : n))
     if (wasUnread) setUnreadCount((c) => { const next = Math.max(0, c - 1); syncBadge(next); return next })
   }
 
   async function markAllRead() {
     if (!profile) return
-    await supabase.from('kaizen_notifications').update({ is_read: true }).eq('user_id', profile.id)
+    const { error } = await supabase.from('kaizen_notifications').update({ is_read: true }).eq('user_id', profile.id)
+    if (error) return
     setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })))
     setUnreadCount(0)
     syncBadge(0)

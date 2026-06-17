@@ -42,12 +42,12 @@ const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 // ── Date helpers ─────────────────────────────────────────────────────────────
 function dayKey(d: Date) {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok' }).format(d)
 }
 function parseDateOnly(s: string) { return new Date(s.length <= 10 ? s + 'T00:00:00' : s) }
-function fmtTime(d: Date) { return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) }
+function fmtTime(d: Date) { return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bangkok' }) }
 function fmtLongDate(s: string) {
-  return parseDateOnly(s).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })
+  return parseDateOnly(s).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Bangkok' })
 }
 function money(n: number) { return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }
 
@@ -292,13 +292,14 @@ function AppointmentEditor({ call, companies, appt, onClose, onSaved }: {
 }) {
   const init = (() => {
     if (appt) {
+      const bkkFmt = (d: Date, opts: Intl.DateTimeFormatOptions) =>
+        new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Bangkok', ...opts }).format(d)
       const s = new Date(appt.start_at), e = appt.end_at ? new Date(appt.end_at) : null
-      const pad = (n: number) => String(n).padStart(2, '0')
       return {
         kind: appt.kind, title: appt.title, company_id: appt.company_id ?? '', status: appt.status,
-        date: `${s.getFullYear()}-${pad(s.getMonth() + 1)}-${pad(s.getDate())}`,
-        start: `${pad(s.getHours())}:${pad(s.getMinutes())}`,
-        end: e ? `${pad(e.getHours())}:${pad(e.getMinutes())}` : '',
+        date: new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok' }).format(s),
+        start: bkkFmt(s, { hour: '2-digit', minute: '2-digit', hour12: false }),
+        end: e ? bkkFmt(e, { hour: '2-digit', minute: '2-digit', hour12: false }) : '',
         all_day: appt.all_day, mode: appt.mode, location: appt.location ?? '',
         assignee: appt.assignee ?? '', contact_name: appt.contact_name ?? '', contact_phone: appt.contact_phone ?? '', notes: appt.notes ?? '',
       }
@@ -326,7 +327,8 @@ function AppointmentEditor({ call, companies, appt, onClose, onSaved }: {
   async function save() {
     if (!f.title.trim()) { setError('Please enter a title.'); return }
     if (!f.date) { setError('Please choose a date.'); return }
-    if (!f.all_day && f.start && f.end && f.end <= f.start) { setError('End time must be after the start time.'); return }
+    const resolvedStart = f.start || '00:00'
+    if (!f.all_day && f.end && f.end <= resolvedStart) { setError('End time must be after the start time.'); return }
     setBusy(true); setError('')
     try {
       // All-day events anchor to NOON Bangkok (explicit +07:00) rather than the creator's
@@ -334,8 +336,8 @@ function AppointmentEditor({ call, companies, appt, onClose, onSaved }: {
       // regardless of who created it or where they're viewing from.
       const start_at = f.all_day
         ? new Date(`${f.date}T12:00:00+07:00`).toISOString()
-        : new Date(`${f.date}T${f.start || '00:00'}`).toISOString()
-      const end_at = !f.all_day && f.end ? new Date(`${f.date}T${f.end}`).toISOString() : null
+        : new Date(`${f.date}T${f.start || '00:00'}:00+07:00`).toISOString()
+      const end_at = !f.all_day && f.end ? new Date(`${f.date}T${f.end}:00+07:00`).toISOString() : null
       const client = companies.find(c => c.id === f.company_id)
       await call('upsert_appointment', {
         appointment: {

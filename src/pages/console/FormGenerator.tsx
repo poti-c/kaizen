@@ -496,7 +496,20 @@ function FormEditor({ formType, companies, products, promos, existingForms, rese
 
   // After a document is confirmed & recorded, clear the line items (keep the
   // client selected for convenience).
-  useEffect(() => { if (resetSignal) { setItems([{ description: '', qty: 1, unit_price: 0 }]); setNotes('') } }, [resetSignal])
+  useEffect(() => {
+    if (resetSignal) {
+      setItems([{ description: '', qty: 1, unit_price: 0 }])
+      setNotes('')
+      setIssueDate(bangkokDate())
+      setDueDate('')
+      setVatRate('7')
+      setDiscountMode('promo')
+      setPromoId('')
+      setDiscountPctInput('')
+      setDiscountValInput('')
+      setStatus(STATUSES[formType][0])
+    }
+  }, [resetSignal])
 
   // Build a preview (nothing is saved yet) and hand it to the parent. The form
   // is only recorded once the admin confirms the preview.

@@ -1,18 +1,8 @@
-import { deptLabel } from '@/types'
+import { deptLabel, categoryLabel } from '@/types'
 import { formatDueBy } from '@/lib/utils'
 import { timelineActionLabel } from '@/lib/i18nDynamic'
 import type { KaizenCase, KaizenProfile, KaizenCaseTimeline, KaizenCasePhoto } from '@/types'
 
-export const CATEGORY_LABELS_EN: Record<string, string> = {
-  maintenance: 'Maintenance', cleanliness: 'Cleanliness', safety: 'Safety',
-  guest_complaint: 'Guest Complaint', equipment: 'Equipment', other: 'Other',
-  preventive_maintenance: 'Preventive Maintenance',
-}
-const CATEGORY_LABELS_TH: Record<string, string> = {
-  maintenance: 'งานซ่อมบำรุง', cleanliness: 'ความสะอาด', safety: 'ความปลอดภัย',
-  guest_complaint: 'ข้อร้องเรียนจากแขก', equipment: 'อุปกรณ์', other: 'อื่นๆ',
-  preventive_maintenance: 'บำรุงรักษาเชิงป้องกัน',
-}
 
 // Escape user-controlled values before interpolating into the print HTML. The result
 // is fed to a same-origin window via document.write(), so an unescaped case title /
@@ -57,7 +47,7 @@ export function buildCasePrintHtml(
     timeline: th ? 'ไทม์ไลน์' : 'Timeline',
     printed: th ? 'พิมพ์เมื่อ' : 'Printed',
   }
-  const catLabel = kcase.category ? ((th ? CATEGORY_LABELS_TH[kcase.category] : CATEGORY_LABELS_EN[kcase.category]) || kcase.category) : ''
+  const catLabel = kcase.category ? categoryLabel(kcase.category, lang) : ''
 
   return `
     <!DOCTYPE html>
@@ -101,7 +91,7 @@ export function buildCasePrintHtml(
         </div>
         <div class="meta">
           <div class="meta-item"><span class="meta-label">${L.department}</span><span class="meta-value">${esc(deptLabel(kcase.department, lang))}</span></div>
-          <div class="meta-item"><span class="meta-label">${L.created}</span><span class="meta-value">${new Date(kcase.created_at).toLocaleDateString(loc, { day: 'numeric', month: 'long', year: 'numeric' })}</span></div>
+          <div class="meta-item"><span class="meta-label">${L.created}</span><span class="meta-value">${new Intl.DateTimeFormat(loc, { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Bangkok' }).format(new Date(kcase.created_at))}</span></div>
           ${kcase.due_date ? `<div class="meta-item"><span class="meta-label">${L.dueDate}</span><span class="meta-value">${esc(formatDueBy(kcase.due_date, lang))}</span></div>` : ''}
           <div class="meta-item"><span class="meta-label">${L.reporter}</span><span class="meta-value">${esc((kcase.creator as KaizenProfile)?.full_name || L.unknown)}</span></div>
         </div>
@@ -149,7 +139,7 @@ export function buildCasePrintHtml(
             <div class="timeline-content">
               <p class="action">${esc(timelineActionLabel(e.action, lang))}</p>
               ${e.description ? `<p>${esc(e.description)}</p>` : ''}
-              <p class="time">${new Date(e.created_at).toLocaleString(loc)}</p>
+              <p class="time">${new Intl.DateTimeFormat(loc, { year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bangkok' }).format(new Date(e.created_at))}</p>
             </div>
           </div>
         `).join('')}
@@ -157,7 +147,7 @@ export function buildCasePrintHtml(
 
       <div class="footer">
         <span>${th ? 'เคส' : 'Case'} ${esc(kcase.case_number)} — ${L.brand}</span>
-        <span>${L.printed}: ${new Date().toLocaleString(loc)}</span>
+        <span>${L.printed}: ${new Intl.DateTimeFormat(loc, { year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bangkok' }).format(new Date())}</span>
       </div>
     </body>
     </html>

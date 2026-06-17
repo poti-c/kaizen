@@ -123,7 +123,7 @@ export function LoginPage() {
                   <button
                     key={r}
                     type="button"
-                    onClick={() => { setRole(r); setCompanyCode(''); setEmailOrUsername(''); setError('') }}
+                    onClick={() => { setRole(r); setCompanyCode(''); setEmailOrUsername(''); setPassword(''); setError('') }}
                     className={`py-1 px-2.5 rounded-lg text-xs font-medium border transition-all ${
                       role === r
                         ? 'border-[var(--brand-primary)] bg-[var(--brand-primary)] text-white'

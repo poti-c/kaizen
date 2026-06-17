@@ -49,7 +49,7 @@ async function verifySlip(proofDataUrl: string, expectAmount: number | null) {
     const bytes = Uint8Array.from(atob(m[2]), (c) => c.charCodeAt(0));
     const fd = new FormData();
     fd.append("files", new Blob([bytes], { type: m[1] }), "slip.jpg");
-    if (expectAmount) fd.append("amount", String(expectAmount));
+    if (expectAmount != null) fd.append("amount", String(expectAmount));
     const res = await fetch(`https://api.slipok.com/api/line/apikey/${branch}`, {
       method: "POST", headers: { "x-authorization": key }, body: fd,
     });
@@ -60,7 +60,7 @@ async function verifySlip(proofDataUrl: string, expectAmount: number | null) {
     if (!ok) return { verified: false };
     // If we know the expected price, the slip MUST carry a matching amount. A missing
     // amount or a mismatch is NOT auto-verifiable — fall through to manual review.
-    if (expectAmount) {
+    if (expectAmount != null) {
       if (!amount || Math.abs(amount - expectAmount) > 1) return { verified: false };
     }
     return { verified: true, amount };
@@ -85,7 +85,13 @@ Deno.serve(async (req) => {
   const { data: prof } = await admin.from("kaizen_profiles").select("role, company_id").eq("id", uid).maybeSingle();
   if (!prof || (prof.role !== "super_admin" && prof.role !== "manager")) return json({ error: "Not authorised" }, 403);
   const { data: linked } = await admin.from("kaizen_super_admin_companies").select("company_id").eq("super_admin_id", uid).eq("company_id", company_id).maybeSingle();
-  if (prof.company_id !== company_id && !linked) return json({ error: "Not authorised for this company" }, 403);
+  // super_admin: use the link table as sole authority — prof.company_id is their primary company,
+  // not their billing scope (super_admins can span multiple companies via the link table).
+  if (prof.role === "super_admin") {
+    if (!linked) return json({ error: "Not authorised for this company" }, 403);
+  } else {
+    if (prof.company_id !== company_id) return json({ error: "Not authorised for this company" }, 403);
+  }
 
   // The price is SERVER-authoritative — look it up from kaizen_products by key (works for
   // both 'subscription' packages and 'addon' keys). Never trust the client-declared amount.
@@ -93,7 +99,8 @@ Deno.serve(async (req) => {
   const expectedPrice = priceRow?.price != null ? Number(priceRow.price) : null;
   // Store the authoritative price when known, so submission/invoice records can't be
   // under-stated by the client.
-  const storedAmount = expectedPrice != null ? expectedPrice : amount;
+  const clientAmount = (typeof amount === "number" && isFinite(amount) && amount > 0) ? amount : null;
+  const storedAmount = expectedPrice != null ? expectedPrice : clientAmount;
 
   // Idempotency: the same slip (proof) must not create a second submission / duplicate
   // plan activation + invoice on retry or replay. Dedup on a hash of the proof.
@@ -102,6 +109,12 @@ Deno.serve(async (req) => {
     const { data: dup } = await admin.from("kaizen_payment_submissions")
       .select("id, status").eq("company_id", company_id).eq("proof_hash", proofHash).maybeSingle();
     if (dup) return json({ success: true, id: dup.id, status: dup.status, verified: dup.status === "approved", duplicate: true });
+  } else {
+    // Slip-free: dedup on (company_id, kind, target) with pending status to prevent repeated
+    // unverified submissions for the same purchase from reaching the approval queue multiple times.
+    const { data: pendingDup } = await admin.from("kaizen_payment_submissions")
+      .select("id, status").eq("company_id", company_id).eq("kind", kind).eq("target", target).eq("status", "pending").maybeSingle();
+    if (pendingDup) return json({ success: true, id: pendingDup.id, status: "pending", verified: false, duplicate: true });
   }
 
   const slip = await verifySlip(proof_url, expectedPrice);
@@ -144,9 +157,19 @@ Deno.serve(async (req) => {
       });
     } else {
       const { data: co } = await admin.from("kaizen_companies").select("addons").eq("id", company_id).maybeSingle();
-      const addons = (co?.addons && typeof co.addons === "object") ? co.addons : {};
-      addons[target] = true;
-      await admin.from("kaizen_companies").update({ addons }).eq("id", company_id);
+      const addons: Record<string, unknown> = (co?.addons && typeof co.addons === "object") ? { ...(co.addons as Record<string, unknown>) } : {};
+      if (!addons[target]) {
+        // Spread into a new object so the write always reflects the latest known state.
+        // A true atomic merge would require a DB function; for payment-submission frequency
+        // this conditional check eliminates the most common re-activation case.
+        addons[target] = true;
+        await admin.from("kaizen_companies").update({ addons }).eq("id", company_id);
+      }
+      await admin.from("kaizen_invoices").insert({
+        company_id, payee: target_label ?? target, amount: storedAmount, currency,
+        payment_date: bangkokDate(), period_start: bangkokDate(), period_end: bangkokDate(),
+        notes: "Auto-verified PromptPay payment (SlipOK) — addon",
+      });
     }
   }
 
