@@ -6,7 +6,7 @@ import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useCompany } from '@/contexts/CompanyContext'
 import { useLanguage } from '@/contexts/LanguageContext'
-import { cn, companyHasAddon, formatDueBy } from '@/lib/utils'
+import { cn, companyHasAddon, formatDueBy, bangkokDate } from '@/lib/utils'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import type { KaizenCase, Department, RrOrder } from '@/types'
 import { DEPARTMENTS, deptLabel } from '@/types'
@@ -22,7 +22,7 @@ const DAY_LABELS_EN = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun']
 const DAY_LABELS_TH = ['จ','อ','พ','พฤ','ศ','ส','อา']
 
 function isoKey(date: Date) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+  return bangkokDate(date)
 }
 
 type RoomOrderCal = { id: string; order_date: string; status: 'draft' | 'submitted'; submitted_by: string | null; room_statuses: Record<string, string> }
@@ -49,9 +49,11 @@ export function CasesCalendarPage() {
   const { lang, t } = useLanguage()
   const navigate = useNavigate()
   const today = new Date()
+  const _bkkNow = bangkokDate()
+  const [_bkkYear, _bkkMM] = _bkkNow.split('-').map(Number)
 
-  const [viewYear, setViewYear] = useState(today.getFullYear())
-  const [viewMonth, setViewMonth] = useState(today.getMonth())
+  const [viewYear, setViewYear] = useState(_bkkYear)
+  const [viewMonth, setViewMonth] = useState(_bkkMM - 1)
   const [cases, setCases] = useState<KaizenCase[]>([])
   const [dueCases, setDueCases] = useState<KaizenCase[]>([]) // open cases whose DUE DATE falls in this month
   const [pmTasks, setPmTasks] = useState<PMTask[]>([])
@@ -60,7 +62,7 @@ export function CasesCalendarPage() {
   const [rrRoomOrders, setRrRoomOrders] = useState<RoomOrderCal[]>([])
   const [roomUnit, setRoomUnit] = useState<UnitNoun>(DEFAULT_UNIT)
   const [loading, setLoading] = useState(true)
-  const [selectedKey, setSelectedKey] = useState<string>(isoKey(today))
+  const [selectedKey, setSelectedKey] = useState<string>(_bkkNow)
   const [deptFilter, setDeptFilter] = useState<Department | 'all'>(
     () => (localStorage.getItem('kaizen-default-dept') as Department | 'all') || 'all'
   )
@@ -176,7 +178,7 @@ export function CasesCalendarPage() {
 
   function prevMonth() { if (viewMonth === 0) { setViewMonth(11); setViewYear(y => y - 1) } else setViewMonth(m => m - 1) }
   function nextMonth() { if (viewMonth === 11) { setViewMonth(0); setViewYear(y => y + 1) } else setViewMonth(m => m + 1) }
-  function goToday() { setViewMonth(today.getMonth()); setViewYear(today.getFullYear()); setSelectedKey(isoKey(today)) }
+  function goToday() { const bkk = bangkokDate(); const [y, m] = bkk.split('-').map(Number); setViewMonth(m - 1); setViewYear(y); setSelectedKey(bkk) }
 
   const deptOk = (c: KaizenCase) => profile?.role === 'staff' || deptFilter === 'all' || c.department === deptFilter
   const filteredCases = cases.filter(deptOk)
@@ -227,7 +229,7 @@ export function CasesCalendarPage() {
   }
 
   function isToday(date: Date) {
-    return date.getDate() === today.getDate() && date.getMonth() === today.getMonth() && date.getFullYear() === today.getFullYear()
+    return bangkokDate(date) === bangkokDate()
   }
   function caseColor(c: KaizenCase) {
     if (c.status === 'closed') return 'bg-gray-200 text-gray-500'

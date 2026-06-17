@@ -57,7 +57,7 @@ export function PerformanceDetailPage() {
     setUser(u)
 
     const companyId = activeCompany?.id ?? u.company_id ?? ''
-    const since30 = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10)
+    const since30 = bangkokDate(new Date(Date.now() - 30 * 86400000))
 
     // Role-specific scoring caseload: managers are scored on their whole dept; others on their own work.
     const scoreCasesQuery = u.role === 'manager'

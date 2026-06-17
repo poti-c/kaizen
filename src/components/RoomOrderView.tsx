@@ -12,6 +12,7 @@ import type { RrItem } from '@/components/RRSettings'
 import type { RoomCategory, RoomType, Room } from '@/components/RoomSetupSettings'
 import { DEFAULT_UNIT, unitOne, unitMany, type UnitNoun } from '@/lib/roomUnit'
 import { resolveDeptRecipients } from '@/lib/rrNotify'
+import { bangkokDate } from '@/lib/utils'
 import type { RecipeLine, RoomRecipes, LineType } from '@/components/RoomRecipesSettings'
 import { ItemField } from '@/components/RoomRecipesSettings'
 
@@ -286,7 +287,7 @@ export function RoomOrderView({ companyId, initialDate, initialMode }: { company
     const cfg = await loadApprovalConfig(companyId)
     setRequireApproval(cfg.require)
     if (!canManage || !cfg.require) { setPendingApprovals(0); return }
-    const today = dateKey(new Date())
+    const today = bangkokDate()
     await escalateOverdueSpecials(companyId, today, cfg, lang)
     const { count } = await supabase.from('kaizen_rr_room_lines')
       .select('id', { count: 'exact', head: true })
@@ -346,7 +347,7 @@ function RoomOrderBuild({ companyId, unit, requireApproval, initialDate }: { com
   const one = unitOne(unit, lang)
   const many = unitMany(unit, lang)
 
-  const today = dateKey(new Date())
+  const today = bangkokDate()
   const [date, setDate] = useState(() => initialDate ?? shiftDate(today, 1)) // default: tomorrow (placed evening before)
 
   const [categories, setCategories] = useState<RoomCategory[]>([])
@@ -584,6 +585,7 @@ function RoomOrderBuild({ companyId, unit, requireApproval, initialDate }: { com
   }
 
   async function performSubmit(statuses: Record<string, RoomStatus>) {
+    if (!profile) { toast.error(lang === 'th' ? 'เซสชันหมดอายุ — กรุณาเข้าสู่ระบบใหม่' : 'Session expired — please sign in again'); return }
     const oid = await ensureOrder(); if (!oid) return
     setBusy(true)
     // Materialize defaults for any room not explicitly saved or statused.
@@ -596,10 +598,9 @@ function RoomOrderBuild({ companyId, unit, requireApproval, initialDate }: { com
     const wasSubmitted = orderStatus === 'submitted'
     const prevSubmittedAt = submittedAt // the previous submit time (for "what's new" on re-submit)
     const { error: e2 } = await supabase.from('kaizen_rr_room_orders')
-      .update({ status: 'submitted', submitted_by: profile!.id, submitted_at: new Date().toISOString() }).eq('id', oid)
-    setBusy(false)
-    if (e2) { toast.error(e2.message); return }
-    await logRoomEvent(companyId, oid, date, profile?.id, wasSubmitted ? 'resubmitted' : 'submitted', null)
+      .update({ status: 'submitted', submitted_by: profile.id, submitted_at: new Date().toISOString() }).eq('id', oid)
+    if (e2) { setBusy(false); toast.error(e2.message); return }
+    await logRoomEvent(companyId, oid, date, profile.id, wasSubmitted ? 'resubmitted' : 'submitted', null)
     // Alert managers if special requests are awaiting approval for this date.
     const { count } = await supabase.from('kaizen_rr_room_lines')
       .select('id', { count: 'exact', head: true })
@@ -614,7 +615,8 @@ function RoomOrderBuild({ companyId, unit, requireApproval, initialDate }: { com
     // Notify the fulfilling departments: on first submit, all of them; on a re-submit, only
     // departments that gained new lines since the previous submit (so edits still reach a
     // newly-involved department without re-blasting everyone).
-    await notifyFulfillers(companyId, oid, date, profile?.id, lang, wasSubmitted ? prevSubmittedAt : null)
+    await notifyFulfillers(companyId, oid, date, profile.id, lang, wasSubmitted ? prevSubmittedAt : null)
+    setBusy(false)
     toast.success(lang === 'th' ? 'ส่งใบสั่งห้องแล้ว' : 'Room order submitted')
     load()
   }
@@ -924,7 +926,7 @@ function RoomSheet({ room, cat, items, lang, unit, initial, initialStatus, busy,
   // Changing the room status re-applies the default active preset to every line.
   function applyStatus(s: RoomStatus) {
     setStatus(s)
-    setLines((prev) => prev.map((l) => ({ ...l, active: lineActiveFor(s, l.slot) })))
+    setLines((prev) => prev.map((l) => l.source === 'special' ? l : { ...l, active: lineActiveFor(s, l.slot) }))
   }
 
   const defaults = lines.filter((l) => l.source === 'default')
@@ -1087,7 +1089,7 @@ function RoomFulfilBoard({ companyId, dept, unit, initialDate }: { companyId: st
   const { profile } = useAuth()
   const { lang } = useLanguage()
   const one = unitOne(unit, lang)
-  const today = dateKey(new Date())
+  const today = bangkokDate()
   const [date, setDate] = useState(initialDate ?? today) // fulfil happens on the service date
   const [groupBy, setGroupBy] = useState<'item' | 'room'>('item')
   const [lines, setLines] = useState<FulfilLine[]>([])
@@ -1275,7 +1277,7 @@ interface SpecialLine {
 function RoomApprovalsView({ companyId, onChanged }: { companyId: string; onChanged: () => void }) {
   const { profile } = useAuth()
   const { lang } = useLanguage()
-  const today = dateKey(new Date())
+  const today = bangkokDate()
   const [date, setDate] = useState(today)
   const [cfg, setCfg] = useState<ApprovalConfig>(DEFAULT_APPROVAL)
   const [lines, setLines] = useState<SpecialLine[]>([])
