@@ -6,6 +6,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useLanguage } from '@/contexts/LanguageContext'
 import { toast } from 'sonner'
 import { type Department, getEffectiveDepts } from '@/types'
+import { bangkokDate } from '@/lib/utils'
 
 export interface PMTask {
   id: string; company_id: string; asset_id: string; due_date: string; status: string
@@ -16,8 +17,8 @@ export interface PMTask {
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const WEEKDAYS_TH = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส']
-function dayKey(d: Date) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` }
-function fmt(d: string) { return new Date(d + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }) }
+function dayKey(d: Date) { return bangkokDate(d) }
+function fmt(d: string) { return new Date(d + 'T00:00:00+07:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Bangkok' }) }
 
 export function taskTone(t: PMTask): { chip: string; dot: string; label: string } {
   if (t.status === 'done' || t.status === 'approved') return { chip: 'bg-green-100 text-green-700 border-green-200', dot: 'bg-green-500', label: 'Done' }
@@ -41,7 +42,7 @@ export function PMSchedule() {
   const { activeCompany } = useCompany()
   const { lang } = useLanguage()
   const companyId = activeCompany?.id ?? null
-  const [cursor, setCursor] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1) })
+  const [cursor, setCursor] = useState(() => { const bkk = bangkokDate(); return new Date(bkk.slice(0, 7) + '-01T12:00:00+07:00') })
   const [tasks, setTasks] = useState<PMTask[]>([])
   const [loading, setLoading] = useState(true)
   const [open, setOpen] = useState<PMTask | null>(null)
@@ -83,7 +84,7 @@ export function PMSchedule() {
         <h3 className="text-base font-bold text-gray-900">{monthTitle}</h3>
         <div className="flex items-center gap-1 bg-white border border-gray-200 rounded-lg p-0.5">
           <button onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1))} className="p-1.5 rounded-md text-gray-500 hover:bg-gray-100"><ChevronLeft className="h-4 w-4" /></button>
-          <button onClick={() => { const d = new Date(); setCursor(new Date(d.getFullYear(), d.getMonth(), 1)) }} className="px-2.5 h-7 text-xs font-medium text-gray-600 hover:bg-gray-100 rounded-md">{lang === 'th' ? 'วันนี้' : 'Today'}</button>
+          <button onClick={() => { const bkk = bangkokDate(); setCursor(new Date(bkk.slice(0, 7) + '-01T12:00:00+07:00')) }} className="px-2.5 h-7 text-xs font-medium text-gray-600 hover:bg-gray-100 rounded-md">{lang === 'th' ? 'วันนี้' : 'Today'}</button>
           <button onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1))} className="p-1.5 rounded-md text-gray-500 hover:bg-gray-100"><ChevronRight className="h-4 w-4" /></button>
         </div>
       </div>

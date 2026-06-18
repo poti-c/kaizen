@@ -398,7 +398,7 @@ function PmTaskListRow({ t, onOpen }: { t: PMTask; onOpen: () => void }) {
 
 function fmt(d: string | null) {
   if (!d) return '—'
-  return new Date(d + 'T00:00:00').toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+  return new Date(d + 'T00:00:00+07:00').toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Bangkok' })
 }
 
 // Summary tile: count + label. Inline on mobile (compact, 2 per row), stacked on sm+.

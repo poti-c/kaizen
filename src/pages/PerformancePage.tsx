@@ -6,7 +6,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useCompany } from '@/contexts/CompanyContext'
 import { useLanguage } from '@/contexts/LanguageContext'
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
-import { getInitials, isSLABreached, companyHasAddon } from '@/lib/utils'
+import { getInitials, isSLABreached, companyHasAddon, bangkokDate } from '@/lib/utils'
 import { loadPerfConfig, DEFAULT_PERF_CONFIG, type PerfConfig } from '@/lib/perfConfig'
 import { deptLabel } from '@/types'
 import type { KaizenCase, KaizenProfile, Department } from '@/types'
@@ -87,7 +87,7 @@ export function PerformancePage() {
     if (range === 'all') return cases
     const now = new Date()
     const cutoff = range === 'month'
-      ? new Date(now.getFullYear(), now.getMonth(), 1)
+      ? new Date(bangkokDate().slice(0, 7) + '-01T00:00:00+07:00')
       : new Date(now.getTime() - (range === '30d' ? 30 : 90) * 24 * 60 * 60 * 1000)
     return cases.filter((c) => new Date(c.created_at) >= cutoff)
   }, [cases, range])
@@ -253,7 +253,7 @@ export function PerformancePage() {
         <SummaryCard icon={Clock} color="purple" label={t.dashboard.avgResolution} value={fmtRes(summary.avgHours)} />
         <SummaryCard icon={AlertTriangle} color="red" label={t.dashboard.overdueSLA} value={String(summary.overdue)} danger={summary.overdue > 0} />
         {pmsEnabled && (() => {
-          const todayKey = new Date().toISOString().slice(0, 10)
+          const todayKey = bangkokDate()
           const pmOverdue = pmTasks.filter(t => (t.status === 'scheduled' || t.status === 'in_progress') && t.due_date < todayKey).length
           const pmDone = pmTasks.filter(t => t.status === 'done' || t.status === 'approved').length
           const pmOpen = pmTasks.filter(t => ['scheduled', 'in_progress', 'pending_approval'].includes(t.status)).length
