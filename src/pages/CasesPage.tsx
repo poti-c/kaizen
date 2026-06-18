@@ -851,10 +851,12 @@ export function CasesPage() {
                   count: advFilters.departments.length, advKey: 'departments' as const,
                   // Use the company's configured departments (custom depts store their LABEL
                   // as the value) so custom-dept cases can be filtered; fall back to built-ins.
+                  // top_management is excluded from case creation, so a case never
+                  // carries it — drop it from the filter on both branches.
                   options: (validDeptValues.length > 0
                     ? validDeptValues
-                    : DEPARTMENTS.filter(d => d.value !== 'top_management').map(d => d.value as string)
-                  ).map(val => ({
+                    : DEPARTMENTS.map(d => d.value as string)
+                  ).filter(val => val !== 'top_management').map(val => ({
                     value: val, label: deptLabel(val, lang),
                     checked: advFilters.departments.includes(val as Department),
                   })),

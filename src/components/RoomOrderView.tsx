@@ -61,10 +61,12 @@ function cutoffTs(servingAt: string | null, date: string, cfg: ApprovalConfig): 
   // 'before_serving' needs a serving time; when one isn't set, fall back to the clock
   // cutoff so the auto-release safety net still fires (otherwise the special could sit
   // pending forever and silently vanish from the fulfilling department's board).
+  // Anchor the wall-clock cutoff to Asia/Bangkok (+07:00) so it fires at the
+  // hotel's local time regardless of the viewer's device timezone.
   if (cfg.mode === 'before_serving' && servingAt) {
-    return new Date(`${date}T${servingAt}`).getTime() - cfg.hours_before * 3600_000
+    return new Date(`${date}T${servingAt}:00+07:00`).getTime() - cfg.hours_before * 3600_000
   }
-  return new Date(`${date}T${cfg.clock_time || '16:00'}`).getTime()
+  return new Date(`${date}T${(cfg.clock_time || '16:00')}:00+07:00`).getTime()
 }
 
 /** Notify the company's managers / super-admins (excluding the actor). */
@@ -122,7 +124,7 @@ async function logRoomEvent(companyId: string, orderId: string, date: string, ac
 interface RoomEvent { id: string; action: string; detail: string | null; created_at: string; actorName: string }
 
 function fmtEventTime(ts: string, lang: string): string {
-  return new Date(ts).toLocaleString(lang === 'th' ? 'th-TH' : 'en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
+  return new Date(ts).toLocaleString(lang === 'th' ? 'th-TH' : 'en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bangkok' })
 }
 /** Human phrase for a history event. */
 function eventLabel(e: RoomEvent, lang: string): string {
@@ -287,11 +289,18 @@ export function RoomOrderView({ companyId, initialDate, initialMode }: { company
     const cfg = await loadApprovalConfig(companyId)
     setRequireApproval(cfg.require)
     if (!canManage || !cfg.require) { setPendingApprovals(0); return }
+    // Orders are placed for tomorrow by default, and a 'before_serving' cutoff for
+    // tomorrow can lapse while it's still today — so escalate/count BOTH days, not
+    // just today, otherwise tomorrow's overdue specials never auto-release.
     const today = bangkokDate()
-    await escalateOverdueSpecials(companyId, today, cfg, lang)
+    const tomorrow = shiftDate(today, 1)
+    await Promise.all([
+      escalateOverdueSpecials(companyId, today, cfg, lang),
+      escalateOverdueSpecials(companyId, tomorrow, cfg, lang),
+    ])
     const { count } = await supabase.from('kaizen_rr_room_lines')
       .select('id', { count: 'exact', head: true })
-      .eq('company_id', companyId).eq('order_date', today).eq('source', 'special').eq('active', true).eq('approval_status', 'pending')
+      .eq('company_id', companyId).in('order_date', [today, tomorrow]).eq('source', 'special').eq('active', true).eq('approval_status', 'pending')
     setPendingApprovals(count ?? 0)
   }, [companyId, canManage, lang])
   useEffect(() => { refreshPending() }, [refreshPending])
@@ -456,7 +465,22 @@ function RoomOrderBuild({ companyId, unit, requireApproval, initialDate }: { com
     const { data, error } = await supabase.from('kaizen_rr_room_orders')
       .insert({ company_id: companyId, order_date: date, status: 'draft' })
       .select('id').single()
-    if (error) { toast.error(error.message); return null }
+    if (error) {
+      // Another writer created the order for this date concurrently (partial
+      // unique index, status <> 'cancelled'). Recover by reading their row
+      // instead of failing this user's save.
+      if ((error as { code?: string }).code === '23505') {
+        const { data: raced } = await supabase.from('kaizen_rr_room_orders')
+          .select('id, status').eq('company_id', companyId).eq('order_date', date)
+          .neq('status', 'cancelled').maybeSingle()
+        if (raced) {
+          const rx = raced as { id: string; status: 'draft' | 'submitted' }
+          setOrderId(rx.id); setOrderStatus(rx.status)
+          return rx.id
+        }
+      }
+      toast.error(error.message); return null
+    }
     setOrderId(data.id); setOrderStatus('draft')
     return data.id
   }
@@ -687,7 +711,7 @@ function RoomOrderBuild({ companyId, unit, requireApproval, initialDate }: { com
         <div className="flex items-center gap-2 rounded-xl border border-green-200 bg-green-50 px-4 py-2.5 text-sm text-green-800">
           <CheckCircle2 className="h-4 w-4 flex-shrink-0" />
           <span>
-            {lang === 'th' ? 'ส่งแล้ว' : 'Submitted'}{submittedByName ? (lang === 'th' ? ` โดย ${submittedByName}` : ` by ${submittedByName}`) : ''}{submittedAt ? ` · ${new Date(submittedAt).toLocaleString(lang === 'th' ? 'th-TH' : 'en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}` : ''}
+            {lang === 'th' ? 'ส่งแล้ว' : 'Submitted'}{submittedByName ? (lang === 'th' ? ` โดย ${submittedByName}` : ` by ${submittedByName}`) : ''}{submittedAt ? ` · ${new Date(submittedAt).toLocaleString(lang === 'th' ? 'th-TH' : 'en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bangkok' })}` : ''}
           </span>
           <span className="ml-auto text-[11px] text-green-700">{lang === 'th' ? 'แก้ไขแล้วกดส่งอีกครั้งได้' : 'Edit & re-submit anytime'}</span>
         </div>
@@ -1248,7 +1272,7 @@ function RoomFulfilBoard({ companyId, dept, unit, initialDate }: { companyId: st
                           )}
                           {done && l.delivered_by && (
                             <span className="block text-[11px] text-green-600 truncate">
-                              ✓ {names[l.delivered_by] ?? '—'}{l.delivered_at ? ` · ${new Date(l.delivered_at).toLocaleTimeString(lang === 'th' ? 'th-TH' : 'en-GB', { hour: '2-digit', minute: '2-digit' })}` : ''}
+                              ✓ {names[l.delivered_by] ?? '—'}{l.delivered_at ? ` · ${new Date(l.delivered_at).toLocaleTimeString(lang === 'th' ? 'th-TH' : 'en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bangkok' })}` : ''}
                             </span>
                           )}
                         </span>

@@ -94,7 +94,10 @@ export function PMReport({ companyName, onClose }: { companyName: string; onClos
   // ── All aggregations in one memo ───────────────────────────────────────────
   const data = useMemo(() => {
     const now = new Date()
-    const periodStartKey = keyOf(addMonths(now, -(period / 30)))
+    // `period` is a day count (30/90/180/365). Subtract days directly — the old
+    // addMonths(-(period/30)) truncated the fractional month, so 365 became an
+    // exact 12-month window instead of 365 days.
+    const periodStartKey = keyOf(new Date(now.getTime() - period * 86400000))
 
     // Current period headline
     const cur = computeMetric(tasks, periodStartKey, todayKey)
@@ -106,7 +109,7 @@ export function PMReport({ companyName, onClose }: { companyName: string; onClos
     const deltas = anchors.map(a => {
       const anchor = addMonths(now, -a.months)
       const anchorKey = keyOf(anchor)
-      const winStart = keyOf(addMonths(anchor, -(period / 30)))
+      const winStart = keyOf(new Date(anchor.getTime() - period * 86400000))
       return { label: a.label, metric: computeMetric(tasks, winStart, anchorKey) }
     })
 
@@ -122,7 +125,7 @@ export function PMReport({ companyName, onClose }: { companyName: string; onClos
     }).sort((a, b) => b.days - a.days)
 
     // Checklist fail tasks (within period, performed)
-    const periodPerformed = tasks.filter(t => t.performed_at && perfKey(t.performed_at) >= periodStartKey)
+    const periodPerformed = tasks.filter(t => t.performed_at && perfKey(t.performed_at) >= periodStartKey && perfKey(t.performed_at) <= todayKey)
     let passItems = 0, failItems = 0, naItems = 0, tasksWithFail = 0
     for (const t of periodPerformed) {
       let hasFail = false
@@ -184,7 +187,7 @@ export function PMReport({ companyName, onClose }: { companyName: string; onClos
     // Approval backlog
     const pendingApproval = tasks.filter(t => t.status === 'pending_approval').length
     const approvalWaits = tasks.filter(t => t.approved_at && t.performed_at)
-      .map(t => diffDays(t.approved_at!.slice(0, 10), t.performed_at!.slice(0, 10))).filter(d => d >= 0)
+      .map(t => diffDays(perfKey(t.approved_at!), perfKey(t.performed_at!))).filter(d => d >= 0)
     const avgApprovalWait = approvalWaits.length ? Math.round(approvalWaits.reduce((a, b) => a + b, 0) / approvalWaits.length) : 0
 
     // Completion by technician (within period)

@@ -55,6 +55,20 @@ function normUser(u) {
 function cleanStr(v) {
   return (v === null || v === undefined) ? null : String(v).trim() || null;
 }
+// Escape client-supplied values before embedding them in receipt-email HTML.
+function escapeHtml(v) {
+  return String(v ?? "")
+    .split("&").join("&amp;")
+    .split("<").join("&lt;")
+    .split(">").join("&gt;")
+    .split('"').join("&quot;")
+    .split("'").join("&#39;");
+}
+// Today's date (YYYY-MM-DD) in the hotel's timezone (Asia/Bangkok), so dates and
+// per-month document numbering follow the Thai business day, not UTC.
+function bangkokToday() {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+}
 
 async function sha256(str) {
   const d = await crypto.subtle.digest("SHA-256", enc.encode(str));
@@ -141,18 +155,20 @@ async function sendReceiptEmail(to, inv, co, settings) {
   const from = Deno.env.get("RESEND_FROM") || "Kaizen System <onboarding@resend.dev>";
   const issuer = settings?.company_name || "NNR-Solutions Co., Ltd.";
   const amount = inv.amount != null ? `${inv.currency || "THB"} ${Number(inv.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}` : "—";
+  // All values below are client-supplied (company/settings) — escape every one to
+  // prevent HTML/script injection in the delivered receipt email.
   const html = `
     <div style="font-family:system-ui,Arial,sans-serif;max-width:560px;margin:auto;color:#1f2937">
-      <h2 style="color:#4a3424">${issuer}</h2>
+      <h2 style="color:#4a3424">${escapeHtml(issuer)}</h2>
       <p>Receipt / Tax Invoice</p>
       <table style="width:100%;border-collapse:collapse;font-size:14px">
-        <tr><td style="padding:6px 0;color:#6b7280">Company</td><td style="text-align:right">${co?.name ?? ""}</td></tr>
-        <tr><td style="padding:6px 0;color:#6b7280">Payment date</td><td style="text-align:right">${inv.payment_date ?? ""}</td></tr>
-        <tr><td style="padding:6px 0;color:#6b7280">Covers</td><td style="text-align:right">${inv.period_start ?? ""} → ${inv.period_end ?? ""}</td></tr>
-        <tr><td style="padding:8px 0;border-top:1px solid #eee;font-weight:bold">Amount</td><td style="text-align:right;border-top:1px solid #eee;font-weight:bold">${amount}</td></tr>
+        <tr><td style="padding:6px 0;color:#6b7280">Company</td><td style="text-align:right">${escapeHtml(co?.name ?? "")}</td></tr>
+        <tr><td style="padding:6px 0;color:#6b7280">Payment date</td><td style="text-align:right">${escapeHtml(inv.payment_date ?? "")}</td></tr>
+        <tr><td style="padding:6px 0;color:#6b7280">Covers</td><td style="text-align:right">${escapeHtml(inv.period_start ?? "")} → ${escapeHtml(inv.period_end ?? "")}</td></tr>
+        <tr><td style="padding:8px 0;border-top:1px solid #eee;font-weight:bold">Amount</td><td style="text-align:right;border-top:1px solid #eee;font-weight:bold">${escapeHtml(amount)}</td></tr>
       </table>
-      ${settings?.tax_id ? `<p style="font-size:12px;color:#6b7280">Tax ID ${settings.tax_id}</p>` : ""}
-      <p style="font-size:12px;color:#9ca3af;margin-top:20px">Thank you for your business. If you have any questions about this receipt, please contact ${settings?.support_email || "support"}.</p>
+      ${settings?.tax_id ? `<p style="font-size:12px;color:#6b7280">Tax ID ${escapeHtml(settings.tax_id)}</p>` : ""}
+      <p style="font-size:12px;color:#9ca3af;margin-top:20px">Thank you for your business. If you have any questions about this receipt, please contact ${escapeHtml(settings?.support_email || "support")}.</p>
     </div>`;
   try {
     const res = await fetch("https://api.resend.com/emails", {
@@ -996,11 +1012,14 @@ Deno.serve(async (req) => {
       const pkg = await packageDefaults(sub.target);
       const durations = await planDurations();
       const term = Number(durations[sub.target]) || 365;
-      const pe = new Date(); pe.setUTCDate(pe.getUTCDate() + term);
-      const period_end = pe.toISOString().slice(0, 10);
-      const today = new Date().toISOString().slice(0, 10);
-      const { data: curCo } = await admin.from("kaizen_companies").select("plan").eq("id", sub.company_id).maybeSingle();
+      const today = bangkokToday();
+      const { data: curCo } = await admin.from("kaizen_companies").select("plan, subscription_end").eq("id", sub.company_id).maybeSingle();
       const fromPlan = curCo?.plan ?? null;
+      // Extend from the later of today or the existing (unexpired) term so an
+      // early renewal keeps its remaining days instead of resetting to today+term.
+      const baseEnd = (curCo?.subscription_end && curCo.subscription_end > today) ? curCo.subscription_end : today;
+      const pe = new Date(baseEnd + "T00:00:00Z"); pe.setUTCDate(pe.getUTCDate() + term);
+      const period_end = pe.toISOString().slice(0, 10);
       await admin.from("kaizen_companies").update({
         plan: sub.target, subscription_end: period_end,
         max_super_admins: pkg?.max_super_admins ?? null,
@@ -1043,7 +1062,7 @@ Deno.serve(async (req) => {
     const pd = new Date(payment_date + "T00:00:00Z");
     if (isNaN(pd.getTime())) return json({ error: "Invalid payment date." }, 400);
     // Subscription term = current plan's duration_days (default 365).
-    const { data: co } = await admin.from("kaizen_companies").select("plan").eq("id", company_id).maybeSingle();
+    const { data: co } = await admin.from("kaizen_companies").select("plan, subscription_end").eq("id", company_id).maybeSingle();
     const durations = await planDurations();
     const term = Number(durations[co?.plan]) || 365;
     const pe = new Date(pd); pe.setUTCDate(pe.getUTCDate() + term);
@@ -1066,8 +1085,12 @@ Deno.serve(async (req) => {
       company_id, payee, amount, currency, payment_date, period_start: payment_date, period_end, proof_path, notes,
     });
     if (error) return json({ error: error.message }, 400);
-    // Denormalise the latest period end onto the company for the app countdown.
-    await admin.from("kaizen_companies").update({ subscription_end: period_end }).eq("id", company_id);
+    // Denormalise the LATEST period end onto the company for the app countdown.
+    // A back-dated invoice must not clobber a later end date (list_invoices uses
+    // MAX(period_end), so an unconditional write would drift the two views apart).
+    if (!co?.subscription_end || period_end > co.subscription_end) {
+      await admin.from("kaizen_companies").update({ subscription_end: period_end }).eq("id", company_id);
+    }
     await audit("add_invoice", { company_id, payment_date, amount }, ip, true);
     return json({ success: true, period_end });
   }
@@ -1288,24 +1311,33 @@ Deno.serve(async (req) => {
     const vat_amount = Math.round(net * (vat_rate / 100) * 100) / 100;
     const total = Math.round((net + vat_amount + non_vat_amount) * 100) / 100;
 
-    const issue_date = String(body.issue_date || new Date().toISOString().slice(0, 10));
+    // Default to the Bangkok business day so the date AND the per-month counter
+    // don't roll back to the previous day/month during 00:00–07:00 ICT.
+    const issue_date = String(body.issue_date || bangkokToday());
     // Numbering: CODE + year + "-" + month + 3-digit counter that resets each
     // month, e.g. INV2026-06001 (1st invoice in June 2026).
     const year = issue_date.slice(0, 4);
     const month = issue_date.slice(5, 7);
     const prefix = FORM_PREFIX[form_type];
-    // Use the highest existing suffix (not a row count) so deleting a form never causes a
-    // later form to reuse its number. Suffix is zero-padded 3-digit, so lexical desc == numeric desc.
-    const { data: last } = await admin.from("kaizen_generated_forms")
-      .select("doc_number")
-      .eq("form_type", form_type)
-      .like("doc_number", `${prefix}${year}-${month}%`)
-      .order("doc_number", { ascending: false }).limit(1).maybeSingle();
-    const lastSeq = last?.doc_number ? (parseInt(String(last.doc_number).slice(-3), 10) || 0) : 0;
-    const doc_number = `${prefix}${year}-${month}${String(lastSeq + 1).padStart(3, "0")}`;
+    const seqPrefix = `${prefix}${year}-${month}`;
+    // Compute the next sequence from the highest existing suffix (not a row count)
+    // so deleting a form never causes a later form to reuse its number. Parse ALL
+    // trailing digits after the month so counts above 999 keep incrementing.
+    const nextDocNumber = async () => {
+      const { data: rows } = await admin.from("kaizen_generated_forms")
+        .select("doc_number")
+        .eq("form_type", form_type)
+        .like("doc_number", `${seqPrefix}%`);
+      let maxSeq = 0;
+      for (const r of (rows ?? [])) {
+        const n = parseInt(String(r.doc_number).slice(seqPrefix.length), 10);
+        if (Number.isFinite(n) && n > maxSeq) maxSeq = n;
+      }
+      return `${seqPrefix}${String(maxSeq + 1).padStart(3, "0")}`;
+    };
 
-    const row = {
-      form_type, doc_number,
+    const baseRow = {
+      form_type,
       company_id: cleanStr(body.company_id),
       client_name: cleanStr(body.client_name),
       client_address: cleanStr(body.client_address),
@@ -1323,9 +1355,19 @@ Deno.serve(async (req) => {
       notes: cleanStr(body.notes),
       status: cleanStr(body.status) ?? "draft",
     };
-    const { data: inserted, error } = await admin.from("kaizen_generated_forms").insert(row).select("*").single();
-    if (error) return json({ error: error.message }, 400);
-    await audit("create_form", { form_type, doc_number, company_id: row.company_id, total }, ip, true);
+    // Retry on a unique-violation (23505) so two near-simultaneous create_form
+    // requests converge on distinct numbers instead of issuing a duplicate.
+    let inserted = null, lastErr = null, doc_number = "";
+    for (let attempt = 0; attempt < 5; attempt++) {
+      doc_number = await nextDocNumber();
+      const { data, error } = await admin.from("kaizen_generated_forms")
+        .insert({ ...baseRow, doc_number }).select("*").single();
+      if (!error) { inserted = data; lastErr = null; break; }
+      lastErr = error;
+      if (error.code !== "23505") break; // not a numbering collision — surface it
+    }
+    if (!inserted) return json({ error: lastErr?.message ?? "Could not allocate a document number, please retry." }, 400);
+    await audit("create_form", { form_type, doc_number, company_id: baseRow.company_id, total }, ip, true);
     return json({ success: true, form: inserted });
   }
 

@@ -33,6 +33,7 @@ export function PerformanceDetailPage() {
   const [cases, setCases] = useState<KaizenCase[]>([])            // their reported cases (KPI cards + list)
   const [scoreCases, setScoreCases] = useState<KaizenCase[]>([])  // scoring caseload (staff: own; manager: dept)
   const [reopenedIds, setReopenedIds] = useState<Set<string>>(new Set())  // scoring-caseload case ids EVER reopened (durable, from timeline)
+  const [resolvedAtMap, setResolvedAtMap] = useState<Map<string, string>>(new Map())  // case id -> latest 'resolved' timestamp (durable; survives reopen clearing resolved_at)
   const [activity, setActivity] = useState<(KaizenCaseTimeline & { case_number?: string; case_title?: string })[]>([])
   const [activeDays, setActiveDays] = useState(0)                 // distinct active days in last 30
   const [cfg, setCfg] = useState<PerfConfig>(DEFAULT_PERF_CONFIG) // configurable indicator weights
@@ -84,8 +85,21 @@ export function PerformanceDetailPage() {
       const { data: ro } = await supabase
         .from('kaizen_case_timeline').select('case_id').eq('action', 'reopened').in('case_id', scIds)
       setReopenedIds(new Set((ro || []).map((r: any) => r.case_id as string)))
+      // Durable resolution timestamps from the timeline. A reopen clears
+      // kaizen_cases.resolved_at, so a case this manager approved that was later
+      // reopened would otherwise vanish from the approval-speed metric. Keep the
+      // latest 'resolved' event time per case as a fallback.
+      const { data: resEv } = await supabase
+        .from('kaizen_case_timeline').select('case_id, created_at').eq('action', 'resolved').in('case_id', scIds)
+      const rmap = new Map<string, string>()
+      for (const e of (resEv || []) as { case_id: string; created_at: string }[]) {
+        const prev = rmap.get(e.case_id)
+        if (!prev || e.created_at > prev) rmap.set(e.case_id, e.created_at)
+      }
+      setResolvedAtMap(rmap)
     } else {
       setReopenedIds(new Set())
+      setResolvedAtMap(new Map())
     }
 
     // ── Configurable scoring: load weights + optional PMS / RR reliability ──
@@ -111,14 +125,16 @@ export function PerformanceDetailPage() {
           .or(`performed_by.eq.${userId},assigned_to.eq.${userId}`)
         pmRows = (data || []) as typeof pmRows
       }
-      const relevant = pmRows.filter(r => r.status !== 'cancelled')
-      if (relevant.length) {
-        const onTimeDone = relevant.filter(r =>
-          (r.status === 'done' || r.status === 'approved') &&
-          r.performed_at != null &&
-          bangkokDate(new Date(r.performed_at)) <= r.due_date  // due_date is a Bangkok-local date; compare in the same TZ (not UTC slice)
+      // Only judge tasks that have actually been completed — counting not-yet-done
+      // tasks as failures would deflate the score for anyone with open work.
+      const completed = pmRows.filter(r =>
+        (r.status === 'done' || r.status === 'approved') && r.performed_at != null
+      )
+      if (completed.length) {
+        const onTimeDone = completed.filter(r =>
+          bangkokDate(new Date(r.performed_at!)) <= r.due_date  // due_date is a Bangkok-local date; compare in the same TZ (not UTC slice)
         ).length
-        setPmsValue(Math.round((onTimeDone / relevant.length) * 100))
+        setPmsValue(Math.round((onTimeDone / completed.length) * 100))
       } else {
         setPmsValue(null)
       }
@@ -148,13 +164,18 @@ export function PerformanceDetailPage() {
           .or(`sent_by.eq.${userId},accepted_by.eq.${userId},delivered_by.eq.${userId},confirmed_by.eq.${userId}`)
         rrRows = (data || []) as typeof rrRows
       }
-      if (rrRows.length) {
-        const onTime = rrRows.filter(r => {
-          if (r.status !== 'delivered' && r.status !== 'confirmed') return false
-          const ts = r.confirmed_at ?? r.delivered_at
-          return !!r.due_at && !!ts && new Date(ts).getTime() <= new Date(r.due_at).getTime()
+      // Denominator = only orders that reached a fulfilled state with a due time
+      // (the population that can be judged on-time vs late). In-flight orders and
+      // delivered-without-due rows can't be late, so they must not count as misses.
+      const judged = rrRows.filter(r =>
+        (r.status === 'delivered' || r.status === 'confirmed') && !!r.due_at && !!(r.confirmed_at ?? r.delivered_at)
+      )
+      if (judged.length) {
+        const onTime = judged.filter(r => {
+          const ts = (r.confirmed_at ?? r.delivered_at)!
+          return new Date(ts).getTime() <= new Date(r.due_at!).getTime()
         }).length
-        setRrValue(Math.round((onTime / rrRows.length) * 100))
+        setRrValue(Math.round((onTime / judged.length) * 100))
       } else {
         setRrValue(null)
       }
@@ -180,16 +201,18 @@ export function PerformanceDetailPage() {
     return `${Math.floor(h / 24)}d ${Math.round(h % 24)}h`
   }
 
-  const now = new Date()
-  const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1)
-  const casesThisMonth = cases.filter((c) => new Date(c.created_at) >= thisMonthStart).length
+  // Anchor "now" to the Bangkok calendar so month bucketing matches the hotel's
+  // timezone for every viewer (cases bucket by bangkokDate(created_at) below).
+  const [bkkY, bkkM] = bangkokDate().split('-').map(Number) // bkkM is 1-based
+  const thisMonthKey = `${bkkY}-${String(bkkM).padStart(2, '0')}`
+  const casesThisMonth = cases.filter((c) => bangkokDate(new Date(c.created_at)).slice(0, 7) === thisMonthKey).length
 
-  // Key buckets by YEAR-month so same-month cases from prior years don't pile into the
-  // visible bucket (cases is fetched all-time). The display label stays the month name.
-  const ym = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+  // Key buckets by YEAR-month (Bangkok) so same-month cases from prior years don't pile
+  // into the visible bucket (cases is fetched all-time). Display label stays the month name.
+  const ym = (d: Date) => bangkokDate(d).slice(0, 7)
   const months = Array.from({ length: 6 }, (_, i) => {
-    const d = new Date(now.getFullYear(), now.getMonth() - 5 + i, 1)
-    return { key: ym(d), label: MONTH_SHORT[d.getMonth()] }
+    const d = new Date(bkkY, bkkM - 1 - 5 + i, 1)
+    return { key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`, label: MONTH_SHORT[d.getMonth()] }
   })
   const monthMap: Record<string, number> = {}
   months.forEach(({ key }) => { monthMap[key] = 0 })
@@ -323,9 +346,13 @@ export function PerformanceDetailPage() {
         let criteria: Crit[]
 
         if (user.role === 'manager') {
-          const approved = sc.filter(c => c.manager_approved_by === userId && c.resolved_at && c.manager_approved_at)
+          // Use a durable resolution timestamp (case row, else the timeline) so a
+          // case this manager approved still counts after it was reopened (which
+          // clears resolved_at). Without this the approval sample silently shrinks.
+          const resolvedTs = (c: KaizenCase) => c.resolved_at ?? resolvedAtMap.get(c.id) ?? null
+          const approved = sc.filter(c => c.manager_approved_by === userId && c.manager_approved_at && resolvedTs(c))
           const avgApprovalH = approved.length
-            ? approved.reduce((s, c) => s + differenceInHours(new Date(c.manager_approved_at!), new Date(c.resolved_at!)), 0) / approved.length
+            ? approved.reduce((s, c) => s + differenceInHours(new Date(c.manager_approved_at!), new Date(resolvedTs(c)!)), 0) / approved.length
             : null
           const approvalScore = avgApprovalH == null ? null : avgApprovalH <= 24 ? 100 : Math.max(0, Math.round((24 / avgApprovalH) * 100))
           const teamTotal = sc.length

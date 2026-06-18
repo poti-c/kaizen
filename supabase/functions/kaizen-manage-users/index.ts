@@ -17,6 +17,13 @@ function normUser(u: string): string {
   return String(u || "").trim().toLowerCase().split(" ").filter(Boolean).join(".");
 }
 
+// Built-in department slugs (mirror of DEPARTMENTS in src/types). Custom
+// departments are stored as their LABEL in kaizen_settings.custom_departments.
+const BUILTIN_DEPT_SLUGS = new Set([
+  "top_management", "front_office", "sales_team", "house_keeping",
+  "human_resource", "engineering_team", "restaurant", "kitchen", "accounting",
+]);
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
@@ -106,6 +113,42 @@ serve(async (req) => {
     return normUser(username) + "@" + code + ".staff.kaizen.internal";
   }
 
+  // Enforce a company's package seat limit for a role. Returns an error message
+  // when adding/activating/promoting one more user of `role` would exceed the cap,
+  // else null. `excludeUserId` omits the target from the count (e.g. a role change
+  // where the user is already counted under their old role). Used by create,
+  // set_active (reactivate) and update_profile (role change) so the cap can't be
+  // bypassed by suspending+reactivating or by promoting existing staff.
+  async function roleLimitError(companyId: string | null, role: string, excludeUserId?: string): Promise<string | null> {
+    if (!companyId || !(role === "super_admin" || role === "manager" || role === "staff")) return null;
+    const { data: co } = await supabaseAdmin.from("kaizen_companies").select("max_super_admins, max_managers, max_staff").eq("id", companyId).maybeSingle();
+    const limit = role === "super_admin" ? co?.max_super_admins : role === "manager" ? co?.max_managers : co?.max_staff;
+    if (limit === null || limit === undefined) return null;
+    let q = supabaseAdmin.from("kaizen_profiles")
+      .select("id", { count: "exact", head: true })
+      .eq("company_id", companyId).eq("role", role).eq("is_active", true).is("deleted_at", null);
+    if (excludeUserId) q = q.neq("id", excludeUserId);
+    const { count } = await q;
+    if ((count ?? 0) >= limit) {
+      const noun = role === "super_admin" ? "Top Management account(s)" : role === "manager" ? "managers" : "staff";
+      return `Your plan allows up to ${limit} ${noun}. Upgrade the package to add more.`;
+    }
+    return null;
+  }
+
+  // Validate that a department is real for a company: a built-in slug, or a custom
+  // LABEL present in that company's kaizen_settings.custom_departments. Prevents
+  // orphaning a user under a typo'd/foreign department that no case query matches.
+  async function isValidDepartment(companyId: string | null, department: string): Promise<boolean> {
+    if (!department) return false;
+    if (BUILTIN_DEPT_SLUGS.has(department)) return true;
+    if (!companyId) return false;
+    const { data } = await supabaseAdmin.from("kaizen_settings").select("value")
+      .eq("company_id", companyId).eq("key", "custom_departments").maybeSingle();
+    const labels = Array.isArray(data?.value) ? (data!.value as string[]) : [];
+    return labels.includes(department);
+  }
+
   // ── CREATE ──────────────────────────────────────────────────────────────────
   if (action === "create") {
     const { role, full_name, position, username, email, department, password, company_id } = body;
@@ -134,19 +177,19 @@ serve(async (req) => {
       }
     }
 
+    // Validate the department actually belongs to the target company (managers are
+    // already gated to their own depts above; this covers super_admin and typos).
+    const createCompany = company_id ?? callerCompany;
+    if (!(await isValidDepartment(createCompany, department))) {
+      return json({ error: "That department does not exist for this company." }, 400);
+    }
+
     // Enforce the company package's user limits (Top Management / managers / staff).
     const limitCompany = company_id ?? callerCompany;
     if ((role === "super_admin" || role === "manager" || role === "staff") && limitCompany) {
-      const { data: co } = await supabaseAdmin.from("kaizen_companies").select("max_super_admins, max_managers, max_staff").eq("id", limitCompany).maybeSingle();
-      const limit = role === "super_admin" ? co?.max_super_admins : role === "manager" ? co?.max_managers : co?.max_staff;
-      if (limit !== null && limit !== undefined) {
-        const { count } = await supabaseAdmin.from("kaizen_profiles")
-          .select("id", { count: "exact", head: true })
-          .eq("company_id", limitCompany).eq("role", role).eq("is_active", true).is("deleted_at", null);
-        if ((count ?? 0) >= limit) {
-          const noun = role === "super_admin" ? "Top Management account(s)" : role === "manager" ? "managers" : "staff";
-          return json({ error: `Your plan allows up to ${limit} ${noun}. Upgrade the package to add more.` }, 400);
-        }
+      const limitErr = await roleLimitError(limitCompany, role);
+      if (limitErr) {
+        return json({ error: limitErr }, 400);
       }
     }
 
@@ -235,6 +278,13 @@ serve(async (req) => {
     if (userId === user.id) return json({ error: "Cannot change your own status" }, 400);
     const check = await assertCanManage(userId);
     if (!check.ok) return json({ error: check.error }, 403);
+    // Reactivating consumes a seat — re-check the plan cap (the count basis is
+    // is_active=true, so a suspended user is "free"; without this a company could
+    // suspend, create a replacement, then reactivate to exceed the limit).
+    if (is_active && check.target) {
+      const limitErr = await roleLimitError(check.target.company_id, check.target.role, userId);
+      if (limitErr) return json({ error: limitErr }, 400);
+    }
     const { error: updErr } = await supabaseAdmin.from("kaizen_profiles").update({ is_active }).eq("id", userId);
     if (updErr) return json({ error: updErr.message }, 400);
     // Revoke (or restore) the auth session so a SUSPENDED user can't keep using a
@@ -266,8 +316,22 @@ serve(async (req) => {
       must_change_password: updates.must_change_password,
     };
     if (callerRole === "super_admin") {
-      if (updates.department !== undefined) allowed.department = updates.department;
-      if (updates.role !== undefined) allowed.role = updates.role;
+      if (updates.department !== undefined) {
+        // Don't let an edit orphan the user under a department the company doesn't have.
+        if (!(await isValidDepartment(target.company_id, updates.department))) {
+          return json({ error: "That department does not exist for this company." }, 400);
+        }
+        allowed.department = updates.department;
+      }
+      if (updates.role !== undefined) {
+        // Promoting into a capped role must respect the plan limit, just like create
+        // (exclude the target since they already occupy a seat under their old role).
+        if (updates.role !== target.role) {
+          const limitErr = await roleLimitError(target.company_id, updates.role, userId);
+          if (limitErr) return json({ error: limitErr }, 400);
+        }
+        allowed.role = updates.role;
+      }
     }
     // Store the login email on the profile for managers/admins.
     if (finalRole !== "staff" && emailIn) allowed.email = emailIn;
@@ -350,9 +414,12 @@ serve(async (req) => {
         await supabaseAdmin.from("kaizen_notifications").insert({
           user_id: mgr.id,
           case_id: c.id,
+          // English fallback for older clients; localized via title_key/body_params.
           title: "Auto-assigned as In Charge",
           message: `A removed team member left case ${c.case_number} without an owner — you have been assigned as In Charge. You can reassign it anytime.`,
           notification_type: "assignment",
+          title_key: "case_auto_pic",
+          body_params: { caseNo: c.case_number },
         });
       } else {
         // No active manager for that department → leave it unassigned.

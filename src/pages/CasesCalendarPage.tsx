@@ -113,7 +113,15 @@ export function CasesCalendarPage() {
     if (!activeCompany) return
     setLoading(true)
     const start = new Date(viewYear, viewMonth, 1)
-    const end = new Date(viewYear, viewMonth + 1, 0, 23, 59, 59)
+    // Bangkok-aligned instant window [monthStart, nextMonthStart) for the case
+    // queries below. The grid buckets each case by bangkokDate(created_at/due_date),
+    // so the fetch window must use the same Bangkok day boundaries — local-TZ
+    // .toISOString() edges drop/leak boundary cases on non-Bangkok clients.
+    const pad2 = (n: number) => String(n).padStart(2, '0')
+    const nextY = viewMonth === 11 ? viewYear + 1 : viewYear
+    const nextM = viewMonth === 11 ? 0 : viewMonth + 1
+    const bkkStartIso = `${viewYear}-${pad2(viewMonth + 1)}-01T00:00:00+07:00`
+    const bkkEndIso = `${nextY}-${pad2(nextM + 1)}-01T00:00:00+07:00` // exclusive
     const jobs: PromiseLike<unknown>[] = []
 
     if (showCaseData) {
@@ -124,7 +132,7 @@ export function CasesCalendarPage() {
         ? `department.eq."${profile.department.replace(/"/g, '\\"')}",pic_ids.cs.{${profile.id}}`
         : null
       let q = supabase.from('kaizen_cases').select('*').eq('company_id', activeCompany.id)
-        .gte('created_at', start.toISOString()).lte('created_at', end.toISOString())
+        .gte('created_at', bkkStartIso).lt('created_at', bkkEndIso)
       if (staffScope) q = q.or(staffScope)
       jobs.push(q.then(({ data }) => setCases((data || []) as KaizenCase[])))
 
@@ -132,7 +140,7 @@ export function CasesCalendarPage() {
       // been created in an earlier month, so this is a separate query from the one above).
       let dq = supabase.from('kaizen_cases').select('*').eq('company_id', activeCompany.id)
         .not('due_date', 'is', null).neq('status', 'closed')
-        .gte('due_date', start.toISOString()).lte('due_date', end.toISOString())
+        .gte('due_date', bkkStartIso).lt('due_date', bkkEndIso)
       if (staffScope) dq = dq.or(staffScope)
       jobs.push(dq.then(({ data }) => setDueCases((data || []) as KaizenCase[])))
     } else { setCases([]); setDueCases([]) }

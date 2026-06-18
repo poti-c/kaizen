@@ -122,7 +122,7 @@ export function CreateCasePage() {
       if (error) throw error
 
       if (photoUrls.length > 0) {
-        await supabase.from('kaizen_case_photos').insert(
+        const { error: photoErr } = await supabase.from('kaizen_case_photos').insert(
           photoUrls.map((url) => ({
             case_id: newCase.id,
             photo_url: url,
@@ -130,14 +130,23 @@ export function CreateCasePage() {
             uploaded_by: profile.id,
           }))
         )
+        // The case row already committed — don't fail the whole submit, but make the
+        // lost evidence visible instead of silently dropping the reporter's photos.
+        if (photoErr) {
+          console.error('case photo insert failed', photoErr)
+          toast.error(lang === 'th'
+            ? 'สร้างเคสแล้ว แต่แนบรูปภาพไม่สำเร็จ — กรุณาเพิ่มรูปอีกครั้งในหน้าเคส'
+            : 'Case created, but attaching photos failed — please re-add them on the case page.')
+        }
       }
 
-      await supabase.from('kaizen_case_timeline').insert({
+      const { error: timelineErr } = await supabase.from('kaizen_case_timeline').insert({
         case_id: newCase.id,
         action: 'case_created',
         description: `Case created by ${profile.full_name}`,
         performed_by: profile.id,
       })
+      if (timelineErr) console.error('case timeline insert failed', timelineErr)
 
       const { data: managers } = await supabase
         .from('kaizen_profiles')
@@ -148,7 +157,7 @@ export function CreateCasePage() {
         .eq('is_active', true)
 
       if (managers && managers.length > 0) {
-        await supabase.from('kaizen_notifications').insert(
+        const { error: mgrNotifErr } = await supabase.from('kaizen_notifications').insert(
           managers.map((m: { id: string }) => ({
             user_id: m.id,
             case_id: newCase.id,
@@ -159,6 +168,7 @@ export function CreateCasePage() {
             body_params: { reporter: profile.full_name, title: title.trim(), caseNo: caseNumber },
           }))
         )
+        if (mgrNotifErr) console.error('manager notification insert failed', mgrNotifErr)
       }
 
       const { data: admins } = await supabase
@@ -169,7 +179,7 @@ export function CreateCasePage() {
         .eq('is_active', true)
 
       if (admins && admins.length > 0) {
-        await supabase.from('kaizen_notifications').insert(
+        const { error: adminNotifErr } = await supabase.from('kaizen_notifications').insert(
           admins.map((a: { id: string }) => ({
             user_id: a.id,
             case_id: newCase.id,
@@ -180,6 +190,7 @@ export function CreateCasePage() {
             body_params: { reporter: profile.full_name, title: title.trim(), caseNo: caseNumber },
           }))
         )
+        if (adminNotifErr) console.error('admin notification insert failed', adminNotifErr)
       }
 
       toast.success(t.createCase.created(caseNumber))
@@ -262,10 +273,17 @@ export function CreateCasePage() {
                   <SelectValue placeholder={t.createCase.selectCategory} />
                 </SelectTrigger>
                 <SelectContent>
-                  {(companyHasAddon(activeCompany, 'pms') && !customCategories.some(c => c.slug === 'preventive_maintenance')
-                    ? [...customCategories, { slug: 'preventive_maintenance', label: 'Preventive Maintenance' }]
-                    : customCategories
-                  ).map(({ slug, label }) => (
+                  {(() => {
+                    let list = customCategories
+                    if (companyHasAddon(activeCompany, 'pms') && !list.some(c => c.slug === 'preventive_maintenance')) {
+                      list = [...list, { slug: 'preventive_maintenance', label: 'Preventive Maintenance' }]
+                    }
+                    // Always offer the free-text catch-all, even if a company removed
+                    // 'Other' from its custom list — otherwise the Specify field below
+                    // (gated on slug 'other') becomes unreachable.
+                    if (!list.some(c => c.slug === 'other')) list = [...list, { slug: 'other', label: 'Other' }]
+                    return list
+                  })().map(({ slug, label }) => (
                     // Built-in categories localize via the dict; company-custom ones keep their stored label.
                     <SelectItem key={slug} value={slug}>{slug in CATEGORY_LABELS_EN ? categoryLabel(slug, lang) : label}</SelectItem>
                   ))}
@@ -280,7 +298,10 @@ export function CreateCasePage() {
                   <SelectValue placeholder={lang === 'th' ? 'เลือกสถานที่' : 'Select location'} />
                 </SelectTrigger>
                 <SelectContent className="max-h-72">
-                  {customLocations.map((l) => (
+                  {/* Always offer 'Others' so the Specify Location field (gated on
+                      the literal 'Others') stays reachable even if a company's
+                      custom_locations list omits it. */}
+                  {(customLocations.some(l => l === 'Others') ? customLocations : [...customLocations, 'Others']).map((l) => (
                     <SelectItem key={l} value={l}>{l}</SelectItem>
                   ))}
                 </SelectContent>
