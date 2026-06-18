@@ -42,7 +42,7 @@ function itemFor(tpl: RrTemplate, date: string): string | null {
 }
 function fmtTime(ts: string | null): string {
   if (!ts) return ''
-  return new Date(ts).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+  return new Date(ts).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bangkok' })
 }
 /** "HH:MM" from a "HH:MM[:SS]" time string. */
 function hhmm(t: string | null | undefined): string {
@@ -654,7 +654,7 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
   const canTickRooms = !readOnly && onFulfill && o.status === 'accepted'
 
   // Deliver-by label — the date is carried by the order itself (today / tomorrow service).
-  const dayWord = o.order_date > dateKey(new Date()) ? tr.rr.tomorrow : tr.rr.today
+  const dayWord = o.order_date > bangkokDate() ? tr.rr.tomorrow : tr.rr.today
   const deliverLabel = dueLabel ? tr.rr.readyByOn(dueLabel, dayWord) : ''
   // "Late": delivered/confirmed after the due time.
   const lateAt = (ts: string | null) => !!(o.due_at && ts && new Date(ts).getTime() > new Date(o.due_at).getTime())
@@ -803,8 +803,15 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
     }).eq('id', it.id)
     if (error) { setBusy(false); toast.error(error.message); return }
     if (delivered) await logEvent('room_delivered', it.room_no)
-    // Last room ticked → the whole order is delivered.
-    const allDone = delivered && items.every((x) => (x.id === it.id ? delivered : x.delivered))
+    // Last room ticked → the whole order is delivered. Re-read the rooms from the
+    // DB rather than the in-closure `items` snapshot, which can be stale when two
+    // rooms are ticked in quick succession (the reload is async) and would then
+    // miss the auto-promotion to 'delivered'.
+    let allDone = false
+    if (delivered) {
+      const { data: rows } = await supabase.from('kaizen_rr_order_items').select('delivered').eq('order_id', o.id)
+      allDone = !!rows && rows.length > 0 && rows.every((x) => x.delivered)
+    }
     if (allDone) {
       const { error: e2 } = await supabase.from('kaizen_rr_orders').update({
         status: 'delivered', delivered_by: profile.id, delivered_at: now(),
@@ -1546,7 +1553,7 @@ function ReportView({ companyId, companyName, generatedBy, statusLabel, template
 }) {
   const { t: tr, lang } = useLanguage()
   const [mode, setMode] = useState<'daily' | 'weekly'>('daily')
-  const [anchor, setAnchor] = useState(() => dateKey(new Date()))
+  const [anchor, setAnchor] = useState(() => bangkokDate())
   const [rows, setRows] = useState<RrOrder[]>([])
   const [loading, setLoading] = useState(true)
   const [previewHtml, setPreviewHtml] = useState<string | null>(null)

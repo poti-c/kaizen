@@ -13,7 +13,7 @@ import { PMTaskModal, taskTone, taskStatusKey, type PMTask } from '@/components/
 import { formatRelativeTime, formatDuration, isSLABreached, CATEGORIES, LOCATIONS, companyHasAddon, bangkokDate } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 import type { KaizenCase, CaseStatus, CasePriority, Department } from '@/types'
-import { DEPARTMENTS, DEPARTMENT_LABELS, categoryLabel, getEffectiveDepts } from '@/types'
+import { DEPARTMENTS, DEPARTMENT_LABELS, deptLabel, categoryLabel, getEffectiveDepts } from '@/types'
 
 const STATUS_FILTERS: (CaseStatus | 'all')[] = ['all', 'open', 'assigned', 'in_progress', 'pending_manager_approval', 'pending_admin_approval', 'closed', 'reopened']
 
@@ -35,7 +35,7 @@ type SortDir = 'asc' | 'desc'
 // One PM task row in the Cases → PMS tab (opens the run/checklist modal).
 function PmTaskRow({ t, onOpen, tr, lang }: { t: PMTask; onOpen: () => void; tr: ReturnType<typeof useLanguage>['t']; lang: string }) {
   const tone = taskTone(t)
-  const due = new Date(t.due_date + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+  const due = new Date(t.due_date + 'T00:00:00+07:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Bangkok' })
   return (
     <button onClick={onOpen} className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 transition-colors">
       <span className={cn('w-2 h-2 rounded-full flex-shrink-0', tone.dot)} />
@@ -318,7 +318,10 @@ export function CasesPage() {
     if (profile.role === 'staff') {
       // Staff see their own department's cases AND any case where they are Person in Charge
       // (a manager can assign a case across departments).
-      query = query.or(`department.eq."${profile.department}",pic_ids.cs.{${profile.id}}`)
+      // Escape double quotes in the department value — custom departments are
+      // stored as their LABEL, which may contain PostgREST-significant characters.
+      const deptEsc = (profile.department ?? '').replace(/"/g, '\\"')
+      query = query.or(`department.eq."${deptEsc}",pic_ids.cs.{${profile.id}}`)
     }
     // Managers see all cases (cross-dept view) — edit restrictions enforced in CaseDetailPage
     // HR Manager: no filter — sees all cases (read-only enforced in detail page)
@@ -425,7 +428,7 @@ export function CasesPage() {
       : ['Case #', 'Date', 'Title', 'Description', 'Department', 'Category', 'Priority', 'Status', 'Due Date', 'Duration']
     const rows = filtered.map((c) => [
       c.case_number,
-      new Date(c.created_at).toLocaleDateString('en-GB'),
+      new Date(c.created_at).toLocaleDateString('en-GB', { timeZone: 'Asia/Bangkok' }),
       c.title,
       c.description,
       c.department,
@@ -489,7 +492,7 @@ export function CasesPage() {
               <Link to={to} className="font-mono text-xs font-medium text-gray-700 block rounded hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-primary)]">{c.case_number}</Link>
               {breached && <span className="animate-pulse text-red-500 text-xs font-bold" title={t.cases.slaBreached}>⚠</span>}
             </div>
-            <span className="text-xs text-gray-400 mt-0.5 block">{new Date(c.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
+            <span className="text-xs text-gray-400 mt-0.5 block">{new Date(c.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Bangkok' })}</span>
           </td>
           <td className="px-5 py-3.5 max-w-xs">
             <div className="flex items-center gap-1.5">
@@ -511,7 +514,7 @@ export function CasesPage() {
           <td className="px-5 py-3.5 whitespace-nowrap">
             {c.due_date ? (
               <span className={cn('text-xs', isSLABreached(c) ? 'text-red-500 font-medium' : 'text-gray-500')}>
-                {new Date(c.due_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                {new Date(c.due_date + 'T00:00:00+07:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'Asia/Bangkok' })}
               </span>
             ) : <span className="text-xs text-gray-300">—</span>}
           </td>
@@ -551,7 +554,7 @@ export function CasesPage() {
               </span>
               {c.due_date && (
                 <span className={cn('text-xs', isSLABreached(c) ? 'text-red-500 font-medium' : 'text-gray-400')}>
-                  {t.cases.due}: {new Date(c.due_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                  {t.cases.due}: {new Date(c.due_date + 'T00:00:00+07:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'Asia/Bangkok' })}
                 </span>
               )}
             </div>
@@ -594,8 +597,11 @@ export function CasesPage() {
     )
   }
 
-  const showActive = statusFilter === 'all' || statusFilter !== 'closed'
-  const showClosed = statusFilter === 'all' || statusFilter === 'closed'
+  // In advanced-search mode the simple statusFilter is ignored by the actual
+  // filtering, so don't let it gate the tab bodies (a ?status=closed deep-link
+  // auto-enables advanced search yet leaves statusFilter='closed').
+  const showActive = advancedSearchEnabled || statusFilter !== 'closed'
+  const showClosed = advancedSearchEnabled || statusFilter === 'all' || statusFilter === 'closed'
 
   // Tab state
   const [activeTab, setActiveTab] = useState<'active' | 'pms' | 'pending' | 'closed'>('active')
@@ -849,7 +855,7 @@ export function CasesPage() {
                     ? validDeptValues
                     : DEPARTMENTS.filter(d => d.value !== 'top_management').map(d => d.value as string)
                   ).map(val => ({
-                    value: val, label: DEPARTMENTS.find(d => d.value === val)?.label ?? val,
+                    value: val, label: deptLabel(val, lang),
                     checked: advFilters.departments.includes(val as Department),
                   })),
                 },

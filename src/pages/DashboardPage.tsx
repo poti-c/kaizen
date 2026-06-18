@@ -158,8 +158,10 @@ export function DashboardPage() {
     const monthMap: Record<string, number> = {}
     months.forEach(({ label }) => { monthMap[label] = 0 })
     allCases.forEach(c => {
-      const d = new Date(c.created_at)
-      const key = `${MONTH_SHORT[d.getMonth()]} ${d.getFullYear()}`
+      // Bucket by Bangkok time so the bars match the bangkokDate-based labels
+      // (and the donut/overview totals) for viewers in any timezone.
+      const [yy, mm] = bangkokDate(new Date(c.created_at)).split('-').map(Number)
+      const key = `${MONTH_SHORT[mm - 1]} ${yy}`
       if (key in monthMap) monthMap[key]++
     })
     return months.map(({ label }) => ({ month: label, count: monthMap[label] }))
@@ -168,8 +170,16 @@ export function DashboardPage() {
   // ── Category data (from catFilteredCases) ─────────────────────────────────
   // Use the company's own category list (falls back to the built-in defaults).
   const effectiveCats = useMemo(
-    () => catList.length ? catList : CATEGORIES.map(c => ({ slug: c, label: t.categories[c as keyof typeof t.categories] || c })),
-    [catList, t],
+    () => {
+      const base = catList.length ? catList : CATEGORIES.map(c => ({ slug: c, label: t.categories[c as keyof typeof t.categories] || c }))
+      // PMS add-on lets cases be stored with category 'preventive_maintenance'
+      // (see CreateCasePage); include it so those cases are counted in the chart.
+      if (companyHasAddon(activeCompany, 'pms') && !base.some(c => c.slug === 'preventive_maintenance')) {
+        return [...base, { slug: 'preventive_maintenance', label: 'Preventive Maintenance' }]
+      }
+      return base
+    },
+    [catList, t, activeCompany],
   )
   const categoryData = useMemo(() => {
     const catMap: Record<string, number> = {}

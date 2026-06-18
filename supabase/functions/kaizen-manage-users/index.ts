@@ -117,6 +117,12 @@ serve(async (req) => {
     if (callerRole === "manager") {
       if (role !== "staff") return json({ error: "Managers can only create staff accounts" }, 403);
       if (!callerEffectiveDepts.includes(department)) return json({ error: "Managers can only create staff in their own department" }, 403);
+      // A manager may only create staff inside their OWN company. Reject any
+      // attempt to target another tenant via a body company_id (the downstream
+      // `company_id ?? callerCompany` would otherwise honour the foreign id).
+      if (company_id && company_id !== callerCompany) {
+        return json({ error: "Managers can only create staff in their own company." }, 403);
+      }
     }
 
     // A super_admin may only create users in a company they actually manage (own + granted),

@@ -1225,7 +1225,7 @@ export function CaseDetailPage() {
             </span>
             <span className="flex items-center gap-1.5">
               <Calendar className="h-3.5 w-3.5 flex-shrink-0 text-gray-400" />
-              <span>{new Date(kcase.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
+              <span>{new Date(kcase.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Bangkok' })}</span>
             </span>
           </div>
 
@@ -1582,7 +1582,7 @@ export function CaseDetailPage() {
                         <span className="text-sm font-medium text-gray-800 flex-1 truncate">{rc.title}</span>
                         <StatusBadge status={rc.status} />
                         <span className="text-xs text-gray-400 flex-shrink-0">
-                          {new Date(rc.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                          {new Date(rc.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Bangkok' })}
                         </span>
                       </Link>
                     ))}
@@ -1683,7 +1683,7 @@ export function CaseDetailPage() {
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-gray-500 flex items-center gap-1.5"><Calendar className="h-3.5 w-3.5" />{t.caseDetail.dueDateLabel}</span>
                   {dueDateObj
-                    ? <span className="text-xs font-semibold text-gray-800">{dueDateObj.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
+                    ? <span className="text-xs font-semibold text-gray-800">{dueDateObj.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Bangkok' })}</span>
                     : <span className="text-xs text-gray-300">{t.caseDetail.notSet}</span>
                   }
                 </div>

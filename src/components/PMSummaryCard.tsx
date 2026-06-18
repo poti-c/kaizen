@@ -32,6 +32,13 @@ export function PMSummaryCard() {
   const [loading, setLoading] = useState(true)
   const [assets, setAssets] = useState<AssetRow[]>([])
   const [tasks, setTasks] = useState<TaskRow[]>([])
+  // Completed tasks for the current Bangkok month, fetched by performed_at (not
+  // the due_date window) so long-interval assets aren't dropped from the
+  // "Done this month" / on-time-rate metrics.
+  const [monthTasks, setMonthTasks] = useState<TaskRow[]>([])
+  // All tasks awaiting approval, fetched without a date bound (a long-postponed
+  // approval can sit far outside the due_date window).
+  const [pendingTasks, setPendingTasks] = useState<TaskRow[]>([])
   const [dueSoonDays, setDueSoonDays] = useState(7)
 
   useEffect(() => {
@@ -41,20 +48,28 @@ export function PMSummaryCard() {
       setLoading(true)
       const from = isoDate(new Date(Date.now() - 95 * 86400000))
       const to = isoDate(new Date(Date.now() + 35 * 86400000))
-      const [a, tk, s] = await Promise.all([
+      // Start of the current month in Bangkok time, as a timestamptz instant.
+      const monthStart = `${bangkokDate(new Date()).slice(0, 7)}-01T00:00:00+07:00`
+      const [a, tk, mt, pa, s] = await Promise.all([
         supabase.from('kaizen_pm_assets').select('next_maintenance_date, is_active, department').eq('company_id', companyId),
         supabase.from('kaizen_pm_tasks').select('due_date, status, performed_at, asset:kaizen_pm_assets(department)').eq('company_id', companyId).gte('due_date', from).lte('due_date', to),
+        supabase.from('kaizen_pm_tasks').select('due_date, status, performed_at, asset:kaizen_pm_assets(department)').eq('company_id', companyId).in('status', ['done', 'approved']).gte('performed_at', monthStart),
+        supabase.from('kaizen_pm_tasks').select('due_date, status, performed_at, asset:kaizen_pm_assets(department)').eq('company_id', companyId).eq('status', 'pending_approval'),
         supabase.from('kaizen_pm_settings').select('due_soon_days').eq('company_id', companyId).maybeSingle(),
       ])
       if (cancelled) return
       let aRows = (a.data as AssetRow[]) ?? []
       let tRows = (tk.data as unknown as TaskRow[]) ?? []
+      let mRows = (mt.data as unknown as TaskRow[]) ?? []
+      let pRows = (pa.data as unknown as TaskRow[]) ?? []
       // Staff see only their department's slice.
       if (isStaff && profile?.department) {
         aRows = aRows.filter(r => r.department === profile.department)
         tRows = tRows.filter(r => r.asset?.department === profile.department)
+        mRows = mRows.filter(r => r.asset?.department === profile.department)
+        pRows = pRows.filter(r => r.asset?.department === profile.department)
       }
-      setAssets(aRows); setTasks(tRows)
+      setAssets(aRows); setTasks(tRows); setMonthTasks(mRows); setPendingTasks(pRows)
       if (s.data?.due_soon_days != null) setDueSoonDays(s.data.due_soon_days)
       setLoading(false)
     })()
@@ -80,12 +95,13 @@ export function PMSummaryCard() {
   const weekKey = bangkokDate(new Date(Date.now() + dueSoonDays * 86400000))
   const open = (s: string) => s === 'scheduled' || s === 'in_progress'
   const dueThisWeek = tasks.filter(t => open(t.status) && t.due_date >= todayKey && t.due_date <= weekKey).length
-  const completedTasks = tasks.filter(t => t.status === 'done' || t.status === 'approved')
+  // Completion metrics come from monthTasks (fetched by performed_at), so assets
+  // with a due_date outside the ±window are still counted.
   const monthPrefix = todayKey.slice(0, 7)
-  const completedThisMonth = completedTasks.filter(t => t.performed_at && bangkokDate(new Date(t.performed_at)).slice(0, 7) === monthPrefix).length
-  const onTime = completedTasks.filter(t => t.performed_at && bangkokDate(new Date(t.performed_at)) <= t.due_date).length
-  const onTimeRate = completedTasks.length === 0 ? null : Math.round((onTime / completedTasks.length) * 100)
-  const pendingApproval = tasks.filter(t => t.status === 'pending_approval').length
+  const completedThisMonth = monthTasks.filter(t => t.performed_at && bangkokDate(new Date(t.performed_at)).slice(0, 7) === monthPrefix).length
+  const onTime = monthTasks.filter(t => t.performed_at && bangkokDate(new Date(t.performed_at)) <= t.due_date).length
+  const onTimeRate = monthTasks.length === 0 ? null : Math.round((onTime / monthTasks.length) * 100)
+  const pendingApproval = pendingTasks.length
 
   const complianceColor = compliance == null ? 'text-gray-400' : compliance >= 90 ? 'text-green-600' : compliance >= 70 ? 'text-amber-600' : 'text-red-600'
 

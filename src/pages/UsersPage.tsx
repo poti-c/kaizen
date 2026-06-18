@@ -248,12 +248,18 @@ export function UsersPage() {
         updates.role = editRole
       }
 
-      if (editNewPassword.trim().length >= 6) {
-        updates.must_change_password = true
+      const resettingPassword = editNewPassword.trim().length >= 6
+      if (resettingPassword) updates.must_change_password = true
+
+      // Persist the profile update (incl. must_change_password) BEFORE changing
+      // the password. If the password reset then fails, the user simply keeps
+      // their old password — a harmless state — instead of being locked into a
+      // new password with no "must change on next login" flag.
+      await callManageUsers({ action: 'update_profile', userId: editUser.id, updates })
+
+      if (resettingPassword) {
         await callManageUsers({ action: 'reset_password', userId: editUser.id, password: editNewPassword })
       }
-
-      await callManageUsers({ action: 'update_profile', userId: editUser.id, updates })
 
       const changes: string[] = []
       if (editFullName.trim() !== editUser.full_name) changes.push(`Name → ${editFullName.trim()}`)
@@ -383,7 +389,7 @@ export function UsersPage() {
           )}
           {(profile?.role === 'super_admin' || profile?.role === 'manager') && (
             <div className="flex flex-col items-end gap-1">
-              <Button onClick={() => setShowCreate(true)} disabled={managerAddBlocked}
+              <Button onClick={() => { resetForm(); setShowCreate(true) }} disabled={managerAddBlocked}
                 title={managerAddBlocked ? limitMsg('staff') : undefined}>
                 <Plus className="h-4 w-4" />{profile?.role === 'manager' ? (lang === 'th' ? 'เพิ่มพนักงาน' : 'Add Staff') : t.users.addUser}
               </Button>
@@ -802,7 +808,7 @@ export function UsersPage() {
                     </div>
                     {entry.details && <p className="text-xs text-gray-400 mt-0.5">{entry.details}</p>}
                   </div>
-                  <span className="text-xs text-gray-400 flex-shrink-0">{new Date(entry.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                  <span className="text-xs text-gray-400 flex-shrink-0">{new Date(entry.created_at).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bangkok' })}</span>
                 </div>
               ))}
             </div>

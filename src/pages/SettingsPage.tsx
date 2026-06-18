@@ -193,7 +193,9 @@ export function SettingsPage() {
     }
     loadLists()
     return () => { cancelled = true }
-  }, [companyId])
+    // Re-run when the PMS add-on state changes (same company id, updated
+    // subscription) so the injected "Preventive Maintenance" category tracks it.
+  }, [companyId, companyHasAddon(activeCompany, 'pms')])
 
   async function saveList(key: string, list: string[]) {
     if (!companyId) return
@@ -231,6 +233,12 @@ export function SettingsPage() {
     if (!editingItem) return
     const trimmed = editingItem.value.trim()
     if (!trimmed) { setEditingItem(null); return }
+    // Reject renaming to a label that already exists elsewhere (mirrors addItem),
+    // otherwise two identical entries collide on key={value} and bulk-delete.
+    if (list.some((it, i) => i !== editingItem.index && it.toLowerCase() === trimmed.toLowerCase())) {
+      toast.error(lang === 'th' ? 'มีรายการนี้อยู่แล้ว' : 'Item already exists.')
+      return
+    }
     const updated = list.map((item, i) => i === editingItem.index ? trimmed : item)
     setList(updated)
     saveList(key, updated)
@@ -344,6 +352,15 @@ export function SettingsPage() {
   const [customAccent, setCustomAccent] = useState(settings.accent_color)
   const [customSidebar, setCustomSidebar] = useState(settings.sidebar_color)
   const [savingTheme, setSavingTheme] = useState(false)
+
+  // ThemeContext starts on DEFAULT_SETTINGS and loads the company's real theme
+  // asynchronously. Re-seed the pickers when that resolves, otherwise clicking
+  // "Apply Theme" would overwrite the saved colors with the cyan defaults.
+  useEffect(() => {
+    setCustomPrimary(settings.primary_color)
+    setCustomAccent(settings.accent_color)
+    setCustomSidebar(settings.sidebar_color)
+  }, [settings.primary_color, settings.accent_color, settings.sidebar_color])
 
   async function handleChangePassword() {
     if (!newPassword || !confirmPassword) {
@@ -772,6 +789,7 @@ export function SettingsPage() {
             {/* Active tab content */}
             <div className="p-4">
               <EditableListCard
+                key={activeListTab}
                 {...(tabProps[activeListTab] as EditableListCardProps)}
                 lang={lang}
                 maxVisible={3}

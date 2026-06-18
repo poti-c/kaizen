@@ -101,6 +101,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // tab regains focus — throttled to at most once every 3 minutes.
   useEffect(() => {
     if (!user) return
+    // Wait until the profile (and its company_id) has loaded. On session restore
+    // `user` is set before fetchProfile resolves; beating now would upsert a
+    // company_id:null activity row that, thanks to ignoreDuplicates, becomes the
+    // persisted row for the day and corrupts per-company engagement scoring.
+    const companyId = profile?.company_id ?? null
+    if (!companyId) return
     const beat = () => {
       const now = Date.now()
       if (now - lastBeatRef.current < 3 * 60 * 1000) return
@@ -109,7 +115,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       supabase.from('kaizen_profiles').update({ last_active_at: iso }).eq('id', user.id).then(() => {}, () => {})
       // Log the active day (one row per user per day) for engagement scoring.
       supabase.from('kaizen_user_activity').upsert(
-        { user_id: user.id, active_date: bangkokDate(), company_id: companyRef.current },
+        { user_id: user.id, active_date: bangkokDate(), company_id: companyId },
         { onConflict: 'user_id,active_date', ignoreDuplicates: true }
       ).then(() => {}, () => {})
     }
@@ -123,7 +129,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       window.removeEventListener('focus', onVisible)
       document.removeEventListener('visibilitychange', onVisible)
     }
-  }, [user])
+  }, [user, profile?.company_id])
 
   async function signInAdmin(email: string, password: string) {
     signingInRef.current = true

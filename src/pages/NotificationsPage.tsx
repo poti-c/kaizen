@@ -18,55 +18,71 @@ export function NotificationsPage() {
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
   const [hasMore, setHasMore] = useState(false)
+  // True unread total across ALL rows (not just the loaded page), so the
+  // subtitle and "Mark all read" button stay correct beyond the first page.
+  const [unread, setUnread] = useState(0)
 
   const PAGE_SIZE = 50
 
   useEffect(() => {
-    if (profile) fetchNotifications()
+    if (profile) { fetchNotifications(); refreshUnread() }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profile])
 
+  // Keep the OS app-icon badge in sync with the true unread count (mirrors Header).
+  function syncBadge(n: number) {
+    if (n > 0 && 'setAppBadge' in navigator) (navigator as any).setAppBadge(n).catch(() => {})
+    else if ('clearAppBadge' in navigator) (navigator as any).clearAppBadge().catch(() => {})
+  }
+
+  async function refreshUnread() {
+    if (!profile) return
+    const { count } = await supabase
+      .from('kaizen_notifications')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', profile.id).eq('is_read', false)
+    const n = count ?? 0
+    setUnread(n)
+    syncBadge(n)
+  }
+
   // Paginated: a busy manager/super_admin accumulates thousands of rows over time, so
   // load the newest PAGE_SIZE and let the user fetch older ones on demand instead of
-  // pulling the entire history into memory on every open.
-  async function fetchNotifications(offset = 0) {
+  // pulling the entire history into memory on every open. Keyset pagination on
+  // created_at avoids the duplicate/skip that offset ranges suffer when new rows
+  // are inserted between fetches.
+  async function fetchNotifications(before?: string) {
     if (!profile) return
-    if (offset === 0) setLoading(true); else setLoadingMore(true)
-    const { data } = await supabase
+    if (!before) setLoading(true); else setLoadingMore(true)
+    let q = supabase
       .from('kaizen_notifications')
       .select('*')
       .eq('user_id', profile.id)
       .order('created_at', { ascending: false })
-      .range(offset, offset + PAGE_SIZE - 1)
+      .limit(PAGE_SIZE)
+    if (before) q = q.lt('created_at', before)
+    const { data } = await q
     const page = (data || []) as KaizenNotification[]
-    setNotifications((prev) => offset === 0 ? page : [...prev, ...page])
+    setNotifications((prev) => before ? [...prev, ...page] : page)
     setHasMore(page.length === PAGE_SIZE)
     setLoading(false); setLoadingMore(false)
   }
 
-  // Clear app icon badge when all notifications are read
-  function clearBadge() {
-    if ('clearAppBadge' in navigator) (navigator as any).clearAppBadge().catch(() => {})
-  }
-
   async function markRead(id: string) {
+    const wasUnread = notifications.some((n) => n.id === id && !n.is_read)
     const { error } = await supabase.from('kaizen_notifications').update({ is_read: true }).eq('id', id)
     if (error) return
-    setNotifications((prev) => {
-      const updated = prev.map((n) => n.id === id ? { ...n, is_read: true } : n)
-      if (!hasMore && updated.every((n) => n.is_read)) clearBadge()
-      return updated
-    })
+    setNotifications((prev) => prev.map((n) => n.id === id ? { ...n, is_read: true } : n))
+    if (wasUnread) setUnread((c) => { const next = Math.max(0, c - 1); syncBadge(next); return next })
   }
 
   async function markAllRead() {
     if (!profile) return
     await supabase.from('kaizen_notifications').update({ is_read: true }).eq('user_id', profile.id)
     setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })))
-    clearBadge()
+    setUnread(0)
+    syncBadge(0)
   }
-
-  const unread = notifications.filter((n) => !n.is_read).length
 
   const typeColors: Record<string, string> = {
     new_case: 'bg-blue-500',
@@ -164,7 +180,7 @@ export function NotificationsPage() {
           {hasMore && (
             <div className="text-center pt-1">
               <Button variant="outline" size="sm" disabled={loadingMore}
-                onClick={() => fetchNotifications(notifications.length)}>
+                onClick={() => fetchNotifications(notifications[notifications.length - 1]?.created_at)}>
                 {loadingMore ? (lang === 'th' ? 'กำลังโหลด…' : 'Loading…') : (lang === 'th' ? 'โหลดเพิ่มเติม' : 'Load more')}
               </Button>
             </div>
