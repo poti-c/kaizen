@@ -24,7 +24,7 @@ export function ChangePasswordPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (newPassword.length < 6) { toast.error(lang === 'th' ? 'รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร' : 'Password must be at least 6 characters.'); return }
+    if (newPassword.trim().length < 6) { toast.error(lang === 'th' ? 'รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร (ไม่นับช่องว่าง)' : 'Password must be at least 6 non-whitespace characters.'); return }
     if (newPassword !== confirmPassword) { toast.error(lang === 'th' ? 'รหัสผ่านไม่ตรงกัน' : 'Passwords do not match.'); return }
     if (!profile?.id) { toast.error(lang === 'th' ? 'กำลังโหลดข้อมูลโปรไฟล์ กรุณารอสักครู่แล้วลองอีกครั้ง' : 'Your profile is still loading — please wait a moment and try again.'); return }
     setSaving(true)
@@ -38,7 +38,8 @@ export function ChangePasswordPage() {
       toast.success(lang === 'th' ? 'เปลี่ยนรหัสผ่านสำเร็จ' : 'Password changed successfully.')
       navigate('/', { replace: true }) // RoleRedirect sends each role to its correct home
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : (lang === 'th' ? 'เปลี่ยนรหัสผ่านไม่สำเร็จ' : 'Failed to change password.'))
+      console.error('Change password error:', err)
+      toast.error(lang === 'th' ? 'เปลี่ยนรหัสผ่านไม่สำเร็จ' : 'Failed to change password.')
     } finally {
       setSaving(false)
     }

@@ -39,6 +39,9 @@ export function PMSettings() {
       supabase.from('kaizen_pm_assets').select('id, name, type:kaizen_pm_equipment_types(name)').eq('company_id', companyId).eq('is_active', true).order('name'),
       supabase.from('kaizen_profiles').select('id, full_name, department').eq('company_id', companyId).eq('role', 'manager').eq('is_active', true).is('deleted_at', null).order('full_name'),
     ])
+    if (settingsRes.error) toast.error(settingsRes.error.message)
+    if (assetsRes.error) toast.error(assetsRes.error.message)
+    if (managersRes.error) toast.error(managersRes.error.message)
     const data = settingsRes.data
     if (data) setS({
       require_approval: data.require_approval, due_soon_days: data.due_soon_days,

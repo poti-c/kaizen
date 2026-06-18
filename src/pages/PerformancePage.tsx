@@ -66,6 +66,9 @@ export function PerformancePage() {
       supabase.from('kaizen_profiles').select('*').is('deleted_at', null)
         .eq('company_id', companyFilter!),
     ])
+    if (activeCompany?.id !== companyFilter) return
+    if (casesRes.error) console.error('Cases load error:', casesRes.error)
+    if (peopleRes.error) console.error('People load error:', peopleRes.error)
     setCases((casesRes.data || []) as KaizenCase[])
     setPeople((peopleRes.data || []) as KaizenProfile[])
     setCfg(await loadPerfConfig(companyFilter))
@@ -155,7 +158,7 @@ export function PerformancePage() {
     const eligible = people.filter((p) => {
       if (p.role === 'super_admin') return false
       if (isHRManager) return true  // HR sees all staff + managers
-      if (isManager && profile) return p.department === profile.department && p.role === 'staff'
+      if (isManager && profile) return p.department === profile.department && (p.role === 'staff' || p.role === 'manager')
       return true
     })
     const rows: StaffRow[] = eligible.map((p) => {

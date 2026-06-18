@@ -134,13 +134,15 @@ export function PMSchedule() {
 
 export function PMTaskModal({ task, onClose, onDone }: { task: PMTask; onClose: () => void; onDone: () => void }) {
   const { profile } = useAuth()
-  const { t: tr } = useLanguage()
+  const { t: tr, lang } = useLanguage()
   const items = task.asset?.checklist ?? []
   const pending = task.status === 'pending_approval'
   const finished = task.status === 'done' || task.status === 'approved'
   const recorded = finished || pending // execution already captured
   // Approver = Top Management, or the responsible department's manager.
   const isApprover = profile?.role === 'super_admin' || (profile?.role === 'manager' && !!profile && getEffectiveDepts(profile).includes(task.asset?.department as Department))
+  const canExecute = profile?.role === 'super_admin' || profile?.role === 'manager' ||
+    (profile?.role === 'staff' && !!profile && getEffectiveDepts(profile).includes(task.asset?.department as Department))
   const [results, setResults] = useState<Record<string, string>>(() => {
     const init: Record<string, string> = {}
     if (recorded) for (const r of task.checklist_results ?? []) init[r.item] = r.result
@@ -228,7 +230,7 @@ export function PMTaskModal({ task, onClose, onDone }: { task: PMTask; onClose: 
               {task.readings && <p><span className="font-medium">{tr.pm.readings}:</span> {task.readings}</p>}
               {task.parts_used && <p><span className="font-medium">{tr.pm.parts}:</span> {task.parts_used}</p>}
               {task.findings && <p><span className="font-medium">{tr.pm.findings}:</span> {task.findings}</p>}
-              {task.performed_at && <p className="text-gray-400">{tr.pm.performed} {new Date(task.performed_at).toLocaleString()}</p>}
+              {task.performed_at && <p className="text-gray-400">{tr.pm.performed} {new Date(task.performed_at).toLocaleString(lang === 'th' ? 'th-TH' : 'en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bangkok' })}</p>}
               {pending && <p className="text-violet-600 font-medium">{tr.pm.awaitingNote}{!isApprover ? ` ${tr.pm.awaitingBy}` : ''}.</p>}
             </div>
           ) : (
@@ -246,7 +248,7 @@ export function PMTaskModal({ task, onClose, onDone }: { task: PMTask; onClose: 
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ThumbsUp className="h-4 w-4" />}{tr.pm.approve}
             </button>
           </div>
-        ) : !recorded ? (
+        ) : !recorded && canExecute ? (
           <div className="flex items-center gap-2 px-5 py-4 border-t border-gray-200">
             {task.status === 'scheduled' && <button onClick={start} disabled={busy} className="flex items-center gap-1.5 px-3 h-9 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium"><Play className="h-4 w-4" />{tr.pm.start}</button>}
             <button onClick={complete} disabled={busy} className="ml-auto flex items-center gap-1.5 px-4 h-9 rounded-lg bg-[var(--brand-primary)] text-white text-sm font-semibold disabled:opacity-50">

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState, useCallback } from 'react'
+import React, { createContext, useContext, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import type { KaizenCompany } from '@/types'
@@ -18,7 +18,7 @@ export function CompanyProvider({ children }: { children: React.ReactNode }) {
   const [activeCompany, setActiveCompanyState] = useState<KaizenCompany | null>(null)
   const [loading, setLoading] = useState(true)
 
-  const fetchCompanies = useCallback(async () => {
+  useEffect(() => {
     if (!profile) {
       setCompanies([])
       setActiveCompanyState(null)
@@ -26,62 +26,52 @@ export function CompanyProvider({ children }: { children: React.ReactNode }) {
       return
     }
 
+    let cancelled = false
     setLoading(true)
 
-    if (profile.role === 'super_admin') {
-      // Switcher = home company (company_id) + any cross-company grants
-      const [linksRes, homeRes] = await Promise.all([
-        supabase.from('kaizen_super_admin_companies').select('company:kaizen_companies(*)').eq('super_admin_id', profile.id),
-        profile.company_id
-          ? supabase.from('kaizen_companies').select('*').eq('id', profile.company_id).maybeSingle()
-          : Promise.resolve({ data: null }),
-      ])
-
-      const linked = ((linksRes.data || []) as unknown as { company: KaizenCompany }[])
-        .map(r => r.company)
-        .filter(Boolean)
-      const home = (homeRes.data as KaizenCompany | null) ?? null
-
-      const byId = new Map<string, KaizenCompany>()
-      if (home) byId.set(home.id, home)
-      for (const c of linked) byId.set(c.id, c)
-      // Suspended companies (non-payment) are inaccessible — exclude from the switcher
-      const cos = [...byId.values()].filter(c => c.is_active).sort((a, b) => a.name.localeCompare(b.name))
-
-      setCompanies(cos)
-
-      const savedId = localStorage.getItem('kaizen-active-company')
-      const saved = cos.find(c => c.id === savedId)
-      setActiveCompanyState(saved || cos[0] || null)
-    } else {
-      if (profile.company_id) {
-        const { data } = await supabase
-          .from('kaizen_companies')
-          .select('*')
-          .eq('id', profile.company_id)
-          .single()
-        if (data) {
-          const company = data as KaizenCompany
-          // Suspended company (non-payment): block access entirely
-          if (company.is_active === false) {
-            setCompanies([])
-            setActiveCompanyState(null)
-            await supabase.auth.signOut()
-            setLoading(false)
-            return
+    ;(async () => {
+      if (profile.role === 'super_admin') {
+        const [linksRes, homeRes] = await Promise.all([
+          supabase.from('kaizen_super_admin_companies').select('company:kaizen_companies(*)').eq('super_admin_id', profile.id),
+          profile.company_id
+            ? supabase.from('kaizen_companies').select('*').eq('id', profile.company_id).maybeSingle()
+            : Promise.resolve({ data: null }),
+        ])
+        if (cancelled) return
+        const linked = ((linksRes.data || []) as unknown as { company: KaizenCompany }[])
+          .map(r => r.company).filter(Boolean)
+        const home = (homeRes.data as KaizenCompany | null) ?? null
+        const byId = new Map<string, KaizenCompany>()
+        if (home) byId.set(home.id, home)
+        for (const c of linked) byId.set(c.id, c)
+        const cos = [...byId.values()].filter(c => c.is_active).sort((a, b) => a.name.localeCompare(b.name))
+        setCompanies(cos)
+        const savedId = localStorage.getItem('kaizen-active-company')
+        const saved = cos.find(c => c.id === savedId)
+        setActiveCompanyState(saved || cos[0] || null)
+      } else {
+        if (profile.company_id) {
+          const { data } = await supabase.from('kaizen_companies').select('*').eq('id', profile.company_id).single()
+          if (cancelled) return
+          if (data) {
+            const company = data as KaizenCompany
+            if (company.is_active === false) {
+              setCompanies([])
+              setActiveCompanyState(null)
+              await supabase.auth.signOut()
+              setLoading(false)
+              return
+            }
+            setCompanies([company])
+            setActiveCompanyState(company)
           }
-          setCompanies([company])
-          setActiveCompanyState(company)
         }
       }
-    }
+      if (!cancelled) setLoading(false)
+    })()
 
-    setLoading(false)
+    return () => { cancelled = true }
   }, [profile])
-
-  useEffect(() => {
-    fetchCompanies()
-  }, [fetchCompanies])
 
   function setActiveCompany(company: KaizenCompany) {
     setActiveCompanyState(company)

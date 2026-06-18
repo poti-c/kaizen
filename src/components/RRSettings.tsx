@@ -37,6 +37,7 @@ export function RRSettings() {
     setLoading(true)
     const itemsRes = await supabase.from('kaizen_settings').select('value')
       .eq('company_id', companyId).eq('key', 'rr_items').maybeSingle()
+    if (itemsRes.error) toast.error(itemsRes.error.message)
     const loadedItems = Array.isArray(itemsRes.data?.value) ? (itemsRes.data!.value as RrItem[]) : []
     setItems(loadedItems)
     setCanEdit(profile.role === 'super_admin' || profile.role === 'manager')

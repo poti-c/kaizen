@@ -1,4 +1,5 @@
 // Preventive Maintenance shared helpers (frequency + asset health status).
+import { bangkokDate } from '@/lib/utils'
 
 export type FreqUnit = 'day' | 'week' | 'month' | 'year'
 
@@ -45,8 +46,8 @@ export function addInterval(dateStr: string, unit: FreqUnit, interval: number): 
 
 export function daysUntil(dateStr: string | null): number | null {
   if (!dateStr) return null
-  const today = new Date(); today.setHours(0, 0, 0, 0)
-  const end = new Date(dateStr + 'T00:00:00')
+  const today = new Date(bangkokDate() + 'T00:00:00+07:00')
+  const end = new Date(dateStr + 'T00:00:00+07:00')
   return Math.ceil((end.getTime() - today.getTime()) / 86400000)
 }
 

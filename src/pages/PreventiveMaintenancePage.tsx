@@ -92,20 +92,27 @@ export function PreventiveMaintenancePage() {
       supabase.from('kaizen_settings').select('value').eq('company_id', companyId).eq('key', 'custom_locations').maybeSingle(),
       supabase.from('kaizen_settings').select('value').eq('company_id', companyId).eq('key', 'custom_departments').maybeSingle(),
     ])
-    if (a.error) toast.error(a.error.message)
-    setAssets((a.data as Asset[]) ?? [])
-    setTypes((t.data as EqType[]) ?? [])
-    if (s.data?.due_soon_days != null) setDueSoonDays(s.data.due_soon_days)
-    setReportManagerIds((s.data as { report_manager_ids?: string[] } | null)?.report_manager_ids ?? [])
-    const locList = loc.data?.value as string[] | undefined
-    setLocations(Array.isArray(locList) && locList.length ? locList : [...LOCATIONS] as string[])
-    if (depts.data?.value) {
+    if (a.error) { toast.error(a.error.message) } else { setAssets((a.data as Asset[]) ?? []) }
+    if (t.error) toast.error(t.error.message)
+    else setTypes((t.data as EqType[]) ?? [])
+    if (s.error) toast.error(s.error.message)
+    else {
+      if (s.data?.due_soon_days != null) setDueSoonDays(s.data.due_soon_days)
+      setReportManagerIds((s.data as { report_manager_ids?: string[] } | null)?.report_manager_ids ?? [])
+    }
+    if (openT.error) toast.error(openT.error.message)
+    else setPmTasks((openT.data as unknown as PMTask[]) ?? [])
+    if (doneT.error) toast.error(doneT.error.message)
+    else setPmDoneTasks((doneT.data as unknown as PMTask[]) ?? [])
+    if (!loc.error) {
+      const locList = loc.data?.value as string[] | undefined
+      setLocations(Array.isArray(locList) && locList.length ? locList : [...LOCATIONS] as string[])
+    }
+    if (!depts.error && depts.data?.value) {
       const labelToSlug = Object.fromEntries(DEPARTMENTS.map((d) => [d.label, d.value])) as Record<string, string>
       const labels = depts.data.value as string[]
       setAllDepts(labels.map((label) => ({ value: labelToSlug[label] ?? label, label })))
     }
-    setPmTasks((openT.data as unknown as PMTask[]) ?? [])
-    setPmDoneTasks((doneT.data as unknown as PMTask[]) ?? [])
     setLoading(false)
   }, [companyId])
   useEffect(() => { load() }, [load])

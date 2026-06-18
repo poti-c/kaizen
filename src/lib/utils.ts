@@ -111,7 +111,10 @@ export function activityLabel(lastActiveAt?: string | null, online?: boolean): s
 }
 
 export function formatDateTime(date: string | Date) {
-  return format(new Date(date), 'dd MMM yyyy, HH:mm')
+  return new Date(date).toLocaleString('en-GB', {
+    day: '2-digit', month: 'short', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bangkok',
+  })
 }
 
 export function formatDate(date: string | Date) {

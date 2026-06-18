@@ -37,14 +37,17 @@ export function usePushNotifications(userId: string | undefined) {
   const supported = hasPushAPI && (!isIOS() || isStandalone())
 
   useEffect(() => {
-    if (!hasPushAPI) { setStatus('unsupported'); return }
-    // iOS in browser (not installed) → show install prompt
-    if (isIOS() && !isStandalone()) { setStatus('needs-install'); return }
-    if (!supported) { setStatus('unsupported'); return }
+    let mounted = true
+    if (!hasPushAPI) { if (mounted) setStatus('unsupported'); return () => { mounted = false } }
+    if (isIOS() && !isStandalone()) { if (mounted) setStatus('needs-install'); return () => { mounted = false } }
+    if (!supported) { if (mounted) setStatus('unsupported'); return () => { mounted = false } }
     const perm = Notification.permission
-    if (perm === 'granted') setStatus('granted')
-    else if (perm === 'denied') setStatus('denied')
-    else setStatus('default')
+    if (mounted) {
+      if (perm === 'granted') setStatus('granted')
+      else if (perm === 'denied') setStatus('denied')
+      else setStatus('default')
+    }
+    return () => { mounted = false }
   }, [supported, hasPushAPI])
 
   async function subscribe(): Promise<boolean> {
@@ -53,10 +56,21 @@ export function usePushNotifications(userId: string | undefined) {
     try {
       const reg = await navigator.serviceWorker.ready
       const existing = await reg.pushManager.getSubscription()
-      const sub = existing ?? await reg.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY) as BufferSource,
-      })
+      let sub: PushSubscription
+      if (existing) {
+        const expectedKey = urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+        const existingKey = existing.options?.applicationServerKey
+        const keysMatch = existingKey && existingKey.byteLength === expectedKey.length &&
+          new Uint8Array(existingKey as ArrayBuffer).every((b, i) => b === expectedKey[i])
+        if (!keysMatch) {
+          await existing.unsubscribe()
+          sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: expectedKey as BufferSource })
+        } else {
+          sub = existing
+        }
+      } else {
+        sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY) as BufferSource })
+      }
       const json = sub.toJSON()
       const { error } = await supabase.from('kaizen_push_subscriptions').upsert({
         user_id: userId,

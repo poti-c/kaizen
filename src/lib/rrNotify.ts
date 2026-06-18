@@ -9,8 +9,9 @@ export interface DeptNotifyCfg { mode: NotifyMode; ids: string[] }
 export type NotifyRecipients = Record<string, DeptNotifyCfg>
 
 export async function loadNotifyRecipients(companyId: string): Promise<NotifyRecipients> {
-  const { data } = await supabase.from('kaizen_settings').select('value')
+  const { data, error } = await supabase.from('kaizen_settings').select('value')
     .eq('company_id', companyId).eq('key', 'rr_notify_recipients').maybeSingle()
+  if (error) throw error
   return (data?.value as NotifyRecipients) ?? {}
 }
 
@@ -20,8 +21,9 @@ export async function resolveDeptRecipients(companyId: string, dept: string): Pr
   const dc = cfg[dept]
   const mode: NotifyMode = dc?.mode ?? 'department'
   if (mode === 'users' && dc?.ids?.length) {
-    const { data } = await supabase.from('kaizen_profiles').select('id, role')
+    const { data, error } = await supabase.from('kaizen_profiles').select('id, role')
       .eq('company_id', companyId).eq('is_active', true).in('id', dc.ids)
+    if (error) throw error
     return (data as { id: string; role: string }[]) ?? []
   }
   // Match the department's own members PLUS any manager who covers this department
@@ -33,6 +35,7 @@ export async function resolveDeptRecipients(companyId: string, dept: string): Pr
     .eq('company_id', companyId).eq('is_active', true)
     .or(`department.eq."${esc}",managed_departments.cs.{"${esc}"}`)
   if (mode === 'manager') q = q.in('role', ['manager', 'super_admin'])
-  const { data } = await q
+  const { data, error: qErr } = await q
+  if (qErr) throw qErr
   return (data as { id: string; role: string }[]) ?? []
 }

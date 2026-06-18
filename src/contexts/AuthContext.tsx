@@ -46,6 +46,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const lastBeatRef = useRef(0)
   const companyRef = useRef<string | null>(null)
   const signingInRef = useRef(false)
+  const initialFetchRef = useRef(false)
 
   const fetchProfile = useCallback(async (userId: string) => {
     const { data, error } = await supabase
@@ -76,16 +77,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null)
       if (session?.user) {
-        fetchProfile(session.user.id).finally(() => setLoading(false))
+        initialFetchRef.current = true
+        fetchProfile(session.user.id).finally(() => {
+          initialFetchRef.current = false
+          setLoading(false)
+        })
       } else {
         setLoading(false)
       }
     })
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       setUser(session?.user ?? null)
       if (session?.user) {
-        if (!signingInRef.current) {
+        // Skip re-fetch on token refresh or when initial getSession fetch is in progress
+        if (!signingInRef.current && !initialFetchRef.current && event !== 'TOKEN_REFRESHED' && event !== 'INITIAL_SESSION') {
           setLoading(true)
           fetchProfile(session.user.id).finally(() => setLoading(false))
         }
