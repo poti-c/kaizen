@@ -37,6 +37,9 @@ function loadGeo(): Promise<GeoTree> {
     geoPromise = import('../../lib/thai-geo.json').then((m) => {
       cachedGeo = (m.default ?? m) as GeoTree
       return cachedGeo
+    }).catch((e) => {
+      geoPromise = null  // allow retry on next call
+      return Promise.reject(e)
     })
   }
   return geoPromise

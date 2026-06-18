@@ -46,7 +46,7 @@ export function LoginPage() {
       if (error) throw error
       setResetSent(true)
     } catch (err: unknown) {
-      if (!resetError) setResetError(err instanceof Error ? err.message : (lang === 'th' ? 'ส่งอีเมลรีเซ็ตไม่สำเร็จ' : 'Failed to send reset email.'))
+      setResetError(err instanceof Error ? err.message : (lang === 'th' ? 'ส่งอีเมลรีเซ็ตไม่สำเร็จ' : 'Failed to send reset email.'))
     } finally {
       setResetLoading(false)
     }

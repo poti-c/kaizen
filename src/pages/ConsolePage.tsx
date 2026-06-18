@@ -302,7 +302,7 @@ function Dashboard({ token, adminName, onLogout }: { token: string; adminName: s
     { key: 'settings', label: 'Settings', icon: Settings },
   ]
   const openTodos = todos.filter(t => !t.done)
-  const todayStr = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+  const todayStr = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Bangkok' })
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-200 flex">
@@ -1131,7 +1131,7 @@ function RecordPaymentDialog({ companyId, plan, call, onClose, onSaved }: {
   }
 
   const termLabel = termDays % 365 === 0 ? `${termDays / 365}-year` : `${termDays}-day`
-  const periodEndPreview = paymentDate ? (() => { const d = new Date(paymentDate + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + termDays); return fmtDate(d.toISOString().slice(0, 10)) })() : null
+  const periodEndPreview = paymentDate ? (() => { const d = new Date(paymentDate + 'T00:00:00+07:00'); d.setDate(d.getDate() + termDays); return fmtDate(new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok' }).format(d)) })() : null
 
   return (
     <Overlay onClose={onClose} wide>
@@ -1342,7 +1342,7 @@ function PaymentDetail({ p }: { p: PaymentSub }) {
   const amt = p.amount ?? null
   const list = p.list_price ?? null
   const match = amt != null && list != null ? Math.abs(amt - list) < 1 : null
-  const newEnd = p.term_days ? new Date(Date.now() + p.term_days * 86400000).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : null
+  const newEnd = (p.term_days && p.created_at) ? (() => { const base = new Date(p.created_at); base.setDate(base.getDate() + p.term_days!); return base.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Bangkok' }) })() : null
   return (
     <div className="mt-2.5 pt-2.5 border-t border-slate-800 grid sm:grid-cols-2 gap-x-4 gap-y-1.5 text-[11px]">
       <div className="flex items-center gap-1.5 flex-wrap">

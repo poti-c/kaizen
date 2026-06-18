@@ -304,9 +304,10 @@ export function formatDueBy(due: string | null | undefined, lang = 'en'): string
   const d = new Date(due)
   if (isNaN(d.getTime())) return String(due)
   const loc = lang === 'th' ? 'th-TH' : 'en-GB'
-  const dateStr = d.toLocaleDateString(loc, { day: 'numeric', month: 'short', year: 'numeric' })
+  const tz = { timeZone: 'Asia/Bangkok' }
+  const dateStr = d.toLocaleDateString(loc, { day: 'numeric', month: 'short', year: 'numeric', ...tz })
   if (dueIsDateOnly(due)) return dateStr
-  return `${dateStr}, ${d.toLocaleTimeString(loc, { hour: '2-digit', minute: '2-digit' })}`
+  return `${dateStr}, ${d.toLocaleTimeString(loc, { hour: '2-digit', minute: '2-digit', ...tz })}`
 }
 
 // Bind an ISO timestamp to / from an <input type="datetime-local"> (local wall clock).

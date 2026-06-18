@@ -84,8 +84,8 @@ export function buildCasePrintHtml(
         <h1>${esc(kcase.title)}</h1>
         <div>
           <span class="badge">${esc(kcase.case_number)}</span>
-          <span class="badge">${esc(kcase.priority.toUpperCase())}</span>
-          <span class="badge">${esc(kcase.status.replace(/_/g, ' ').toUpperCase())}</span>
+          <span class="badge">${esc((kcase.priority ?? '').toUpperCase())}</span>
+          <span class="badge">${esc((kcase.status ?? '').replace(/_/g, ' ').toUpperCase())}</span>
           ${catLabel ? `<span class="badge">${esc(catLabel)}</span>` : ''}
           ${kcase.is_recurring ? `<span class="badge">${L.recurring}</span>` : ''}
         </div>
@@ -138,7 +138,7 @@ export function buildCasePrintHtml(
             <div class="timeline-dot"></div>
             <div class="timeline-content">
               <p class="action">${esc(timelineActionLabel(e.action, lang))}</p>
-              ${e.description ? `<p>${esc(e.description)}</p>` : ''}
+              ${e.description ? `<p>${esc(e.description).replace(/\n/g, '<br>')}</p>` : ''}
               <p class="time">${new Intl.DateTimeFormat(loc, { year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bangkok' }).format(new Date(e.created_at))}</p>
             </div>
           </div>

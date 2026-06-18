@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   Package, Loader2, Plus, Trash2, ArrowLeft, Check, Crown, Tag, Box, Ticket, X, Power, Pencil, Lock,
 } from 'lucide-react'
@@ -68,8 +68,9 @@ export function ProductsView({ call, onBack }: { call: Call; onBack: () => void 
   const [loading, setLoading] = useState(true)
   const [products, setProducts] = useState<Product[]>([])
   const [promos, setPromos] = useState<Promo[]>([])
-  const [drafts, setDrafts] = useState<Product[]>([])
+  const [drafts, setDrafts] = useState<Array<{ key: string; data: Product }>>([])
   const [promoDrafts, setPromoDrafts] = useState<Promo[]>([])
+  const draftKeyRef = useRef(0)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -88,13 +89,12 @@ export function ProductsView({ call, onBack }: { call: Call; onBack: () => void 
   const customs = products.filter(p => p.kind === 'custom')
 
   function addDraft(kind: Product['kind']) {
-    // Count existing products AND unsaved drafts of this kind, so two drafts added before
-    // saving get distinct sort_order values instead of colliding on the same number.
     const existing = products.filter(p => p.kind === kind).length
-    const pending = drafts.filter(d => d.kind === kind).length
-    setDrafts([...drafts, blankProduct(kind, existing + pending + 1)])
+    const pending = drafts.filter(d => d.data.kind === kind).length
+    const key = `draft-${draftKeyRef.current++}`
+    setDrafts(prev => [...prev, { key, data: blankProduct(kind, existing + pending + 1) }])
   }
-  function removeDraft(idx: number) { setDrafts(drafts.filter((_, i) => i !== idx)) }
+  function removeDraft(key: string) { setDrafts(prev => prev.filter(d => d.key !== key)) }
 
   return (
     <div>
@@ -114,22 +114,22 @@ export function ProductsView({ call, onBack }: { call: Call; onBack: () => void 
           {/* Packages */}
           <Section icon={Crown} title="Packages" desc="Subscription tiers — user limits, multi-company access, features, price & duration." onAdd={() => addDraft('package')} addLabel="Add Package">
             {packages.map(p => <ProductCard key={p.id} product={p} call={call} onSaved={load} onDeleted={load} />)}
-            {drafts.map((d, i) => d.kind === 'package' && <ProductCard key={'d' + i} product={d} call={call} isNew onSaved={() => { removeDraft(i); load() }} onDeleted={() => removeDraft(i)} />)}
-            {packages.length === 0 && !drafts.some(d => d.kind === 'package') && <Empty>No packages yet.</Empty>}
+            {drafts.filter(d => d.data.kind === 'package').map(({ key, data }) => <ProductCard key={key} product={data} call={call} isNew onSaved={() => { removeDraft(key); load() }} onDeleted={() => removeDraft(key)} />)}
+            {packages.length === 0 && !drafts.some(d => d.data.kind === 'package') && <Empty>No packages yet.</Empty>}
           </Section>
 
           {/* Add-ons */}
           <Section icon={Tag} title="Additional Costs" desc="One-time or recurring add-ons such as Setup Cost." onAdd={() => addDraft('addon')} addLabel="Add Cost">
             {addons.map(p => <ProductCard key={p.id} product={p} call={call} onSaved={load} onDeleted={load} />)}
-            {drafts.map((d, i) => d.kind === 'addon' && <ProductCard key={'da' + i} product={d} call={call} isNew onSaved={() => { removeDraft(i); load() }} onDeleted={() => removeDraft(i)} />)}
-            {addons.length === 0 && !drafts.some(d => d.kind === 'addon') && <Empty>No add-ons yet.</Empty>}
+            {drafts.filter(d => d.data.kind === 'addon').map(({ key, data }) => <ProductCard key={key} product={data} call={call} isNew onSaved={() => { removeDraft(key); load() }} onDeleted={() => removeDraft(key)} />)}
+            {addons.length === 0 && !drafts.some(d => d.data.kind === 'addon') && <Empty>No add-ons yet.</Empty>}
           </Section>
 
           {/* Custom products */}
           <Section icon={Box} title="Other Products" desc="Add any other billable product or service." onAdd={() => addDraft('custom')} addLabel="Add Product">
             {customs.map(p => <ProductCard key={p.id} product={p} call={call} onSaved={load} onDeleted={load} />)}
-            {drafts.map((d, i) => d.kind === 'custom' && <ProductCard key={'dc' + i} product={d} call={call} isNew onSaved={() => { removeDraft(i); load() }} onDeleted={() => removeDraft(i)} />)}
-            {customs.length === 0 && !drafts.some(d => d.kind === 'custom') && <Empty>No custom products yet.</Empty>}
+            {drafts.filter(d => d.data.kind === 'custom').map(({ key, data }) => <ProductCard key={key} product={data} call={call} isNew onSaved={() => { removeDraft(key); load() }} onDeleted={() => removeDraft(key)} />)}
+            {customs.length === 0 && !drafts.some(d => d.data.kind === 'custom') && <Empty>No custom products yet.</Empty>}
           </Section>
 
           {/* Promo codes */}
@@ -179,7 +179,7 @@ function ProductCard({ product, call, onSaved, onDeleted, isNew }: { product: Pr
     if (!d.name.trim()) { alert('Name is required.'); return }
     setBusy(true)
     try { await call('upsert_product', { product: d }); setLocked(true); onSaved() }
-    catch (e) { alert(e instanceof Error ? e.message : 'Failed') } finally { setBusy(false) }
+    catch (e) { alert(e instanceof Error ? e.message : 'Failed'); setD(product) } finally { setBusy(false) }
   }
   async function del() {
     if (!d.id) { onDeleted(); return }

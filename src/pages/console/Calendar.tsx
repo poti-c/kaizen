@@ -57,7 +57,7 @@ export function CalendarView({ call, onOpenForm }: { call: Call; onOpenForm: (fo
   const [forms, setForms] = useState<FormRow[]>([])
   const [appts, setAppts] = useState<ApptRow[]>([])
   const [companies, setCompanies] = useState<CalCompany[]>([])
-  const [cursor, setCursor] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1) })
+  const [cursor, setCursor] = useState(() => { const bkk = dayKey(new Date()); return new Date(bkk.slice(0, 7) + '-01T12:00:00+07:00') })
   const [openDetail, setOpenDetail] = useState<CalEvent | null>(null)
   const [editAppt, setEditAppt] = useState<ApptRow | 'new' | null>(null)
 
@@ -104,8 +104,10 @@ export function CalendarView({ call, onOpenForm }: { call: Call; onOpenForm: (fo
       const start = new Date(a.start_at)
       const meta = KIND_META[a.kind]
       const cancelled = a.status === 'cancelled'
+      const bkkH = Number(new Intl.DateTimeFormat('en', { timeZone: 'Asia/Bangkok', hour: 'numeric', hour12: false }).format(start))
+      const bkkM = Number(new Intl.DateTimeFormat('en', { timeZone: 'Asia/Bangkok', minute: 'numeric' }).format(start))
       out.push({
-        key: `a-${a.id}`, date: dayKey(start), sort: 2 + (start.getHours() * 60 + start.getMinutes()) / 1440,
+        key: `a-${a.id}`, date: dayKey(start), sort: 2 + (bkkH * 60 + bkkM) / 1440,
         source: 'appt', appt: a, label: `${a.all_day ? '' : fmtTime(start) + ' · '}${a.title}`,
         color: cancelled ? 'bg-slate-700/40 text-slate-500 border-slate-700 line-through' : meta.color,
         dot: cancelled ? 'bg-slate-500' : meta.dot,
@@ -153,7 +155,7 @@ export function CalendarView({ call, onOpenForm }: { call: Call; onOpenForm: (fo
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-1 bg-slate-900 border border-slate-800 rounded-lg p-0.5">
             <button onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1))} className="p-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-800"><ChevronLeft className="h-4 w-4" /></button>
-            <button onClick={() => { const d = new Date(); setCursor(new Date(d.getFullYear(), d.getMonth(), 1)) }} className="px-2.5 h-7 text-xs font-medium text-slate-300 hover:text-white rounded-md hover:bg-slate-800">Today</button>
+            <button onClick={() => { const bkk = dayKey(new Date()); setCursor(new Date(bkk.slice(0, 7) + '-01T12:00:00+07:00')) }} className="px-2.5 h-7 text-xs font-medium text-slate-300 hover:text-white rounded-md hover:bg-slate-800">Today</button>
             <button onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1))} className="p-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-800"><ChevronRight className="h-4 w-4" /></button>
           </div>
           <button onClick={() => setEditAppt('new')} className="flex items-center gap-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-semibold px-3 py-2 rounded-lg transition-colors">
@@ -201,7 +203,7 @@ export function CalendarView({ call, onOpenForm }: { call: Call; onOpenForm: (fo
                       </button>
                     ))}
                     {dayEvents.length > 3 && (
-                      <button onClick={() => openEvent(dayEvents[3])} className="text-[10px] text-slate-400 hover:text-white px-1.5">+{dayEvents.length - 3} more</button>
+                      <button onClick={() => openEvent(dayEvents[3])} className="text-[10px] text-slate-400 hover:text-white px-1.5" title={dayEvents.slice(3).map(e => e.label).join('\n')}>+{dayEvents.length - 3} more</button>
                     )}
                   </div>
                 </div>
@@ -304,11 +306,9 @@ function AppointmentEditor({ call, companies, appt, onClose, onSaved }: {
         assignee: appt.assignee ?? '', contact_name: appt.contact_name ?? '', contact_phone: appt.contact_phone ?? '', notes: appt.notes ?? '',
       }
     }
-    const now = new Date()
-    const pad = (n: number) => String(n).padStart(2, '0')
     return {
       kind: 'setup' as ApptRow['kind'], title: '', company_id: '', status: 'scheduled' as ApptRow['status'],
-      date: `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`,
+      date: dayKey(new Date()),
       start: '10:00', end: '11:00', all_day: false, mode: 'onsite' as ApptRow['mode'],
       location: '', assignee: '', contact_name: '', contact_phone: '', notes: '',
     }

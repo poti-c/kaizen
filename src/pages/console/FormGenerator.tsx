@@ -79,7 +79,7 @@ const selectCls = 'h-9 rounded-lg bg-slate-800 border border-slate-700 px-2.5 te
 
 function fmtDate(d: string | null) {
   if (!d) return '—'
-  return new Date(d.length <= 10 ? d + 'T00:00:00Z' : d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+  return new Date(d.length <= 10 ? d + 'T00:00:00+07:00' : d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Bangkok' })
 }
 function money(n: number) {
   if (!Number.isFinite(n)) n = 0
@@ -509,7 +509,7 @@ function FormEditor({ formType, companies, products, promos, existingForms, rese
       setDiscountValInput('')
       setStatus(STATUSES[formType][0])
     }
-  }, [resetSignal])
+  }, [resetSignal, formType])
 
   // Build a preview (nothing is saved yet) and hand it to the parent. The form
   // is only recorded once the admin confirms the preview.

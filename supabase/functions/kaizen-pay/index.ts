@@ -84,10 +84,11 @@ Deno.serve(async (req) => {
   // Verify the caller is a manager/owner of this company.
   const { data: prof } = await admin.from("kaizen_profiles").select("role, company_id").eq("id", uid).maybeSingle();
   if (!prof || (prof.role !== "super_admin" && prof.role !== "manager")) return json({ error: "Not authorised" }, 403);
-  const { data: linked } = await admin.from("kaizen_super_admin_companies").select("company_id").eq("super_admin_id", uid).eq("company_id", company_id).maybeSingle();
+  const { data: linked, error: linkedErr } = await admin.from("kaizen_super_admin_companies").select("company_id").eq("super_admin_id", uid).eq("company_id", company_id).maybeSingle();
   // super_admin: use the link table as sole authority — prof.company_id is their primary company,
   // not their billing scope (super_admins can span multiple companies via the link table).
   if (prof.role === "super_admin") {
+    if (linkedErr) return json({ error: "Authorisation check failed — please try again." }, 500);
     if (!linked) return json({ error: "Not authorised for this company" }, 403);
   } else {
     if (prof.company_id !== company_id) return json({ error: "Not authorised for this company" }, 403);
@@ -95,7 +96,8 @@ Deno.serve(async (req) => {
 
   // The price is SERVER-authoritative — look it up from kaizen_products by key (works for
   // both 'subscription' packages and 'addon' keys). Never trust the client-declared amount.
-  const { data: priceRow } = await admin.from("kaizen_products").select("price").eq("key", target).maybeSingle();
+  const { data: priceRow, error: priceErr } = await admin.from("kaizen_products").select("price").eq("key", target).maybeSingle();
+  if (priceErr) return json({ error: "Price lookup failed — please try again." }, 500);
   const expectedPrice = priceRow?.price != null ? Number(priceRow.price) : null;
   // Store the authoritative price when known, so submission/invoice records can't be
   // under-stated by the client.
@@ -137,7 +139,8 @@ Deno.serve(async (req) => {
 
   if (slip.verified) {
     if (kind === "subscription") {
-      const { data: prod } = await admin.from("kaizen_products").select("max_super_admins, max_managers, max_staff, multi_company, features, duration_days").eq("kind", "package").eq("key", target).maybeSingle();
+      const { data: prod, error: prodErr } = await admin.from("kaizen_products").select("max_super_admins, max_managers, max_staff, multi_company, features, duration_days").eq("kind", "package").eq("key", target).maybeSingle();
+      if (prodErr) return json({ error: "Product lookup failed — payment recorded but plan not activated. Contact support." }, 500);
       const term = Number(prod?.duration_days) || 365;
       const end = addDays(term);
       const { data: curCo } = await admin.from("kaizen_companies").select("plan").eq("id", company_id).maybeSingle();
@@ -156,15 +159,9 @@ Deno.serve(async (req) => {
         notes: "Auto-verified PromptPay payment (SlipOK)",
       });
     } else {
-      const { data: co } = await admin.from("kaizen_companies").select("addons").eq("id", company_id).maybeSingle();
-      const addons: Record<string, unknown> = (co?.addons && typeof co.addons === "object") ? { ...(co.addons as Record<string, unknown>) } : {};
-      if (!addons[target]) {
-        // Spread into a new object so the write always reflects the latest known state.
-        // A true atomic merge would require a DB function; for payment-submission frequency
-        // this conditional check eliminates the most common re-activation case.
-        addons[target] = true;
-        await admin.from("kaizen_companies").update({ addons }).eq("id", company_id);
-      }
+      // Atomic JSONB merge via SQL: avoids the read-modify-write race where two concurrent
+      // payments for different add-ons clobber each other.
+      await admin.rpc("kaizen_merge_company_addon", { p_company_id: company_id, p_addon_key: target });
       await admin.from("kaizen_invoices").insert({
         company_id, payee: target_label ?? target, amount: storedAmount, currency,
         payment_date: bangkokDate(), period_start: bangkokDate(), period_end: bangkokDate(),
