@@ -64,7 +64,7 @@ export function Header() {
       .subscribe()
 
     return () => { supabase.removeChannel(channel) }
-  }, [profile])
+  }, [profile?.id])
 
   function syncBadge(unread: number) {
     if (unread > 0 && 'setAppBadge' in navigator) (navigator as any).setAppBadge(unread).catch(() => {})

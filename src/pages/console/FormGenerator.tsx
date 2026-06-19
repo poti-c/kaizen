@@ -176,8 +176,8 @@ const DOC_T = {
 
 function fmtDateLang(d: string | null, lang: DocLang) {
   if (!d) return '—'
-  const date = new Date(d.length <= 10 ? d + 'T00:00:00Z' : d)
-  return date.toLocaleDateString(lang === 'th' ? 'th-TH' : 'en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+  const date = new Date(d.length <= 10 ? d + 'T00:00:00+07:00' : d)
+  return date.toLocaleDateString(lang === 'th' ? 'th-TH' : 'en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Bangkok' })
 }
 
 // ── Main view ────────────────────────────────────────────────────────────────
@@ -471,9 +471,12 @@ function FormEditor({ formType, companies, products, promos, existingForms, rese
   }
 
   // Prefill once when opened from "Issue" on a receipt request.
+  // Wait for `companies` to load before running pickCompany — if companies is still []
+  // the lookup returns nothing, client fields are cleared and the draft is silently lost.
   const prefilled = useRef(false)
   useEffect(() => {
     if (prefilled.current || (!initialCompanyId && !initialItems)) return
+    if (initialCompanyId && !companies.length) return
     prefilled.current = true
     if (initialCompanyId) pickCompany(initialCompanyId)
     if (initialItems && initialItems.length) setItems(initialItems)
@@ -482,7 +485,7 @@ function FormEditor({ formType, companies, products, promos, existingForms, rese
     setVatRate('0')
     setDiscountMode('promo'); setPromoId(''); setDiscountPctInput(''); setDiscountValInput('')
     onPrefilled?.()
-  }, [initialCompanyId, initialItems])  // eslint-disable-line react-hooks/exhaustive-deps
+  }, [initialCompanyId, initialItems, companies])  // eslint-disable-line react-hooks/exhaustive-deps
 
   const subtotal = useMemo(() => items.reduce((s, it) => s + (Number(it.qty) || 0) * (Number(it.unit_price) || 0), 0), [items])
   // Discount by promo code, a manual percentage, or a fixed value (capped at subtotal).

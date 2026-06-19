@@ -96,7 +96,7 @@ Deno.serve(async (req) => {
 
   // The price is SERVER-authoritative — look it up from kaizen_products by key (works for
   // both 'subscription' packages and 'addon' keys). Never trust the client-declared amount.
-  const { data: priceRow, error: priceErr } = await admin.from("kaizen_products").select("price").eq("key", target).maybeSingle();
+  const { data: priceRow, error: priceErr } = await admin.from("kaizen_products").select("price, duration_days").eq("key", target).maybeSingle();
   if (priceErr) return json({ error: "Price lookup failed — please try again." }, 500);
   const expectedPrice = (priceRow?.price != null && priceRow.price > 0) ? Number(priceRow.price) : null;
   // Store the authoritative price when known, so submission/invoice records can't be
@@ -119,7 +119,10 @@ Deno.serve(async (req) => {
     if (pendingDup) return json({ success: true, id: pendingDup.id, status: "pending", verified: false, duplicate: true });
   }
 
-  const slip = await verifySlip(proof_url, expectedPrice);
+  // Only auto-verify when the expected price is known and > 0. A null expectedPrice
+  // means price=0 (seeded placeholder) or no product row — in that case skip SlipOK
+  // entirely so an unchecked amount can never auto-activate a plan.
+  const slip = expectedPrice != null ? await verifySlip(proof_url, expectedPrice) : { verified: false };
 
   // Always insert as 'pending' first — we update to 'approved' only after ALL side
   // effects succeed. This prevents an approved-but-unactivated orphan record if any
@@ -154,8 +157,10 @@ Deno.serve(async (req) => {
         activationErr = "Product lookup failed — payment recorded but plan not activated. Contact support.";
       } else {
         const term = Number(prod?.duration_days) || 365;
-        const end = addDays(term);
-        const { data: curCo } = await admin.from("kaizen_companies").select("plan").eq("id", company_id).maybeSingle();
+        const { data: curCo } = await admin.from("kaizen_companies").select("plan, subscription_end").eq("id", company_id).maybeSingle();
+        // Extend from existing expiry so early renewers don't lose remaining days.
+        const baseDate = curCo?.subscription_end ? new Date(curCo.subscription_end + 'T00:00:00+07:00') : new Date();
+        const end = bangkokDate(new Date(baseDate.getTime() + term * 86400000));
         const fromPlan = curCo?.plan ?? null;
         const { error: updateErr } = await admin.from("kaizen_companies").update({
           plan: target, subscription_end: end,
@@ -182,15 +187,24 @@ Deno.serve(async (req) => {
       if (rpcErr) {
         activationErr = "Add-on activation failed — payment recorded, contact support.";
       } else {
+        const addonDays = priceRow?.duration_days ? Number(priceRow.duration_days) : null;
+        const addonEnd = addonDays ? bangkokDate(new Date(Date.now() + addonDays * 86400000)) : '2099-12-31';
         await admin.from("kaizen_invoices").insert({
           company_id, payee: target_label ?? target, amount: storedAmount, currency,
-          payment_date: bangkokDate(), period_start: bangkokDate(), period_end: bangkokDate(),
+          payment_date: bangkokDate(), period_start: bangkokDate(), period_end: addonEnd,
           notes: "Auto-verified PromptPay payment (SlipOK) — addon",
         });
       }
     }
 
-    if (activationErr) return json({ error: activationErr }, 500);
+    if (activationErr) {
+      // Mark as activation_failed so the slip-free dedup doesn't permanently block retries.
+      await admin.from("kaizen_payment_submissions")
+        .update({ status: "activation_failed" })
+        .eq("id", sub.id)
+        .catch(() => {});
+      return json({ error: activationErr }, 500);
+    }
 
     // All side effects succeeded — mark as approved now.
     await admin.from("kaizen_payment_submissions")

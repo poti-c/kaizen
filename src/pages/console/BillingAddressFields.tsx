@@ -99,7 +99,7 @@ export function BillingAddressFields({ officeType, branchCode, address, onChange
   }
   const onSubdistrict = (thName: string) => {
     const s = dist?.s.find((x) => x.th === thName)
-    setAddr({ subdistrict_en: s?.en ?? a.subdistrict_en ?? '', subdistrict: s?.th ?? thName, postcode: s?.z ?? a.postcode ?? '', country: a.country || 'Thailand' })
+    setAddr({ subdistrict_en: s?.en ?? a.subdistrict_en ?? '', subdistrict: s?.th ?? thName, postcode: s?.z ?? a.postcode ?? '', country: a.country ?? 'Thailand' })
   }
 
   const loading = !geo
@@ -178,9 +178,11 @@ export function composeAddress(a: ThaiAddress | null | undefined, lang: 'en' | '
   if (!a) return ''
   const bkk = a.province === 'กรุงเทพมหานคร' || a.province_en === 'Bangkok'
   if (lang === 'en') {
-    const sub = a.subdistrict_en || a.subdistrict
-    const dist = a.district_en || a.district
-    const prov = a.province_en || a.province
+    // Only use English romanised names — fall back to empty rather than embedding Thai
+    // script in an English address (e.g. on printed EN tax invoices).
+    const sub = a.subdistrict_en || ''
+    const dist = a.district_en || ''
+    const prov = a.province_en || ''
     const parts = [
       a.house_no,
       a.soi ? `Soi ${a.soi}` : '',

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { validateRequired, validatePercentDiscount } from '@/lib/validators'
+import { validateRequired, validatePercentDiscount, validatePositiveAmount } from '@/lib/validators'
 import {
   Package, Loader2, Plus, Trash2, ArrowLeft, Check, Crown, Tag, Box, Ticket, X, Power, Pencil, Lock,
 } from 'lucide-react'
@@ -91,10 +91,12 @@ export function ProductsView({ call, onBack }: { call: Call; onBack: () => void 
   const customs = products.filter(p => p.kind === 'custom')
 
   function addDraft(kind: Product['kind']) {
-    const existing = products.filter(p => p.kind === kind).length
-    const pending = drafts.filter(d => d.data.kind === kind).length
     const key = `draft-${draftKeyRef.current++}`
-    setDrafts(prev => [...prev, { key, data: blankProduct(kind, existing + pending + 1) }])
+    // Compute sort order at draft-creation time based on the highest saved sort_order,
+    // not the count — so discarding a draft doesn't create a duplicate slot number.
+    const maxSaved = products.filter(p => p.kind === kind).reduce((m, p) => Math.max(m, p.sort_order), 0)
+    const pending = drafts.filter(d => d.data.kind === kind).length
+    setDrafts(prev => [...prev, { key, data: blankProduct(kind, maxSaved + pending + 1) }])
   }
   function removeDraft(key: string) { setDrafts(prev => prev.filter(d => d.key !== key)) }
 
@@ -172,7 +174,12 @@ function ProductCard({ product, call, onSaved, onDeleted, isNew }: { product: Pr
   const [confirmDel, setConfirmDel] = useState(false)
   // Saved products open locked (read-only); new ones open in edit mode.
   const [locked, setLocked] = useState(!isNew)
+  const togglingRef = useRef(false)
   const isPackage = d.kind === 'package'
+
+  // Sync local state from the parent prop whenever the card is locked — this picks up
+  // server-normalised values after a successful save + parent reload.
+  useEffect(() => { if (locked) setD(product) }, [product, locked])
 
   function set(patch: Partial<Product>) { if (!locked) setD({ ...d, ...patch }) }
   function toggleFeature(k: string) { if (!locked) setD({ ...d, features: { ...d.features, [k]: !d.features[k] } }) }
@@ -180,18 +187,26 @@ function ProductCard({ product, call, onSaved, onDeleted, isNew }: { product: Pr
   async function save() {
     const nameErr = validateRequired(d.name, 'Name')
     if (nameErr) { alert(nameErr); return }
+    const priceErr = validatePositiveAmount(d.price, 'Price')
+    if (priceErr) { alert(priceErr); return }
     setBusy(true)
-    try { await call('upsert_product', { product: d }); setLocked(true); onSaved() }
+    try {
+      const result = await call<{ product: Product }>('upsert_product', { product: d })
+      if (result.product) setD(result.product)
+      setLocked(true); onSaved()
+    }
     catch (e) { alert(e instanceof Error ? e.message : 'Failed'); setD(product) } finally { setBusy(false) }
   }
   async function toggleActive() {
+    if (togglingRef.current) return
+    togglingRef.current = true
     const next = !d.is_active
     setD(prev => ({ ...prev, is_active: next }))
-    if (!d.id) return
+    if (!d.id) { togglingRef.current = false; return }
     setBusy(true)
     try { await call('upsert_product', { product: { ...d, is_active: next } }); onSaved() }
     catch (_) { setD(prev => ({ ...prev, is_active: !next })) }
-    finally { setBusy(false) }
+    finally { togglingRef.current = false; setBusy(false) }
   }
   async function del() {
     if (!d.id) { onDeleted(); return }
@@ -301,6 +316,7 @@ function L({ label, children }: { label: string; children: React.ReactNode }) {
 function PromoRow({ promo, call, onSaved, onDeleted, isNew }: { promo: Promo; call: Call; onSaved: () => void; onDeleted: () => void; isNew?: boolean }) {
   const [d, setD] = useState<Promo>(promo)
   const [busy, setBusy] = useState(false)
+  const [confirmDel, setConfirmDel] = useState(false)
   function set(patch: Partial<Promo>) { setD({ ...d, ...patch }) }
   async function save() {
     if (!d.code.trim()) { alert('Code is required.'); return }
@@ -314,7 +330,7 @@ function PromoRow({ promo, call, onSaved, onDeleted, isNew }: { promo: Promo; ca
     if (!d.id) { onDeleted(); return }
     setBusy(true)
     try { await call('delete_promo', { promo_id: d.id }); onDeleted() }
-    catch (e) { alert(e instanceof Error ? e.message : 'Failed') } finally { setBusy(false) }
+    catch (e) { alert(e instanceof Error ? e.message : 'Failed') } finally { setBusy(false); setConfirmDel(false) }
   }
   return (
     <div className={`rounded-lg border p-3 ${d.is_active ? 'bg-slate-800/40 border-slate-700' : 'bg-slate-800/20 border-slate-800'}`}>
@@ -329,7 +345,15 @@ function PromoRow({ promo, call, onSaved, onDeleted, isNew }: { promo: Promo; ca
       </div>
       <div className="flex items-center gap-2 mt-2.5">
         <input value={d.notes ?? ''} onChange={e => set({ notes: e.target.value })} className={inputCls + ' flex-1'} placeholder="Notes (optional)" />
-        <button onClick={del} className="p-2 rounded-lg text-slate-500 hover:text-red-400 hover:bg-red-500/10">{isNew ? <X className="h-4 w-4" /> : <Trash2 className="h-4 w-4" />}</button>
+        {confirmDel ? (
+          <>
+            <span className="text-xs text-slate-400 whitespace-nowrap">Delete promo?</span>
+            <button onClick={del} disabled={busy} className="text-xs px-2 py-1 rounded bg-red-500/15 text-red-400 hover:bg-red-500/25">{busy ? '…' : 'Delete'}</button>
+            <button onClick={() => setConfirmDel(false)} className="text-xs px-2 py-1 rounded text-slate-400 hover:bg-slate-800">Cancel</button>
+          </>
+        ) : (
+          <button onClick={isNew ? del : () => setConfirmDel(true)} className="p-2 rounded-lg text-slate-500 hover:text-red-400 hover:bg-red-500/10">{isNew ? <X className="h-4 w-4" /> : <Trash2 className="h-4 w-4" />}</button>
+        )}
         <button onClick={save} disabled={busy} className="flex items-center gap-1.5 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-slate-950 text-xs font-semibold px-3 py-2 rounded-lg">
           {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}{isNew ? 'Create' : 'Save'}
         </button>

@@ -170,10 +170,14 @@ Deno.serve(async (req) => {
       if (code === 404 || code === 410) {
         // Subscription gone — prune it so we stop trying.
         dead.push(s.id);
-      } else if (code === 400 || code === 401) {
-        // Malformed subscription or VAPID auth failure — treat as permanent.
-        console.error("[kaizen-push] permanent send failure", code, err?.body ?? err?.message);
+      } else if (code === 400) {
+        // Malformed subscription — treat as permanent and prune.
+        console.error("[kaizen-push] malformed subscription", code, err?.body ?? err?.message);
         dead.push(s.id);
+      } else if (code === 401) {
+        // VAPID authentication failure — this is a SERVER config error, NOT a dead
+        // subscription. Do NOT delete the subscription; it may be valid once keys are fixed.
+        console.error("[kaizen-push] VAPID auth rejected — check VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY", err?.body ?? err?.message);
       } else if (code === 429) {
         // Rate-limited by push service — log for alerting; retry not implemented.
         console.error("[kaizen-push] rate-limited by push service for user", userId, err?.body ?? err?.message);

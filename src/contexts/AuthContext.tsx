@@ -160,6 +160,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         await supabase.auth.signOut().catch(() => { setUser(null); setProfile(null) })
         throw new Error('This account has been suspended. Please contact the system administrator.')
       }
+      await assertCompanyActive(p.company_id)
       companyRef.current = p.company_id
       setProfile(p)
       stampLogin(p.id)

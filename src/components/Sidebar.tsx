@@ -8,7 +8,7 @@ import { getInitials, companyHasFeature, companyHasAddon } from '@/lib/utils'
 import { useNavItems } from '@/hooks/useNavItems'
 import { useRrFoAccess } from '@/hooks/useRrFoAccess'
 import { deptLabel } from '@/types'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { cn } from '@/lib/utils'
 
 export function Sidebar() {
@@ -19,7 +19,12 @@ export function Sidebar() {
   const rrFo = useRrFoAccess()
 
   // Today's date — e.g. "Sat. 13 - June 2026"
-  const now = new Date()
+  // Refreshed every minute so the label stays current if the tab is left open overnight.
+  const [now, setNow] = useState(() => new Date())
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 60_000)
+    return () => clearInterval(id)
+  }, [])
   const loc = lang === 'th' ? 'th-TH' : 'en-GB'
   const fmt = (opts: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat(loc, { timeZone: 'Asia/Bangkok', ...opts }).format(now)
   const todayLabel = `${fmt({ weekday: 'short' })}. ${fmt({ day: 'numeric' })} - ${fmt({ month: 'long' })} ${fmt({ year: 'numeric' })}`
