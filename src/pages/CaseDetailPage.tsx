@@ -324,11 +324,12 @@ export function CaseDetailPage() {
     if (id) fetchCase()
   }, [id])
 
-  // Load all active users for @mentions
+  // Load all active users for @mentions — scoped to the active company to prevent cross-tenant name leakage
   useEffect(() => {
-    supabase.from('kaizen_profiles').select('*').eq('is_active', true).is('deleted_at', null)
+    if (!activeCompany) return
+    supabase.from('kaizen_profiles').select('*').eq('is_active', true).is('deleted_at', null).eq('company_id', activeCompany.id)
       .then(({ data }) => setMentionUsers((data || []) as KaizenProfile[]))
-  }, [])
+  }, [activeCompany?.id])
 
   // Pre-load PIC candidates when this is an unassigned PM auto-case (so the assign
   // dialog has data ready when it appears, without needing a manual trigger).
@@ -769,7 +770,8 @@ export function CaseDetailPage() {
     if (!newComment.trim()) return
     setSubmitting(true)
     try {
-      await supabase.from('kaizen_case_comments').insert({ case_id: id!, user_id: profile?.id, content: newComment.trim() })
+      const { error: cmtErr } = await supabase.from('kaizen_case_comments').insert({ case_id: id!, user_id: profile?.id, content: newComment.trim() })
+      if (cmtErr) throw cmtErr
 
       // Parse @mentions: check which known users are mentioned by name
       if (profile) {

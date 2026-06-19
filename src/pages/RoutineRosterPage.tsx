@@ -704,15 +704,9 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
       const picked = Object.keys(grid)
       if (picked.length === 0) { toast.error(hasVariants ? tr.rr.noVariantRooms : tr.rr.roomsRequired); return }
       setBusy(true)
-      const ins = await supabase.from('kaizen_rr_order_items').insert(
-        picked.map((room) => ({
-          order_id: o.id, company_id: o.company_id, room_no: room,
-          item_label: o.item_label, variant: hasVariants ? (grid[room] || null) : null,
-        }))
-      )
-      if (ins.error) { setBusy(false); toast.error(ins.error.message); return }
       const roomsWord = lang === 'th' ? 'ห้อง' : 'rooms'
       const detail = hasVariants ? `${variantBreakdown(picked.map((r) => ({ variant: grid[r] } as RrOrderItem)), variants, lang)} · ${picked.length} ${roomsWord}` : `${picked.length} ${roomsWord}`
+      // Update status first so a failed items insert can be safely retried without duplicating the status update
       await update(
         { status: 'sent', quantity: picked.length, note: note.trim() || null, sent_by: profile.id, sent_at: now() },
         tr.rr.orderSent,
@@ -723,6 +717,13 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
             ? `"${o.title}"${itemSuffix} — ${picked.length} ห้อง จากแผนก ${deptLabel(o.request_department, lang)}`
             : `"${o.title}"${itemSuffix} — ${picked.length} rooms, requested by ${deptLabel(o.request_department, lang)}` },
       )
+      const ins = await supabase.from('kaizen_rr_order_items').insert(
+        picked.map((room) => ({
+          order_id: o.id, company_id: o.company_id, room_no: room,
+          item_label: o.item_label, variant: hasVariants ? (grid[room] || null) : null,
+        }))
+      )
+      if (ins.error) { setBusy(false); toast.error(ins.error.message); return }
     }
   }
 
@@ -1013,11 +1014,7 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
     })
     if (parsed.length === 0) { toast.error(tr.rr.roomsRequired); return }
     setBusy(true)
-    const ins = await supabase.from('kaizen_rr_order_items').insert(
-      parsed.map((r) => ({ order_id: o.id, company_id: o.company_id, room_no: r.room_no, item_label: r.item_label, variant: null }))
-    )
-    if (ins.error) { setBusy(false); toast.error(ins.error.message); return }
-    setBusy(false)
+    // Update status first so a failed items insert can be safely retried without duplicates
     await update(
       { status: 'sent', quantity: parsed.length, note: note.trim() || null, sent_by: profile.id, sent_at: now() },
       tr.rr.orderSent,
@@ -1029,6 +1026,11 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
           ? `"${o.title}"${itemSuffix} — ${parsed.length} ห้อง จากแผนก ${deptLabel(o.request_department, lang)}`
           : `"${o.title}"${itemSuffix} — ${parsed.length} rooms, requested by ${deptLabel(o.request_department, lang)}` },
     )
+    const ins = await supabase.from('kaizen_rr_order_items').insert(
+      parsed.map((r) => ({ order_id: o.id, company_id: o.company_id, room_no: r.room_no, item_label: r.item_label, variant: null }))
+    )
+    if (ins.error) { setBusy(false); toast.error(ins.error.message); return }
+    setBusy(false)
   }
 }
 
@@ -1329,10 +1331,10 @@ function TemplateEditor({ companyId, template, sortNext, onClose, onSaved, allDe
       // did nothing and every order was item-less/unit-less).
       default_item: catalogItems[0]?.label ?? null,
       catalog_items: catalogItems.length > 0 ? catalogItems : null,
-      item_by_weekday: null,
+      item_by_weekday: template?.item_by_weekday ?? null,
       active: f.active, sort_order: template?.sort_order ?? sortNext,
       unit_label: catalogItems[0]?.unit || null,
-      variants: null,
+      variants: template?.variants ?? null,
       pic_mode: f.pic_mode,
       pic_ids: f.pic_mode === 'users' ? cleanPics : null,
     }

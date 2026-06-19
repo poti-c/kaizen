@@ -240,7 +240,7 @@ export function PreventiveMaintenancePage() {
           <option value="all">{lang === 'th' ? 'ทุกแผนก' : 'All Departments'}</option>
           {deptOptions.map(d => <option key={d} value={d}>{DEPARTMENT_LABELS[d as Department] ?? d}</option>)}
         </select>
-        <button onClick={() => setInactiveOnly(v => !v)}
+        <button onClick={() => setInactiveOnly(v => { if (!v) setFilter('all'); return !v })}
           className={`flex-shrink-0 h-8 px-2 rounded-lg border text-xs font-medium transition-colors flex items-center gap-1 ${inactiveOnly ? 'bg-gray-800 text-white border-gray-800' : 'bg-white text-gray-600 border-gray-300 hover:border-gray-400'}`}>
           <Ban className="h-3.5 w-3.5" /><span className="hidden sm:inline">{lang === 'th' ? 'ปิดใช้งาน' : 'Inactive'}</span>
         </button>
@@ -499,6 +499,7 @@ function AssetEditor({ companyId, types, locations, asset, onClose, onSaved, all
     serial_no: asset?.serial_no ?? '', model: asset?.model ?? '', department: asset?.department ?? '',
     freqMode: (freqIdx0 >= 0 ? String(freqIdx0) : 'custom') as string,
     customDays: freqIdx0 < 0 && asset ? asset.freq_interval : 30,
+    customUnit: (freqIdx0 < 0 && asset ? asset.freq_unit : 'day') as FreqUnit,
     purchase_date: asset?.purchase_date ?? '',
     last_maintenance_date: asset?.last_maintenance_date ?? '',
     next_maintenance_date: asset?.next_maintenance_date ?? '',
@@ -509,14 +510,14 @@ function AssetEditor({ companyId, types, locations, asset, onClose, onSaved, all
   const set = (patch: Partial<typeof f>) => setF((prev) => ({ ...prev, ...patch }))
 
   function freqParts(): { unit: FreqUnit; interval: number } {
-    if (f.freqMode === 'custom') return { unit: 'day', interval: Math.max(1, Number(f.customDays) || 1) }
+    if (f.freqMode === 'custom') return { unit: f.customUnit, interval: Math.max(1, Number(f.customDays) || 1) }
     const fr = FREQUENCIES[Number(f.freqMode)]
     return { unit: fr.unit, interval: fr.interval }
   }
   // Auto-fill next from last + frequency.
-  function recalcNext(lastVal: string, mode: string, custom: number) {
+  function recalcNext(lastVal: string, mode: string, custom: number, customUnit?: FreqUnit) {
     if (!lastVal) return
-    const parts = mode === 'custom' ? { unit: 'day' as FreqUnit, interval: Math.max(1, custom || 1) } : { unit: FREQUENCIES[Number(mode)].unit, interval: FREQUENCIES[Number(mode)].interval }
+    const parts = mode === 'custom' ? { unit: (customUnit ?? f.customUnit), interval: Math.max(1, custom || 1) } : { unit: FREQUENCIES[Number(mode)].unit, interval: FREQUENCIES[Number(mode)].interval }
     set({ next_maintenance_date: addInterval(lastVal, parts.unit, parts.interval) })
   }
 

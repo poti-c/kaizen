@@ -40,7 +40,7 @@ export function DashboardPage() {
   const [selectedMonths, setSelectedMonths] = useState<Set<string>>(new Set([defaultKey]))
   const [pickerOpen, setPickerOpen] = useState(false)
 
-  // Build month list from actual case data (created_at + due_date), always include current month
+  // Build month list from actual case data (created_at only), always include current month
   const monthList = useMemo(() => {
     const keys = new Set<string>()
     const bkk = bangkokDate()
@@ -50,11 +50,6 @@ export function DashboardPage() {
       const bkkC = bangkokDate(new Date(c.created_at))
       const [y, mm] = bkkC.split('-').map(Number)
       keys.add(monthKey(y, mm - 1))
-      if (c.due_date) {
-        const bkkD = bangkokDate(new Date(c.due_date))
-        const [dy, dmm] = bkkD.split('-').map(Number)
-        keys.add(monthKey(dy, dmm - 1))
-      }
     })
     return Array.from(keys)
       .map(k => {

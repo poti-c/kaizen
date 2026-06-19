@@ -37,15 +37,21 @@ export function PMSummaryCard() {
     ;(async () => {
       setLoading(true)
       const from = bangkokDate(new Date(Date.now() - 95 * 86400000))
-      const to = bangkokDate(new Date(Date.now() + 35 * 86400000))
+      // Fetch settings first so we know the actual due_soon_days before computing
+      // the task window — hardcoding 35 days misses tasks that fall beyond it when
+      // the setting is larger.
+      const { data: sData } = await supabase.from('kaizen_pm_settings').select('due_soon_days').eq('company_id', companyId).maybeSingle()
+      if (cancelled) return
+      const effectiveDueSoon = sData?.due_soon_days ?? 7
+      setDueSoonDays(effectiveDueSoon)
+      const to = bangkokDate(new Date(Date.now() + Math.max(35, effectiveDueSoon) * 86400000))
       // Start of the current month in Bangkok time, as a timestamptz instant.
       const monthStart = `${bangkokDate(new Date()).slice(0, 7)}-01T00:00:00+07:00`
-      const [a, tk, mt, pa, s] = await Promise.all([
+      const [a, tk, mt, pa] = await Promise.all([
         supabase.from('kaizen_pm_assets').select('next_maintenance_date, is_active, department').eq('company_id', companyId),
         supabase.from('kaizen_pm_tasks').select('due_date, status, performed_at, asset:kaizen_pm_assets(department)').eq('company_id', companyId).gte('due_date', from).lte('due_date', to),
         supabase.from('kaizen_pm_tasks').select('due_date, status, performed_at, asset:kaizen_pm_assets(department)').eq('company_id', companyId).in('status', ['done', 'approved']).gte('performed_at', monthStart),
         supabase.from('kaizen_pm_tasks').select('due_date, status, performed_at, asset:kaizen_pm_assets(department)').eq('company_id', companyId).eq('status', 'pending_approval'),
-        supabase.from('kaizen_pm_settings').select('due_soon_days').eq('company_id', companyId).maybeSingle(),
       ])
       if (cancelled) return
       let aRows = (a.data as AssetRow[]) ?? []
@@ -60,7 +66,6 @@ export function PMSummaryCard() {
         pRows = pRows.filter(r => r.asset?.department === profile.department)
       }
       setAssets(aRows); setTasks(tRows); setMonthTasks(mRows); setPendingTasks(pRows)
-      if (s.data?.due_soon_days != null) setDueSoonDays(s.data.due_soon_days)
       setLoading(false)
     })()
     return () => { cancelled = true }

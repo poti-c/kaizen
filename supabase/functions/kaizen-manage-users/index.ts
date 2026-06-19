@@ -156,6 +156,7 @@ serve(async (req) => {
     if (!role || !full_name || !department || !password) {
       return json({ error: "role, full_name, department and password are required" }, 400);
     }
+    if (password.length < 8) return json({ error: "Password must be at least 8 characters." }, 400);
 
     if (callerRole === "manager") {
       if (role !== "staff") return json({ error: "Managers can only create staff accounts" }, 403);
@@ -317,14 +318,18 @@ serve(async (req) => {
     if (callerRole === "super_admin" && updates.role !== undefined && updates.role !== "staff" && target.role === "staff" && !emailIn) {
       return json({ error: `A login email is required when promoting a staff member to ${updates.role}.` }, 400);
     }
+    // MU-006: demoting to staff without a username leaves the account unloggable (staff use username login)
+    if (callerRole === "super_admin" && updates.role === "staff" && target.role !== "staff" && !(updates.username?.trim())) {
+      return json({ error: "A username is required when demoting an account to staff." }, 400);
+    }
 
     // MU-003: username changes are super_admin only — managers must not be able to lock staff out
     const allowed: Record<string, unknown> = {
       full_name: updates.full_name,
       position: updates.position,
-      must_change_password: updates.must_change_password,
     };
     if (callerRole === "super_admin") {
+      if (updates.must_change_password !== undefined) allowed.must_change_password = updates.must_change_password;
       // Allow username change only for super_admin callers
       if (updates.username !== undefined) allowed.username = updates.username;
       if (updates.department !== undefined) {
@@ -451,6 +456,7 @@ serve(async (req) => {
   if (action === "reset_password" || action === "update_password") {
     const { userId, password } = body;
     if (!userId || !password) return json({ error: "userId and password are required" }, 400);
+    if (password.length < 8) return json({ error: "Password must be at least 8 characters." }, 400);
 
     // Authorize EVERY caller (assertCanManage scopes super_admins to their accessible
     // companies too) — previously a super_admin could reset any user's password anywhere.

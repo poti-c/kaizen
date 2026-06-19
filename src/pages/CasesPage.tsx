@@ -140,7 +140,7 @@ export function CasesPage() {
   const [advancedSearchEnabled, setAdvancedSearchEnabled] = useState<boolean>(() => {
     if (searchParams.get('group') || searchParams.get('status') || searchParams.get('priority') || searchParams.get('category')) return true
     const saved = localStorage.getItem('kaizen-advanced-search-enabled')
-    return saved ? JSON.parse(saved) : false
+    return saved ? (() => { try { return JSON.parse(saved) } catch { return false } })() : false
   })
   const [advFilters, setAdvFilters] = useState<{
     statuses: (CaseStatus | 'overdue')[]
@@ -149,7 +149,8 @@ export function CasesPage() {
     categories: string[]
   }>(() => {
     const saved = localStorage.getItem('kaizen-adv-filters')
-    return saved ? JSON.parse(saved) : { statuses: [], departments: [], priorities: [], categories: [] }
+    const _def = { statuses: [], departments: [], priorities: [], categories: [] }
+    return saved ? (() => { try { return JSON.parse(saved) } catch { return _def } })() : _def
   })
 
   // Translate a Dashboard deep-link (?status=/?group=/?priority=/?category=) into the
@@ -335,7 +336,8 @@ export function CasesPage() {
     // Managers see all cases (cross-dept view) — edit restrictions enforced in CaseDetailPage
     // HR Manager: no filter — sees all cases (read-only enforced in detail page)
 
-    const { data } = await query
+    const { data, error } = await query
+    if (error) { console.error('[CasesPage] fetch error', error.message); setLoading(false); return }
     // BUG-002: avoid raw PostgREST .or() string for staff dept filter — custom dept labels
     // can contain commas/parens that break PostgREST parsing. Filter client-side instead;
     // RLS already scopes results to the company so the full fetch is safe.
@@ -461,7 +463,7 @@ export function CasesPage() {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `kaizen-cases-${new Date().toISOString().split('T')[0]}.csv`
+    a.download = `kaizen-cases-${bangkokDate()}.csv`
     a.click()
     URL.revokeObjectURL(url)
   }

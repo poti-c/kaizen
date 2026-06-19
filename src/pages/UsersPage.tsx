@@ -257,6 +257,8 @@ export function UsersPage() {
       if (editUsername.trim() !== (editUser.username || '')) changes.push(`Username → @${editUsername.trim()}`)
       if (emailLogin && editEmail.trim() !== (editUser.email || '')) changes.push(`Login email → ${editEmail.trim()}`)
       if (editNewPassword.trim().length >= 6) changes.push('Password reset (must change on login)')
+      if (profile?.role === 'super_admin' && editRole !== editUser.role) changes.push(`Role → ${editRole}`)
+      if (profile?.role === 'super_admin' && editDepartment !== editUser.department) changes.push(`Department → ${editDepartment}`)
 
       // AUTH-005: log 'reset_password' when only a password reset occurred, not 'edit_profile'
       const onlyPasswordReset = resettingPassword && changes.length === 1 && changes[0] === 'Password reset (must change on login)'

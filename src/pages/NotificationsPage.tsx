@@ -18,6 +18,7 @@ export function NotificationsPage() {
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
   const [hasMore, setHasMore] = useState(false)
+  const [fetchError, setFetchError] = useState<string | null>(null)
   // True unread total across ALL rows (not just the loaded page), so the
   // subtitle and "Mark all read" button stay correct beyond the first page.
   const [unread, setUnread] = useState(0)
@@ -51,19 +52,27 @@ export function NotificationsPage() {
   // pulling the entire history into memory on every open. Keyset pagination on
   // created_at avoids the duplicate/skip that offset ranges suffer when new rows
   // are inserted between fetches.
-  async function fetchNotifications(before?: string) {
+  async function fetchNotifications(before?: string, beforeId?: string) {
     if (!profile) return
-    if (!before) setLoading(true); else setLoadingMore(true)
+    if (!before) { setLoading(true); setFetchError(null) } else setLoadingMore(true)
     let q = supabase
       .from('kaizen_notifications')
       .select('*')
       .eq('user_id', profile.id)
       .order('created_at', { ascending: false })
+      .order('id', { ascending: false })
       .limit(PAGE_SIZE)
-    if (before) q = q.lt('created_at', before)
-    // NP-004: surface fetch errors instead of silently showing empty inbox
+    if (before && beforeId) {
+      q = q.or(`created_at.lt.${before},and(created_at.eq.${before},id.lt.${beforeId})`)
+    } else if (before) {
+      q = q.lt('created_at', before)
+    }
     const { data, error } = await q
-    if (error) { setLoading(false); setLoadingMore(false); return }
+    if (error) {
+      setLoading(false); setLoadingMore(false)
+      if (!before) setFetchError(error.message)
+      return
+    }
     const page = (data || []) as KaizenNotification[]
     setNotifications((prev) => before ? [...prev, ...page] : page)
     setHasMore(page.length === PAGE_SIZE)
@@ -142,6 +151,14 @@ export function NotificationsPage() {
         <div className="flex items-center justify-center py-16">
           <div className="w-8 h-8 border-2 border-[var(--brand-primary)] border-t-transparent rounded-full animate-spin" />
         </div>
+      ) : fetchError ? (
+        <div className="bg-white rounded-xl border border-red-200 shadow-sm py-16 text-center">
+          <Bell className="h-10 w-10 text-red-200 mx-auto mb-3" />
+          <p className="text-red-600 font-medium">{lang === 'th' ? 'โหลดการแจ้งเตือนไม่สำเร็จ' : 'Failed to load notifications'}</p>
+          <button onClick={() => fetchNotifications()} className="mt-3 text-sm text-[var(--brand-primary)] hover:underline">
+            {lang === 'th' ? 'ลองอีกครั้ง' : 'Retry'}
+          </button>
+        </div>
       ) : notifications.length === 0 ? (
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm py-16 text-center">
           <Bell className="h-10 w-10 text-gray-200 mx-auto mb-3" />
@@ -184,7 +201,7 @@ export function NotificationsPage() {
           {hasMore && (
             <div className="text-center pt-1">
               <Button variant="outline" size="sm" disabled={loadingMore}
-                onClick={() => fetchNotifications(notifications[notifications.length - 1]?.created_at)}>
+                onClick={() => { const last = notifications[notifications.length - 1]; fetchNotifications(last?.created_at, last?.id) }}>
                 {loadingMore ? (lang === 'th' ? 'กำลังโหลด…' : 'Loading…') : (lang === 'th' ? 'โหลดเพิ่มเติม' : 'Load more')}
               </Button>
             </div>

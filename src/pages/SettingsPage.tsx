@@ -340,29 +340,34 @@ export function SettingsPage() {
     const { dbKey, indices, items, affectedCases } = bulkConfirm
     const { list, setList } = _pendingBulkRef.current
     const updated = list.filter((_, i) => !indices.includes(i))
-    setList(updated)
-    await saveList(dbKey, updated)
+    try {
+      await saveList(dbKey, updated)
+      setList(updated)
 
-    // Create a notification for super admin if cases are affected
-    if (affectedCases > 0 && profile) {
-      const listLabel = dbKey === 'custom_locations' ? 'location' : dbKey === 'custom_categories' ? 'category' : 'department'
-      const admins = await supabase.from('kaizen_profiles').select('id').eq('role', 'super_admin').eq('company_id', companyId ?? '')
-      const notifications = (admins.data || []).map((a: { id: string }) => ({
-        user_id: a.id,
-        case_id: null,
-        title: `Incomplete cases detected`,
-        message: `${affectedCases} open case${affectedCases > 1 ? 's' : ''} ${affectedCases > 1 ? 'have' : 'has'} a ${listLabel} that was removed: ${items.join(', ')}. Please update the affected cases.`,
-        is_read: false,
-        notification_type: 'incomplete_case',
-        title_key: 'settings_items_removed',
-        body_params: { count: affectedCases, kind: listLabel, items: items.join(', ') },
-      }))
-      if (notifications.length > 0) {
-        await supabase.from('kaizen_notifications').insert(notifications)
+      // Create a notification for super admin if cases are affected
+      if (affectedCases > 0 && profile) {
+        const listLabel = dbKey === 'custom_locations' ? 'location' : dbKey === 'custom_categories' ? 'category' : 'department'
+        const admins = await supabase.from('kaizen_profiles').select('id').eq('role', 'super_admin').eq('company_id', companyId ?? '')
+        const notifications = (admins.data || []).map((a: { id: string }) => ({
+          user_id: a.id,
+          case_id: null,
+          title: `Incomplete cases detected`,
+          message: `${affectedCases} open case${affectedCases > 1 ? 's' : ''} ${affectedCases > 1 ? 'have' : 'has'} a ${listLabel} that was removed: ${items.join(', ')}. Please update the affected cases.`,
+          is_read: false,
+          notification_type: 'incomplete_case',
+          title_key: 'settings_items_removed',
+          body_params: { count: affectedCases, kind: listLabel, items: items.join(', ') },
+        }))
+        if (notifications.length > 0) {
+          await supabase.from('kaizen_notifications').insert(notifications)
+        }
       }
-    }
 
-    toast.success(lang === 'th' ? `ลบ ${items.length} รายการแล้ว` : `Removed ${items.length} item${items.length > 1 ? 's' : ''}.`)
+      toast.success(lang === 'th' ? `ลบ ${items.length} รายการแล้ว` : `Removed ${items.length} item${items.length > 1 ? 's' : ''}.`)
+    } catch (err) {
+      console.error('[confirmBulkDelete]', err)
+      toast.error(lang === 'th' ? 'ลบไม่สำเร็จ กรุณาลองใหม่' : 'Delete failed. Please try again.')
+    }
     setBulkConfirm(null)
   }
   // ────────────────────────────────────────────────────────────────────────
@@ -1511,7 +1516,7 @@ function EditableListCard({
           <label className="flex items-center gap-2 cursor-pointer text-xs text-gray-500 select-none">
             <input
               type="checkbox"
-              checked={selected.size === items.length && items.length > 0}
+              checked={(maxVisible && !showAll ? items.slice(0, maxVisible) : items).every((_, i) => selected.has(i)) && items.length > 0}
               onChange={toggleAll}
               className="h-3.5 w-3.5 rounded border-gray-300 accent-[var(--brand-primary)]"
             />
