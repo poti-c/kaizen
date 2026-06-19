@@ -197,14 +197,16 @@ export function SettingsPage() {
     // subscription) so the injected "Preventive Maintenance" category tracks it.
   }, [companyId, companyHasAddon(activeCompany, 'pms')])
 
+  // SP-001: check and throw on Supabase write errors so callers can surface failures
   async function saveList(key: string, list: string[]) {
     if (!companyId) return
-    await supabase
+    const { error } = await supabase
       .from('kaizen_settings')
       .upsert({ key, value: list, company_id: companyId, updated_by: profile?.id ?? null }, { onConflict: 'key,company_id' })
+    if (error) throw error
   }
 
-  function addItem(key: string, value: string, list: string[], setList: (l: string[]) => void, setNew: (v: string) => void) {
+  async function addItem(key: string, value: string, list: string[], setList: (l: string[]) => void, setNew: (v: string) => void) {
     const trimmed = value.trim()
     if (!trimmed) return
     if (list.some(i => i.toLowerCase() === trimmed.toLowerCase())) {
@@ -212,38 +214,54 @@ export function SettingsPage() {
       return
     }
     const updated = [...list, trimmed]
-    setList(updated)
-    setNew('')
-    saveList(key, updated)
-    toast.success(lang === 'th' ? 'เพิ่มแล้ว' : 'Added.')
+    try {
+      await saveList(key, updated)
+      setList(updated)
+      setNew('')
+      toast.success(lang === 'th' ? 'เพิ่มแล้ว' : 'Added.')
+    } catch {
+      toast.error(lang === 'th' ? 'บันทึกไม่สำเร็จ' : 'Failed to save.')
+    }
   }
 
-  function removeItem(key: string, index: number, list: string[], setList: (l: string[]) => void) {
+  async function removeItem(key: string, index: number, list: string[], setList: (l: string[]) => void) {
+    // SP-004: 'Preventive Maintenance' is re-injected on every load for PMS companies — block removal
+    if (key === 'custom_categories' && companyHasAddon(activeCompany, 'pms') &&
+        list[index]?.toLowerCase() === 'preventive maintenance') {
+      toast.error(lang === 'th' ? 'ไม่สามารถลบ "Preventive Maintenance" ขณะเปิดใช้ PMS' : 'Cannot remove "Preventive Maintenance" while PMS is active.')
+      return
+    }
     const updated = list.filter((_, i) => i !== index)
-    setList(updated)
-    saveList(key, updated)
-    toast.success(lang === 'th' ? 'ลบแล้ว' : 'Removed.')
+    try {
+      await saveList(key, updated)
+      setList(updated)
+      toast.success(lang === 'th' ? 'ลบแล้ว' : 'Removed.')
+    } catch {
+      toast.error(lang === 'th' ? 'บันทึกไม่สำเร็จ' : 'Failed to save.')
+    }
   }
 
   function startEdit(key: string, index: number, value: string) {
     setEditingItem({ key, index, value })
   }
 
-  function confirmEdit(list: string[], setList: (l: string[]) => void, key: string) {
+  async function confirmEdit(list: string[], setList: (l: string[]) => void, key: string) {
     if (!editingItem) return
     const trimmed = editingItem.value.trim()
     if (!trimmed) { setEditingItem(null); return }
-    // Reject renaming to a label that already exists elsewhere (mirrors addItem),
-    // otherwise two identical entries collide on key={value} and bulk-delete.
     if (list.some((it, i) => i !== editingItem.index && it.toLowerCase() === trimmed.toLowerCase())) {
       toast.error(lang === 'th' ? 'มีรายการนี้อยู่แล้ว' : 'Item already exists.')
       return
     }
     const updated = list.map((item, i) => i === editingItem.index ? trimmed : item)
-    setList(updated)
-    saveList(key, updated)
-    setEditingItem(null)
-    toast.success(lang === 'th' ? 'อัปเดตแล้ว' : 'Updated.')
+    try {
+      await saveList(key, updated)
+      setList(updated)
+      setEditingItem(null)
+      toast.success(lang === 'th' ? 'อัปเดตแล้ว' : 'Updated.')
+    } catch {
+      toast.error(lang === 'th' ? 'บันทึกไม่สำเร็จ' : 'Failed to save.')
+    }
   }
 
   // ── Bulk delete ──────────────────────────────────────────────────────────
@@ -1164,7 +1182,10 @@ function MultiDeptManagersSection({ companyId }: { companyId: string | null }) {
   const [managers, setManagers] = React.useState<KaizenProfile[]>([])
   const [saving, setSaving] = React.useState<string | null>(null)
   // Full company department list (built-in + custom). value is the DB-stored identifier.
-  const [allDepts, setAllDepts] = React.useState<{ value: string; label: string }[]>([...DEPARTMENTS])
+  // SP-003: exclude top_management — managers must not be assignable to it as an extra dept
+  const [allDepts, setAllDepts] = React.useState<{ value: string; label: string }[]>(
+    DEPARTMENTS.filter(d => d.value !== 'top_management')
+  )
 
   React.useEffect(() => {
     if (!companyId) return
@@ -1175,7 +1196,9 @@ function MultiDeptManagersSection({ companyId }: { companyId: string | null }) {
       setManagers((mgrsRes.data ?? []) as KaizenProfile[])
       if (deptsRes.data?.value) {
         const labels = deptsRes.data.value as string[]
-        setAllDepts(labels.map((label) => ({ value: LABEL_TO_DEPT_VALUE[label] ?? label, label })))
+        // SP-003: filter out top_management from the assignable extra-depts list
+        setAllDepts(labels.map((label) => ({ value: LABEL_TO_DEPT_VALUE[label] ?? label, label }))
+          .filter(d => d.value !== 'top_management'))
       }
     })
   }, [companyId])
@@ -1460,7 +1483,13 @@ function EditableListCard({
   }
 
   function toggleAll() {
-    setSelected(prev => prev.size === items.length ? new Set() : new Set(items.map((_, i) => i)))
+    // SP-002: only select visible items — hidden items must not be silently bulk-deleted
+    const visible = maxVisible && !showAll ? items.slice(0, maxVisible) : items
+    setSelected(prev =>
+      visible.every((_, i) => prev.has(i))
+        ? new Set()
+        : new Set(visible.map((_, i) => i))
+    )
   }
 
   function handleBulkRemoveClick() {

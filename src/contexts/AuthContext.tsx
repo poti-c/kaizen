@@ -125,7 +125,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         { onConflict: 'user_id,active_date', ignoreDuplicates: true }
       ).then(() => {}, () => {})
     }
-    beat()
+    // AUTH-008: only beat on mount if the tab is actually visible (consistent with focus/visibilitychange handlers)
+    if (document.visibilityState === 'visible') beat()
     const interval = setInterval(beat, 3 * 60 * 1000)
     const onVisible = () => { if (document.visibilityState === 'visible') beat() }
     window.addEventListener('focus', onVisible)

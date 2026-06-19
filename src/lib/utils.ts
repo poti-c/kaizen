@@ -313,16 +313,19 @@ export function formatDueBy(due: string | null | undefined, lang = 'en'): string
   return `${dateStr}, ${d.toLocaleTimeString(loc, { hour: '2-digit', minute: '2-digit', ...tz })}`
 }
 
-// Bind an ISO timestamp to / from an <input type="datetime-local"> (local wall clock).
+// Bind an ISO timestamp to / from an <input type="datetime-local">.
+// CDP-003: always use Asia/Bangkok so the editor shows the correct local hotel time
+// regardless of the viewer's browser timezone.
 export function toDateTimeLocal(iso: string | null | undefined): string {
   if (!iso) return ''
   const d = new Date(iso)
   if (isNaN(d.getTime())) return ''
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+  // 'sv' locale gives YYYY-MM-DD HH:mm:ss; slice to YYYY-MM-DDTHH:mm
+  return d.toLocaleString('sv', { timeZone: 'Asia/Bangkok' }).replace(' ', 'T').slice(0, 16)
 }
 export function fromDateTimeLocal(v: string): string {
-  return v ? new Date(v).toISOString() : ''
+  // v is in Bangkok wall-clock time; append +07:00 so Date parses it correctly
+  return v ? new Date(`${v}:00+07:00`).toISOString() : ''
 }
 
 // Calendar date (YYYY-MM-DD) of a timestamp in the hotel's timezone (Asia/Bangkok).

@@ -167,7 +167,8 @@ export function RoutineRosterPage() {
   useEffect(() => { loadMutes() }, [loadMutes])
 
   const load = useCallback(async () => {
-    if (!companyId) return
+    // RR-004: don't fetch board data until FO access check resolves — prevents unauthorized data exposure
+    if (!companyId || rrFo.loading || !rrFo.allowed) return
     setLoading(true)
     const tpls = await supabase.from('kaizen_rr_templates').select('*')
       .eq('company_id', companyId).order('sort_order').order('created_at')
@@ -185,7 +186,8 @@ export function RoutineRosterPage() {
     if (res.error) toast.error(res.error.message)
     setOrders((res.data as RrOrder[]) ?? [])
     setLoading(false)
-  }, [companyId, today, tomorrow])
+  // RR-004: include rrFo state in deps so load re-runs once access is confirmed
+  }, [companyId, today, tomorrow, rrFo.loading, rrFo.allowed])
   useEffect(() => { load() }, [load])
 
   // PIC-aware notification. Targets:
@@ -808,8 +810,10 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
     // rooms are ticked in quick succession (the reload is async) and would then
     // miss the auto-promotion to 'delivered'.
     let allDone = false
+    let dbRows: { delivered: boolean }[] | null = null
     if (delivered) {
       const { data: rows } = await supabase.from('kaizen_rr_order_items').select('delivered').eq('order_id', o.id)
+      dbRows = rows
       allDone = !!rows && rows.length > 0 && rows.every((x) => x.delivered)
     }
     if (allDone) {
@@ -818,12 +822,14 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
       }).eq('id', o.id)
       if (e2) toast.error(e2.message)
       else {
+        // RR-006: use DB row count rather than stale closure items.length
+        const dbCount = dbRows?.length ?? items.length
         await logEvent('delivered', null)
         await notifyDept(o.request_department,
           lang === 'th' ? 'จัดส่งออเดอร์แล้ว' : 'Routine order delivered',
           lang === 'th'
-            ? `"${o.title}"${itemSuffix} — ครบทั้ง ${items.length} ห้อง โดยแผนก ${deptLabel(o.fulfill_department, lang)}`
-            : `"${o.title}"${itemSuffix} — all ${items.length} rooms done by ${deptLabel(o.fulfill_department, lang)}`,
+            ? `"${o.title}"${itemSuffix} — ครบทั้ง ${dbCount} ห้อง โดยแผนก ${deptLabel(o.fulfill_department, lang)}`
+            : `"${o.title}"${itemSuffix} — all ${dbCount} rooms done by ${deptLabel(o.fulfill_department, lang)}`,
           { templateId: o.template_id, picMode, picIds })
         toast.success(tr.rr.orderDelivered)
       }
@@ -1032,7 +1038,8 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
       { status: 'sent', quantity: parsed.length, note: note.trim() || null, sent_by: profile.id, sent_at: now() },
       tr.rr.orderSent,
       { action: 'sent', detail: `${parsed.length} ${lang === 'th' ? 'ห้อง' : 'rooms'}` },
-      { dept: o.fulfill_department,
+      // RR-005: useDeptConfig:true so the company's notification policy is applied (matches sendOrder)
+      { dept: o.fulfill_department, useDeptConfig: true,
         title: lang === 'th' ? 'มีออเดอร์ประจำเข้ามาใหม่' : 'Routine order received',
         message: lang === 'th'
           ? `"${o.title}"${itemSuffix} — ${parsed.length} ห้อง จากแผนก ${deptLabel(o.request_department, lang)}`
@@ -1331,7 +1338,8 @@ function TemplateEditor({ companyId, template, sortNext, onClose, onSaved, allDe
     const row = {
       company_id: companyId, name: f.name.trim(), name_th: f.name_th.trim() || null,
       request_department: f.request_department, fulfill_department: f.fulfill_department,
-      order_type: 'bulk' as RrOrderType, due_time: f.due_time || '12:00',
+      // RR-007: preserve existing order_type on edit — hardcoding 'bulk' silently corrupts per_room templates
+      order_type: (template?.order_type ?? 'bulk') as RrOrderType, due_time: f.due_time || '12:00',
       // A bulk routine is one item ordered in a quantity; the picked catalog item drives the
       // daily order's item label + unit (previously these were hardcoded null, so the picker
       // did nothing and every order was item-less/unit-less).

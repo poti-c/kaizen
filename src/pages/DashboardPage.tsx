@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { Clock, AlertTriangle, PlusCircle, CheckCircle2, ChevronDown, ChevronUp, CalendarDays } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
@@ -29,6 +29,8 @@ export function DashboardPage() {
   const [allCases, setAllCases] = useState<KaizenCase[]>([])
   const [catList, setCatList] = useState<{ slug: string; label: string }[]>([]) // company's categories (custom)
   const [loading, setLoading] = useState(true)
+  // DASH-001: sequence counter to discard stale responses from concurrent fetchAll calls
+  const fetchSeq = useRef(0)
 
   // ── Date filter ────────────────────────────────────────────────────────────
   const now = new Date()
@@ -198,17 +200,21 @@ export function DashboardPage() {
 
   async function fetchAll() {
     if (!profile) return
+    // DASH-001: stamp this call; discard response if a newer call fires before this resolves
+    const seq = ++fetchSeq.current
     setLoading(true)
     let query = supabase.from('kaizen_cases').select('*, creator:kaizen_profiles!kaizen_cases_created_by_fkey(full_name, department)')
     if (activeCompany) query = query.eq('company_id', activeCompany.id)
     if (profile.role === 'staff') query = query.eq('department', profile.department)
-    const { data } = await query.order('created_at', { ascending: false })
+    // DASH-002: surface query errors instead of silently showing empty dashboard
+    const { data, error } = await query.order('created_at', { ascending: false })
+    if (seq !== fetchSeq.current) return
+    if (error) { setLoading(false); return }
     setAllCases((data || []) as KaizenCase[])
-    // The company's own category list — so the chart matches New Case / Cases,
-    // not the built-in defaults (e.g. a removed "Maintenance" shouldn't appear).
     if (activeCompany) {
       const { data: catRow } = await supabase.from('kaizen_settings').select('value')
         .eq('company_id', activeCompany.id).eq('key', 'custom_categories').maybeSingle()
+      if (seq !== fetchSeq.current) return
       const labels = Array.isArray(catRow?.value) ? (catRow!.value as string[]) : []
       setCatList(labels.map(l => ({ slug: l.toLowerCase().replace(/ /g, '_'), label: l })))
     }
@@ -271,7 +277,8 @@ export function DashboardPage() {
     { value: 'reopened',    label: t.status.reopened },
   ]
 
-  const recentCases = allCases.slice(0, 5)
+  // DASH-003: use filteredCases so Recent Cases respects the month picker
+  const recentCases = filteredCases.slice(0, 5)
 
   if (loading) return (
     <div className="p-8 flex items-center justify-center">

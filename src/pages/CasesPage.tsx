@@ -100,18 +100,21 @@ export function CasesPage() {
       .in('key', ['custom_locations', 'custom_departments', 'custom_categories'])
       .then(({ data }) => {
         if (!data) return
+        const labelToSlug = Object.fromEntries(DEPARTMENTS.map((d) => [d.label, d.value]))
         data.forEach((row: { key: string; value: unknown }) => {
+          // BUG-003: custom_departments must reset to built-ins when empty (empty array IS meaningful)
+          if (row.key === 'custom_departments') {
+            const vals = Array.isArray(row.value)
+              ? (row.value as string[]).map(label => labelToSlug[label] ?? label)
+              : []
+            setValidDeptValues(vals.length > 0 ? vals : DEPARTMENTS.map(d => d.value))
+            return
+          }
           if (!Array.isArray(row.value) || row.value.length === 0) return
           if (row.key === 'custom_locations') {
             setCustomLocations(row.value as string[])
           }
-          if (row.key === 'custom_departments') {
-            const labelToSlug = Object.fromEntries(DEPARTMENTS.map((d) => [d.label, d.value]))
-            const vals = (row.value as string[]).map(label => labelToSlug[label] ?? label)
-            if (vals.length > 0) setValidDeptValues(vals)
-          }
           if (row.key === 'custom_categories') {
-            // Convert display names → slugs (e.g. "Guest Complaint" → "guest_complaint")
             const slugs = (row.value as string[]).map(c => c.toLowerCase().replace(/ /g, '_'))
             if (slugs.length > 0) setValidCategorySlugs(slugs)
           }
@@ -315,19 +318,19 @@ export function CasesPage() {
       .order('created_at', { ascending: false })
 
     if (activeCompany) query = query.eq('company_id', activeCompany.id)
-    if (profile.role === 'staff') {
-      // Staff see their own department's cases AND any case where they are Person in Charge
-      // (a manager can assign a case across departments).
-      // Escape double quotes in the department value — custom departments are
-      // stored as their LABEL, which may contain PostgREST-significant characters.
-      const deptEsc = (profile.department ?? '').replace(/"/g, '\\"')
-      query = query.or(`department.eq."${deptEsc}",pic_ids.cs.{${profile.id}}`)
-    }
     // Managers see all cases (cross-dept view) — edit restrictions enforced in CaseDetailPage
     // HR Manager: no filter — sees all cases (read-only enforced in detail page)
 
     const { data } = await query
-    setCases((data || []) as KaizenCase[])
+    // BUG-002: avoid raw PostgREST .or() string for staff dept filter — custom dept labels
+    // can contain commas/parens that break PostgREST parsing. Filter client-side instead;
+    // RLS already scopes results to the company so the full fetch is safe.
+    if (profile.role === 'staff') {
+      const dept = profile.department ?? ''
+      setCases(((data || []) as KaizenCase[]).filter(c => c.department === dept || (c.pic_ids ?? []).includes(profile.id)))
+    } else {
+      setCases((data || []) as KaizenCase[])
+    }
     setLoading(false)
   }
 
@@ -566,14 +569,16 @@ export function CasesPage() {
   }
 
   function Pagination({ page, totalPages, onPrev, onNext, total }: { page: number; totalPages: number; onPrev: () => void; onNext: () => void; total: number }) {
-    if (total <= 10) return null   // nothing to paginate at the smallest page size
+    // BUG-005: always render the page-size selector; only suppress nav controls when not needed
     const allShown = pageSize === 'all'
+    const showNav = total > (allShown ? 0 : (pageSize as number))
     const from = allShown ? 1 : (page - 1) * (pageSize as number) + 1
     const to = allShown ? total : Math.min(page * (pageSize as number), total)
     const nextLabel = allShown ? (lang === 'th' ? 'ถัดไป' : 'Next') : (lang === 'th' ? `ถัดไป ${pageSize}` : `Next ${pageSize}`)
     return (
       <div className="mt-3 flex flex-col sm:flex-row items-center justify-between gap-2">
-        <p className="text-xs text-gray-500">{allShown ? (lang === 'th' ? `แสดงทั้งหมด ${total}` : `Showing all ${total}`) : (lang === 'th' ? `แสดง ${from}–${to} จาก ${total} เคส` : `Showing ${from}–${to} of ${total} cases`)}</p>
+        {showNav && <p className="text-xs text-gray-500">{allShown ? (lang === 'th' ? `แสดงทั้งหมด ${total}` : `Showing all ${total}`) : (lang === 'th' ? `แสดง ${from}–${to} จาก ${total} เคส` : `Showing ${from}–${to} of ${total} cases`)}</p>}
+        {showNav && (
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={onPrev} disabled={allShown || page === 1}>
             <ChevronLeft className="h-4 w-4" />{lang === 'th' ? 'ก่อนหน้า' : 'Previous'}
@@ -583,6 +588,7 @@ export function CasesPage() {
             {nextLabel}<ChevronRight className="h-4 w-4" />
           </Button>
         </div>
+        )}
         <div className="flex items-center gap-1.5 text-xs text-gray-500">
           <span>{lang === 'th' ? 'แสดง' : 'Display'}</span>
           {([10, 15, 20, 'all'] as const).map(opt => (

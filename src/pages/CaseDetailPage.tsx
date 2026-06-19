@@ -38,7 +38,7 @@ function titleTokens(t?: string | null): Set<string> {
 }
 function titlesRelated(a?: string | null, b?: string | null): boolean {
   const ta = titleTokens(a), tb = titleTokens(b)
-  if (!ta.size || !tb.size) return true   // nothing meaningful to compare → don't exclude
+  if (!ta.size || !tb.size) return false   // CDP-006: no tokens to match on — exclude, not include
   for (const w of ta) if (tb.has(w)) return true
   return false
 }
@@ -342,6 +342,7 @@ export function CaseDetailPage() {
 
   async function fetchCase() {
     setLoading(true)
+    try {
     const { data } = await supabase
       .from('kaizen_cases')
       .select('*, creator:kaizen_profiles!kaizen_cases_created_by_fkey(*)')
@@ -402,7 +403,10 @@ export function CaseDetailPage() {
     setPhotos((ph.data || []) as KaizenCasePhoto[])
     setAssignments(asn.data || [])
     setComments((cmts.data || []) as Array<{id:string,content:string,created_at:string,user:KaizenProfile}>)
-    setLoading(false)
+    } finally {
+      // CDP-002: always clear loading even on network error
+      setLoading(false)
+    }
   }
 
   async function addTimeline(action: string, description: string) {
@@ -885,12 +889,22 @@ export function CaseDetailPage() {
       if (editDueDate !== (kcase?.due_date || '')) changes.push(`due date: ${editDueDate || 'removed'}`)
       if (editStatus && editStatus !== kcase?.status) changes.push(`status: ${kcase?.status} → ${editStatus}`)
 
+      const openFamilyStatuses = ['open', 'assigned', 'in_progress', 'reopened']
+      const statusChanged = editStatus && editStatus !== kcase?.status
+      const rollingBackToOpen = statusChanged && openFamilyStatuses.includes(editStatus!)
       await supabase.from('kaizen_cases').update({
         title: editTitle.trim(),
         description: editDescription.trim(),
         department: editDepartment,
         due_date: editDueDate || null,
-        ...(editStatus && editStatus !== kcase?.status ? { status: editStatus } : {}),
+        ...(statusChanged ? { status: editStatus } : {}),
+        // CDP-005: clear resolution/approval fields when status is rolled back to an open state
+        ...(rollingBackToOpen ? {
+          closed_at: null, resolved_at: null,
+          manager_approved_by: null, manager_approved_at: null,
+          admin_approved_by: null, admin_approved_at: null,
+          resolved_by: null,
+        } : {}),
         updated_at: new Date().toISOString(),
       }).eq('id', id!)
 

@@ -101,9 +101,18 @@ export function PreventiveMaintenancePage() {
       setReportManagerIds((s.data as { report_manager_ids?: string[] } | null)?.report_manager_ids ?? [])
     }
     if (openT.error) toast.error(openT.error.message)
-    else setPmTasks((openT.data as unknown as PMTask[]) ?? [])
+    else {
+      const rawTasks = (openT.data as unknown as PMTask[]) ?? []
+      // PM-002: staff see only their own department's tasks
+      const staffDept = profile?.role === 'staff' ? profile?.department : null
+      setPmTasks(staffDept ? rawTasks.filter(tk => (tk as any).asset?.department === staffDept) : rawTasks)
+    }
     if (doneT.error) toast.error(doneT.error.message)
-    else setPmDoneTasks((doneT.data as unknown as PMTask[]) ?? [])
+    else {
+      const rawDone = (doneT.data as unknown as PMTask[]) ?? []
+      const staffDept = profile?.role === 'staff' ? profile?.department : null
+      setPmDoneTasks(staffDept ? rawDone.filter(tk => (tk as any).asset?.department === staffDept) : rawDone)
+    }
     if (!loc.error) {
       const locList = loc.data?.value as string[] | undefined
       setLocations(Array.isArray(locList) && locList.length ? locList : [...LOCATIONS] as string[])

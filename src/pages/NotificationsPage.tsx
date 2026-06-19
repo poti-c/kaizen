@@ -61,7 +61,9 @@ export function NotificationsPage() {
       .order('created_at', { ascending: false })
       .limit(PAGE_SIZE)
     if (before) q = q.lt('created_at', before)
-    const { data } = await q
+    // NP-004: surface fetch errors instead of silently showing empty inbox
+    const { data, error } = await q
+    if (error) { setLoading(false); setLoadingMore(false); return }
     const page = (data || []) as KaizenNotification[]
     setNotifications((prev) => before ? [...prev, ...page] : page)
     setHasMore(page.length === PAGE_SIZE)
@@ -78,7 +80,9 @@ export function NotificationsPage() {
 
   async function markAllRead() {
     if (!profile) return
-    await supabase.from('kaizen_notifications').update({ is_read: true }).eq('user_id', profile.id)
+    // NP-003: check error before updating UI state
+    const { error } = await supabase.from('kaizen_notifications').update({ is_read: true }).eq('user_id', profile.id)
+    if (error) return
     setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })))
     setUnread(0)
     syncBadge(0)

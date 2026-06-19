@@ -103,6 +103,8 @@ export function UsersPage() {
   if (isStaffViewer) return <Navigate to="/dashboard" replace />
 
   async function fetchUsers() {
+    // AUTH-007: without a company scope the query returns ALL profiles cross-tenant
+    if (!activeCompany) { setUsers([]); setLoading(false); return }
     setLoading(true)
     let query = supabase.from('kaizen_profiles').select('*').is('deleted_at', null).order('role').order('department').order('full_name')
     if (activeCompany) query = query.eq('company_id', activeCompany.id)
@@ -268,7 +270,9 @@ export function UsersPage() {
       if (emailLogin && editEmail.trim() !== (editUser.email || '')) changes.push(`Login email → ${editEmail.trim()}`)
       if (editNewPassword.trim().length >= 6) changes.push('Password reset (must change on login)')
 
-      await logActivity(editUser, 'edit_profile', changes.join(', ') || 'No changes')
+      // AUTH-005: log 'reset_password' when only a password reset occurred, not 'edit_profile'
+      const onlyPasswordReset = resettingPassword && changes.length === 1 && changes[0] === 'Password reset (must change on login)'
+      await logActivity(editUser, onlyPasswordReset ? 'reset_password' : 'edit_profile', changes.join(', ') || 'No changes')
 
       toast.success(lang === 'th' ? 'อัปเดตผู้ใช้แล้ว' : 'User updated.')
       setShowEdit(false); fetchUsers()

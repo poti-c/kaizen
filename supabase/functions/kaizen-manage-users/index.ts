@@ -309,40 +309,41 @@ serve(async (req) => {
     // Managers & admins log in with their email; staff log in with a username.
     const emailIn = typeof updates.email === "string" ? updates.email.trim().toLowerCase() : "";
 
+    // MU-003: username changes are super_admin only — managers must not be able to lock staff out
     const allowed: Record<string, unknown> = {
       full_name: updates.full_name,
       position: updates.position,
-      username: updates.username,
       must_change_password: updates.must_change_password,
     };
     if (callerRole === "super_admin") {
+      // Allow username change only for super_admin callers
+      if (updates.username !== undefined) allowed.username = updates.username;
       if (updates.department !== undefined) {
-        // Don't let an edit orphan the user under a department the company doesn't have.
         if (!(await isValidDepartment(target.company_id, updates.department))) {
           return json({ error: "That department does not exist for this company." }, 400);
         }
         allowed.department = updates.department;
       }
       if (updates.role !== undefined) {
-        // Promoting into a capped role must respect the plan limit, just like create
-        // (exclude the target since they already occupy a seat under their old role).
         if (updates.role !== target.role) {
           const limitErr = await roleLimitError(target.company_id, updates.role, userId);
           if (limitErr) return json({ error: limitErr }, 400);
         }
         allowed.role = updates.role;
+        // MU-002: clear the stale identity field when role changes across the staff/non-staff boundary
+        if (updates.role === "staff") {
+          allowed.email = null;   // was a manager/admin email — clear it
+        } else {
+          allowed.username = null; // was a staff username — clear it
+        }
       }
     }
     // Store the login email on the profile for managers/admins.
     if (finalRole !== "staff" && emailIn) allowed.email = emailIn;
     Object.keys(allowed).forEach((k) => allowed[k] === undefined && delete allowed[k]);
-    const { error: updErr } = await supabaseAdmin.from("kaizen_profiles").update(allowed).eq("id", userId);
-    if (updErr) return json({ error: updErr.message }, 400);
 
-    // Keep the LOGIN (auth) email in sync. Staff: derived from their username +
-    // company code. Manager/admin: the email entered by Top Management. Compared
-    // against the ACTUAL current auth email so it repairs drift and skips no-ops.
-    const newUsername = (updates.username ?? "").trim();
+    // MU-001: attempt auth email update FIRST — if it fails we haven't mutated the profile row yet
+    const newUsername = (((callerRole === "super_admin" ? updates.username : undefined) ?? "")).trim();
     let targetAuthEmail: string | null = null;
     if (finalRole === "staff" && newUsername) {
       targetAuthEmail = await staffLoginEmail(newUsername, target.company_id);
@@ -355,10 +356,14 @@ serve(async (req) => {
         const { error: emailErr } = await supabaseAdmin.auth.admin.updateUserById(userId, { email: targetAuthEmail, email_confirm: true });
         if (emailErr) {
           const taken = /already.*registered|already.*exists|email.*taken|duplicate/i.test(emailErr.message);
-          return json({ error: taken ? "That email is already registered to another account." : "Profile saved, but failed to update login: " + emailErr.message }, 400);
+          return json({ error: taken ? "That email is already registered to another account." : "Failed to update login: " + emailErr.message }, 400);
         }
       }
     }
+
+    // Auth update succeeded (or wasn't needed) — now commit the profile row
+    const { error: updErr } = await supabaseAdmin.from("kaizen_profiles").update(allowed).eq("id", userId);
+    if (updErr) return json({ error: updErr.message }, 400);
 
     return json({ success: true });
   }
