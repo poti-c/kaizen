@@ -27,7 +27,7 @@ interface RAsset {
 // 00:00–07:00 Bangkok window.
 const keyOf = bangkokDate
 const perfKey = (ts: string) => bangkokDate(new Date(ts))
-const todayKey = bangkokDate()
+let todayKey = bangkokDate() // overridden inside useMemo to avoid module-level freeze
 function addMonths(base: Date, m: number) { const d = new Date(base); d.setMonth(d.getMonth() + m); return d }
 function diffDays(a: string, b: string) {
   return Math.round((new Date(a + 'T00:00:00').getTime() - new Date(b + 'T00:00:00').getTime()) / 86400000)
@@ -94,6 +94,7 @@ export function PMReport({ companyName, onClose }: { companyName: string; onClos
   // ── All aggregations in one memo ───────────────────────────────────────────
   const data = useMemo(() => {
     const now = new Date()
+    todayKey = bangkokDate(now) // refresh on each recalculation — avoids module-level freeze
     // `period` is a day count (30/90/180/365). Subtract days directly — the old
     // addMonths(-(period/30)) truncated the fractional month, so 365 became an
     // exact 12-month window instead of 365 days.
@@ -269,7 +270,7 @@ export function PMReport({ companyName, onClose }: { companyName: string; onClos
                 <CardTitle icon={<AlertTriangle className="h-3.5 w-3.5 text-red-500" />}>{r.overdue}</CardTitle>
                 <p className="text-3xl font-bold text-red-600 leading-none">{data.overdueRows.length}</p>
                 <p className="text-xs text-gray-500">{r.overdueTasks}</p>
-                <DeltaRow invert deltas={data.deltas.map(d => ({ label: d.label, cur: data.overdueRows.length, prev: d.metric.overdue, suffix: '' }))} />
+                <DeltaRow invert deltas={data.deltas.map(d => ({ label: d.label, cur: data.cur.overdue, prev: d.metric.overdue, suffix: '' }))} />
                 <div className="mt-2 space-y-1 max-h-32 overflow-y-auto print:overflow-visible print:max-h-none">
                   {data.overdueRows.length === 0 ? (
                     <p className="text-[11px] text-green-600">{r.noOverdue}</p>

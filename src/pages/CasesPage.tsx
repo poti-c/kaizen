@@ -122,6 +122,20 @@ export function CasesPage() {
       })
   }, [activeCompany])
 
+  // Prune any saved dept filter values that no longer exist in this company's dept list.
+  // Stale values would silently hide all cases (filter returns no match) with no visible error.
+  useEffect(() => {
+    if (validDeptValues.length === 0) return
+    const valid = new Set(validDeptValues)
+    setAdvFilters(prev => {
+      const pruned = prev.departments.filter(d => valid.has(d))
+      if (pruned.length === prev.departments.length) return prev
+      const next = { ...prev, departments: pruned }
+      localStorage.setItem('kaizen-adv-filters', JSON.stringify(next))
+      return next
+    })
+  }, [validDeptValues])
+
   // Advanced search state — auto-enable when navigated here with URL filters (e.g. from Dashboard)
   const [advancedSearchEnabled, setAdvancedSearchEnabled] = useState<boolean>(() => {
     if (searchParams.get('group') || searchParams.get('status') || searchParams.get('priority') || searchParams.get('category')) return true
@@ -154,7 +168,7 @@ export function CasesPage() {
     const priorities = priorityFilter !== 'all' ? [priorityFilter] : []
     const categories = categoryFilter !== 'all' ? [categoryFilter] : []
     if (statuses.length || priorities.length || categories.length) {
-      setAdvFilters({ statuses, departments: [], priorities, categories })
+      setAdvFilters(prev => ({ ...prev, statuses, priorities, categories }))
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -398,6 +412,7 @@ export function CasesPage() {
     localStorage.setItem('kaizen-adv-filters', JSON.stringify(empty))
     setStatusFilter('all'); setGroupFilter(''); setPriorityFilter('all'); setCategoryFilter('all')
     setOverdueOnly(false)
+    setPagePendingMgr(1); setPagePendingAdm(1)
   }
   const pendingMgrCases   = sortCases(filtered.filter(c => c.status === 'pending_manager_approval'))
   const pendingAdminCases = sortCases(filtered.filter(c => c.status === 'pending_admin_approval'))

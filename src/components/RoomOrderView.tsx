@@ -508,8 +508,11 @@ function RoomOrderBuild({ companyId, unit, requireApproval, initialDate }: { com
     // survives an edit to an already-submitted order. Only genuinely new lines are inserted,
     // and only lines the requester removed are deleted.
     const { data: existingRows } = await supabase.from('kaizen_rr_room_lines')
-      .select('id, active').eq('room_order_id', oid).eq('room_no', roomNo)
-    const prevActive = new Map(((existingRows as { id: string; active: boolean | null }[]) ?? []).map((r) => [r.id, r.active !== false]))
+      .select('id, active, item, slot, serving_at, fulfill_department, source, approval_status')
+      .eq('room_order_id', oid).eq('room_no', roomNo)
+    type ExistingRow = { id: string; active: boolean | null; item: string | null; slot: string | null; serving_at: string | null; fulfill_department: string; source: string; approval_status: string }
+    const prevMap = new Map(((existingRows as ExistingRow[]) ?? []).map((r) => [r.id, r]))
+    const prevActive = new Map(((existingRows as ExistingRow[]) ?? []).map((r) => [r.id, r.active !== false]))
     const existingIds = new Set(prevActive.keys())
     const keptIds = new Set<string>()
     const inserts: ReturnType<typeof lineRow>[] = []
@@ -519,6 +522,13 @@ function RoomOrderBuild({ companyId, unit, requireApproval, initialDate }: { com
         const patch: Record<string, unknown> = {
           slot: l.slot || null, item: l.item || null, fulfill_department: l.fulfill_department,
           serving_at: l.serving_at || null, line_type: l.line_type, note: l.note || null, active: l.active,
+        }
+        // Edited special-request lines go back to pending so the new content is re-approved.
+        const prev = prevMap.get(l.id)
+        if (prev?.source === 'special') {
+          const contentChanged = prev.item !== (l.item || null) || prev.slot !== (l.slot || null) ||
+            prev.serving_at !== (l.serving_at || null) || prev.fulfill_department !== l.fulfill_department
+          if (contentChanged) patch.approval_status = l.source === 'special' && requireApproval ? 'pending' : 'approved'
         }
         // Re-activating a line that had been switched off must return it to the board as
         // FRESH — otherwise a previously-delivered line reappears already ticked/done.
@@ -1119,6 +1129,7 @@ function RoomFulfilBoard({ companyId, dept, unit, initialDate }: { companyId: st
   const [lines, setLines] = useState<FulfilLine[]>([])
   const [names, setNames] = useState<Record<string, string>>({}) // deliverer id → name
   const [orderId, setOrderId] = useState<string | null>(null)
+  const [orderExists, setOrderExists] = useState(false)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
 
@@ -1128,7 +1139,7 @@ function RoomFulfilBoard({ companyId, dept, unit, initialDate }: { companyId: st
     const { data: order } = await supabase.from('kaizen_rr_room_orders').select('id, status')
       .eq('company_id', companyId).eq('order_date', date).maybeSingle()
     const o = order as { id: string; status: string } | null
-    if (!o || o.status !== 'submitted') { setOrderId(null); setLines([]); setLoading(false); return }
+    if (!o || o.status !== 'submitted') { setOrderId(null); setLines([]); setOrderExists(false); setLoading(false); return }
     setOrderId(o.id)
     // Fire the auto-release safety net for the VIEWED date so an un-approved overdue special
     // surfaces on the fulfilling dept's board instead of silently staying hidden as 'pending'.
@@ -1137,6 +1148,7 @@ function RoomFulfilBoard({ companyId, dept, unit, initialDate }: { companyId: st
     const { data } = await supabase.from('kaizen_rr_room_lines').select('*')
       .eq('room_order_id', o.id).eq('fulfill_department', dept).eq('active', true).in('approval_status', ['approved', 'auto'])
     const list = (data as FulfilLine[]) ?? []
+    setOrderExists(true)
     setLines(list)
     const ids = [...new Set(list.map((l) => l.delivered_by).filter(Boolean))] as string[]
     if (ids.length > 0) {
@@ -1157,12 +1169,14 @@ function RoomFulfilBoard({ companyId, dept, unit, initialDate }: { companyId: st
   async function acknowledgeAll() {
     if (!orderId || !profile) return
     setBusy(true)
-    const { error } = await supabase.from('kaizen_rr_room_lines')
+    const { data: affected, error } = await supabase.from('kaizen_rr_room_lines')
       .update({ status: 'acknowledged', acknowledged_by: profile.id, acknowledged_at: new Date().toISOString() })
       .eq('room_order_id', orderId).eq('fulfill_department', dept).eq('status', 'pending')
       .eq('active', true).in('approval_status', ['approved', 'auto']) // only board-visible lines
+      .select('id')
     setBusy(false)
     if (error) { toast.error(error.message); return }
+    if ((affected ?? []).length === 0) { load(); return } // already acknowledged
     await logRoomEvent(companyId, orderId, date, profile.id, 'order_received', dept)
     toast.success(lang === 'th' ? 'รับงานแล้ว' : 'Order received')
     load()
@@ -1216,7 +1230,9 @@ function RoomFulfilBoard({ companyId, dept, unit, initialDate }: { companyId: st
         <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-gray-400" /></div>
       ) : total === 0 ? (
         <div className="text-center py-16 bg-white rounded-xl border border-gray-200 text-sm text-gray-400">
-          {lang === 'th' ? `ยังไม่มีใบสั่ง${one}สำหรับวันนี้` : 'No submitted order for this date.'}
+          {orderExists
+            ? (lang === 'th' ? `ไม่มีรายการสำหรับแผนกนี้วันนี้` : 'No items for this department today.')
+            : (lang === 'th' ? `ยังไม่มีใบสั่ง${one}สำหรับวันนี้` : 'No submitted order for this date.')}
         </div>
       ) : (
         <>

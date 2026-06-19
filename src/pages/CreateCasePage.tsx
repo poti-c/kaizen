@@ -11,7 +11,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { PhotoUpload } from '@/components/PhotoUpload'
-import { generateCaseNumber, CATEGORIES, LOCATIONS, companyHasAddon, formatDueBy, toDateTimeLocal, fromDateTimeLocal } from '@/lib/utils'
+import { generateCaseNumber, CATEGORIES, LOCATIONS, companyHasAddon, formatDueBy, toDateTimeLocal, fromDateTimeLocal, bangkokDate } from '@/lib/utils'
 import { DEPARTMENTS, CATEGORY_LABELS_EN, categoryLabel, deptLabel } from '@/types'
 import type { CasePriority, Department } from '@/types'
 import { toast } from 'sonner'
@@ -23,7 +23,7 @@ const DUE_PRESETS: { key: string; en: string; th: string; at: () => string }[] =
   { key: '1h', en: 'In 1 hour', th: 'ใน 1 ชม.', at: () => new Date(Date.now() + 60 * 60_000).toISOString() },
   { key: '2h', en: 'In 2 hours', th: 'ใน 2 ชม.', at: () => new Date(Date.now() + 120 * 60_000).toISOString() },
   { key: '4h', en: 'In 4 hours', th: 'ใน 4 ชม.', at: () => new Date(Date.now() + 240 * 60_000).toISOString() },
-  { key: 'eod', en: 'End of today', th: 'สิ้นวันนี้', at: () => { const d = new Date(); d.setHours(23, 59, 0, 0); return d.toISOString() } },
+  { key: 'eod', en: 'End of today', th: 'สิ้นวันนี้', at: () => new Date(`${bangkokDate()}T23:59:00+07:00`).toISOString() },
 ]
 
 export function CreateCasePage() {
@@ -51,12 +51,13 @@ export function CreateCasePage() {
     CATEGORIES.map(c => ({ slug: c, label: CATEGORY_LABELS_EN[c] ?? c }))
   )
   const [customLocations, setCustomLocations] = useState<string[]>([...LOCATIONS] as string[])
+  const [customDepts, setCustomDepts] = useState<string[]>([])
 
   useEffect(() => {
     if (!activeCompany?.id) return
     supabase.from('kaizen_settings').select('key, value')
       .eq('company_id', activeCompany.id) // this tenant's taxonomy only
-      .in('key', ['custom_categories', 'custom_locations'])
+      .in('key', ['custom_categories', 'custom_locations', 'custom_departments'])
       .then(({ data }) => {
         if (!data) return
         data.forEach((row: { key: string; value: unknown }) => {
@@ -70,6 +71,9 @@ export function CreateCasePage() {
           }
           if (row.key === 'custom_locations') {
             setCustomLocations(row.value as string[])
+          }
+          if (row.key === 'custom_departments') {
+            setCustomDepts(row.value as string[])
           }
         })
       })
@@ -152,9 +156,10 @@ export function CreateCasePage() {
         .from('kaizen_profiles')
         .select('id')
         .eq('company_id', activeCompany?.id ?? '') // this tenant only — don't notify other companies
-        .eq('department', department)
+        .or(`department.eq."${department}",managed_departments.cs.{"${department}"}`)
         .eq('role', 'manager')
         .eq('is_active', true)
+        .neq('id', profile.id)
 
       if (managers && managers.length > 0) {
         const { error: mgrNotifErr } = await supabase.from('kaizen_notifications').insert(
@@ -177,6 +182,7 @@ export function CreateCasePage() {
         .eq('company_id', activeCompany?.id ?? '') // this tenant only
         .eq('role', 'super_admin')
         .eq('is_active', true)
+        .neq('id', profile.id)
 
       if (admins && admins.length > 0) {
         const { error: adminNotifErr } = await supabase.from('kaizen_notifications').insert(
@@ -237,6 +243,9 @@ export function CreateCasePage() {
                 <SelectContent>
                   {DEPARTMENTS.filter((d) => d.value !== 'top_management').map((d) => (
                     <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>
+                  ))}
+                  {customDepts.map((label) => (
+                    <SelectItem key={label} value={label}>{label}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>

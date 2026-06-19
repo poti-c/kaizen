@@ -112,7 +112,7 @@ export function CasesCalendarPage() {
   async function fetchData() {
     if (!activeCompany) return
     setLoading(true)
-    const start = new Date(viewYear, viewMonth, 1)
+    const start = new Date(Date.UTC(viewYear, viewMonth, 1))
     // Bangkok-aligned instant window [monthStart, nextMonthStart) for the case
     // queries below. The grid buckets each case by bangkokDate(created_at/due_date),
     // so the fetch window must use the same Bangkok day boundaries — local-TZ
@@ -148,8 +148,8 @@ export function CasesCalendarPage() {
     if (showPmData) {
       jobs.push((async () => {
         await supabase.rpc('kaizen_pm_sync')
-        const from = isoKey(new Date(viewYear, viewMonth - 1, 21))
-        const to = isoKey(new Date(viewYear, viewMonth + 1, 14))
+        const from = isoKey(new Date(Date.UTC(viewYear, viewMonth - 1, 21)))
+        const to = isoKey(new Date(Date.UTC(viewYear, viewMonth + 1, 14)))
         const { data } = await supabase.from('kaizen_pm_tasks')
           .select('*, asset:kaizen_pm_assets(name, location, notes, checklist, department, type:kaizen_pm_equipment_types(name))')
           .eq('company_id', activeCompany.id).neq('status', 'cancelled').gte('due_date', from).lte('due_date', to)
@@ -158,7 +158,7 @@ export function CasesCalendarPage() {
     } else { setPmTasks([]) }
 
     if (showRrData) {
-      const monthEnd = isoKey(new Date(viewYear, viewMonth + 1, 0))
+      const monthEnd = isoKey(new Date(Date.UTC(viewYear, viewMonth + 1, 0)))
       jobs.push((async () => {
         const { data } = await supabase.from('kaizen_rr_orders')
           .select('*')
@@ -191,19 +191,27 @@ export function CasesCalendarPage() {
   const deptOk = (c: KaizenCase) => profile?.role === 'staff' || deptFilter === 'all' || c.department === deptFilter
   const filteredCases = cases.filter(deptOk)
   const filteredDueCases = dueCases.filter(deptOk)
-  const isOverdue = (c: KaizenCase) => !!c.due_date && new Date(c.due_date) < new Date()
+  const isOverdue = (c: KaizenCase) => !!c.due_date && bangkokDate(new Date(c.due_date)) < bangkokDate()
 
   // Monday-first grid
   const firstDayOfMonth = new Date(viewYear, viewMonth, 1).getDay()
   const startOffset = firstDayOfMonth === 0 ? 6 : firstDayOfMonth - 1
   const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate()
   const daysInPrevMonth = new Date(viewYear, viewMonth, 0).getDate()
-  type Cell = { date: Date; isCurrentMonth: boolean }
+  type Cell = { date: Date; isCurrentMonth: boolean; key: string }
+  const p2 = (n: number) => String(n).padStart(2, '0')
   const cells: Cell[] = []
-  for (let i = startOffset - 1; i >= 0; i--) cells.push({ date: new Date(viewYear, viewMonth - 1, daysInPrevMonth - i), isCurrentMonth: false })
-  for (let d = 1; d <= daysInMonth; d++) cells.push({ date: new Date(viewYear, viewMonth, d), isCurrentMonth: true })
+  for (let i = startOffset - 1; i >= 0; i--) {
+    const day = daysInPrevMonth - i
+    const [py, pm] = viewMonth === 0 ? [viewYear - 1, 12] : [viewYear, viewMonth]
+    cells.push({ date: new Date(viewYear, viewMonth - 1, day), isCurrentMonth: false, key: `${py}-${p2(pm)}-${p2(day)}` })
+  }
+  for (let d = 1; d <= daysInMonth; d++) cells.push({ date: new Date(viewYear, viewMonth, d), isCurrentMonth: true, key: `${viewYear}-${p2(viewMonth + 1)}-${p2(d)}` })
   const remaining = (7 - (cells.length % 7)) % 7
-  for (let d = 1; d <= remaining; d++) cells.push({ date: new Date(viewYear, viewMonth + 1, d), isCurrentMonth: false })
+  for (let d = 1; d <= remaining; d++) {
+    const [ny, nm] = viewMonth === 11 ? [viewYear + 1, 1] : [viewYear, viewMonth + 2]
+    cells.push({ date: new Date(viewYear, viewMonth + 1, d), isCurrentMonth: false, key: `${ny}-${p2(nm)}-${p2(d)}` })
+  }
 
   // Entries by day key
   const byDay: Record<string, Entry[]> = {}
@@ -316,7 +324,7 @@ export function CasesCalendarPage() {
         ) : (
           <div className="grid grid-cols-7 divide-x divide-y divide-gray-100">
             {cells.map((cell, i) => {
-              const key = isoKey(cell.date)
+              const key = cell.key
               const entries = byDay[key] || []
               const today_ = isToday(cell.date)
               const selected = key === selectedKey

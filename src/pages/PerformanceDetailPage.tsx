@@ -67,7 +67,7 @@ export function PerformanceDetailPage() {
 
     const [ownCasesRes, activityRes, activeDaysRes, scoreCasesRes] = await Promise.all([
       supabase.from('kaizen_cases').select('*').eq('created_by', userId!).eq('company_id', companyId).order('created_at', { ascending: false }),
-      supabase.from('kaizen_case_timeline').select('*, case:kaizen_cases(case_number, title)').eq('performed_by', userId!).order('created_at', { ascending: false }).limit(30),
+      supabase.from('kaizen_case_timeline').select('*, case:kaizen_cases(case_number, title)').eq('performed_by', userId!).order('created_at', { ascending: false }),
       supabase.from('kaizen_user_activity').select('active_date').eq('user_id', userId!).gte('active_date', since30),
       scoreCasesQuery,
     ])
@@ -191,9 +191,10 @@ export function PerformanceDetailPage() {
   const closedCases = cases.filter((c) => c.status === 'closed')
   const resolutionRate = totalCases > 0 ? Math.round((closedCases.length / totalCases) * 100) : 0
   const overdueCases = cases.filter((c) => isSLABreached(c))
-  const avgResolutionHours = closedCases.length > 0
-    ? closedCases.reduce((sum, c) => sum + differenceInHours(new Date(c.closed_at!), new Date(c.created_at)), 0) / closedCases.length
-    : null
+  const avgResolutionHours = (() => {
+    const timed = closedCases.filter(c => c.closed_at != null)
+    return timed.length > 0 ? timed.reduce((sum, c) => sum + differenceInHours(new Date(c.closed_at!), new Date(c.created_at)), 0) / timed.length : null
+  })()
 
   function formatRes(h: number | null) {
     if (h === null) return '—'
@@ -231,7 +232,7 @@ export function PerformanceDetailPage() {
   if (!user) return <div className="p-6 text-center text-gray-400">{t.caseDetail.notFound}</div>
 
   // Access control (after user loaded)
-  if (myProfile?.role === 'super_admin' && user.role === 'super_admin') {
+  if (myProfile?.role === 'super_admin' && user.role === 'super_admin' && userId !== myProfile.id) {
     return <Navigate to="/performance" replace />
   }
   if (myProfile?.role === 'manager') {
@@ -350,7 +351,10 @@ export function PerformanceDetailPage() {
           // case this manager approved still counts after it was reopened (which
           // clears resolved_at). Without this the approval sample silently shrinks.
           const resolvedTs = (c: KaizenCase) => c.resolved_at ?? resolvedAtMap.get(c.id) ?? null
-          const approved = sc.filter(c => c.manager_approved_by === userId && c.manager_approved_at && resolvedTs(c))
+          const approved = sc.filter(c =>
+            c.manager_approved_by === userId && c.manager_approved_at && resolvedTs(c) &&
+            differenceInHours(new Date(c.manager_approved_at), new Date(resolvedTs(c)!)) >= 0
+          )
           const avgApprovalH = approved.length
             ? approved.reduce((s, c) => s + differenceInHours(new Date(c.manager_approved_at!), new Date(resolvedTs(c)!)), 0) / approved.length
             : null
@@ -378,9 +382,10 @@ export function PerformanceDetailPage() {
           const total = sc.length
           const resRate = total ? Math.round((scClosed.length / total) * 100) : null
           const onTime = total ? Math.round(((total - scOverdue.length) / total) * 100) : null
-          const avgResH = scClosed.length
-            ? scClosed.reduce((s, c) => s + differenceInHours(new Date(c.closed_at!), new Date(c.created_at)), 0) / scClosed.length
-            : null
+          const avgResH = (() => {
+            const timed = scClosed.filter(c => c.closed_at != null)
+            return timed.length > 0 ? timed.reduce((s, c) => s + differenceInHours(new Date(c.closed_at!), new Date(c.created_at)), 0) / timed.length : null
+          })()
           const speedScore = avgResH == null ? null : avgResH <= 48 ? 100 : Math.max(0, Math.round((48 / avgResH) * 100))
           // Quality = share of completed work that did NOT bounce back (ever reopened).
           const qualityScore = completedEver ? Math.max(0, Math.round(100 - (reopenedCount / completedEver) * 100)) : null

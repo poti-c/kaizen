@@ -127,7 +127,7 @@ async function packageDefaults(planKey) {
 }
 
 function daysUntil(dateStr) {
-  const today = new Date(); today.setUTCHours(0, 0, 0, 0);
+  const today = new Date(bangkokToday() + "T00:00:00Z");
   const end = new Date(dateStr + "T00:00:00Z");
   return Math.ceil((end.getTime() - today.getTime()) / 86400000);
 }
@@ -224,7 +224,7 @@ Deno.serve(async (req) => {
       const attempts = (rl?.attempts ?? 0) + 1;
       const locked = attempts >= MAX_ATTEMPTS;
       await admin.from("kaizen_console_login_attempts").upsert({
-        ip, attempts: locked ? 0 : attempts,
+        ip, attempts: locked ? MAX_ATTEMPTS : attempts,
         locked_until: locked ? new Date(Date.now() + LOCKOUT_MIN * 60000).toISOString() : null,
         last_attempt: new Date().toISOString(),
       });
@@ -604,7 +604,12 @@ Deno.serve(async (req) => {
     }
     const crossLinks = company_ids.slice(1);
     if (crossLinks.length) {
-      await admin.from("kaizen_super_admin_companies").insert(crossLinks.map((cid) => ({ super_admin_id: uid, company_id: cid })));
+      const { error: xlErr } = await admin.from("kaizen_super_admin_companies").insert(crossLinks.map((cid) => ({ super_admin_id: uid, company_id: cid })));
+      if (xlErr) {
+        await admin.auth.admin.deleteUser(uid);
+        if (newCompanyId) await admin.from("kaizen_companies").delete().eq("id", newCompanyId);
+        return json({ error: xlErr.message }, 400);
+      }
     }
     await audit("create_owner", { email, company_id: company_ids[0], cross: crossLinks }, ip, true);
     return json({ success: true, id: uid, company_id: company_ids[0] });
@@ -716,9 +721,11 @@ Deno.serve(async (req) => {
       if (oldCode && oldCode !== newCode) {
         const { data: staff } = await admin.from("kaizen_profiles").select("id, username").eq("company_id", company_id).eq("role", "staff");
         for (const s of staff ?? []) {
-          const newEmail = normUser(s.username || "") + "@" + newCode + ".staff.kaizen.internal";
-          await admin.auth.admin.updateUserById(s.id, { email: newEmail, email_confirm: true });
-          repointed++;
+          const uname = normUser(s.username || "");
+          if (!uname) continue; // staff without a username have no derivable auth email
+          const newEmail = uname + "@" + newCode + ".staff.kaizen.internal";
+          const { error: reErr } = await admin.auth.admin.updateUserById(s.id, { email: newEmail, email_confirm: true });
+          if (!reErr) repointed++;
         }
       }
     }
@@ -1375,6 +1382,8 @@ Deno.serve(async (req) => {
     const form_id = String(body.form_id ?? "");
     const status = cleanStr(body.status);
     if (!form_id || !status) return json({ error: "form_id and status required" }, 400);
+    const VALID_FORM_STATUSES = ["draft", "submitted", "approved", "rejected", "voided"];
+    if (!VALID_FORM_STATUSES.includes(status)) return json({ error: "Invalid status value." }, 400);
     const { error } = await admin.from("kaizen_generated_forms")
       .update({ status, updated_at: new Date().toISOString() }).eq("id", form_id);
     if (error) return json({ error: error.message }, 400);

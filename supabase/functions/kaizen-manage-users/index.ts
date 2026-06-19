@@ -217,10 +217,13 @@ serve(async (req) => {
       if (clash) {
         const tomb = `.removed.${Math.floor(Date.now() / 1000)}`;
         const freedUsername = `${clash.username ?? "removed"}${tomb}`;
-        await supabaseAdmin.from("kaizen_profiles").update({ username: freedUsername }).eq("id", clash.id);
         const freedEmail = await staffLoginEmail(freedUsername, clash.company_id);
         if (freedEmail) {
-          try { await supabaseAdmin.auth.admin.updateUserById(clash.id, { email: freedEmail }); } catch (_) { /* best effort */ }
+          // Auth email first — only rename the profile if the auth side succeeds.
+          const { error: freeAuthErr } = await supabaseAdmin.auth.admin.updateUserById(clash.id, { email: freedEmail });
+          if (!freeAuthErr) {
+            await supabaseAdmin.from("kaizen_profiles").update({ username: freedUsername }).eq("id", clash.id);
+          }
         }
       }
     } else {
@@ -309,6 +312,12 @@ serve(async (req) => {
     // Managers & admins log in with their email; staff log in with a username.
     const emailIn = typeof updates.email === "string" ? updates.email.trim().toLowerCase() : "";
 
+    // MU-005: promoting a staff member to manager/admin without a login email locks them out —
+    // their auth email is still the .staff.kaizen.internal address and there is no way to log in.
+    if (callerRole === "super_admin" && updates.role !== undefined && updates.role !== "staff" && target.role === "staff" && !emailIn) {
+      return json({ error: `A login email is required when promoting a staff member to ${updates.role}.` }, 400);
+    }
+
     // MU-003: username changes are super_admin only — managers must not be able to lock staff out
     const allowed: Record<string, unknown> = {
       full_name: updates.full_name,
@@ -395,6 +404,7 @@ serve(async (req) => {
     const { data: picCases } = await supabaseAdmin
       .from("kaizen_cases")
       .select("id, case_number, title, department, company_id, pic_ids")
+      .eq("company_id", check.target.company_id)
       .contains("pic_ids", [userId]);
 
     for (const c of picCases ?? []) {
