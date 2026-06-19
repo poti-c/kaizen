@@ -128,6 +128,14 @@ export function CasesCalendarPage() {
     const bkkEndIso = `${nextY}-${pad2(nextM + 1)}-01T00:00:00+07:00` // exclusive
     const jobs: PromiseLike<unknown>[] = []
 
+    // Collect results into local variables — calling setState inside .then() callbacks fires
+    // them immediately on resolve, before the sequence guard below, so a slow stale fetch
+    // can overwrite the current month's data with no visible spinner. Batch all setters
+    // AFTER the guard so only the winning fetch (matching fetchSeqCal.current) writes state.
+    let _cases: KaizenCase[] = [], _due: KaizenCase[] = []
+    let _pm: PMTask[] = []
+    let _rr: RrOrder[] = [], _rrRoom: RoomOrderCal[] = []
+
     if (showCaseData) {
       // Staff see their own department's cases PLUS any case they are Person In Charge
       // of (which may live in another department), matching the Cases list page. Quote
@@ -138,7 +146,7 @@ export function CasesCalendarPage() {
       let q = supabase.from('kaizen_cases').select('*').eq('company_id', activeCompany.id)
         .gte('created_at', bkkStartIso).lt('created_at', bkkEndIso)
       if (staffScope) q = q.or(staffScope)
-      jobs.push(q.then(({ data }) => setCases((data || []) as KaizenCase[])))
+      jobs.push(q.then(({ data }) => { _cases = (data || []) as KaizenCase[] }))
 
       // Open cases whose DEADLINE falls in this month — plotted on the due day (may have
       // been created in an earlier month, so this is a separate query from the one above).
@@ -146,7 +154,7 @@ export function CasesCalendarPage() {
         .not('due_date', 'is', null).neq('status', 'closed')
         .gte('due_date', bkkStartIso).lt('due_date', bkkEndIso)
       if (staffScope) dq = dq.or(staffScope)
-      jobs.push(dq.then(({ data }) => setDueCases((data || []) as KaizenCase[])))
+      jobs.push(dq.then(({ data }) => { _due = (data || []) as KaizenCase[] }))
     } else { setCases([]); setDueCases([]) }
 
     if (showPmData) {
@@ -157,7 +165,7 @@ export function CasesCalendarPage() {
         const { data } = await supabase.from('kaizen_pm_tasks')
           .select('*, asset:kaizen_pm_assets(name, location, notes, checklist, department, type:kaizen_pm_equipment_types(name))')
           .eq('company_id', activeCompany.id).neq('status', 'cancelled').gte('due_date', from).lte('due_date', to)
-        setPmTasks((data as PMTask[]) ?? [])
+        _pm = (data as PMTask[]) ?? []
       })())
     } else { setPmTasks([]) }
 
@@ -169,7 +177,7 @@ export function CasesCalendarPage() {
           .eq('company_id', activeCompany.id).neq('status', 'cancelled')
           .gte('order_date', isoKey(start)).lte('order_date', monthEnd)
         const list = (data as RrOrder[]) ?? []
-        setRrOrders(list)
+        _rr = list
         // Resolve actor names so rows can show "Confirmed by …", "Accepted by …", etc.
         await resolveNames(list.flatMap(o => [o.sent_by, o.accepted_by, o.delivered_by, o.confirmed_by]))
       })())
@@ -179,13 +187,16 @@ export function CasesCalendarPage() {
           .eq('company_id', activeCompany.id)
           .gte('order_date', isoKey(start)).lte('order_date', monthEnd)
         const list = (data as RoomOrderCal[]) ?? []
-        setRrRoomOrders(list)
+        _rrRoom = list
         await resolveNames(list.map(ro => ro.submitted_by))
       })())
     } else { setRrOrders([]); setRrRoomOrders([]) }
 
     await Promise.all(jobs)
     if (fetchSeq != null && fetchSeq !== fetchSeqCal.current) return
+    if (showCaseData) { setCases(_cases); setDueCases(_due) }
+    if (showPmData) setPmTasks(_pm)
+    if (showRrData) { setRrOrders(_rr); setRrRoomOrders(_rrRoom) }
     setLoading(false)
   }
 
@@ -387,7 +398,7 @@ export function CasesCalendarPage() {
       {selectedDate && (
         <div className="mt-4 bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
           <div className="px-4 py-3 border-b border-gray-100">
-            <h3 className="text-sm font-semibold text-gray-900">{selectedDate.toLocaleDateString(lang === 'th' ? 'th-TH' : 'en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</h3>
+            <h3 className="text-sm font-semibold text-gray-900">{new Intl.DateTimeFormat(lang === 'th' ? 'th-TH' : 'en-GB', { timeZone: 'Asia/Bangkok', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(selectedDate)}</h3>
           </div>
           {selectedEntries.length === 0 ? (
             <p className="px-4 py-8 text-center text-sm text-gray-400">{mode === 'pm' ? t.calendar.noMaintenance : t.calendar.nothingDay}</p>

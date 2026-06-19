@@ -33,7 +33,7 @@ export function PerformanceDetailPage() {
   const [cases, setCases] = useState<KaizenCase[]>([])            // their reported cases (KPI cards + list)
   const [scoreCases, setScoreCases] = useState<KaizenCase[]>([])  // scoring caseload (staff: own; manager: dept)
   const [reopenedIds, setReopenedIds] = useState<Set<string>>(new Set())  // scoring-caseload case ids EVER reopened (durable, from timeline)
-  const [resolvedAtMap, setResolvedAtMap] = useState<Map<string, string>>(new Map())  // case id -> latest 'resolved' timestamp (durable; survives reopen clearing resolved_at)
+  const [resolvedAtMap, setResolvedAtMap] = useState<Map<string, string[]>>(new Map())  // case id -> all 'resolved' timestamps sorted asc (durable; survives reopen clearing resolved_at)
   const [activity, setActivity] = useState<(KaizenCaseTimeline & { case_number?: string; case_title?: string })[]>([])
   const [activeDays, setActiveDays] = useState(0)                 // distinct active days in last 30
   const [cfg, setCfg] = useState<PerfConfig>(DEFAULT_PERF_CONFIG) // configurable indicator weights
@@ -67,12 +67,14 @@ export function PerformanceDetailPage() {
 
     const [ownCasesRes, activityRes, activeDaysRes, scoreCasesRes] = await Promise.all([
       supabase.from('kaizen_cases').select('*').eq('created_by', userId!).eq('company_id', companyId).order('created_at', { ascending: false }),
-      supabase.from('kaizen_case_timeline').select('*, case:kaizen_cases(case_number, title)').eq('performed_by', userId!).order('created_at', { ascending: false }),
+      supabase.from('kaizen_case_timeline').select('*, case:kaizen_cases(case_number, title, company_id)').eq('performed_by', userId!).order('created_at', { ascending: false }),
       supabase.from('kaizen_user_activity').select('active_date').eq('user_id', userId!).gte('active_date', since30),
       scoreCasesQuery,
     ])
     setCases((ownCasesRes.data || []) as KaizenCase[])
-    setActivity((activityRes.data || []).map((a: any) => ({ ...a, case_number: a.case?.case_number, case_title: a.case?.title })))
+    setActivity((activityRes.data || [])
+      .filter((a: any) => !a.case || (a.case as any).company_id === companyId)
+      .map((a: any) => ({ ...a, case_number: a.case?.case_number, case_title: a.case?.title })))
     setActiveDays((activeDaysRes.data || []).length)
     const scList = (scoreCasesRes.data || []) as KaizenCase[]
     setScoreCases(scList)
@@ -91,11 +93,13 @@ export function PerformanceDetailPage() {
       // latest 'resolved' event time per case as a fallback.
       const { data: resEv } = await supabase
         .from('kaizen_case_timeline').select('case_id, created_at').eq('action', 'resolved').in('case_id', scIds)
-      const rmap = new Map<string, string>()
+      const rmap = new Map<string, string[]>()
       for (const e of (resEv || []) as { case_id: string; created_at: string }[]) {
-        const prev = rmap.get(e.case_id)
-        if (!prev || e.created_at > prev) rmap.set(e.case_id, e.created_at)
+        const list = rmap.get(e.case_id) ?? []
+        list.push(e.created_at)
+        rmap.set(e.case_id, list)
       }
+      rmap.forEach((v, k) => rmap.set(k, v.sort()))
       setResolvedAtMap(rmap)
     } else {
       setReopenedIds(new Set())
@@ -275,7 +279,7 @@ export function PerformanceDetailPage() {
           )}
           <span className="flex items-center gap-2">
             <CalendarDays className="h-4 w-4 text-gray-400 flex-shrink-0" />
-            {lang === 'th' ? 'เริ่มงาน' : 'Joined'}: {format(new Date(user.created_at), 'dd MMM yyyy')}
+            {lang === 'th' ? 'เริ่มงาน' : 'Joined'}: {new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Bangkok', day: '2-digit', month: 'short', year: 'numeric' }).format(new Date(user.created_at))}
           </span>
           {/* Last active (with real-time online indicator) */}
           <span className="flex items-center gap-2">
@@ -332,7 +336,10 @@ export function PerformanceDetailPage() {
       {(() => {
         const sc = scoreCases
         const scClosed = sc.filter(c => c.status === 'closed')
-        const scOverdue = sc.filter(c => isSLABreached(c))
+        const slaHours: Record<string, number> = { critical: 4, high: 24, medium: 72, low: 168 }
+        const scOverdue = sc.filter(c => isSLABreached(c) ||
+          (c.status === 'closed' && !!c.closed_at &&
+            differenceInHours(new Date(c.closed_at), new Date(c.created_at)) > (slaHours[c.priority] ?? 72)))
         const reopenedCount = sc.filter(c => reopenedIds.has(c.id)).length  // distinct cases ever reopened (durable)
         // Cases that ever reached a resolution. A reopened case has resolved_at cleared, so
         // include it via the durable reopen set — otherwise the quality denominator can be
@@ -352,7 +359,19 @@ export function PerformanceDetailPage() {
           // Use a durable resolution timestamp (case row, else the timeline) so a
           // case this manager approved still counts after it was reopened (which
           // clears resolved_at). Without this the approval sample silently shrinks.
-          const resolvedTs = (c: KaizenCase) => c.resolved_at ?? resolvedAtMap.get(c.id) ?? null
+          const resolvedTs = (c: KaizenCase) => {
+            if (c.resolved_at) return c.resolved_at
+            const tsList = resolvedAtMap.get(c.id)
+            if (!tsList?.length) return null
+            // Pick the latest resolved event that is at or before manager_approved_at so a
+            // case that was approved then reopened and re-resolved doesn't produce a negative
+            // approval lag and get silently dropped from the approval-speed metric.
+            if (c.manager_approved_at) {
+              const before = tsList.filter(ts => ts <= c.manager_approved_at!)
+              return before.length ? before[before.length - 1] : null
+            }
+            return tsList[tsList.length - 1]
+          }
           const approved = sc.filter(c =>
             c.manager_approved_by === userId && c.manager_approved_at && resolvedTs(c) &&
             differenceInHours(new Date(c.manager_approved_at), new Date(resolvedTs(c)!)) >= 0

@@ -342,13 +342,15 @@ serve(async (req) => {
         if (updates.role !== target.role) {
           const limitErr = await roleLimitError(target.company_id, updates.role, userId);
           if (limitErr) return json({ error: limitErr }, 400);
-        }
-        allowed.role = updates.role;
-        // MU-002: clear the stale identity field when role changes across the staff/non-staff boundary
-        if (updates.role === "staff") {
-          allowed.email = null;   // was a manager/admin email — clear it
+          allowed.role = updates.role;
+          // MU-002: clear the stale identity field only when role ACTUALLY changes boundary
+          if (updates.role === "staff") {
+            allowed.email = null;   // was a manager/admin email — clear it
+          } else {
+            allowed.username = null; // was a staff username — clear it
+          }
         } else {
-          allowed.username = null; // was a staff username — clear it
+          allowed.role = updates.role;
         }
       }
     }
@@ -375,9 +377,17 @@ serve(async (req) => {
       }
     }
 
-    // Auth update succeeded (or wasn't needed) — now commit the profile row
+    // Auth update succeeded (or wasn't needed) — now commit the profile row.
+    // On profile failure, roll back the auth email so the two stores stay in sync.
+    const { data: authSnap } = targetAuthEmail ? await supabaseAdmin.auth.admin.getUserById(userId) : { data: null };
     const { error: updErr } = await supabaseAdmin.from("kaizen_profiles").update(allowed).eq("id", userId);
-    if (updErr) return json({ error: updErr.message }, 400);
+    if (updErr) {
+      if (targetAuthEmail && authSnap?.user?.email !== targetAuthEmail) {
+        // Best-effort rollback — restore the previous auth email
+        await supabaseAdmin.auth.admin.updateUserById(userId, { email: authSnap?.user?.email ?? "", email_confirm: true }).catch(() => {});
+      }
+      return json({ error: updErr.message }, 400);
+    }
 
     return json({ success: true });
   }

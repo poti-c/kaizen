@@ -64,11 +64,12 @@ export function CreateCasePage() {
         data.forEach((row: { key: string; value: unknown }) => {
           if (!Array.isArray(row.value) || row.value.length === 0) return
           if (row.key === 'custom_categories') {
-            const cats = (row.value as string[]).map(label => ({
+            const builtIns = CATEGORIES.map(c => ({ slug: c, label: CATEGORY_LABELS_EN[c] ?? c }))
+            const custom = (row.value as string[]).map(label => ({
               slug: label.toLowerCase().replace(/ /g, '_'),
               label,
             }))
-            setCustomCategories(cats)
+            setCustomCategories([...builtIns, ...custom])
           }
           if (row.key === 'custom_locations') {
             setCustomLocations(row.value as string[])
@@ -154,7 +155,7 @@ export function CreateCasePage() {
         .from('kaizen_profiles')
         .select('id')
         .eq('company_id', activeCompany?.id ?? '') // this tenant only — don't notify other companies
-        .or(`department.eq."${department}",managed_departments.cs.{"${department}"}`)
+        .or(`department.eq."${department.replace(/"/g, '\\"')}",managed_departments.cs.{"${department.replace(/"/g, '\\"')}"}`)
         .eq('role', 'manager')
         .eq('is_active', true)
         .neq('id', profile.id)
@@ -419,6 +420,7 @@ export function CreateCasePage() {
             label={t.createCase.addPhotos}
             caseNumber={caseNumber}
             department={department}
+            companyId={activeCompany?.id}
           />
         </div>
 

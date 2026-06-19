@@ -1128,6 +1128,14 @@ Deno.serve(async (req) => {
         await admin.from("kaizen_payment_submissions").delete().eq("id", removedSubmission);
       }
     }
+    // Recompute subscription_end from the remaining invoices so the company row stays
+    // accurate — if the deleted invoice had the latest period_end, the old value would
+    // linger and the app would show a valid subscription despite no payment record.
+    const { data: maxRow } = await admin.from("kaizen_invoices")
+      .select("period_end").eq("company_id", inv?.company_id ?? "").order("period_end", { ascending: false }).limit(1).maybeSingle();
+    if (inv?.company_id) {
+      await admin.from("kaizen_companies").update({ subscription_end: maxRow?.period_end ?? null }).eq("id", inv.company_id);
+    }
     await audit("delete_invoice", { invoice_id, submission_id: removedSubmission }, ip, true);
     return json({ success: true });
   }
@@ -1383,7 +1391,7 @@ Deno.serve(async (req) => {
     const form_id = String(body.form_id ?? "");
     const status = cleanStr(body.status);
     if (!form_id || !status) return json({ error: "form_id and status required" }, 400);
-    const VALID_FORM_STATUSES = ["draft", "submitted", "approved", "rejected", "voided"];
+    const VALID_FORM_STATUSES = ["draft", "submitted", "approved", "rejected", "voided", "sent", "followup", "paid", "issued"];
     if (!VALID_FORM_STATUSES.includes(status)) return json({ error: "Invalid status value." }, 400);
     const { error } = await admin.from("kaizen_generated_forms")
       .update({ status, updated_at: new Date().toISOString() }).eq("id", form_id);

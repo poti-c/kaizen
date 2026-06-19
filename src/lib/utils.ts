@@ -213,7 +213,7 @@ export const DEPT_ABBR: Record<string, string> = {
   top_management:   'TM',
 }
 
-export function buildPhotoPath(caseNumber: string, department: string, index: number, ext: string): string {
+export function buildPhotoPath(caseNumber: string, department: string, index: number, ext: string, companyId?: string): string {
   const now = new Date()
   const bkkParts = bangkokDate(now).split('-')  // ['YYYY','MM','DD']
   const yyyy = bkkParts[0]
@@ -221,7 +221,7 @@ export function buildPhotoPath(caseNumber: string, department: string, index: nu
   const dd = bkkParts[2]
   const dept = DEPT_ABBR[department] ?? department.toUpperCase().slice(0, 2)
   const caseTag = caseNumber.replace(/-/g, '_')
-  const folder = `Na Nirand Kaizen/${yyyy}-${mm}`
+  const folder = companyId ? `${companyId}/kaizen/${yyyy}-${mm}` : `Na Nirand Kaizen/${yyyy}-${mm}`
   const filename = `${yyyy}_${mm}_${dd}_${dept}_${caseTag}_${index}.${ext}`
   return `${folder}/${filename}`
 }

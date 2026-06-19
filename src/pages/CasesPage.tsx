@@ -169,7 +169,12 @@ export function CasesPage() {
     const priorities = priorityFilter !== 'all' ? [priorityFilter] : []
     const categories = categoryFilter !== 'all' ? [categoryFilter] : []
     if (statuses.length || priorities.length || categories.length) {
-      setAdvFilters(prev => ({ ...prev, statuses, priorities, categories }))
+      setAdvFilters(prev => ({
+        ...prev,
+        ...(statuses.length ? { statuses } : {}),
+        ...(priorities.length ? { priorities } : {}),
+        ...(categories.length ? { categories } : {}),
+      }))
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -393,7 +398,7 @@ export function CasesPage() {
   const filterTokens: string[] = (advancedSearchEnabled
     ? [
         ...advFilters.statuses.map(statusLabel),
-        ...advFilters.departments.map(d => DEPARTMENT_LABELS[d] ?? d),
+        ...advFilters.departments.map(d => deptLabel(d, lang)),
         ...advFilters.priorities.map(p => t.priority[p]),
         ...advFilters.categories.map(c => categoryLabel(c, lang)),
       ]
@@ -451,8 +456,8 @@ export function CasesPage() {
       new Date(c.created_at).toLocaleDateString('en-GB', { timeZone: 'Asia/Bangkok' }),
       c.title,
       c.description,
-      c.department,
-      c.category || '',
+      deptLabel(c.department, lang),
+      c.category ? categoryLabel(c.category, lang) : '',
       c.priority,
       c.status,
       c.due_date || '',
@@ -797,7 +802,10 @@ export function CasesPage() {
                       onClick={() => {
                         const bkk = bangkokDate()
                         const [y, mm] = bkk.split('-').map(Number)
-                        setSelectedMonths(new Set([monthKey(y, mm - 1)]))
+                        const key = monthKey(y, mm - 1)
+                        if (caseMonthList.some(m => m.key === key)) {
+                          setSelectedMonths(new Set([key]))
+                        }
                       }}
                       className="text-xs text-[var(--brand-primary)] font-medium hover:underline"
                     >
@@ -1180,7 +1188,11 @@ export function CasesPage() {
           {/* ── Pending: empty state ── */}
           {activeTab === 'pending' && pendingTotal === 0 && (
             <div className="bg-white rounded-xl border border-gray-200 shadow-sm py-10 text-center">
-              <p className="text-gray-400 text-sm">{lang === 'th' ? 'ไม่มีเคสที่รออนุมัติ' : 'No cases pending approval'}</p>
+              <p className="text-gray-400 text-sm">
+                {selectedMonths.size > 0
+                  ? (lang === 'th' ? 'ไม่มีเคสที่รออนุมัติในช่วงเวลาที่เลือก' : 'No cases pending approval in the selected time period')
+                  : (lang === 'th' ? 'ไม่มีเคสที่รออนุมัติ' : 'No cases pending approval')}
+              </p>
             </div>
           )}
 

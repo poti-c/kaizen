@@ -49,9 +49,10 @@ interface PhotoUploadProps {
   bucket?: string
   caseNumber?: string
   department?: string
+  companyId?: string
 }
 
-export function PhotoUpload({ onUpload, maxFiles = 3, label = 'Add Photos', bucket = 'kaizen-photos', caseNumber, department }: PhotoUploadProps) {
+export function PhotoUpload({ onUpload, maxFiles = 3, label = 'Add Photos', bucket = 'kaizen-photos', caseNumber, department, companyId }: PhotoUploadProps) {
   const { lang } = useLanguage()
   const [previews, setPreviews] = useState<{ file: File; preview: string; uploading: boolean; url?: string }[]>([])
   const [dragOver, setDragOver] = useState(false)
@@ -80,7 +81,7 @@ export function PhotoUpload({ onUpload, maxFiles = 3, label = 'Add Photos', buck
       const { blob, ext } = await compressImage(item.file)
       const path =
         caseNumber && department
-          ? buildPhotoPath(caseNumber, department, photoIndexRef.current++, ext)
+          ? buildPhotoPath(caseNumber, department, photoIndexRef.current++, ext, companyId)
           : `Na Nirand Kaizen/unsorted/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
       const { data, error } = await supabase.storage.from(bucket).upload(path, blob, { contentType: blob.type || 'image/jpeg' })
 

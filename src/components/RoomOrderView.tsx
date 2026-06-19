@@ -588,8 +588,11 @@ function RoomOrderBuild({ companyId, unit, requireApproval, initialDate }: { com
   }).map((r) => r.no)
 
   async function submit() {
+    if (busy) return
+    setBusy(true)
     const blanks = findBlankRooms()
     if (blanks.length > 0) {
+      setBusy(false)
       // Surface the unassigned rooms and let the user choose: go back & assign, or mark them Empty.
       setBlankRooms(blanks)
       setBlankPrompt(blanks)
@@ -690,8 +693,8 @@ function RoomOrderBuild({ companyId, unit, requireApproval, initialDate }: { com
   const orderedRoomNos = rooms.map((r) => r.no)
   const nextRoom = (no: string) => { const i = orderedRoomNos.indexOf(no); return i >= 0 && i < orderedRoomNos.length - 1 ? orderedRoomNos[i + 1] : null }
 
-  const dateLabel = new Date(date + 'T00:00:00').toLocaleDateString(lang === 'th' ? 'th-TH' : 'en-GB',
-    { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })
+  const dateLabel = parseDateOnlyBkk(date).toLocaleDateString(lang === 'th' ? 'th-TH' : 'en-GB',
+    { timeZone: 'Asia/Bangkok', weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })
   const savedCount = Object.keys(savedRooms).length
 
   if (loading) return <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-gray-400" /></div>
@@ -1199,8 +1202,8 @@ function RoomFulfilBoard({ companyId, dept, unit, initialDate }: { companyId: st
       : x))
   }
 
-  const dateLabel = new Date(date + 'T00:00:00').toLocaleDateString(lang === 'th' ? 'th-TH' : 'en-GB',
-    { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })
+  const dateLabel = parseDateOnlyBkk(date).toLocaleDateString(lang === 'th' ? 'th-TH' : 'en-GB',
+    { timeZone: 'Asia/Bangkok', weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })
   const itemKey = (l: FulfilLine) => (l.item?.trim() || l.slot?.trim() || '—')
 
   // Group lines
@@ -1366,8 +1369,8 @@ function RoomApprovalsView({ companyId, onChanged }: { companyId: string; onChan
 
   const pending = lines.filter((l) => l.approval_status === 'pending')
   const decided = lines.filter((l) => l.approval_status !== 'pending')
-  const dateLabel = new Date(date + 'T00:00:00').toLocaleDateString(lang === 'th' ? 'th-TH' : 'en-GB',
-    { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })
+  const dateLabel = parseDateOnlyBkk(date).toLocaleDateString(lang === 'th' ? 'th-TH' : 'en-GB',
+    { timeZone: 'Asia/Bangkok', weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })
 
   const statusPill = (s: SpecialLine['approval_status']) => {
     const m: Record<string, [string, string]> = {
