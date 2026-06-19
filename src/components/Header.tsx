@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Bell, X, LayoutDashboard, FolderOpen, PlusCircle, Users, Settings, LogOut, CalendarDays, ChevronDown, Building2, Wrench, ClipboardList, TrendingUp } from 'lucide-react'
+import { Bell, X, LogOut, ChevronDown, Building2 } from 'lucide-react'
 import { useNavigate, Link, NavLink } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
 import { useCompany } from '@/contexts/CompanyContext'
@@ -8,7 +8,7 @@ import { useViewMode } from '@/contexts/ViewModeContext'
 import { supabase } from '@/lib/supabase'
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
 import { getInitials, formatRelativeTime, companyHasAddon, companyHasFeature } from '@/lib/utils'
-import type { FeatureKey } from '@/lib/utils'
+import { useNavItems } from '@/hooks/useNavItems'
 import { localizeNotif } from '@/lib/i18nDynamic'
 import { useRrFoAccess } from '@/hooks/useRrFoAccess'
 import { deptLabel } from '@/types'
@@ -35,24 +35,12 @@ export function Header() {
   const _fmt = (opts: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat(_loc, { timeZone: 'Asia/Bangkok', ...opts }).format(_now)
   const todayLabel = `${_fmt({ weekday: 'short' })}. ${_fmt({ day: 'numeric' })} - ${_fmt({ month: 'long' })} ${_fmt({ year: 'numeric' })}`
 
-  const NAV_ITEMS = [
-    { to: '/dashboard',      icon: LayoutDashboard, label: t.nav.dashboard,      roles: ['super_admin', 'manager'] },
-    { to: '/cases',          icon: FolderOpen,      label: t.nav.cases,           roles: ['super_admin', 'manager', 'staff'] },
-    { to: '/cases/calendar', icon: CalendarDays,    label: t.nav.calendar,        roles: ['super_admin', 'manager', 'staff'] },
-    { to: '/maintenance',    icon: Wrench,          label: t.nav.maintenance,     roles: ['super_admin', 'manager', 'staff'], addon: 'pms' as const },
-    { to: '/routine-roster', icon: ClipboardList,   label: t.nav.routineRoster,   roles: ['super_admin', 'manager', 'staff'], addon: 'routine_roster' as const },
-    { to: '/cases/new',      icon: PlusCircle,      label: t.nav.newCase,         roles: ['staff', 'manager', 'super_admin'] },
-    { to: '/notifications',  icon: Bell,            label: t.nav.notifications,   roles: ['super_admin', 'manager', 'staff'] },
-    { to: '/performance',    icon: TrendingUp,      label: t.nav.performance,     roles: ['super_admin', 'manager'], feature: 'performance_analytics' as const },
-    { to: '/users',          icon: Users,           label: t.nav.users,           roles: ['super_admin', 'manager'] },
-    { to: '/settings',       icon: Settings,        label: t.nav.settings,        roles: ['super_admin', 'manager', 'staff'] },
-  ]
-
   const rrFo = useRrFoAccess()
-  const visibleNavItems = NAV_ITEMS.filter(item =>
+  const allNavItems = useNavItems()
+  const visibleNavItems = allNavItems.filter(item =>
     (profile ? item.roles.includes(profile.role) : false) &&
     (item.addon === undefined || companyHasAddon(activeCompany, item.addon)) &&
-    (!('feature' in item) || !item.feature || companyHasFeature(activeCompany, item.feature as FeatureKey)) &&
+    (!item.feature || companyHasFeature(activeCompany, item.feature)) &&
     (item.to !== '/routine-roster' || rrFo.allowed)
   )
 

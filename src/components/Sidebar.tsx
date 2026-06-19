@@ -1,13 +1,11 @@
 import { NavLink, useNavigate } from 'react-router-dom'
-import {
-  LayoutDashboard, FolderOpen, PlusCircle, Bell, Users,
-  Settings, LogOut, ChevronLeft, ChevronRight, CalendarDays, TrendingUp, Wrench, ClipboardList,
-} from 'lucide-react'
+import { LogOut, ChevronLeft, ChevronRight } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useCompany } from '@/contexts/CompanyContext'
 import { useLanguage } from '@/contexts/LanguageContext'
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
-import { getInitials, companyHasFeature, companyHasAddon, type FeatureKey, type AddonKey } from '@/lib/utils'
+import { getInitials, companyHasFeature, companyHasAddon } from '@/lib/utils'
+import { useNavItems } from '@/hooks/useNavItems'
 import { useRrFoAccess } from '@/hooks/useRrFoAccess'
 import { deptLabel } from '@/types'
 import { useState } from 'react'
@@ -27,25 +25,14 @@ export function Sidebar() {
   const todayLabel = `${fmt({ weekday: 'short' })}. ${fmt({ day: 'numeric' })} - ${fmt({ month: 'long' })} ${fmt({ year: 'numeric' })}`
   const [collapsed, setCollapsed] = useState(false)
 
-  const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; roles: string[]; feature?: FeatureKey; addon?: AddonKey }[] = [
-    { to: '/dashboard', icon: LayoutDashboard, label: t.nav.dashboard, roles: ['super_admin', 'manager'] },
-    { to: '/performance', icon: TrendingUp, label: t.nav.performance, roles: ['super_admin', 'manager'], feature: 'performance_analytics' },
-    { to: '/cases', icon: FolderOpen, label: t.nav.cases, roles: ['super_admin', 'manager', 'staff'] },
-    { to: '/cases/calendar', icon: CalendarDays, label: t.nav.calendar, roles: ['super_admin', 'manager', 'staff'] },
-    { to: '/maintenance', icon: Wrench, label: t.nav.maintenance, roles: ['super_admin', 'manager', 'staff'], addon: 'pms' },
-    { to: '/routine-roster', icon: ClipboardList, label: t.nav.routineRoster, roles: ['super_admin', 'manager', 'staff'], addon: 'routine_roster' },
-    { to: '/cases/new', icon: PlusCircle, label: t.nav.newCase, roles: ['staff', 'manager', 'super_admin'] },
-    { to: '/notifications', icon: Bell, label: t.nav.notifications, roles: ['super_admin', 'manager', 'staff'] },
-    { to: '/users', icon: Users, label: t.nav.users, roles: ['super_admin', 'manager'] },
-    { to: '/settings', icon: Settings, label: t.nav.settings, roles: ['super_admin', 'manager', 'staff'] },
-  ]
+  const allNavItems = useNavItems()
 
   async function handleSignOut() {
     await signOut()
     navigate('/login')
   }
 
-  const visibleItems = NAV_ITEMS.filter((item) => {
+  const visibleItems = allNavItems.filter((item) => {
     if (!profile || !item.roles.includes(profile.role)) return false
     if (item.feature && !companyHasFeature(activeCompany, item.feature)) return false
     if (item.addon && !companyHasAddon(activeCompany, item.addon)) return false

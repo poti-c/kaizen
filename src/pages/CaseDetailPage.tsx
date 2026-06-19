@@ -399,6 +399,11 @@ export function CaseDetailPage() {
       supabase.from('kaizen_case_comments').select('*, user:kaizen_profiles!kaizen_case_comments_user_id_fkey(id,full_name,role)').eq('case_id', id!).order('created_at', { ascending: true }),
     ])
 
+    if (tl.error) console.error('[fetchCase:timeline]', tl.error.message)
+    if (ph.error) console.error('[fetchCase:photos]', ph.error.message)
+    if (asn.error) console.error('[fetchCase:assignments]', asn.error.message)
+    if (cmts.error) console.error('[fetchCase:comments]', cmts.error.message)
+
     setTimeline((tl.data || []) as KaizenCaseTimeline[])
     setPhotos((ph.data || []) as KaizenCasePhoto[])
     setAssignments(asn.data || [])
@@ -410,22 +415,24 @@ export function CaseDetailPage() {
   }
 
   async function addTimeline(action: string, description: string) {
-    await supabase.from('kaizen_case_timeline').insert({
+    const { error } = await supabase.from('kaizen_case_timeline').insert({
       case_id: id!,
       action,
       description,
       performed_by: profile?.id,
     })
+    if (error) console.error('[addTimeline]', error.message)
   }
 
   // `loc` carries a stable localization key + params so the feed renders in the reader's
   // language; title/message stay as the English fallback (old clients, push payloads).
   async function notifyUsers(userIds: string[], title: string, message: string, loc?: { key: string; params: NotifParams }) {
     if (userIds.length === 0) return
-    await supabase.from('kaizen_notifications').insert(
+    const { error } = await supabase.from('kaizen_notifications').insert(
       userIds.map((uid) => ({ user_id: uid, case_id: id!, title, message, notification_type: 'case_update',
         title_key: loc?.key ?? null, body_params: loc?.params ?? null }))
     )
+    if (error) console.error('[notifyUsers]', error.message)
   }
 
   // Resolve a de-duplicated list of recipient ids from departments + roles,

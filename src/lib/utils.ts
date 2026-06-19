@@ -346,6 +346,32 @@ export function bangkokDate(d: Date = new Date()): string {
   }).format(d)
 }
 
+// Bangkok TZ component extractors — use these instead of d.getHours(), d.getMonth(), d.getDay()
+// which return local-timezone values and break when the runtime or viewer is not UTC+7.
+export function bangkokHour(d: Date = new Date()): number {
+  return parseInt(new Intl.DateTimeFormat('en', { timeZone: 'Asia/Bangkok', hour: 'numeric', hour12: false }).format(d), 10)
+}
+export function bangkokMonth(d: Date = new Date()): number {
+  // 0-indexed (January = 0), same contract as Date.getMonth()
+  return parseInt(new Intl.DateTimeFormat('en', { timeZone: 'Asia/Bangkok', month: 'numeric' }).format(d), 10) - 1
+}
+export function bangkokDayOfWeek(d: Date = new Date()): number {
+  // 0 = Sunday … 6 = Saturday, same contract as Date.getDay()
+  const short = new Intl.DateTimeFormat('en', { timeZone: 'Asia/Bangkok', weekday: 'short' }).format(d)
+  return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(short)
+}
+export function parseDateOnlyBkk(s: string): Date {
+  // Parse a YYYY-MM-DD string as midnight Bangkok time.
+  // Use instead of new Date('YYYY-MM-DD') which produces midnight UTC (7 h behind Bangkok).
+  return new Date(`${s}T00:00:00+07:00`)
+}
+
+// Stable unique ID for draft array items — use as React key instead of array index
+// so keys survive mid-array insertion/deletion without remounting the wrong component.
+export function makeDraftId(): string {
+  return `draft_${Math.random().toString(36).slice(2)}_${Date.now().toString(36)}`
+}
+
 export function getInitials(name: string): string {
   return name
     .split(' ')
