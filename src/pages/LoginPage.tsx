@@ -41,7 +41,7 @@ export function LoginPage() {
       // safely no-ops for unknown addresses (and intentionally doesn't reveal existence),
       // so we always show the "check your email" confirmation.
       const { error } = await supabase.auth.resetPasswordForEmail(resetEmail.trim().toLowerCase(), {
-        redirectTo: `${window.location.origin}/settings`,
+        redirectTo: `${window.location.origin}/change-password`,
       })
       if (error) throw error
       setResetSent(true)

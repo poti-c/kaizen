@@ -153,11 +153,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (profError || !prof) throw new Error('Profile not found.')
       const p = prof as KaizenProfile
       if (p.role !== 'super_admin') {
-        await supabase.auth.signOut()
+        await supabase.auth.signOut().catch(() => { setUser(null); setProfile(null) })
         throw new Error('Access denied. Not a Super Admin account.')
       }
       if (!p.is_active) {
-        await supabase.auth.signOut()
+        await supabase.auth.signOut().catch(() => { setUser(null); setProfile(null) })
         throw new Error('This account has been suspended. Please contact the system administrator.')
       }
       companyRef.current = p.company_id
@@ -183,11 +183,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (profError || !prof) throw new Error('Profile not found.')
       const p = prof as KaizenProfile
       if (p.role !== 'manager') {
-        await supabase.auth.signOut()
+        await supabase.auth.signOut().catch(() => { setUser(null); setProfile(null) })
         throw new Error('Access denied. Not a Manager account.')
       }
       if (!p.is_active) {
-        await supabase.auth.signOut()
+        await supabase.auth.signOut().catch(() => { setUser(null); setProfile(null) })
         throw new Error('This account has been suspended. Please contact the system administrator.')
       }
       await assertCompanyActive(p.company_id)
@@ -216,16 +216,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .single()
 
       if (profError || !prof) {
-        await supabase.auth.signOut()
+        await supabase.auth.signOut().catch(() => { setUser(null); setProfile(null) })
         throw new Error('No staff account found for this company and username.')
       }
       const p = prof as KaizenProfile
       if (p.role !== 'staff') {
-        await supabase.auth.signOut()
+        await supabase.auth.signOut().catch(() => { setUser(null); setProfile(null) })
         throw new Error('This is not a staff account.')
       }
       if (!p.is_active) {
-        await supabase.auth.signOut()
+        await supabase.auth.signOut().catch(() => { setUser(null); setProfile(null) })
         throw new Error('This account has been suspended. Please contact your manager or HR.')
       }
       await assertCompanyActive(p.company_id)

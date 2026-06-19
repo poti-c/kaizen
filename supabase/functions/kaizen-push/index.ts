@@ -109,6 +109,15 @@ function localize(row: any, lang: Lang): { title: string; body: string } {
 Deno.serve(async (req) => {
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
+  // Optional shared-secret guard. Set WEBHOOK_SECRET in function secrets AND include
+  // the matching X-Kaizen-Secret header from the DB trigger to activate this check.
+  // Safe to deploy before the trigger is updated — if the secret is not configured
+  // the check is skipped so existing push flows are not disrupted.
+  const webhookSecret = Deno.env.get("WEBHOOK_SECRET");
+  if (webhookSecret && req.headers.get("x-kaizen-secret") !== webhookSecret) {
+    return json({ error: "Unauthorized" }, 401);
+  }
+
   const VAPID_PUBLIC_KEY = Deno.env.get("VAPID_PUBLIC_KEY");
   const VAPID_PRIVATE_KEY = Deno.env.get("VAPID_PRIVATE_KEY");
   const VAPID_SUBJECT = Deno.env.get("VAPID_SUBJECT") ?? "mailto:ops@nanirand.com";
@@ -157,10 +166,20 @@ Deno.serve(async (req) => {
       );
       sent++;
     } catch (err: any) {
-      // 404/410 mean the subscription is gone — prune it so we stop trying.
       const code = err?.statusCode;
-      if (code === 404 || code === 410) dead.push(s.id);
-      else console.log("[kaizen-push] send failed", code, err?.body ?? err?.message);
+      if (code === 404 || code === 410) {
+        // Subscription gone — prune it so we stop trying.
+        dead.push(s.id);
+      } else if (code === 400 || code === 401) {
+        // Malformed subscription or VAPID auth failure — treat as permanent.
+        console.error("[kaizen-push] permanent send failure", code, err?.body ?? err?.message);
+        dead.push(s.id);
+      } else if (code === 429) {
+        // Rate-limited by push service — log for alerting; retry not implemented.
+        console.error("[kaizen-push] rate-limited by push service for user", userId, err?.body ?? err?.message);
+      } else {
+        console.error("[kaizen-push] send failed", code, err?.body ?? err?.message);
+      }
     }
   }));
 

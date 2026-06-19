@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Bell, X, LayoutDashboard, FolderOpen, PlusCircle, Users, Settings, LogOut, CalendarDays, ChevronDown, Building2, Wrench, ClipboardList } from 'lucide-react'
+import { Bell, X, LayoutDashboard, FolderOpen, PlusCircle, Users, Settings, LogOut, CalendarDays, ChevronDown, Building2, Wrench, ClipboardList, TrendingUp } from 'lucide-react'
 import { useNavigate, Link, NavLink } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
 import { useCompany } from '@/contexts/CompanyContext'
@@ -7,7 +7,8 @@ import { useLanguage } from '@/contexts/LanguageContext'
 import { useViewMode } from '@/contexts/ViewModeContext'
 import { supabase } from '@/lib/supabase'
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
-import { getInitials, formatRelativeTime, companyHasAddon } from '@/lib/utils'
+import { getInitials, formatRelativeTime, companyHasAddon, companyHasFeature } from '@/lib/utils'
+import type { FeatureKey } from '@/lib/utils'
 import { localizeNotif } from '@/lib/i18nDynamic'
 import { useRrFoAccess } from '@/hooks/useRrFoAccess'
 import { deptLabel } from '@/types'
@@ -42,6 +43,7 @@ export function Header() {
     { to: '/routine-roster', icon: ClipboardList,   label: t.nav.routineRoster,   roles: ['super_admin', 'manager', 'staff'], addon: 'routine_roster' as const },
     { to: '/cases/new',      icon: PlusCircle,      label: t.nav.newCase,         roles: ['staff', 'manager', 'super_admin'] },
     { to: '/notifications',  icon: Bell,            label: t.nav.notifications,   roles: ['super_admin', 'manager', 'staff'] },
+    { to: '/performance',    icon: TrendingUp,      label: t.nav.performance,     roles: ['super_admin', 'manager'], feature: 'performance_analytics' as const },
     { to: '/users',          icon: Users,           label: t.nav.users,           roles: ['super_admin', 'manager'] },
     { to: '/settings',       icon: Settings,        label: t.nav.settings,        roles: ['super_admin', 'manager', 'staff'] },
   ]
@@ -50,6 +52,7 @@ export function Header() {
   const visibleNavItems = NAV_ITEMS.filter(item =>
     (profile ? item.roles.includes(profile.role) : false) &&
     (item.addon === undefined || companyHasAddon(activeCompany, item.addon)) &&
+    (!('feature' in item) || !item.feature || companyHasFeature(activeCompany, item.feature as FeatureKey)) &&
     (item.to !== '/routine-roster' || rrFo.allowed)
   )
 
@@ -102,7 +105,7 @@ export function Header() {
 
   async function markAllRead() {
     if (!profile) return
-    const { error } = await supabase.from('kaizen_notifications').update({ is_read: true }).eq('user_id', profile.id)
+    const { error } = await supabase.from('kaizen_notifications').update({ is_read: true }).eq('user_id', profile.id).eq('is_read', false)
     if (error) return
     setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })))
     setUnreadCount(0)

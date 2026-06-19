@@ -44,7 +44,7 @@ const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 function dayKey(d: Date) {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok' }).format(d)
 }
-function parseDateOnly(s: string) { return new Date(s.length <= 10 ? s + 'T00:00:00' : s) }
+function parseDateOnly(s: string) { return new Date(s.length <= 10 ? s + 'T12:00:00+07:00' : s) }
 function fmtTime(d: Date) { return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bangkok' }) }
 function fmtLongDate(s: string) {
   return parseDateOnly(s).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Bangkok' })
@@ -60,6 +60,7 @@ export function CalendarView({ call, onOpenForm }: { call: Call; onOpenForm: (fo
   const [cursor, setCursor] = useState(() => { const bkk = dayKey(new Date()); return new Date(bkk.slice(0, 7) + '-01T12:00:00+07:00') })
   const [openDetail, setOpenDetail] = useState<CalEvent | null>(null)
   const [editAppt, setEditAppt] = useState<ApptRow | 'new' | null>(null)
+  const [dayExpand, setDayExpand] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -126,18 +127,25 @@ export function CalendarView({ call, onOpenForm }: { call: Call; onOpenForm: (fo
     return m
   }, [events])
 
-  // Build 6-week grid starting Sunday
+  // Build 6-week grid starting Sunday — all anchored to noon Bangkok (+07:00) so
+  // dayKey() and the displayed day number both reference the same Bangkok calendar
+  // date regardless of the viewer's browser timezone.
   const cells = useMemo(() => {
-    const first = new Date(cursor.getFullYear(), cursor.getMonth(), 1)
-    const start = new Date(first)
-    start.setDate(first.getDate() - first.getDay())
+    const bkkFirst = dayKey(cursor) // 'YYYY-MM-01' (cursor is always 1st of month)
+    const firstNoon = new Date(`${bkkFirst}T12:00:00+07:00`)
+    const bkkMonth = bkkFirst.slice(0, 7)
+    const dow = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(
+      new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone: 'Asia/Bangkok' }).format(firstNoon)
+    )
     return Array.from({ length: 42 }, (_, i) => {
-      const d = new Date(start); d.setDate(start.getDate() + i); return d
+      const d = new Date(firstNoon.getTime() + (i - dow) * 86400000)
+      const bkkDate = dayKey(d)
+      return { date: d, bkkDate, day: Number(bkkDate.slice(8)), inMonth: bkkDate.slice(0, 7) === bkkMonth }
     })
   }, [cursor])
 
   const todayKey = dayKey(new Date())
-  const monthTitle = cursor.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
+  const monthTitle = new Date(`${dayKey(cursor)}T12:00:00+07:00`).toLocaleDateString('en-GB', { month: 'long', year: 'numeric', timeZone: 'Asia/Bangkok' })
 
   // Form events open the document (PDF) directly; appointments open the detail card.
   const openEvent = (e: CalEvent) => {
@@ -154,9 +162,9 @@ export function CalendarView({ call, onOpenForm }: { call: Call; onOpenForm: (fo
         </div>
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-1 bg-slate-900 border border-slate-800 rounded-lg p-0.5">
-            <button onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1))} className="p-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-800"><ChevronLeft className="h-4 w-4" /></button>
-            <button onClick={() => { const bkk = dayKey(new Date()); setCursor(new Date(bkk.slice(0, 7) + '-01T12:00:00+07:00')) }} className="px-2.5 h-7 text-xs font-medium text-slate-300 hover:text-white rounded-md hover:bg-slate-800">Today</button>
-            <button onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1))} className="p-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-800"><ChevronRight className="h-4 w-4" /></button>
+            <button onClick={() => { const bkk = dayKey(cursor); const [y, m] = [Number(bkk.slice(0, 4)), Number(bkk.slice(5, 7))]; const prev = m === 1 ? `${y - 1}-12-01` : `${y}-${String(m - 1).padStart(2, '0')}-01`; setCursor(new Date(`${prev}T12:00:00+07:00`)); setDayExpand(null) }} className="p-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-800"><ChevronLeft className="h-4 w-4" /></button>
+            <button onClick={() => { const bkk = dayKey(new Date()); setCursor(new Date(bkk.slice(0, 7) + '-01T12:00:00+07:00')); setDayExpand(null) }} className="px-2.5 h-7 text-xs font-medium text-slate-300 hover:text-white rounded-md hover:bg-slate-800">Today</button>
+            <button onClick={() => { const bkk = dayKey(cursor); const [y, m] = [Number(bkk.slice(0, 4)), Number(bkk.slice(5, 7))]; const next = m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, '0')}-01`; setCursor(new Date(`${next}T12:00:00+07:00`)); setDayExpand(null) }} className="p-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-800"><ChevronRight className="h-4 w-4" /></button>
           </div>
           <button onClick={() => setEditAppt('new')} className="flex items-center gap-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-semibold px-3 py-2 rounded-lg transition-colors">
             <Plus className="h-3.5 w-3.5" />Appointment
@@ -184,26 +192,28 @@ export function CalendarView({ call, onOpenForm }: { call: Call; onOpenForm: (fo
             ))}
           </div>
           <div className="grid grid-cols-7">
-            {cells.map((d, i) => {
-              const key = dayKey(d)
-              const inMonth = d.getMonth() === cursor.getMonth()
-              const isToday = key === todayKey
-              const dayEvents = eventsByDay.get(key) ?? []
+            {cells.map(({ bkkDate, day, inMonth }, i) => {
+              const isToday = bkkDate === todayKey
+              const dayEvents = eventsByDay.get(bkkDate) ?? []
+              const expanded = dayExpand === bkkDate
               return (
                 <div key={i} className={`min-h-[104px] border-b border-r border-slate-800 p-1.5 ${i % 7 === 6 ? 'border-r-0' : ''} ${inMonth ? '' : 'bg-slate-950/40'}`}>
                   <div className="flex justify-end">
-                    <span className={`text-[11px] w-5 h-5 flex items-center justify-center rounded-full ${isToday ? 'bg-amber-500 text-slate-950 font-bold' : inMonth ? 'text-slate-300' : 'text-slate-600'}`}>{d.getDate()}</span>
+                    <span className={`text-[11px] w-5 h-5 flex items-center justify-center rounded-full ${isToday ? 'bg-amber-500 text-slate-950 font-bold' : inMonth ? 'text-slate-300' : 'text-slate-600'}`}>{day}</span>
                   </div>
                   <div className="space-y-1 mt-0.5">
-                    {dayEvents.slice(0, 3).map((e) => (
+                    {(expanded ? dayEvents : dayEvents.slice(0, 3)).map((e) => (
                       <button key={e.key} onClick={() => openEvent(e)} title={e.label}
                         className={`w-full flex items-center gap-1 text-[10px] leading-tight px-1.5 py-0.5 rounded border text-left truncate ${e.color}`}>
                         <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${e.dot}`} />
                         <span className="truncate">{e.label}</span>
                       </button>
                     ))}
-                    {dayEvents.length > 3 && (
-                      <button onClick={() => openEvent(dayEvents[3])} className="text-[10px] text-slate-400 hover:text-white px-1.5" title={dayEvents.slice(3).map(e => e.label).join('\n')}>+{dayEvents.length - 3} more</button>
+                    {!expanded && dayEvents.length > 3 && (
+                      <button onClick={() => setDayExpand(bkkDate)} className="text-[10px] text-slate-400 hover:text-white px-1.5">+{dayEvents.length - 3} more</button>
+                    )}
+                    {expanded && dayEvents.length > 3 && (
+                      <button onClick={() => setDayExpand(null)} className="text-[10px] text-slate-400 hover:text-white px-1.5">show less</button>
                     )}
                   </div>
                 </div>
@@ -328,7 +338,7 @@ function AppointmentEditor({ call, companies, appt, onClose, onSaved }: {
     if (!f.title.trim()) { setError('Please enter a title.'); return }
     if (!f.date) { setError('Please choose a date.'); return }
     const resolvedStart = f.start || '00:00'
-    if (!f.all_day && f.end && f.end <= resolvedStart) { setError('End time must be after the start time.'); return }
+    if (!f.all_day && f.end && f.end <= resolvedStart) { setError('End time must be after the start time. Overnight appointments (past midnight) are not supported — use "All day" instead.'); return }
     setBusy(true); setError('')
     try {
       // All-day events anchor to NOON Bangkok (explicit +07:00) rather than the creator's

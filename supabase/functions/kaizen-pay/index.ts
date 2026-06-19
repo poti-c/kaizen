@@ -98,7 +98,7 @@ Deno.serve(async (req) => {
   // both 'subscription' packages and 'addon' keys). Never trust the client-declared amount.
   const { data: priceRow, error: priceErr } = await admin.from("kaizen_products").select("price").eq("key", target).maybeSingle();
   if (priceErr) return json({ error: "Price lookup failed — please try again." }, 500);
-  const expectedPrice = priceRow?.price != null ? Number(priceRow.price) : null;
+  const expectedPrice = (priceRow?.price != null && priceRow.price > 0) ? Number(priceRow.price) : null;
   // Store the authoritative price when known, so submission/invoice records can't be
   // under-stated by the client.
   const clientAmount = (typeof amount === "number" && isFinite(amount) && amount > 0) ? amount : null;
@@ -120,55 +120,83 @@ Deno.serve(async (req) => {
   }
 
   const slip = await verifySlip(proof_url, expectedPrice);
-  const status = slip.verified ? "approved" : "pending";
 
+  // Always insert as 'pending' first — we update to 'approved' only after ALL side
+  // effects succeed. This prevents an approved-but-unactivated orphan record if any
+  // downstream step (product lookup, company update, invoice) fails after the insert.
   const { data: sub, error } = await admin.from("kaizen_payment_submissions").insert({
-    company_id, kind, target, target_label, amount: storedAmount, currency, proof_url, proof_hash: proofHash, status,
-    submitted_by: uid, reviewed_at: slip.verified ? new Date().toISOString() : null,
+    company_id, kind, target, target_label, amount: storedAmount, currency, proof_url, proof_hash: proofHash,
+    status: "pending", submitted_by: uid, reviewed_at: null,
   }).select("id").single();
   if (error) {
-    // Unique-violation = a concurrent request already recorded this slip; treat as a
-    // successful no-op rather than a duplicate activation.
+    // Unique-violation on proof_hash = concurrent request already recorded this slip.
     if (/duplicate key|unique/i.test(error.message) && proofHash) {
       const { data: existing } = await admin.from("kaizen_payment_submissions")
         .select("id, status").eq("company_id", company_id).eq("proof_hash", proofHash).maybeSingle();
       if (existing) return json({ success: true, id: existing.id, status: existing.status, verified: existing.status === "approved", duplicate: true });
     }
+    // Unique-violation on slip-free partial index = concurrent slip-free submission.
+    if (/duplicate key|unique/i.test(error.message) && !proofHash) {
+      const { data: existing } = await admin.from("kaizen_payment_submissions")
+        .select("id, status").eq("company_id", company_id).eq("kind", kind).eq("target", target).eq("status", "pending").maybeSingle();
+      if (existing) return json({ success: true, id: existing.id, status: "pending", verified: false, duplicate: true });
+    }
     return json({ error: error.message }, 400);
   }
 
   if (slip.verified) {
+    let activationErr: string | null = null;
     if (kind === "subscription") {
-      const { data: prod, error: prodErr } = await admin.from("kaizen_products").select("max_super_admins, max_managers, max_staff, multi_company, features, duration_days").eq("kind", "package").eq("key", target).maybeSingle();
-      if (prodErr) return json({ error: "Product lookup failed — payment recorded but plan not activated. Contact support." }, 500);
-      const term = Number(prod?.duration_days) || 365;
-      const end = addDays(term);
-      const { data: curCo } = await admin.from("kaizen_companies").select("plan").eq("id", company_id).maybeSingle();
-      const fromPlan = curCo?.plan ?? null;
-      await admin.from("kaizen_companies").update({
-        plan: target, subscription_end: end,
-        max_super_admins: prod?.max_super_admins ?? null, max_managers: prod?.max_managers ?? null,
-        max_staff: prod?.max_staff ?? null, multi_company: !!prod?.multi_company, features: prod?.features ?? {},
-      }).eq("id", company_id);
-      if (fromPlan !== target) {
-        await admin.from("kaizen_plan_changes").insert({ company_id, from_plan: fromPlan, to_plan: target, source: "payment" });
+      const { data: prod, error: prodErr } = await admin.from("kaizen_products")
+        .select("max_super_admins, max_managers, max_staff, multi_company, features, duration_days")
+        .eq("kind", "package").eq("key", target).maybeSingle();
+      if (prodErr || !prod) {
+        activationErr = "Product lookup failed — payment recorded but plan not activated. Contact support.";
+      } else {
+        const term = Number(prod?.duration_days) || 365;
+        const end = addDays(term);
+        const { data: curCo } = await admin.from("kaizen_companies").select("plan").eq("id", company_id).maybeSingle();
+        const fromPlan = curCo?.plan ?? null;
+        const { error: updateErr } = await admin.from("kaizen_companies").update({
+          plan: target, subscription_end: end,
+          max_super_admins: prod?.max_super_admins ?? null, max_managers: prod?.max_managers ?? null,
+          max_staff: prod?.max_staff ?? null, multi_company: !!prod?.multi_company, features: prod?.features ?? {},
+        }).eq("id", company_id);
+        if (updateErr) {
+          activationErr = "Plan activation failed — payment recorded, contact support to apply your plan.";
+        } else {
+          if (fromPlan !== target) {
+            await admin.from("kaizen_plan_changes").insert({ company_id, from_plan: fromPlan, to_plan: target, source: "payment" });
+          }
+          await admin.from("kaizen_invoices").insert({
+            company_id, payee: target_label ?? target, amount: storedAmount, currency,
+            payment_date: bangkokDate(), period_start: bangkokDate(), period_end: end,
+            notes: "Auto-verified PromptPay payment (SlipOK)",
+          });
+        }
       }
-      await admin.from("kaizen_invoices").insert({
-        company_id, payee: target_label ?? target, amount: storedAmount, currency,
-        payment_date: bangkokDate(), period_start: bangkokDate(), period_end: end,
-        notes: "Auto-verified PromptPay payment (SlipOK)",
-      });
     } else {
       // Atomic JSONB merge via SQL: avoids the read-modify-write race where two concurrent
       // payments for different add-ons clobber each other.
-      await admin.rpc("kaizen_merge_company_addon", { p_company_id: company_id, p_addon_key: target });
-      await admin.from("kaizen_invoices").insert({
-        company_id, payee: target_label ?? target, amount: storedAmount, currency,
-        payment_date: bangkokDate(), period_start: bangkokDate(), period_end: bangkokDate(),
-        notes: "Auto-verified PromptPay payment (SlipOK) — addon",
-      });
+      const { error: rpcErr } = await admin.rpc("kaizen_merge_company_addon", { p_company_id: company_id, p_addon_key: target });
+      if (rpcErr) {
+        activationErr = "Add-on activation failed — payment recorded, contact support.";
+      } else {
+        await admin.from("kaizen_invoices").insert({
+          company_id, payee: target_label ?? target, amount: storedAmount, currency,
+          payment_date: bangkokDate(), period_start: bangkokDate(), period_end: bangkokDate(),
+          notes: "Auto-verified PromptPay payment (SlipOK) — addon",
+        });
+      }
     }
+
+    if (activationErr) return json({ error: activationErr }, 500);
+
+    // All side effects succeeded — mark as approved now.
+    await admin.from("kaizen_payment_submissions")
+      .update({ status: "approved", reviewed_at: new Date().toISOString() })
+      .eq("id", sub.id);
   }
 
-  return json({ success: true, id: sub.id, status, verified: slip.verified });
+  return json({ success: true, id: sub.id, status: slip.verified ? "approved" : "pending", verified: slip.verified });
 });

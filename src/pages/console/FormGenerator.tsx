@@ -111,7 +111,7 @@ function bahtText(amount: number): string {
   const n = Math.round(amount * 100) / 100
   const baht = Math.floor(n)
   const satang = Math.round((n - baht) * 100)
-  let s = intToWords(baht) + (baht === 1 ? ' baht' : ' baht')
+  let s = intToWords(baht) + ' baht'
   if (satang > 0) s += ' and ' + intToWords(satang) + ' satang'
   return s
 }
@@ -463,6 +463,7 @@ function FormEditor({ formType, companies, products, promos, existingForms, rese
       })
     } else {
       setClientBilling(null)
+      setClient({ name: '', address: '', tax_id: '', contact: '', phone: '', email: '' })
     }
   }
   function setItem(i: number, patch: Partial<LineItem>) {
@@ -515,6 +516,7 @@ function FormEditor({ formType, companies, products, promos, existingForms, rese
   // is only recorded once the admin confirms the preview.
   function openPreview() {
     setError('')
+    if (!issueDate) { setError('Issue date is required.'); return }
     // Require a description or a price (not qty alone) — otherwise the default starter
     // row (qty:1) or a stray qty prints a blank-description 0.00 line. Matches the
     // item-count badge predicate so the editor count and the document agree.
@@ -539,13 +541,10 @@ function FormEditor({ formType, companies, products, promos, existingForms, rese
       discount_code: discCode, discount_percent: discPct, discount_amount: discAmount,
       notes: notes.trim() || undefined, status,
     }
-    // Predicted document number for display only — the server assigns the
-    // authoritative one when the document is confirmed.
-    const y = issueDate.slice(0, 4), mo = issueDate.slice(5, 7)
-    const prefix = DOC_PREFIX[formType]
-    const used = existingForms.filter(f => f.form_type === formType && (f.doc_number || '').startsWith(`${prefix}${y}-${mo}`)).length
+    // The authoritative document number is assigned by the server when confirmed.
+    // Show '---' here so the admin doesn't sign/print a preview with a wrong number.
     const previewForm: GeneratedForm = {
-      id: 'preview', form_type: formType, doc_number: `${prefix}${y}-${mo}${String(used + 1).padStart(3, '0')}`,
+      id: 'preview', form_type: formType, doc_number: `${DOC_PREFIX[formType]}---`,
       company_id: companyId || null,
       client_name: client.name, client_address: client.address || null, client_tax_id: client.tax_id || null,
       client_billing: clientBilling ?? null,

@@ -61,7 +61,10 @@ export function subscriptionInfo(company: CompanyLike | null | undefined): SubIn
     return { isTrial: false, end: company.subscription_end, daysLeft: d, expired: d < 0 }
   }
   if (company.plan === 'trial' && company.created_at) {
-    const start = new Date(String(company.created_at).slice(0, 10) + 'T00:00:00')
+    // Use Bangkok calendar date so the trial start/end matches what the hotel sees,
+    // not the UTC date which drifts a day during 00:00–07:00 Bangkok time.
+    const startIso = bangkokDate(new Date(String(company.created_at)))
+    const start = new Date(startIso + 'T00:00:00+07:00')
     const end = new Date(start); end.setDate(start.getDate() + TRIAL_DAYS)
     const iso = `${end.getFullYear()}-${String(end.getMonth() + 1).padStart(2, '0')}-${String(end.getDate()).padStart(2, '0')}`
     const d = dayDiff(iso)
@@ -298,7 +301,12 @@ export function isSLABreached(kcase: KaizenCase): boolean {
 export function dueIsDateOnly(due: string): boolean {
   const d = new Date(due)
   if (isNaN(d.getTime())) return true
-  const hm = d.getHours() * 60 + d.getMinutes()
+  // Extract hour/minute in Bangkok TZ (not local browser TZ) so the 23:59 sentinel
+  // stored as UTC 16:59 is correctly identified on all browsers.
+  const parts = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bangkok', hour12: false }).formatToParts(d)
+  const h = Number(parts.find(p => p.type === 'hour')?.value ?? '0')
+  const m = Number(parts.find(p => p.type === 'minute')?.value ?? '0')
+  const hm = h * 60 + m
   return hm === 23 * 60 + 59 || hm === 0 // end-of-day sentinel or midnight
 }
 

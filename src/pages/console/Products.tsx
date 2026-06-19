@@ -69,7 +69,8 @@ export function ProductsView({ call, onBack }: { call: Call; onBack: () => void 
   const [products, setProducts] = useState<Product[]>([])
   const [promos, setPromos] = useState<Promo[]>([])
   const [drafts, setDrafts] = useState<Array<{ key: string; data: Product }>>([])
-  const [promoDrafts, setPromoDrafts] = useState<Promo[]>([])
+  const [promoDrafts, setPromoDrafts] = useState<Array<{ key: string; data: Promo }>>([])
+  const promoDraftKeyRef = useRef(0)
   const draftKeyRef = useRef(0)
 
   const load = useCallback(async () => {
@@ -133,9 +134,9 @@ export function ProductsView({ call, onBack }: { call: Call; onBack: () => void 
           </Section>
 
           {/* Promo codes */}
-          <Section icon={Ticket} title="Promotional Codes" desc="A code, its valid date range and a discount %. Applied to the subtotal in the Form Generator." onAdd={() => setPromoDrafts([...promoDrafts, { code: '', discount_percent: 0, valid_from: null, valid_to: null, is_active: true, notes: null }])} addLabel="Add Code">
+          <Section icon={Ticket} title="Promotional Codes" desc="A code, its valid date range and a discount %. Applied to the subtotal in the Form Generator." onAdd={() => setPromoDrafts(prev => [...prev, { key: `pdraft-${promoDraftKeyRef.current++}`, data: { code: '', discount_percent: 0, valid_from: null, valid_to: null, is_active: true, notes: null } }])} addLabel="Add Code">
             {promos.map(p => <PromoRow key={p.id} promo={p} call={call} onSaved={load} onDeleted={load} />)}
-            {promoDrafts.map((d, i) => <PromoRow key={'pd' + i} promo={d} call={call} isNew onSaved={() => { setPromoDrafts(promoDrafts.filter((_, x) => x !== i)); load() }} onDeleted={() => setPromoDrafts(promoDrafts.filter((_, x) => x !== i))} />)}
+            {promoDrafts.map(({ key, data }) => <PromoRow key={key} promo={data} call={call} isNew onSaved={() => { setPromoDrafts(prev => prev.filter(d => d.key !== key)); load() }} onDeleted={() => setPromoDrafts(prev => prev.filter(d => d.key !== key))} />)}
             {promos.length === 0 && promoDrafts.length === 0 && <Empty>No promo codes yet.</Empty>}
           </Section>
         </div>
@@ -181,6 +182,15 @@ function ProductCard({ product, call, onSaved, onDeleted, isNew }: { product: Pr
     try { await call('upsert_product', { product: d }); setLocked(true); onSaved() }
     catch (e) { alert(e instanceof Error ? e.message : 'Failed'); setD(product) } finally { setBusy(false) }
   }
+  async function toggleActive() {
+    const next = !d.is_active
+    setD(prev => ({ ...prev, is_active: next }))
+    if (!d.id) return
+    setBusy(true)
+    try { await call('upsert_product', { product: { ...d, is_active: next } }); onSaved() }
+    catch (_) { setD(prev => ({ ...prev, is_active: !next })) }
+    finally { setBusy(false) }
+  }
   async function del() {
     if (!d.id) { onDeleted(); return }
     setBusy(true)
@@ -193,11 +203,10 @@ function ProductCard({ product, call, onSaved, onDeleted, isNew }: { product: Pr
       <fieldset disabled={locked} className={locked ? 'opacity-80 transition-opacity' : 'transition-opacity'}>
       <div className="flex items-center gap-2 mb-2.5">
         <input value={d.name} onChange={e => set({ name: e.target.value })} className={inputCls + ' flex-1 font-semibold'} placeholder={isPackage ? 'Package name' : 'Product name'} />
-        <button onClick={() => set({ is_active: !d.is_active })} title={d.is_active ? 'Active' : 'Inactive'} className={`p-2 rounded-lg ${d.is_active ? 'text-green-400 hover:bg-green-500/10' : 'text-slate-500 hover:bg-slate-800'}`}><Power className="h-4 w-4" /></button>
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mb-2.5">
-        <L label="Price"><input value={d.price || ''} onChange={e => set({ price: Number(e.target.value.replace(/[^0-9.]/g, '')) || 0 })} className={inputCls} placeholder="0" inputMode="decimal" /></L>
+        <L label="Price"><input value={d.price || ''} onChange={e => { const v = e.target.value.replace(/[^0-9.]/g, '').replace(/^(\d*\.?\d*).*$/, '$1'); set({ price: Math.max(0, parseFloat(v) || 0) }) }} className={inputCls} placeholder="0" inputMode="decimal" /></L>
         <L label="Currency"><input value={d.currency} onChange={e => set({ currency: e.target.value.toUpperCase().slice(0, 4) })} className={inputCls} /></L>
         {isPackage && (
           <L label="Duration">
@@ -263,15 +272,19 @@ function ProductCard({ product, call, onSaved, onDeleted, isNew }: { product: Pr
         )}
         {locked ? (
           <>
+            <button onClick={toggleActive} disabled={busy} title={d.is_active ? 'Deactivate' : 'Activate'} className={`p-2 rounded-lg transition-colors ${d.is_active ? 'text-green-400 hover:bg-green-500/10' : 'text-slate-500 hover:bg-slate-800'}`}><Power className="h-4 w-4" /></button>
             <span className="ml-auto flex items-center gap-1 text-[11px] text-slate-500"><Lock className="h-3 w-3" />Locked</span>
             <button onClick={() => setLocked(false)} className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold px-3 py-1.5 rounded-lg">
               <Pencil className="h-3.5 w-3.5" />Edit
             </button>
           </>
         ) : (
-          <button onClick={save} disabled={busy} className="ml-auto flex items-center gap-1.5 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-slate-950 text-xs font-semibold px-3 py-1.5 rounded-lg">
-            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}{isNew ? 'Create' : 'Save'}
-          </button>
+          <>
+            <button onClick={() => set({ is_active: !d.is_active })} title={d.is_active ? 'Active' : 'Inactive'} className={`p-2 rounded-lg transition-colors ${d.is_active ? 'text-green-400 hover:bg-green-500/10' : 'text-slate-500 hover:bg-slate-800'}`}><Power className="h-4 w-4" /></button>
+            <button onClick={save} disabled={busy} className="ml-auto flex items-center gap-1.5 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-slate-950 text-xs font-semibold px-3 py-1.5 rounded-lg">
+              {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}{isNew ? 'Create' : 'Save'}
+            </button>
+          </>
         )}
       </div>
     </div>
@@ -289,6 +302,7 @@ function PromoRow({ promo, call, onSaved, onDeleted, isNew }: { promo: Promo; ca
   function set(patch: Partial<Promo>) { setD({ ...d, ...patch }) }
   async function save() {
     if (!d.code.trim()) { alert('Code is required.'); return }
+    if (d.discount_percent <= 0) { alert('Discount percent must be greater than 0.'); return }
     setBusy(true)
     try { await call('upsert_promo', { promo: d }); onSaved() }
     catch (e) { alert(e instanceof Error ? e.message : 'Failed') } finally { setBusy(false) }

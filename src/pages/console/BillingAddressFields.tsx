@@ -90,15 +90,16 @@ export function BillingAddressFields({ officeType, branchCode, address, onChange
   // Cascade: picking a level fills both languages and resets everything below it.
   const onProvince = (en: string) => {
     const p = geo?.find((x) => x.en === en)
-    setAddr({ province_en: p?.en ?? en, province: p?.th ?? '', district_en: '', district: '', subdistrict_en: '', subdistrict: '', postcode: '' })
+    // Fall back to existing stored Thai name so old records don't lose their province on re-save.
+    setAddr({ province_en: p?.en ?? en, province: p?.th ?? a.province ?? '', district_en: '', district: '', subdistrict_en: '', subdistrict: '', postcode: '' })
   }
   const onDistrict = (thName: string) => {
     const d = prov?.d.find((x) => x.th === thName)
-    setAddr({ district_en: d?.en ?? '', district: d?.th ?? thName, subdistrict_en: '', subdistrict: '', postcode: '' })
+    setAddr({ district_en: d?.en ?? a.district_en ?? '', district: d?.th ?? thName, subdistrict_en: '', subdistrict: '', postcode: '' })
   }
   const onSubdistrict = (thName: string) => {
     const s = dist?.s.find((x) => x.th === thName)
-    setAddr({ subdistrict_en: s?.en ?? '', subdistrict: s?.th ?? thName, postcode: s?.z ?? a.postcode ?? '', country: a.country || 'Thailand' })
+    setAddr({ subdistrict_en: s?.en ?? a.subdistrict_en ?? '', subdistrict: s?.th ?? thName, postcode: s?.z ?? a.postcode ?? '', country: a.country || 'Thailand' })
   }
 
   const loading = !geo
@@ -129,7 +130,7 @@ export function BillingAddressFields({ officeType, branchCode, address, onChange
             <div className="relative">
               <input value={branchCode} onChange={(e) => setBranch(e.target.value.replace(/\D/g, '').slice(0, 5))}
                 placeholder="00000" className={`${inp} w-28 ${branchCode && branchCode.length < 5 ? 'border-red-500/60' : ''}`} inputMode="numeric" maxLength={5} />
-              {branchCode && branchCode.length < 5 && <p className="absolute text-[10px] text-red-400 mt-0.5">Must be 5 digits</p>}
+              {branchCode && branchCode.length < 5 && <p className="text-[10px] text-red-400 mt-0.5">Must be 5 digits</p>}
             </div>
           )}
         </div>
