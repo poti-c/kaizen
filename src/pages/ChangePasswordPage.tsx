@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { toast } from 'sonner'
+import { validatePassword, validatePasswordsMatch } from '@/lib/validators'
 
 export function ChangePasswordPage() {
   const { user, profile, loading, refreshProfile } = useAuth()
@@ -24,8 +25,10 @@ export function ChangePasswordPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (newPassword.trim().length < 8) { toast.error(lang === 'th' ? 'รหัสผ่านต้องมีอย่างน้อย 8 ตัวอักษร (ไม่นับช่องว่าง)' : 'Password must be at least 8 non-whitespace characters.'); return }
-    if (newPassword !== confirmPassword) { toast.error(lang === 'th' ? 'รหัสผ่านไม่ตรงกัน' : 'Passwords do not match.'); return }
+    const pwdErr = validatePassword(newPassword)
+    if (pwdErr) { toast.error(lang === 'th' ? 'รหัสผ่านต้องมีอย่างน้อย 8 ตัวอักษร (ไม่นับช่องว่าง)' : pwdErr); return }
+    const matchErr = validatePasswordsMatch(newPassword, confirmPassword)
+    if (matchErr) { toast.error(lang === 'th' ? 'รหัสผ่านไม่ตรงกัน' : matchErr); return }
     if (!profile?.id) { toast.error(lang === 'th' ? 'กำลังโหลดข้อมูลโปรไฟล์ กรุณารอสักครู่แล้วลองอีกครั้ง' : 'Your profile is still loading — please wait a moment and try again.'); return }
     setSaving(true)
     try {

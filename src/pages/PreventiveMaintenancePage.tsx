@@ -5,7 +5,8 @@ import { supabase } from '@/lib/supabase'
 import { useCompany } from '@/contexts/CompanyContext'
 import { useAuth } from '@/contexts/AuthContext'
 import { useLanguage } from '@/contexts/LanguageContext'
-import { DEPARTMENT_LABELS, DEPARTMENTS, type Department } from '@/types'
+import { DEPARTMENT_LABELS, type Department } from '@/types'
+import { useDepartments } from '@/hooks/useDepartments'
 import { FREQUENCIES, freqLabel, addInterval, assetStatus, STATUS_META, type FreqUnit, type AssetStatus } from '@/lib/pm'
 import { LOCATIONS, bangkokDate } from '@/lib/utils'
 import { PMTaskModal, taskTone, taskStatusKey, type PMTask } from '@/components/pm/PMSchedule'
@@ -68,7 +69,7 @@ export function PreventiveMaintenancePage() {
   const [openTask, setOpenTask] = useState<PMTask | null>(null)
   const [detailAsset, setDetailAsset] = useState<Asset | null>(null)
   const [locations, setLocations] = useState<string[]>([...LOCATIONS] as string[])
-  const [allDepts, setAllDepts] = useState<{ value: string; label: string }[]>([...DEPARTMENTS])
+  const { allOptions: allDepts } = useDepartments()
   const [reportManagerIds, setReportManagerIds] = useState<string[]>([])
   const [showReport, setShowReport] = useState(false)
   // Report access = Top Management (always) OR a manager explicitly granted in PM settings.
@@ -83,14 +84,13 @@ export function PreventiveMaintenancePage() {
     // First day of the current Asia/Bangkok month (not UTC — local-midnight-of-the-1st
     // toISOString() resolves back to the last day of the previous month at UTC+7).
     const monthStartKey = bangkokDate().slice(0, 7) + '-01T00:00:00+07:00'
-    const [a, t, s, openT, doneT, loc, depts] = await Promise.all([
+    const [a, t, s, openT, doneT, loc] = await Promise.all([
       supabase.from('kaizen_pm_assets').select('*, type:kaizen_pm_equipment_types(name, category)').eq('company_id', companyId).order('next_maintenance_date', { ascending: true, nullsFirst: false }),
       supabase.from('kaizen_pm_equipment_types').select('id, name, category, is_active').eq('company_id', companyId).eq('is_active', true).order('category').order('name'),
       supabase.from('kaizen_pm_settings').select('due_soon_days, report_manager_ids').eq('company_id', companyId).maybeSingle(),
       supabase.from('kaizen_pm_tasks').select(taskSel).eq('company_id', companyId).in('status', ['scheduled', 'in_progress', 'pending_approval']),
       supabase.from('kaizen_pm_tasks').select(taskSel).eq('company_id', companyId).in('status', ['done', 'approved']).gte('performed_at', monthStartKey),
       supabase.from('kaizen_settings').select('value').eq('company_id', companyId).eq('key', 'custom_locations').maybeSingle(),
-      supabase.from('kaizen_settings').select('value').eq('company_id', companyId).eq('key', 'custom_departments').maybeSingle(),
     ])
     if (a.error) { toast.error(a.error.message) } else { setAssets((a.data as Asset[]) ?? []) }
     if (t.error) toast.error(t.error.message)
@@ -116,11 +116,6 @@ export function PreventiveMaintenancePage() {
     if (!loc.error) {
       const locList = loc.data?.value as string[] | undefined
       setLocations(Array.isArray(locList) && locList.length ? locList : [...LOCATIONS] as string[])
-    }
-    if (!depts.error && depts.data?.value) {
-      const labelToSlug = Object.fromEntries(DEPARTMENTS.map((d) => [d.label, d.value])) as Record<string, string>
-      const labels = depts.data.value as string[]
-      setAllDepts(labels.map((label) => ({ value: labelToSlug[label] ?? label, label })))
     }
     setLoading(false)
   }, [companyId])

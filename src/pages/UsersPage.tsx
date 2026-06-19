@@ -15,7 +15,8 @@ import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
 import { getInitials, formatDate, activityLabel } from '@/lib/utils'
 import { usePresence } from '@/contexts/PresenceContext'
 import { cn } from '@/lib/utils'
-import { DEPARTMENTS, DEPARTMENT_LABELS, getEffectiveDepts } from '@/types'
+import { getEffectiveDepts } from '@/types'
+import { useDepartments } from '@/hooks/useDepartments'
 import type { KaizenProfile, Role, Department } from '@/types'
 import { toast } from 'sonner'
 import { Navigate, Link } from 'react-router-dom'
@@ -76,21 +77,8 @@ export function UsersPage() {
 
   const [deptFilter, setDeptFilter] = useState<string>('all')
   const [staffDeptFilter, setStaffDeptFilter] = useState<string>('all')
-  // Full company department list (built-in + custom), loaded from kaizen_settings
-  const [allDepts, setAllDepts] = useState<{ value: string; label: string }[]>([...DEPARTMENTS])
-
-  // Load company departments (built-in + custom) from settings
-  useEffect(() => {
-    if (!activeCompany) return
-    const labelToSlug = Object.fromEntries(DEPARTMENTS.map((d) => [d.label, d.value])) as Record<string, string>
-    supabase.from('kaizen_settings').select('value').eq('company_id', activeCompany.id).eq('key', 'custom_departments').maybeSingle()
-      .then(({ data }) => {
-        if (data?.value) {
-          const labels = data.value as string[]
-          setAllDepts([...DEPARTMENTS, ...labels.filter(label => !DEPARTMENTS.some(d => d.label === label)).map(label => ({ value: labelToSlug[label] ?? label, label }))])
-        }
-      })
-  }, [activeCompany])
+  // Full company department list (built-in + custom)
+  const { allOptions: allDepts } = useDepartments()
 
   const isHRManager = profile?.role === 'manager' && profile?.department === 'human_resource'
   const isOwner = profile?.role === 'super_admin' && profile?.job_title === 'Owner'

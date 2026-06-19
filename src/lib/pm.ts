@@ -29,7 +29,7 @@ export function freqLabel(unit: FreqUnit, interval: number, lang?: string): stri
 // Month/year steps clamp to the end of the target month so e.g. Jan 31 + 1 month = Feb 28/29
 // (instead of JS's overflow to Mar 2/3) and Feb 29 + 1 year = Feb 28.
 export function addInterval(dateStr: string, unit: FreqUnit, interval: number): string {
-  const d = new Date(dateStr + 'T00:00:00')
+  const d = new Date(dateStr + 'T00:00:00+07:00')
   if (unit === 'day') d.setDate(d.getDate() + interval)
   else if (unit === 'week') d.setDate(d.getDate() + interval * 7)
   else if (unit === 'month' || unit === 'year') {
@@ -40,8 +40,7 @@ export function addInterval(dateStr: string, unit: FreqUnit, interval: number): 
     const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()
     d.setDate(Math.min(day, lastDay))
   }
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+  return bangkokDate(d)
 }
 
 export function daysUntil(dateStr: string | null): number | null {

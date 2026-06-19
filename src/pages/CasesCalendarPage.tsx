@@ -6,7 +6,7 @@ import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useCompany } from '@/contexts/CompanyContext'
 import { useLanguage } from '@/contexts/LanguageContext'
-import { cn, companyHasAddon, formatDueBy, bangkokDate } from '@/lib/utils'
+import { cn, companyHasAddon, formatDueBy, bangkokDate, parseDateOnlyBkk, bangkokDayOfWeek } from '@/lib/utils'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import type { KaizenCase, Department, RrOrder } from '@/types'
 import { DEPARTMENTS, deptLabel } from '@/types'
@@ -194,10 +194,16 @@ export function CasesCalendarPage() {
   const isOverdue = (c: KaizenCase) => !!c.due_date && bangkokDate(new Date(c.due_date)) < bangkokDate()
 
   // Monday-first grid
-  const firstDayOfMonth = new Date(viewYear, viewMonth, 1).getDay()
+  const firstOfMonth = parseDateOnlyBkk(`${viewYear}-${String(viewMonth + 1).padStart(2,'0')}-01`)
+  const firstDayOfMonth = bangkokDayOfWeek(firstOfMonth)
   const startOffset = firstDayOfMonth === 0 ? 6 : firstDayOfMonth - 1
-  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate()
-  const daysInPrevMonth = new Date(viewYear, viewMonth, 0).getDate()
+  // days in month: check what date Bangkok considers the last day of month
+  const lastOfMonth = parseDateOnlyBkk(`${viewMonth === 11 ? viewYear+1 : viewYear}-${String(viewMonth === 11 ? 1 : viewMonth+2).padStart(2,'0')}-01`)
+  lastOfMonth.setTime(lastOfMonth.getTime() - 86400000)  // go back 1 day
+  const daysInMonth = parseInt(bangkokDate(lastOfMonth).slice(8), 10)
+  // prev month days
+  const prevMonthLastDay = new Date(firstOfMonth.getTime() - 86400000)
+  const daysInPrevMonth = parseInt(bangkokDate(prevMonthLastDay).slice(8), 10)
   type Cell = { date: Date; isCurrentMonth: boolean; key: string }
   const p2 = (n: number) => String(n).padStart(2, '0')
   const cells: Cell[] = []
@@ -266,7 +272,7 @@ export function CasesCalendarPage() {
   }
 
   const showDeptFilter = (profile?.role === 'super_admin' || profile?.role === 'manager') && showCaseData
-  const selectedDate = selectedKey ? new Date(selectedKey + 'T00:00:00') : null
+  const selectedDate = selectedKey ? parseDateOnlyBkk(selectedKey) : null
   const selectedEntries = byDay[selectedKey] ?? []
 
   return (
@@ -338,7 +344,7 @@ export function CasesCalendarPage() {
                       today_ ? 'bg-[var(--brand-primary)] text-white font-bold'
                       : selected ? 'border border-[var(--brand-primary)] text-[var(--brand-primary)] font-semibold'
                       : cell.isCurrentMonth ? (isWeekend ? 'text-blue-500' : 'text-gray-700') : 'text-gray-300')}>
-                      {cell.date.getDate()}
+                      {parseInt(bangkokDate(cell.date).slice(8), 10)}
                     </span>
                   </div>
                   <div className="space-y-0.5">

@@ -25,6 +25,7 @@ import { CollapsibleCard } from '@/components/CollapsibleCard'
 import { loadPerfConfig, DEFAULT_PERF_CONFIG, type PerfConfig, type StaffWeightKey, type ManagerWeightKey } from '@/lib/perfConfig'
 import { toast } from 'sonner'
 import { usePushNotifications } from '@/hooks/usePushNotifications'
+import { validatePassword, validatePasswordsMatch } from '@/lib/validators'
 
 // Default lists (hardcoded fallback)
 const DEFAULT_DEPARTMENTS = DEPARTMENTS.filter(d => d.value !== 'top_management').map(d => d.label)
@@ -381,18 +382,11 @@ export function SettingsPage() {
   }, [settings.primary_color, settings.accent_color, settings.sidebar_color])
 
   async function handleChangePassword() {
-    if (!newPassword || !confirmPassword) {
-      toast.error(lang === 'th' ? 'กรุณากรอกรหัสผ่านและยืนยันรหัสผ่านให้ครบ' : 'Please fill in both password fields.')
-      return
-    }
-    if (newPassword !== confirmPassword) {
-      toast.error(t.settings.mismatch)
-      return
-    }
-    if (newPassword.length < 8) {
-      toast.error(lang === 'th' ? 'รหัสผ่านต้องมีอย่างน้อย 8 ตัวอักษร' : 'Password must be at least 8 characters.')
-      return
-    }
+    if (!newPassword || !confirmPassword) { toast.error(lang === 'th' ? 'กรุณากรอกรหัสผ่านและยืนยันรหัสผ่านให้ครบ' : 'Please fill in both password fields.'); return }
+    const pwdErr = validatePassword(newPassword)
+    if (pwdErr) { toast.error(lang === 'th' ? 'รหัสผ่านต้องมีอย่างน้อย 8 ตัวอักษร' : pwdErr); return }
+    const matchErr = validatePasswordsMatch(newPassword, confirmPassword)
+    if (matchErr) { toast.error(t.settings.mismatch); return }
     setChangingPassword(true)
     try {
       const { error } = await supabase.auth.updateUser({ password: newPassword })

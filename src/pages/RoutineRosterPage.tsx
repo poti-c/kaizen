@@ -19,25 +19,20 @@ import type { RrItem } from '@/components/RRSettings'
 import { RoomOrderView } from '@/components/RoomOrderView'
 import { unitOne, DEFAULT_UNIT, type UnitNoun } from '@/lib/roomUnit'
 import { resolveDeptRecipients } from '@/lib/rrNotify'
-import { bangkokDate } from '@/lib/utils'
+import { bangkokDate, parseDateOnlyBkk, bangkokDayOfWeek } from '@/lib/utils'
 import { useRrFoAccess } from '@/hooks/useRrFoAccess'
+import { useDepartments } from '@/hooks/useDepartments'
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 const WEEKDAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const
 
-/** Local (not UTC) yyyy-mm-dd — the hotel runs on local time. */
-function dateKey(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-}
 function shiftDate(key: string, days: number): string {
-  const d = new Date(key + 'T00:00:00')
-  d.setDate(d.getDate() + days)
-  return dateKey(d)
+  const d = parseDateOnlyBkk(key); d.setDate(d.getDate() + days); return bangkokDate(d)
 }
 /** Item for a template on a given date: weekday override, else the default. */
 function itemFor(tpl: RrTemplate, date: string): string | null {
-  const wd = WEEKDAY_KEYS[new Date(date + 'T00:00:00').getDay()]
+  const wd = WEEKDAY_KEYS[bangkokDayOfWeek(parseDateOnlyBkk(date))]
   return tpl.item_by_weekday?.[wd] || tpl.default_item || null
 }
 function fmtTime(ts: string | null): string {
@@ -90,7 +85,7 @@ export function RoutineRosterPage() {
 
   const [view, setView] = useState<'board' | 'rooms' | 'templates' | 'report'>('board')
   const [fulfillingDepts, setFulfillingDepts] = useState<Set<string>>(new Set()) // depts used as a fulfilling dept in the room recipes
-  const [allDepts, setAllDepts] = useState<{ value: string; label: string }[]>([...DEPARTMENTS])
+  const { allOptions: allDepts } = useDepartments()
   // Managers + authorized Front Office can place/inspect; staff in a fulfilling department see their own fulfil board.
   const canRooms = canManage
     || (profile?.department === 'front_office' && rrFo.allowed)
@@ -143,17 +138,6 @@ export function RoutineRosterPage() {
         const set = new Set<string>()
         Object.values(recipes).forEach((lines) => (lines ?? []).forEach((l) => { if (l.fulfill_department) set.add(l.fulfill_department) }))
         setFulfillingDepts(set)
-      })
-    // Company department list (built-in + custom)
-    const labelToSlug = Object.fromEntries(DEPARTMENTS.map((d) => [d.label, d.value])) as Record<string, string>
-    supabase.from('kaizen_settings').select('value')
-      .eq('company_id', companyId).eq('key', 'custom_departments').maybeSingle()
-      .then(({ data }) => {
-        if (stale) return
-        if (data?.value) {
-          const labels = data.value as string[]
-          setAllDepts(labels.map((label) => ({ value: labelToSlug[label] ?? label, label })))
-        }
       })
     return () => { stale = true }
   }, [companyId])
@@ -1546,10 +1530,10 @@ function DeptItemPicker({ items, catalogItems, onAdd, onRemove, onUnitChange, la
 // ── Generate Report — period summary of requested items, for Accounting ──────
 
 function startOfWeek(key: string): string {
-  const d = new Date(key + 'T00:00:00')
-  const dow = d.getDay() === 0 ? 6 : d.getDay() - 1 // Monday-first
+  const d = parseDateOnlyBkk(key)
+  const dow = bangkokDayOfWeek(d) === 0 ? 6 : bangkokDayOfWeek(d) - 1 // Monday-first
   d.setDate(d.getDate() - dow)
-  return dateKey(d)
+  return bangkokDate(d)
 }
 
 function ReportView({ companyId, companyName, generatedBy, statusLabel, templates }: {

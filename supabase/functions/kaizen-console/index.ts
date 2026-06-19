@@ -127,8 +127,8 @@ async function packageDefaults(planKey) {
 }
 
 function daysUntil(dateStr) {
-  const today = new Date(bangkokToday() + "T00:00:00Z");
-  const end = new Date(dateStr + "T00:00:00Z");
+  const today = new Date(bangkokToday() + "T00:00:00+07:00");
+  const end = new Date(dateStr + "T00:00:00+07:00");
   return Math.ceil((end.getTime() - today.getTime()) / 86400000);
 }
 // Lifecycle: a 'trial' company with no payment is on a free trial (period
@@ -141,8 +141,8 @@ function computeSubscription(plan, created_at, latestPaymentEnd, trialDays) {
   }
   if (plan === "trial" && created_at) {
     const start = String(created_at).slice(0, 10);
-    const endD = new Date(start + "T00:00:00Z"); endD.setUTCDate(endD.getUTCDate() + (trialDays || 30));
-    const end = endD.toISOString().slice(0, 10);
+    const endD = new Date(start + "T00:00:00+07:00"); endD.setUTCDate(endD.getUTCDate() + (trialDays || 30));
+    const end = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok', year: 'numeric', month: '2-digit', day: '2-digit' }).format(endD);
     const days = daysUntil(end);
     return { is_trial: true, has_payment: false, start, end, period_end: end, days_remaining: days, overdue: days < 0 };
   }
@@ -922,7 +922,7 @@ Deno.serve(async (req) => {
       if (ad["pms"] === true) continue;            // already a paying PMS client
       if (typeof until !== "string") continue;     // no active trial
       if (ad["pms_trial_alerted"] === true) continue; // already alerted
-      const untilDate = new Date(until + "T00:00:00Z");
+      const untilDate = new Date(until + "T00:00:00+07:00");
       if (isNaN(untilDate.getTime()) || untilDate < today || untilDate > horizon) continue;
 
       await admin.from("kaizen_console_notifications").insert({
@@ -1025,8 +1025,8 @@ Deno.serve(async (req) => {
       // Extend from the later of today or the existing (unexpired) term so an
       // early renewal keeps its remaining days instead of resetting to today+term.
       const baseEnd = (curCo?.subscription_end && curCo.subscription_end > today) ? curCo.subscription_end : today;
-      const pe = new Date(baseEnd + "T00:00:00Z"); pe.setUTCDate(pe.getUTCDate() + term);
-      const period_end = pe.toISOString().slice(0, 10);
+      const pe = new Date(baseEnd + "T00:00:00+07:00"); pe.setUTCDate(pe.getUTCDate() + term);
+      const period_end = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok', year: 'numeric', month: '2-digit', day: '2-digit' }).format(pe);
       await admin.from("kaizen_companies").update({
         plan: sub.target, subscription_end: period_end,
         max_super_admins: pkg?.max_super_admins ?? null,
@@ -1066,14 +1066,14 @@ Deno.serve(async (req) => {
     const company_id = String(body.company_id ?? "");
     const payment_date = String(body.payment_date ?? "");
     if (!company_id || !payment_date) return json({ error: "company_id and payment_date are required." }, 400);
-    const pd = new Date(payment_date + "T00:00:00Z");
+    const pd = new Date(payment_date + "T00:00:00+07:00");
     if (isNaN(pd.getTime())) return json({ error: "Invalid payment date." }, 400);
     // Subscription term = current plan's duration_days (default 365).
     const { data: co } = await admin.from("kaizen_companies").select("plan, subscription_end").eq("id", company_id).maybeSingle();
     const durations = await planDurations();
     const term = Number(durations[co?.plan]) || 365;
     const pe = new Date(pd); pe.setUTCDate(pe.getUTCDate() + term);
-    const period_end = pe.toISOString().slice(0, 10);
+    const period_end = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok', year: 'numeric', month: '2-digit', day: '2-digit' }).format(pe);
     const payee = body.payee ? String(body.payee).trim() : null;
     const amount = (body.amount !== undefined && body.amount !== null && body.amount !== "") ? Number(body.amount) : null;
     const currency = body.currency ? String(body.currency) : "THB";

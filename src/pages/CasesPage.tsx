@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Checkbox } from '@/components/ui/checkbox'
 import { PMTaskModal, taskTone, taskStatusKey, type PMTask } from '@/components/pm/PMSchedule'
-import { formatRelativeTime, formatDuration, isSLABreached, CATEGORIES, LOCATIONS, companyHasAddon, bangkokDate } from '@/lib/utils'
+import { formatRelativeTime, formatDuration, isSLABreached, CATEGORIES, LOCATIONS, companyHasAddon, bangkokDate, parseDateOnlyBkk } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 import type { KaizenCase, CaseStatus, CasePriority, Department } from '@/types'
 import { DEPARTMENTS, DEPARTMENT_LABELS, deptLabel, categoryLabel, getEffectiveDepts } from '@/types'
@@ -632,7 +632,7 @@ export function CasesPage() {
   const pmsEnabled = companyHasAddon(activeCompany, 'pms')
   const [pmTasks, setPmTasks] = useState<PMTask[]>([])
   const [openTask, setOpenTask] = useState<PMTask | null>(null)
-  const [pmsMonth, setPmsMonth] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1) })
+  const [pmsMonth, setPmsMonth] = useState(() => parseDateOnlyBkk(bangkokDate().slice(0, 7) + '-01'))
   const [pmsViewAll, setPmsViewAll] = useState(false)
   const loadPmTasks = React.useCallback(() => {
     if (!activeCompany?.id || !pmsEnabled) { setPmTasks([]); return }
@@ -664,11 +664,15 @@ export function CasesPage() {
   const activeTasksAll = pmTasks.filter(t => t.due_date >= todayKey && matchTaskSearch(t))
   const activeTasks = pmsViewAll ? activeTasksAll : activeTasksAll.filter(t => {
     const d = new Date(t.due_date + 'T00:00:00')
-    return d.getFullYear() === pmsMonth.getFullYear() && d.getMonth() === pmsMonth.getMonth()
+    return bangkokDate(d).slice(0, 7) === bangkokDate(pmsMonth).slice(0, 7)
   })
   const pmsOpenCount = overdueTasks.length + activeTasksAll.length
   const pmsMonthLabel = pmsMonth.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
-  const stepPmsMonth = (delta: number) => setPmsMonth(m => new Date(m.getFullYear(), m.getMonth() + delta, 1))
+  const stepPmsMonth = (delta: number) => setPmsMonth(m => {
+    const [y, mo] = bangkokDate(m).split('-').map(Number)
+    const next = new Date(Date.UTC(y, mo - 1 + delta, 1))
+    return parseDateOnlyBkk(bangkokDate(next).slice(0, 7) + '-01')
+  })
   const paginatedActivePms = slicePage(activeTasks, pageActivePms)
   const paginatedOverduePms = slicePage(overdueTasks, pageOverduePms)
 

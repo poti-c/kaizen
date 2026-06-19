@@ -155,7 +155,10 @@ export function DashboardPage() {
     const [bY, bMM] = bkk.split('-').map(Number)
     const months = Array.from({ length: 9 }, (_, i) => {
       const d = new Date(bY, bMM - 1 - 4 + i, 1)
-      return { year: d.getFullYear(), month: d.getMonth(), label: `${MONTH_SHORT[d.getMonth()]} ${d.getFullYear()}` }
+      const bkkD = bangkokDate(d)
+      const bkkYear = parseInt(bkkD.slice(0, 4), 10)
+      const bkkMonth = parseInt(bkkD.slice(5, 7), 10) - 1  // 0-indexed
+      return { year: bkkYear, month: bkkMonth, label: `${MONTH_SHORT[bkkMonth]} ${bkkYear}` }
     })
     const monthMap: Record<string, number> = {}
     months.forEach(({ label }) => { monthMap[label] = 0 })

@@ -47,7 +47,7 @@ type CompanyLike = {
 }
 
 function dayDiff(dateStr: string): number {
-  const today = new Date(); today.setHours(0, 0, 0, 0)
+  const today = new Date(bangkokDate() + 'T00:00:00+07:00')
   const end = new Date(dateStr.length <= 10 ? dateStr + 'T00:00:00' : dateStr)
   return Math.ceil((end.getTime() - today.getTime()) / 86400000)
 }
@@ -66,7 +66,7 @@ export function subscriptionInfo(company: CompanyLike | null | undefined): SubIn
     const startIso = bangkokDate(new Date(String(company.created_at)))
     const start = new Date(startIso + 'T00:00:00+07:00')
     const end = new Date(start); end.setDate(start.getDate() + TRIAL_DAYS)
-    const iso = `${end.getFullYear()}-${String(end.getMonth() + 1).padStart(2, '0')}-${String(end.getDate()).padStart(2, '0')}`
+    const iso = bangkokDate(end)
     const d = dayDiff(iso)
     return { isTrial: true, end: iso, daysLeft: d, expired: d < 0 }
   }
@@ -178,10 +178,11 @@ export function getDepartmentColor(dept: Department): string {
 
 export function generateCaseNumber(): string {
   const now = new Date()
-  const year = now.getFullYear()
-  const month = String(now.getMonth() + 1).padStart(2, '0')
+  const bkkParts = bangkokDate(now).split('-')  // ['YYYY','MM','DD']
+  const yyyy = bkkParts[0]
+  const mm = bkkParts[1]
   const random = Math.floor(Math.random() * 9000) + 1000
-  return `KZN-${year}${month}-${random}`
+  return `KZN-${yyyy}${mm}-${random}`
 }
 
 // Normalize a company code/slug the same way slugs are generated
@@ -214,9 +215,10 @@ export const DEPT_ABBR: Record<string, string> = {
 
 export function buildPhotoPath(caseNumber: string, department: string, index: number, ext: string): string {
   const now = new Date()
-  const yyyy = now.getFullYear()
-  const mm = String(now.getMonth() + 1).padStart(2, '0')
-  const dd = String(now.getDate()).padStart(2, '0')
+  const bkkParts = bangkokDate(now).split('-')  // ['YYYY','MM','DD']
+  const yyyy = bkkParts[0]
+  const mm = bkkParts[1]
+  const dd = bkkParts[2]
   const dept = DEPT_ABBR[department] ?? department.toUpperCase().slice(0, 2)
   const caseTag = caseNumber.replace(/-/g, '_')
   const folder = `Na Nirand Kaizen/${yyyy}-${mm}`

@@ -6,7 +6,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useLanguage } from '@/contexts/LanguageContext'
 import { toast } from 'sonner'
 import { type Department, getEffectiveDepts } from '@/types'
-import { bangkokDate } from '@/lib/utils'
+import { bangkokDate, bangkokDayOfWeek, parseDateOnlyBkk } from '@/lib/utils'
 
 export interface PMTask {
   id: string; company_id: string; asset_id: string; due_date: string; status: string
@@ -48,8 +48,11 @@ export function PMSchedule() {
   const [open, setOpen] = useState<PMTask | null>(null)
 
   const cells = useMemo(() => {
-    const first = new Date(cursor.getFullYear(), cursor.getMonth(), 1)
-    const start = new Date(first); start.setDate(first.getDate() - first.getDay())
+    const bkkCursorStr = bangkokDate(cursor)              // 'YYYY-MM-DD'
+    const firstStr = bkkCursorStr.slice(0, 7) + '-01'    // 'YYYY-MM-01'
+    const first = parseDateOnlyBkk(firstStr)
+    const firstDow = bangkokDayOfWeek(first)
+    const start = new Date(first.getTime() - firstDow * 86400000)
     return Array.from({ length: 42 }, (_, i) => { const d = new Date(start); d.setDate(start.getDate() + i); return d })
   }, [cursor])
 
@@ -83,9 +86,9 @@ export function PMSchedule() {
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-base font-bold text-gray-900">{monthTitle}</h3>
         <div className="flex items-center gap-1 bg-white border border-gray-200 rounded-lg p-0.5">
-          <button onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1))} className="p-1.5 rounded-md text-gray-500 hover:bg-gray-100"><ChevronLeft className="h-4 w-4" /></button>
-          <button onClick={() => { const bkk = bangkokDate(); setCursor(new Date(bkk.slice(0, 7) + '-01T12:00:00+07:00')) }} className="px-2.5 h-7 text-xs font-medium text-gray-600 hover:bg-gray-100 rounded-md">{lang === 'th' ? 'วันนี้' : 'Today'}</button>
-          <button onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1))} className="p-1.5 rounded-md text-gray-500 hover:bg-gray-100"><ChevronRight className="h-4 w-4" /></button>
+          <button onClick={() => { const [cy, cm] = bangkokDate(cursor).split('-').map(Number); setCursor(parseDateOnlyBkk(`${cm === 1 ? cy-1 : cy}-${String(cm === 1 ? 12 : cm-1).padStart(2,'0')}-01`)) }} className="p-1.5 rounded-md text-gray-500 hover:bg-gray-100"><ChevronLeft className="h-4 w-4" /></button>
+          <button onClick={() => { const bkk = bangkokDate(); setCursor(parseDateOnlyBkk(bkk.slice(0, 7) + '-01')) }} className="px-2.5 h-7 text-xs font-medium text-gray-600 hover:bg-gray-100 rounded-md">{lang === 'th' ? 'วันนี้' : 'Today'}</button>
+          <button onClick={() => { const [cy, cm] = bangkokDate(cursor).split('-').map(Number); setCursor(parseDateOnlyBkk(`${cm === 12 ? cy+1 : cy}-${String(cm === 12 ? 1 : cm+1).padStart(2,'0')}-01`)) }} className="p-1.5 rounded-md text-gray-500 hover:bg-gray-100"><ChevronRight className="h-4 w-4" /></button>
         </div>
       </div>
 
@@ -99,13 +102,13 @@ export function PMSchedule() {
           <div className="grid grid-cols-7">
             {cells.map((d, i) => {
               const key = dayKey(d)
-              const inMonth = d.getMonth() === cursor.getMonth()
+              const inMonth = bangkokDate(d).slice(0, 7) === bangkokDate(cursor).slice(0, 7)
               const isToday = key === todayKey
               const items = byDay.get(key) ?? []
               return (
                 <div key={i} className={`min-h-[96px] border-b border-r border-gray-100 p-1.5 ${i % 7 === 6 ? 'border-r-0' : ''} ${inMonth ? '' : 'bg-gray-50/60'}`}>
                   <div className="flex justify-end">
-                    <span className={`text-[11px] w-5 h-5 flex items-center justify-center rounded-full ${isToday ? 'bg-[var(--brand-primary)] text-white font-bold' : inMonth ? 'text-gray-600' : 'text-gray-300'}`}>{d.getDate()}</span>
+                    <span className={`text-[11px] w-5 h-5 flex items-center justify-center rounded-full ${isToday ? 'bg-[var(--brand-primary)] text-white font-bold' : inMonth ? 'text-gray-600' : 'text-gray-300'}`}>{parseInt(bangkokDate(d).slice(8, 10), 10)}</span>
                   </div>
                   <div className="space-y-1 mt-0.5">
                     {items.slice(0, 3).map((t) => {

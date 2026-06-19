@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom'
 import { useCompany } from '@/contexts/CompanyContext'
 import { useAuth } from '@/contexts/AuthContext'
 import { useLanguage } from '@/contexts/LanguageContext'
-import { addonTrialDaysLeft } from '@/lib/utils'
+import { addonTrialDaysLeft, parseDateOnlyBkk, bangkokDate } from '@/lib/utils'
 
 const TRIAL_DAYS = 30
 
@@ -61,8 +61,8 @@ export function TrialBanner() {
   // if the plan field is momentarily inconsistent — never nag a paying client.
   if (company.subscription_end && new Date(company.subscription_end + 'T23:59:59') >= new Date()) return null
 
-  const start = new Date(String(company.created_at).slice(0, 10) + 'T00:00:00')
-  const end = new Date(start); end.setDate(start.getDate() + TRIAL_DAYS)
+  const start = parseDateOnlyBkk(bangkokDate(new Date(company.created_at)))
+  const end = new Date(start.getTime() + TRIAL_DAYS * 86400000)
   const today = new Date(); today.setHours(0, 0, 0, 0)
   const daysLeft = Math.ceil((end.getTime() - today.getTime()) / 86400000)
 

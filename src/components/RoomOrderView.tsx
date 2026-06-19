@@ -12,7 +12,7 @@ import type { RrItem } from '@/components/RRSettings'
 import type { RoomCategory, RoomType, Room } from '@/components/RoomSetupSettings'
 import { DEFAULT_UNIT, unitOne, unitMany, type UnitNoun } from '@/lib/roomUnit'
 import { resolveDeptRecipients } from '@/lib/rrNotify'
-import { bangkokDate } from '@/lib/utils'
+import { bangkokDate, parseDateOnlyBkk, bangkokDayOfWeek } from '@/lib/utils'
 import type { RecipeLine, RoomRecipes, LineType } from '@/components/RoomRecipesSettings'
 import { ItemField } from '@/components/RoomRecipesSettings'
 
@@ -28,11 +28,8 @@ const DEPT_BADGE: Record<string, string> = {
 }
 const deptBadge = (d: string) => DEPT_BADGE[d] || 'bg-gray-100 text-gray-600 border-gray-200'
 
-function dateKey(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-}
 function shiftDate(key: string, days: number): string {
-  const d = new Date(key + 'T00:00:00'); d.setDate(d.getDate() + days); return dateKey(d)
+  const d = parseDateOnlyBkk(key); d.setDate(d.getDate() + days); return bangkokDate(d)
 }
 function buildingOf(no: string): string {
   const m = no.trim().match(/^([A-Za-z]+)/); return m ? m[1].toUpperCase() : '—'
@@ -223,7 +220,7 @@ interface SheetLine {
 
 /** Resolve a category's recipe to concrete sheet lines for a given service date + status. */
 function seedLines(recipe: RecipeLine[], date: string, status: RoomStatus = 'checkin'): SheetLine[] {
-  const wd = WEEKDAY_KEYS[new Date(date + 'T00:00:00').getDay()]
+  const wd = WEEKDAY_KEYS[bangkokDayOfWeek(parseDateOnlyBkk(date))]
   return recipe.map((l) => ({
     id: l.id,
     slot: l.slot,

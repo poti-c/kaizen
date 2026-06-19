@@ -6,17 +6,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useCompany } from '@/contexts/CompanyContext'
 import { useLanguage } from '@/contexts/LanguageContext'
 import { assetStatus } from '@/lib/pm'
-
-function isoDate(d: Date) {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-}
-
-// Calendar date of a timestamp in the hotel's timezone (Asia/Bangkok), so on-time
-// comparisons against a stored `date` (performed_at::timestamptz vs due_date::date)
-// are stable for every viewer, not the browser's local day. en-CA → YYYY-MM-DD.
-function bangkokDate(d: Date) {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d)
-}
+import { bangkokDate } from '@/lib/utils'
 
 interface AssetRow { next_maintenance_date: string | null; is_active: boolean; department: string | null }
 interface TaskRow { due_date: string; status: string; performed_at: string | null; asset?: { department: string | null } | null }
@@ -46,8 +36,8 @@ export function PMSummaryCard() {
     let cancelled = false
     ;(async () => {
       setLoading(true)
-      const from = isoDate(new Date(Date.now() - 95 * 86400000))
-      const to = isoDate(new Date(Date.now() + 35 * 86400000))
+      const from = bangkokDate(new Date(Date.now() - 95 * 86400000))
+      const to = bangkokDate(new Date(Date.now() + 35 * 86400000))
       // Start of the current month in Bangkok time, as a timestamptz instant.
       const monthStart = `${bangkokDate(new Date()).slice(0, 7)}-01T00:00:00+07:00`
       const [a, tk, mt, pa, s] = await Promise.all([

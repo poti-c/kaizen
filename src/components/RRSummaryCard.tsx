@@ -5,10 +5,7 @@ import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useCompany } from '@/contexts/CompanyContext'
 import { useLanguage } from '@/contexts/LanguageContext'
-
-function isoDate(d: Date) {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-}
+import { bangkokDate } from '@/lib/utils'
 
 interface OrderRow { status: string; due_at: string | null; order_date: string; request_department: string | null; fulfill_department: string | null }
 interface RoomOrderRow { order_date: string; room_statuses: Record<string, string> | null }
@@ -27,8 +24,8 @@ export function RRSummaryCard() {
   const [orders, setOrders] = useState<OrderRow[]>([])
   const [roomOrders, setRoomOrders] = useState<RoomOrderRow[]>([])
 
-  const today = isoDate(new Date())
-  const tomorrow = isoDate(new Date(Date.now() + 86400000))
+  const today = bangkokDate(new Date())
+  const tomorrow = bangkokDate(new Date(Date.now() + 86400000))
 
   useEffect(() => {
     if (!companyId) return

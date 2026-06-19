@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { validateRequired, validatePercentDiscount } from '@/lib/validators'
 import {
   Package, Loader2, Plus, Trash2, ArrowLeft, Check, Crown, Tag, Box, Ticket, X, Power, Pencil, Lock,
 } from 'lucide-react'
@@ -177,7 +178,8 @@ function ProductCard({ product, call, onSaved, onDeleted, isNew }: { product: Pr
   function toggleFeature(k: string) { if (!locked) setD({ ...d, features: { ...d.features, [k]: !d.features[k] } }) }
 
   async function save() {
-    if (!d.name.trim()) { alert('Name is required.'); return }
+    const nameErr = validateRequired(d.name, 'Name')
+    if (nameErr) { alert(nameErr); return }
     setBusy(true)
     try { await call('upsert_product', { product: d }); setLocked(true); onSaved() }
     catch (e) { alert(e instanceof Error ? e.message : 'Failed'); setD(product) } finally { setBusy(false) }
@@ -302,7 +304,8 @@ function PromoRow({ promo, call, onSaved, onDeleted, isNew }: { promo: Promo; ca
   function set(patch: Partial<Promo>) { setD({ ...d, ...patch }) }
   async function save() {
     if (!d.code.trim()) { alert('Code is required.'); return }
-    if (d.discount_percent <= 0) { alert('Discount percent must be greater than 0.'); return }
+    const discErr = validatePercentDiscount(d.discount_percent)
+    if (discErr) { alert(discErr); return }
     setBusy(true)
     try { await call('upsert_promo', { promo: d }); onSaved() }
     catch (e) { alert(e instanceof Error ? e.message : 'Failed') } finally { setBusy(false) }

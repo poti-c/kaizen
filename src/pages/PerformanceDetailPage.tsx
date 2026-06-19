@@ -213,7 +213,8 @@ export function PerformanceDetailPage() {
   const ym = (d: Date) => bangkokDate(d).slice(0, 7)
   const months = Array.from({ length: 6 }, (_, i) => {
     const d = new Date(bkkY, bkkM - 1 - 5 + i, 1)
-    return { key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`, label: MONTH_SHORT[d.getMonth()] }
+    const bkkD = bangkokDate(d)
+    return { key: bkkD.slice(0, 7), label: MONTH_SHORT[parseInt(bkkD.slice(5, 7), 10) - 1] }
   })
   const monthMap: Record<string, number> = {}
   months.forEach(({ key }) => { monthMap[key] = 0 })

@@ -16,6 +16,7 @@ import { DEPARTMENTS, CATEGORY_LABELS_EN, categoryLabel, deptLabel } from '@/typ
 import type { CasePriority, Department } from '@/types'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
+import { useDepartments } from '@/hooks/useDepartments'
 
 // Quick deadline presets for urgent cases. `at()` returns a fresh ISO timestamp.
 const DUE_PRESETS: { key: string; en: string; th: string; at: () => string }[] = [
@@ -51,13 +52,13 @@ export function CreateCasePage() {
     CATEGORIES.map(c => ({ slug: c, label: CATEGORY_LABELS_EN[c] ?? c }))
   )
   const [customLocations, setCustomLocations] = useState<string[]>([...LOCATIONS] as string[])
-  const [customDepts, setCustomDepts] = useState<string[]>([])
+  const { customDepts } = useDepartments()
 
   useEffect(() => {
     if (!activeCompany?.id) return
     supabase.from('kaizen_settings').select('key, value')
       .eq('company_id', activeCompany.id) // this tenant's taxonomy only
-      .in('key', ['custom_categories', 'custom_locations', 'custom_departments'])
+      .in('key', ['custom_categories', 'custom_locations'])
       .then(({ data }) => {
         if (!data) return
         data.forEach((row: { key: string; value: unknown }) => {
@@ -71,9 +72,6 @@ export function CreateCasePage() {
           }
           if (row.key === 'custom_locations') {
             setCustomLocations(row.value as string[])
-          }
-          if (row.key === 'custom_departments') {
-            setCustomDepts(row.value as string[])
           }
         })
       })
