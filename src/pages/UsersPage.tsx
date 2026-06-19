@@ -78,7 +78,7 @@ export function UsersPage() {
   const [deptFilter, setDeptFilter] = useState<string>('all')
   const [staffDeptFilter, setStaffDeptFilter] = useState<string>('all')
   // Full company department list (built-in + custom)
-  const { allOptions: allDepts } = useDepartments()
+  const { allOptions: allDepts, loading: deptsLoading } = useDepartments()
 
   const isHRManager = profile?.role === 'manager' && profile?.department === 'human_resource'
   const isOwner = profile?.role === 'super_admin' && profile?.job_title === 'Owner'
@@ -397,7 +397,7 @@ export function UsersPage() {
         </div>
       </div>
 
-      {!loading && profile?.role === 'super_admin' && (
+      {!loading && !deptsLoading && profile?.role === 'super_admin' && (
         <div className="mb-5">
           <Select value={deptFilter} onValueChange={setDeptFilter}>
             <SelectTrigger className="h-9 w-full text-sm"><SelectValue /></SelectTrigger>

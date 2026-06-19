@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { ChevronLeft, ChevronRight, Wrench, ClipboardList, DoorOpen, Flag } from 'lucide-react'
 import { unitOne, DEFAULT_UNIT, type UnitNoun } from '@/lib/roomUnit'
@@ -10,6 +10,7 @@ import { cn, companyHasAddon, formatDueBy, bangkokDate, parseDateOnlyBkk, bangko
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import type { KaizenCase, Department, RrOrder } from '@/types'
 import { DEPARTMENTS, deptLabel } from '@/types'
+import { useDepartments } from '@/hooks/useDepartments'
 import { PMTaskModal, taskTone, taskStatusKey, type PMTask } from '@/components/pm/PMSchedule'
 
 const PRIORITY_COLORS: Record<string, string> = {
@@ -48,7 +49,6 @@ export function CasesCalendarPage() {
   const { activeCompany } = useCompany()
   const { lang, t } = useLanguage()
   const navigate = useNavigate()
-  const today = new Date()
   const _bkkNow = bangkokDate()
   const [_bkkYear, _bkkMM] = _bkkNow.split('-').map(Number)
 
@@ -77,6 +77,8 @@ export function CasesCalendarPage() {
     return 'cases'
   })
   const [openTask, setOpenTask] = useState<PMTask | null>(null)
+  const fetchSeqCal = useRef(0)
+  const { allOptions: calDepts } = useDepartments()
 
   const MONTH_NAMES = lang === 'th' ? MONTH_NAMES_TH : MONTH_NAMES_EN
   const DAY_LABELS = lang === 'th' ? DAY_LABELS_TH : DAY_LABELS_EN
@@ -85,7 +87,9 @@ export function CasesCalendarPage() {
   const showCaseData = mode === 'cases' || mode === 'combined'
 
   useEffect(() => {
-    if (profile && activeCompany) fetchData()
+    if (!profile || !activeCompany) return
+    const seq = ++fetchSeqCal.current
+    void fetchData(seq)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profile, activeCompany, viewMonth, viewYear, mode])
 
@@ -109,7 +113,7 @@ export function CasesCalendarPage() {
     setActorNames(prev => ({ ...prev, ...map }))
   }
 
-  async function fetchData() {
+  async function fetchData(fetchSeq?: number) {
     if (!activeCompany) return
     setLoading(true)
     const start = new Date(Date.UTC(viewYear, viewMonth, 1))
@@ -181,6 +185,7 @@ export function CasesCalendarPage() {
     } else { setRrOrders([]); setRrRoomOrders([]) }
 
     await Promise.all(jobs)
+    if (fetchSeq != null && fetchSeq !== fetchSeqCal.current) return
     setLoading(false)
   }
 
@@ -303,8 +308,8 @@ export function CasesCalendarPage() {
               <SelectTrigger className="h-8 w-32 text-[11px] whitespace-nowrap flex-shrink-0"><SelectValue placeholder={t.calendar.allDepts} /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">{t.calendar.allDepts}</SelectItem>
-                {DEPARTMENTS.filter(d => d.value !== 'top_management').map((d) => (
-                  <SelectItem key={d.value} value={d.value} className="text-xs">{deptLabel(d.value, lang)}</SelectItem>
+                {calDepts.filter(d => d.value !== 'top_management').map((d) => (
+                  <SelectItem key={d.value} value={d.value} className="text-xs">{d.isCustom ? d.label : deptLabel(d.value, lang)}</SelectItem>
                 ))}
               </SelectContent>
             </Select>

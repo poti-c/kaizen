@@ -29,18 +29,18 @@ export function freqLabel(unit: FreqUnit, interval: number, lang?: string): stri
 // Month/year steps clamp to the end of the target month so e.g. Jan 31 + 1 month = Feb 28/29
 // (instead of JS's overflow to Mar 2/3) and Feb 29 + 1 year = Feb 28.
 export function addInterval(dateStr: string, unit: FreqUnit, interval: number): string {
-  const d = new Date(dateStr + 'T00:00:00+07:00')
-  if (unit === 'day') d.setDate(d.getDate() + interval)
-  else if (unit === 'week') d.setDate(d.getDate() + interval * 7)
-  else if (unit === 'month' || unit === 'year') {
-    const months = unit === 'year' ? interval * 12 : interval
-    const day = d.getDate()
-    d.setDate(1)
-    d.setMonth(d.getMonth() + months)
-    const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()
-    d.setDate(Math.min(day, lastDay))
+  let [y, m, day] = dateStr.split('-').map(Number)
+  if (unit === 'day' || unit === 'week') {
+    const d = new Date(Date.UTC(y, m - 1, unit === 'week' ? day + interval * 7 : day + interval))
+    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`
   }
-  return bangkokDate(d)
+  // month/year: clamp to end of target month using pure numeric arithmetic (no local-TZ Date methods)
+  const months = unit === 'year' ? interval * 12 : interval
+  m += months
+  while (m > 12) { m -= 12; y++ }
+  while (m < 1) { m += 12; y-- }
+  const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate()
+  return `${y}-${String(m).padStart(2, '0')}-${String(Math.min(day, lastDay)).padStart(2, '0')}`
 }
 
 export function daysUntil(dateStr: string | null): number | null {

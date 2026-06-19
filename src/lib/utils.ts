@@ -85,8 +85,8 @@ export function companyHasAddon(company: CompanyLike | null | undefined, key: Ad
   if (a[key] === true) return !subscriptionInfo(company).expired // paused if lapsed
   const until = a[`${key}_trial_until`]
   if (typeof until === 'string') {
-    const today = new Date(); today.setHours(0, 0, 0, 0)
-    return new Date(until + 'T00:00:00') >= today
+    const today = new Date(bangkokDate() + 'T00:00:00+07:00')
+    return parseDateOnlyBkk(until) >= today
   }
   return false
 }

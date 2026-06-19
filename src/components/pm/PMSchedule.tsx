@@ -79,7 +79,7 @@ export function PMSchedule() {
   }, [tasks])
 
   const todayKey = dayKey(new Date())
-  const monthTitle = cursor.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
+  const monthTitle = new Intl.DateTimeFormat(lang === 'th' ? 'th-TH' : 'en-GB', { timeZone: 'Asia/Bangkok', month: 'long', year: 'numeric' }).format(cursor)
 
   return (
     <div>

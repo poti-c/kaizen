@@ -212,9 +212,10 @@ export function PerformanceDetailPage() {
   // into the visible bucket (cases is fetched all-time). Display label stays the month name.
   const ym = (d: Date) => bangkokDate(d).slice(0, 7)
   const months = Array.from({ length: 6 }, (_, i) => {
-    const d = new Date(bkkY, bkkM - 1 - 5 + i, 1)
-    const bkkD = bangkokDate(d)
-    return { key: bkkD.slice(0, 7), label: MONTH_SHORT[parseInt(bkkD.slice(5, 7), 10) - 1] }
+    let mY = bkkY; let mM = bkkM - 5 + i
+    while (mM < 1) { mM += 12; mY-- }
+    while (mM > 12) { mM -= 12; mY++ }
+    return { key: `${mY}-${String(mM).padStart(2, '0')}`, label: MONTH_SHORT[mM - 1] }
   })
   const monthMap: Record<string, number> = {}
   months.forEach(({ key }) => { monthMap[key] = 0 })

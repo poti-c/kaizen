@@ -495,11 +495,12 @@ function RoomOrderBuild({ companyId, unit, requireApproval, initialDate }: { com
   }
 
   async function saveRoom(roomNo: string, lines: SheetLine[], status: RoomStatus) {
-    const oid = await ensureOrder(); if (!oid) return false
+    if (busy) return false
+    setBusy(true)
+    const oid = await ensureOrder(); if (!oid) { setBusy(false); return false }
     const room = rooms.find((r) => r.no === roomNo)!
     const clean = lines.filter((l) => l.item.trim() || l.slot.trim())
     const nextStatuses = { ...roomStatuses, [roomNo]: status }
-    setBusy(true)
     // Reconcile rather than delete+reinsert: existing rows are UPDATED in place so their
     // fulfilment/approval state (status, delivered/acknowledged stamps, approval_status)
     // survives an edit to an already-submitted order. Only genuinely new lines are inserted,
@@ -600,11 +601,12 @@ function RoomOrderBuild({ companyId, unit, requireApproval, initialDate }: { com
 
   // Mark the still-unassigned rooms as Empty, then submit (chosen from the blank-rooms dialog).
   async function emptyBlanksAndSubmit() {
+    if (busy) return
+    setBusy(true)
     const blanks = blankPrompt ?? []
-    const oid = await ensureOrder(); if (!oid) return
+    const oid = await ensureOrder(); if (!oid) { setBusy(false); return }
     const next = { ...roomStatuses }
     blanks.forEach((no) => { next[no] = 'empty' })
-    setBusy(true)
     const { error } = await supabase.from('kaizen_rr_room_orders').update({ room_statuses: next }).eq('id', oid)
     if (error) { setBusy(false); toast.error(error.message); return }
     await logRoomEvent(companyId, oid, date, profile?.id, 'emptied_rest', String(blanks.length))
@@ -617,8 +619,9 @@ function RoomOrderBuild({ companyId, unit, requireApproval, initialDate }: { com
 
   async function performSubmit(statuses: Record<string, RoomStatus>) {
     if (!profile) { toast.error(lang === 'th' ? 'เซสชันหมดอายุ — กรุณาเข้าสู่ระบบใหม่' : 'Session expired — please sign in again'); return }
-    const oid = await ensureOrder(); if (!oid) return
+    if (busy) return
     setBusy(true)
+    const oid = await ensureOrder(); if (!oid) { setBusy(false); return }
     // Materialize defaults for any room not explicitly saved or statused.
     const untouched = rooms.filter((r) => !savedRooms[r.no] && !statuses[r.no])
     const rows = untouched.flatMap((r) => seedLines(recipeForRoom(r), date).filter((l) => l.item.trim() || l.slot.trim()).map((l) => lineRow(oid, r.no, r, l)))

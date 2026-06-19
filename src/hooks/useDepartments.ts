@@ -21,11 +21,13 @@ export function useDepartments() {
     if (!activeCompany?.id) { setLoading(false); return }
     supabase
       .from('kaizen_settings')
-      .select('custom_departments')
+      .select('value')
       .eq('company_id', activeCompany.id)
+      .eq('key', 'custom_departments')
       .maybeSingle()
-      .then(({ data }) => {
-        setCustomDepts((data?.custom_departments as string[] | null) ?? [])
+      .then(({ data, error }) => {
+        if (error) console.error('[useDepartments]', error.message)
+        setCustomDepts((data?.value as string[] | null) ?? [])
         setLoading(false)
       })
   }, [activeCompany?.id])

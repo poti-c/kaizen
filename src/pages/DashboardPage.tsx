@@ -154,11 +154,11 @@ export function DashboardPage() {
     const bkk = bangkokDate()
     const [bY, bMM] = bkk.split('-').map(Number)
     const months = Array.from({ length: 9 }, (_, i) => {
-      const d = new Date(bY, bMM - 1 - 4 + i, 1)
-      const bkkD = bangkokDate(d)
-      const bkkYear = parseInt(bkkD.slice(0, 4), 10)
-      const bkkMonth = parseInt(bkkD.slice(5, 7), 10) - 1  // 0-indexed
-      return { year: bkkYear, month: bkkMonth, label: `${MONTH_SHORT[bkkMonth]} ${bkkYear}` }
+      let mY = bY; let mM = bMM - 4 + i
+      while (mM < 1) { mM += 12; mY-- }
+      while (mM > 12) { mM -= 12; mY++ }
+      const bkkMonth = mM - 1  // 0-indexed
+      return { year: mY, month: bkkMonth, label: `${MONTH_SHORT[bkkMonth]} ${mY}` }
     })
     const monthMap: Record<string, number> = {}
     months.forEach(({ label }) => { monthMap[label] = 0 })
@@ -212,7 +212,7 @@ export function DashboardPage() {
     // DASH-002: surface query errors instead of silently showing empty dashboard
     const { data, error } = await query.order('created_at', { ascending: false })
     if (seq !== fetchSeq.current) return
-    if (error) { setLoading(false); return }
+    if (error) { setLoading(false); console.error('[Dashboard] fetch error', error.message); return }
     setAllCases((data || []) as KaizenCase[])
     if (activeCompany) {
       const { data: catRow } = await supabase.from('kaizen_settings').select('value')

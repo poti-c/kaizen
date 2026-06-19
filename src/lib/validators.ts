@@ -3,7 +3,7 @@
 // Each function returns null on success or a user-facing error string on failure.
 
 export function validatePassword(pwd: string): string | null {
-  if (pwd.trim().length < 8) return 'Password must be at least 8 characters.'
+  if (pwd.length < 8) return 'Password must be at least 8 characters.'
   return null
 }
 

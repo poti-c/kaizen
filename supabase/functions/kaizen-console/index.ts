@@ -912,8 +912,9 @@ Deno.serve(async (req) => {
   // upsell alert once — a notification, a to-do, and a calendar task. Marked via
   // addons.pms_trial_alerted so it never duplicates. Called on Console load.
   if (action === "sync_trial_alerts") {
-    const today = new Date(); today.setUTCHours(0, 0, 0, 0);
-    const horizon = new Date(today); horizon.setUTCDate(horizon.getUTCDate() + 2);
+    const todayStr = bangkokToday();
+    const today = new Date(todayStr + "T00:00:00+07:00");
+    const horizon = new Date(today.getTime() + 2 * 86400000);
     const { data: cos } = await admin.from("kaizen_companies").select("id, name, addons");
     let created = 0;
     for (const c of cos ?? []) {

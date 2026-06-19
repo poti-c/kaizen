@@ -663,11 +663,11 @@ export function CasesPage() {
   const overdueTasks = pmTasks.filter(t => t.due_date < todayKey && matchTaskSearch(t))
   const activeTasksAll = pmTasks.filter(t => t.due_date >= todayKey && matchTaskSearch(t))
   const activeTasks = pmsViewAll ? activeTasksAll : activeTasksAll.filter(t => {
-    const d = new Date(t.due_date + 'T00:00:00')
+    const d = parseDateOnlyBkk(t.due_date)
     return bangkokDate(d).slice(0, 7) === bangkokDate(pmsMonth).slice(0, 7)
   })
   const pmsOpenCount = overdueTasks.length + activeTasksAll.length
-  const pmsMonthLabel = pmsMonth.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
+  const pmsMonthLabel = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Bangkok', month: 'long', year: 'numeric' }).format(pmsMonth)
   const stepPmsMonth = (delta: number) => setPmsMonth(m => {
     const [y, mo] = bangkokDate(m).split('-').map(Number)
     const next = new Date(Date.UTC(y, mo - 1 + delta, 1))

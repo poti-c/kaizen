@@ -63,7 +63,7 @@ export function TrialBanner() {
 
   const start = parseDateOnlyBkk(bangkokDate(new Date(company.created_at)))
   const end = new Date(start.getTime() + TRIAL_DAYS * 86400000)
-  const today = new Date(); today.setHours(0, 0, 0, 0)
+  const today = new Date(bangkokDate() + 'T00:00:00+07:00')
   const daysLeft = Math.ceil((end.getTime() - today.getTime()) / 86400000)
 
   const expired = daysLeft < 0
