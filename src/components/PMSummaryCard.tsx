@@ -94,8 +94,9 @@ export function PMSummaryCard() {
   // with a due_date outside the ±window are still counted.
   const monthPrefix = todayKey.slice(0, 7)
   const completedThisMonth = monthTasks.filter(t => t.performed_at && bangkokDate(new Date(t.performed_at)).slice(0, 7) === monthPrefix).length
-  const onTime = monthTasks.filter(t => t.performed_at && bangkokDate(new Date(t.performed_at)) <= t.due_date).length
-  const onTimeRate = monthTasks.length === 0 ? null : Math.round((onTime / monthTasks.length) * 100)
+  const monthlyCompleted = monthTasks.filter(t => t.performed_at && bangkokDate(new Date(t.performed_at)).slice(0, 7) === monthPrefix)
+  const onTime = monthlyCompleted.filter(t => bangkokDate(new Date(t.performed_at!)) <= t.due_date).length
+  const onTimeRate = monthlyCompleted.length === 0 ? null : Math.round((onTime / monthlyCompleted.length) * 100)
   const pendingApproval = pendingTasks.length
 
   const complianceColor = compliance == null ? 'text-gray-400' : compliance >= 90 ? 'text-green-600' : compliance >= 70 ? 'text-amber-600' : 'text-red-600'

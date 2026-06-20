@@ -292,6 +292,7 @@ export function SettingsPage() {
       const { count } = await supabase
         .from('kaizen_cases')
         .select('*', { count: 'exact', head: true })
+        .eq('company_id', companyId)
         .in('location', items)
         .neq('status', 'closed')
       affected = count ?? 0
@@ -301,6 +302,7 @@ export function SettingsPage() {
       const { count } = await supabase
         .from('kaizen_cases')
         .select('*', { count: 'exact', head: true })
+        .eq('company_id', companyId)
         .in('category', slugs)
         .neq('status', 'closed')
       affected = count ?? 0
@@ -312,6 +314,7 @@ export function SettingsPage() {
       const { count } = await supabase
         .from('kaizen_cases')
         .select('*', { count: 'exact', head: true })
+        .eq('company_id', companyId)
         .in('department', deptValues)
         .neq('status', 'closed')
       affected = count ?? 0

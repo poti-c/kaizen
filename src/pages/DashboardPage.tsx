@@ -39,6 +39,11 @@ export function DashboardPage() {
   const defaultKey = monthKey(bkkYear, bkkMM - 1)
   const [selectedMonths, setSelectedMonths] = useState<Set<string>>(new Set([defaultKey]))
   const [pickerOpen, setPickerOpen] = useState(false)
+  useEffect(() => {
+    const bkk = bangkokDate()
+    const [y, mm] = bkk.split('-').map(Number)
+    setSelectedMonths(new Set([monthKey(y, mm - 1)]))
+  }, [activeCompany])
 
   // Build month list from actual case data (created_at only), always include current month
   const monthList = useMemo(() => {

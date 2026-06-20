@@ -79,9 +79,13 @@ export function NotificationsPage() {
     setLoading(false); setLoadingMore(false)
   }
 
+  const readingRef = useRef(new Set<string>())
   async function markRead(id: string) {
+    if (readingRef.current.has(id)) return
+    readingRef.current.add(id)
     const wasUnread = notifications.some((n) => n.id === id && !n.is_read)
     const { error } = await supabase.from('kaizen_notifications').update({ is_read: true }).eq('id', id)
+    readingRef.current.delete(id)
     if (error) return
     setNotifications((prev) => prev.map((n) => n.id === id ? { ...n, is_read: true } : n))
     if (wasUnread) setUnread((c) => { const next = Math.max(0, c - 1); syncBadge(next); return next })
@@ -93,7 +97,7 @@ export function NotificationsPage() {
     markAllReadRef.current = true
     try {
       // NP-003: check error before updating UI state
-      const { error } = await supabase.from('kaizen_notifications').update({ is_read: true }).eq('user_id', profile.id)
+      const { error } = await supabase.from('kaizen_notifications').update({ is_read: true }).eq('user_id', profile.id).eq('is_read', false)
       if (error) return
       setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })))
       setUnread(0)
@@ -183,8 +187,8 @@ export function NotificationsPage() {
                   <div
                     key={n.id}
                     className={cn('flex items-start gap-4 px-5 py-4 cursor-pointer hover:bg-gray-50 transition-colors', !n.is_read && 'bg-blue-50/40')}
-                    onClick={() => {
-                      markRead(n.id)
+                    onClick={async () => {
+                      await markRead(n.id)
                       if (n.case_id) navigate(`/cases/${n.case_id}`)
                       else if (n.notification_type === 'pm') navigate('/maintenance')
                       else if (n.notification_type === 'rr') navigate('/routine-roster')

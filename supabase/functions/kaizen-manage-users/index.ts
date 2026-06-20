@@ -328,8 +328,8 @@ serve(async (req) => {
       full_name: updates.full_name,
       position: updates.position,
     };
+    if (updates.must_change_password !== undefined) allowed.must_change_password = updates.must_change_password;
     if (callerRole === "super_admin") {
-      if (updates.must_change_password !== undefined) allowed.must_change_password = updates.must_change_password;
       // Allow username change only for super_admin callers
       if (updates.username !== undefined) allowed.username = updates.username;
       if (updates.department !== undefined) {
@@ -366,8 +366,10 @@ serve(async (req) => {
     } else if (finalRole !== "staff" && emailIn) {
       targetAuthEmail = emailIn;
     }
+    let oldAuthEmail: string | null = null;
     if (targetAuthEmail) {
       const { data: authU } = await supabaseAdmin.auth.admin.getUserById(userId);
+      oldAuthEmail = authU?.user?.email ?? null;
       if (authU?.user?.email !== targetAuthEmail) {
         const { error: emailErr } = await supabaseAdmin.auth.admin.updateUserById(userId, { email: targetAuthEmail, email_confirm: true });
         if (emailErr) {
@@ -378,13 +380,12 @@ serve(async (req) => {
     }
 
     // Auth update succeeded (or wasn't needed) — now commit the profile row.
-    // On profile failure, roll back the auth email so the two stores stay in sync.
-    const { data: authSnap } = targetAuthEmail ? await supabaseAdmin.auth.admin.getUserById(userId) : { data: null };
+    // On profile failure, roll back to oldAuthEmail (captured before the auth update).
     const { error: updErr } = await supabaseAdmin.from("kaizen_profiles").update(allowed).eq("id", userId);
     if (updErr) {
-      if (targetAuthEmail && authSnap?.user?.email !== targetAuthEmail) {
+      if (targetAuthEmail && oldAuthEmail !== null) {
         // Best-effort rollback — restore the previous auth email
-        await supabaseAdmin.auth.admin.updateUserById(userId, { email: authSnap?.user?.email ?? "", email_confirm: true }).catch(() => {});
+        await supabaseAdmin.auth.admin.updateUserById(userId, { email: oldAuthEmail, email_confirm: true }).catch(() => {});
       }
       return json({ error: updErr.message }, 400);
     }

@@ -509,7 +509,6 @@ function PlaceOrderModal({ template: tp, companyId, profile, today, tomorrow, ro
     await supabase.from('kaizen_rr_events').insert({
       company_id: companyId, order_id: inserted.id, actor_id: profile.id, action: 'sent', detail: qtyLabel,
     })
-    setBusy(false)
     const itemSuffix = item_label ? ` — ${item_label}` : ''
     await notifyDept(tp.fulfill_department,
       lang === 'th' ? 'มีออเดอร์ประจำเข้ามาใหม่' : 'Routine order received',
@@ -520,6 +519,7 @@ function PlaceOrderModal({ template: tp, companyId, profile, today, tomorrow, ro
     toast.success(tr.rr.orderSent)
     onPlaced()
     onClose()
+    setBusy(false)
   }
 
   return (
@@ -703,10 +703,10 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
       // Room grid: keys present in `grid` are the selected rooms; value is the variant code.
       const picked = Object.keys(grid)
       if (picked.length === 0) { toast.error(hasVariants ? tr.rr.noVariantRooms : tr.rr.roomsRequired); return }
-      setBusy(true)
       const roomsWord = lang === 'th' ? 'ห้อง' : 'rooms'
       const detail = hasVariants ? `${variantBreakdown(picked.map((r) => ({ variant: grid[r] } as RrOrderItem)), variants, lang)} · ${picked.length} ${roomsWord}` : `${picked.length} ${roomsWord}`
-      // Update status first so a failed items insert can be safely retried without duplicating the status update
+      // Update status first so a failed items insert can be safely retried without duplicating the status update.
+      // update() releases busy internally; re-acquire it for the items insert below.
       await update(
         { status: 'sent', quantity: picked.length, note: note.trim() || null, sent_by: profile.id, sent_at: now() },
         tr.rr.orderSent,
@@ -717,13 +717,15 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
             ? `"${o.title}"${itemSuffix} — ${picked.length} ห้อง จากแผนก ${deptLabel(o.request_department, lang)}`
             : `"${o.title}"${itemSuffix} — ${picked.length} rooms, requested by ${deptLabel(o.request_department, lang)}` },
       )
+      setBusy(true)
       const ins = await supabase.from('kaizen_rr_order_items').insert(
         picked.map((room) => ({
           order_id: o.id, company_id: o.company_id, room_no: room,
           item_label: o.item_label, variant: hasVariants ? (grid[room] || null) : null,
         }))
       )
-      if (ins.error) { setBusy(false); toast.error(ins.error.message); return }
+      setBusy(false)
+      if (ins.error) { toast.error(ins.error.message); return }
     }
   }
 
@@ -1013,8 +1015,8 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
       return m ? { room_no: m[1].trim(), item_label: m[2].trim() } : { room_no: tok, item_label: null as string | null }
     })
     if (parsed.length === 0) { toast.error(tr.rr.roomsRequired); return }
-    setBusy(true)
-    // Update status first so a failed items insert can be safely retried without duplicates
+    // Update status first so a failed items insert can be safely retried without duplicates.
+    // update() releases busy internally; re-acquire it for the items insert below.
     await update(
       { status: 'sent', quantity: parsed.length, note: note.trim() || null, sent_by: profile.id, sent_at: now() },
       tr.rr.orderSent,
@@ -1026,11 +1028,12 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
           ? `"${o.title}"${itemSuffix} — ${parsed.length} ห้อง จากแผนก ${deptLabel(o.request_department, lang)}`
           : `"${o.title}"${itemSuffix} — ${parsed.length} rooms, requested by ${deptLabel(o.request_department, lang)}` },
     )
+    setBusy(true)
     const ins = await supabase.from('kaizen_rr_order_items').insert(
       parsed.map((r) => ({ order_id: o.id, company_id: o.company_id, room_no: r.room_no, item_label: r.item_label, variant: null }))
     )
-    if (ins.error) { setBusy(false); toast.error(ins.error.message); return }
     setBusy(false)
+    if (ins.error) { toast.error(ins.error.message); return }
   }
 }
 
@@ -1280,6 +1283,7 @@ function TemplateEditor({ companyId, template, sortNext, onClose, onSaved, allDe
     request_department: template?.request_department ?? ('front_office' as Department),
     fulfill_department: template?.fulfill_department ?? ('restaurant' as Department),
     due_time: (template?.due_time ?? '12:00').slice(0, 5),
+    order_type: (template?.order_type ?? 'bulk') as RrOrderType,
     active: template?.active ?? true,
     pic_mode: (template?.pic_mode ?? 'department') as 'department' | 'users',
     pic_ids: template?.pic_ids ?? [],
@@ -1324,8 +1328,7 @@ function TemplateEditor({ companyId, template, sortNext, onClose, onSaved, allDe
     const row = {
       company_id: companyId, name: f.name.trim(), name_th: f.name_th.trim() || null,
       request_department: f.request_department, fulfill_department: f.fulfill_department,
-      // RR-007: preserve existing order_type on edit — hardcoding 'bulk' silently corrupts per_room templates
-      order_type: (template?.order_type ?? 'bulk') as RrOrderType, due_time: f.due_time || '12:00',
+      order_type: f.order_type, due_time: f.due_time || '12:00',
       // A bulk routine is one item ordered in a quantity; the picked catalog item drives the
       // daily order's item label + unit (previously these were hardcoded null, so the picker
       // did nothing and every order was item-less/unit-less).
@@ -1385,6 +1388,14 @@ function TemplateEditor({ companyId, template, sortNext, onClose, onSaved, allDe
 
           <Field label={tr.rr.dueTime}>
             <input type="time" value={f.due_time} onChange={(e) => set({ due_time: e.target.value })} className={inputCls + ' max-w-[160px]'} />
+          </Field>
+
+          <Field label={lang === 'th' ? 'ประเภทออเดอร์' : 'Order type'}>
+            <select value={f.order_type} onChange={(e) => set({ order_type: e.target.value as RrOrderType })} className={inputCls}>
+              <option value="bulk">{lang === 'th' ? 'จำนวนรวม (Bulk)' : 'Quantity (bulk)'}</option>
+              <option value="per_room">{lang === 'th' ? 'แยกตามห้อง (Per room)' : 'Per room'}</option>
+              <option value="per_room_variants">{lang === 'th' ? 'แยกตามห้อง + ตัวเลือก (Variants)' : 'Per room with variants'}</option>
+            </select>
           </Field>
 
           {/* Department item catalog — add items with unit */}

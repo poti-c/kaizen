@@ -33,7 +33,7 @@ async function assertCompanyActive(companyId: string | null) {
     .select('is_active')
     .eq('id', companyId)
     .maybeSingle()
-  if (co && co.is_active === false) {
+  if (!co || co.is_active === false) {
     await supabase.auth.signOut()
     throw new Error('Your company’s access has been suspended. Please contact your administrator.')
   }

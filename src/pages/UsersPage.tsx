@@ -185,7 +185,7 @@ export function UsersPage() {
     if (!newFullName.trim() || !newPassword.trim()) { toast.error(t.users.fillRequired); return }
     if (newRole === 'staff' && !newUsername.trim()) { toast.error(t.users.usernameRequired); return }
     if ((newRole === 'manager' || newRole === 'super_admin') && !newEmail.trim()) { toast.error(t.users.emailRequired); return }
-    if (newPassword.length < 6) { toast.error(t.users.minPwd); return }
+    if (newPassword.length < 8) { toast.error(t.users.minPwd); return }
     // Warn before adding a second manager to a department that already has one.
     if (!skipMgrCheck && newRole === 'manager'
         && users.some(u => u.role === 'manager' && u.department === newDepartment && u.is_active)) {
@@ -238,7 +238,7 @@ export function UsersPage() {
         updates.role = editRole
       }
 
-      const resettingPassword = editNewPassword.trim().length >= 6
+      const resettingPassword = editNewPassword.trim().length >= 8
       if (resettingPassword) updates.must_change_password = true
 
       // Persist the profile update (incl. must_change_password) BEFORE changing
@@ -262,7 +262,7 @@ export function UsersPage() {
 
       // AUTH-005: log 'reset_password' when only a password reset occurred, not 'edit_profile'
       const onlyPasswordReset = resettingPassword && changes.length === 1 && changes[0] === 'Password reset (must change on login)'
-      await logActivity(editUser, onlyPasswordReset ? 'reset_password' : 'edit_profile', changes.join(', ') || 'No changes')
+      await logActivity({ ...editUser, ...updates }, onlyPasswordReset ? 'reset_password' : 'edit_profile', changes.join(', ') || 'No changes')
 
       toast.success(lang === 'th' ? 'อัปเดตผู้ใช้แล้ว' : 'User updated.')
       setShowEdit(false); fetchUsers()
@@ -458,12 +458,12 @@ export function UsersPage() {
                         (profile?.role === 'super_admin' && (user.role !== 'super_admin' || isOwner) && user.job_title !== 'Owner') ||
                         // Regular manager: staff in own dept
                         (profile?.role === 'manager' && !isHRManager && user.role === 'staff' && getEffectiveDepts(profile).includes(user.department as Department)) ||
-                        // HR manager: all staff + managers
-                        (isHRManager && (user.role === 'staff' || user.role === 'manager'))
+                        // HR manager: staff only (HR must not manage other managers)
+                        (isHRManager && user.role === 'staff')
                       )
 
-                    // Anyone who can manage a user can also delete them (HR included).
-                    const canDelete = canManage
+                    // HR managers can edit staff but cannot delete anyone
+                    const canDelete = canManage && !isHRManager
 
                     return (
                       <div key={user.id} className={cn('flex items-center gap-4 px-5 py-3.5', !user.is_active && 'bg-red-50 opacity-90')}>

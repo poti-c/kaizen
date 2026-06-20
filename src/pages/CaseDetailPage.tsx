@@ -1406,9 +1406,9 @@ export function CaseDetailPage() {
                 </div>
               ) : kcase.due_date ? (
                 <span className="flex items-center gap-1">
-                  <span className={cn(new Date(kcase.due_date) < new Date() && kcase.status !== 'closed' ? 'text-red-500 font-semibold' : '')}>
+                  <span className={cn(bangkokDate(new Date(kcase.due_date)) < bangkokDate() && kcase.status !== 'closed' ? 'text-red-500 font-semibold' : '')}>
                     {t.caseDetail.dueLabel} {formatDueBy(kcase.due_date, lang)}
-                    {new Date(kcase.due_date) < new Date() && kcase.status !== 'closed' && ' ⚠️'}
+                    {bangkokDate(new Date(kcase.due_date)) < bangkokDate() && kcase.status !== 'closed' && ' ⚠️'}
                   </span>
                   {canEditDueDate && (
                     <button onClick={() => { setNewDueDate(kcase.due_date!); setShowDueDateEditor(true) }}

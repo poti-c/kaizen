@@ -802,10 +802,7 @@ export function CasesPage() {
                       onClick={() => {
                         const bkk = bangkokDate()
                         const [y, mm] = bkk.split('-').map(Number)
-                        const key = monthKey(y, mm - 1)
-                        if (caseMonthList.some(m => m.key === key)) {
-                          setSelectedMonths(new Set([key]))
-                        }
+                        setSelectedMonths(new Set([monthKey(y, mm - 1)]))
                       }}
                       className="text-xs text-[var(--brand-primary)] font-medium hover:underline"
                     >

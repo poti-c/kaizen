@@ -118,7 +118,7 @@ export function PreventiveMaintenancePage() {
       setLocations(Array.isArray(locList) && locList.length ? locList : [...LOCATIONS] as string[])
     }
     setLoading(false)
-  }, [companyId])
+  }, [companyId, profile])
   useEffect(() => { load() }, [load])
 
   const counts = assets.reduce((acc, a) => {
