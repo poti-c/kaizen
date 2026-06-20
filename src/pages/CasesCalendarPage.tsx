@@ -348,7 +348,7 @@ export function CasesCalendarPage() {
             {cells.map((cell, i) => {
               const key = cell.key
               const entries = byDay[key] || []
-              const today_ = isToday(cell.date)
+              const today_ = cell.key === bangkokDate()
               const selected = key === selectedKey
               const isWeekend = i % 7 >= 5
               return (
@@ -360,7 +360,7 @@ export function CasesCalendarPage() {
                       today_ ? 'bg-[var(--brand-primary)] text-white font-bold'
                       : selected ? 'border border-[var(--brand-primary)] text-[var(--brand-primary)] font-semibold'
                       : cell.isCurrentMonth ? (isWeekend ? 'text-blue-500' : 'text-gray-700') : 'text-gray-300')}>
-                      {parseInt(bangkokDate(cell.date).slice(8), 10)}
+                      {parseInt(cell.key.slice(8), 10)}
                     </span>
                   </div>
                   <div className="space-y-0.5">
@@ -501,7 +501,7 @@ export function CasesCalendarPage() {
         )}
       </div>
 
-      {openTask && <PMTaskModal task={openTask} onClose={() => setOpenTask(null)} onDone={() => { setOpenTask(null); fetchData() }} />}
+      {openTask && <PMTaskModal task={openTask} onClose={() => setOpenTask(null)} onDone={() => { setOpenTask(null); const seq = ++fetchSeqCal.current; void fetchData(seq) }} />}
     </div>
   )
 }

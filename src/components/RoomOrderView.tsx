@@ -447,8 +447,8 @@ function RoomOrderBuild({ companyId, unit, requireApproval, initialDate }: { com
   const statusForRoom = (no: string): RoomStatus => roomStatuses[no] ?? 'checkin'
   const linesForRoom = (r: Room): SheetLine[] => savedRooms[r.no] ?? seedLines(recipeForRoom(r), date, statusForRoom(r.no))
 
-  async function ensureOrder(): Promise<string | null> {
-    if (orderId) return orderId
+  async function ensureOrder(): Promise<{ id: string; status: 'draft' | 'submitted' } | null> {
+    if (orderId) return { id: orderId, status: orderStatus ?? 'draft' }
     // Reuse an existing order for this date if one exists — NEVER downgrade a
     // submitted order back to draft (an edit after submit must stay submitted so
     // the change flows straight to the fulfilling departments).
@@ -457,7 +457,7 @@ function RoomOrderBuild({ companyId, unit, requireApproval, initialDate }: { com
     if (existing) {
       const ex = existing as { id: string; status: 'draft' | 'submitted' }
       setOrderId(ex.id); setOrderStatus(ex.status)
-      return ex.id
+      return { id: ex.id, status: ex.status }
     }
     const { data, error } = await supabase.from('kaizen_rr_room_orders')
       .insert({ company_id: companyId, order_date: date, status: 'draft' })
@@ -473,13 +473,13 @@ function RoomOrderBuild({ companyId, unit, requireApproval, initialDate }: { com
         if (raced) {
           const rx = raced as { id: string; status: 'draft' | 'submitted' }
           setOrderId(rx.id); setOrderStatus(rx.status)
-          return rx.id
+          return { id: rx.id, status: rx.status }
         }
       }
       toast.error(error.message); return null
     }
     setOrderId(data.id); setOrderStatus('draft')
-    return data.id
+    return { id: data.id, status: 'draft' }
   }
 
   function lineRow(oid: string, roomNo: string, room: Room, l: SheetLine) {
@@ -497,7 +497,7 @@ function RoomOrderBuild({ companyId, unit, requireApproval, initialDate }: { com
   async function saveRoom(roomNo: string, lines: SheetLine[], status: RoomStatus) {
     if (busy) return false
     setBusy(true)
-    const oid = await ensureOrder(); if (!oid) { setBusy(false); return false }
+    const orderResult = await ensureOrder(); if (!orderResult) { setBusy(false); return false }; const oid = orderResult.id
     const room = rooms.find((r) => r.no === roomNo)!
     const clean = lines.filter((l) => l.item.trim() || l.slot.trim())
     const nextStatuses = { ...roomStatuses, [roomNo]: status }
@@ -506,9 +506,9 @@ function RoomOrderBuild({ companyId, unit, requireApproval, initialDate }: { com
     // survives an edit to an already-submitted order. Only genuinely new lines are inserted,
     // and only lines the requester removed are deleted.
     const { data: existingRows } = await supabase.from('kaizen_rr_room_lines')
-      .select('id, active, item, slot, serving_at, fulfill_department, source, approval_status')
+      .select('id, active, item, slot, serving_at, fulfill_department, source, approval_status, note')
       .eq('room_order_id', oid).eq('room_no', roomNo)
-    type ExistingRow = { id: string; active: boolean | null; item: string | null; slot: string | null; serving_at: string | null; fulfill_department: string; source: string; approval_status: string }
+    type ExistingRow = { id: string; active: boolean | null; item: string | null; slot: string | null; serving_at: string | null; fulfill_department: string; source: string; approval_status: string; note: string | null }
     const prevMap = new Map(((existingRows as ExistingRow[]) ?? []).map((r) => [r.id, r]))
     const prevActive = new Map(((existingRows as ExistingRow[]) ?? []).map((r) => [r.id, r.active !== false]))
     const existingIds = new Set(prevActive.keys())
@@ -525,7 +525,8 @@ function RoomOrderBuild({ companyId, unit, requireApproval, initialDate }: { com
         const prev = prevMap.get(l.id)
         if (prev?.source === 'special') {
           const contentChanged = prev.item !== (l.item || null) || prev.slot !== (l.slot || null) ||
-            prev.serving_at !== (l.serving_at || null) || prev.fulfill_department !== l.fulfill_department
+            prev.serving_at !== (l.serving_at || null) || prev.fulfill_department !== l.fulfill_department ||
+            prev.note !== (l.note || null)
           if (contentChanged) patch.approval_status = l.source === 'special' && requireApproval ? 'pending' : 'approved'
         }
         // Re-activating a line that had been switched off must return it to the board as
@@ -535,6 +536,7 @@ function RoomOrderBuild({ companyId, unit, requireApproval, initialDate }: { com
         if (l.active && prevActive.get(l.id) === false) {
           patch.status = 'pending'; patch.delivered_by = null; patch.delivered_at = null
           patch.acknowledged_by = null; patch.acknowledged_at = null
+          patch.approval_status = requireApproval ? 'pending' : 'approved'
           // Bump created_at so this freshly-resurrected line counts as NEW work on the
           // next re-submit — notifyFulfillers filters by created_at > last-submit time,
           // and the row otherwise keeps its original (pre-submit) timestamp and would be
@@ -607,7 +609,7 @@ function RoomOrderBuild({ companyId, unit, requireApproval, initialDate }: { com
     if (busy) return
     setBusy(true)
     const blanks = blankPrompt ?? []
-    const oid = await ensureOrder(); if (!oid) { setBusy(false); return }
+    const orderResult = await ensureOrder(); if (!orderResult) { setBusy(false); return }; const oid = orderResult.id
     const next = { ...roomStatuses }
     blanks.forEach((no) => { next[no] = 'empty' })
     const { error } = await supabase.from('kaizen_rr_room_orders').update({ room_statuses: next }).eq('id', oid)
@@ -624,7 +626,7 @@ function RoomOrderBuild({ companyId, unit, requireApproval, initialDate }: { com
     if (!profile) { toast.error(lang === 'th' ? 'เซสชันหมดอายุ — กรุณาเข้าสู่ระบบใหม่' : 'Session expired — please sign in again'); return }
     if (busy) return
     setBusy(true)
-    const oid = await ensureOrder(); if (!oid) { setBusy(false); return }
+    const orderResult = await ensureOrder(); if (!orderResult) { setBusy(false); return }; const oid = orderResult.id
     // Materialize defaults for any room not explicitly saved or statused.
     const untouched = rooms.filter((r) => !savedRooms[r.no] && !statuses[r.no])
     const rows = untouched.flatMap((r) => seedLines(recipeForRoom(r), date).filter((l) => l.item.trim() || l.slot.trim()).map((l) => lineRow(oid, r.no, r, l)))
@@ -632,7 +634,7 @@ function RoomOrderBuild({ companyId, unit, requireApproval, initialDate }: { com
       const { error } = await supabase.from('kaizen_rr_room_lines').insert(rows)
       if (error) { setBusy(false); toast.error(error.message); return }
     }
-    const wasSubmitted = orderStatus === 'submitted'
+    const wasSubmitted = orderResult.status === 'submitted'
     const prevSubmittedAt = submittedAt // the previous submit time (for "what's new" on re-submit)
     const { error: e2 } = await supabase.from('kaizen_rr_room_orders')
       .update({ status: 'submitted', submitted_by: profile.id, submitted_at: new Date().toISOString() }).eq('id', oid)
@@ -673,9 +675,10 @@ function RoomOrderBuild({ companyId, unit, requireApproval, initialDate }: { com
 
   // Mark every still-untouched room as Empty (no items) in one go.
   async function emptyRest() {
+    if (busy) return
     const targets = untouchedRooms()
     if (targets.length === 0) { toast.info(lang === 'th' ? 'ไม่มีห้องที่ยังไม่ได้ตั้งค่า' : `No untouched ${many.toLowerCase()} left`); return }
-    const oid = await ensureOrder(); if (!oid) return
+    const orderResult = await ensureOrder(); if (!orderResult) return; const oid = orderResult.id
     const next = { ...roomStatuses }
     targets.forEach((r) => { next[r.no] = 'empty' })
     setBusy(true)

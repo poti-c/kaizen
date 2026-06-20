@@ -107,8 +107,11 @@ async function verifyToken(token) {
 }
 
 function getIp(req) {
+  const cf = req.headers.get("cf-connecting-ip");
+  if (cf) return cf.trim();
   const fwd = req.headers.get("x-forwarded-for") || "";
-  return fwd.split(",")[0].trim() || req.headers.get("x-real-ip") || "unknown";
+  const parts = fwd.split(",").map((s) => s.trim()).filter(Boolean);
+  return parts[parts.length - 1] || req.headers.get("x-real-ip") || "unknown";
 }
 
 async function audit(action, detail, ip, success) {
@@ -346,10 +349,15 @@ Deno.serve(async (req) => {
   if (action === "delete_admin") {
     const admin_id = String(body.admin_id ?? "");
     if (!admin_id) return json({ error: "admin_id required" }, 400);
-    const { count } = await admin.from("kaizen_console_admins").select("id", { count: "exact", head: true }).eq("is_active", true);
-    if ((count ?? 0) <= 1) return json({ error: "Cannot delete the last admin account." }, 400);
+    const { count: preDel } = await admin.from("kaizen_console_admins").select("id", { count: "exact", head: true }).eq("is_active", true);
+    if ((preDel ?? 0) <= 1) return json({ error: "Cannot delete the last admin account." }, 400);
     const { error } = await admin.from("kaizen_console_admins").delete().eq("id", admin_id);
     if (error) return json({ error: error.message }, 400);
+    const { count: postDel } = await admin.from("kaizen_console_admins").select("id", { count: "exact", head: true }).eq("is_active", true);
+    if ((postDel ?? 0) === 0) {
+      await audit("delete_admin_unsafe", { admin_id }, ip, false);
+      return json({ error: "Delete aborted: no active admin accounts would remain. Please recreate an admin account immediately." }, 500);
+    }
     await audit("delete_admin", { admin_id }, ip, true);
     return json({ success: true });
   }
@@ -566,6 +574,17 @@ Deno.serve(async (req) => {
           existing_company = hc?.name ?? null;
         }
         return json({ requires_confirmation: true, existing_name: existing.full_name, existing_company }, 200);
+      }
+      for (const cid of company_ids) {
+        const { data: limCo } = await admin.from("kaizen_companies").select("max_super_admins").eq("id", cid).maybeSingle();
+        if (limCo?.max_super_admins !== null && limCo?.max_super_admins !== undefined) {
+          const { count } = await admin.from("kaizen_profiles").select("id", { count: "exact", head: true })
+            .eq("company_id", cid).eq("role", "super_admin").eq("is_active", true).is("deleted_at", null);
+          if ((count ?? 0) >= limCo.max_super_admins) {
+            if (newCompanyId) await admin.from("kaizen_companies").delete().eq("id", newCompanyId);
+            return json({ error: `This plan allows up to ${limCo.max_super_admins} Top Management account(s). Upgrade the package to add more.` }, 400);
+          }
+        }
       }
       for (const cid of company_ids) {
         await admin.from("kaizen_super_admin_companies").upsert({ super_admin_id: existing.id, company_id: cid }, { onConflict: "super_admin_id,company_id", ignoreDuplicates: true });
@@ -942,7 +961,7 @@ Deno.serve(async (req) => {
       await admin.from("kaizen_appointments").insert({
         kind: "meeting", mode: "phone", status: "scheduled",
         title: `Upsell PMS — ${c.name ?? "client"}`, company_id: c.id, client_name: c.name,
-        start_at: until + "T09:00:00Z", all_day: true,
+        start_at: until + "T09:00:00+07:00", all_day: true,
         notes: `PMS free trial ends ${until}. Reach out about converting to a paid PMS subscription.`,
       });
 
@@ -1057,6 +1076,9 @@ Deno.serve(async (req) => {
   if (action === "reject_payment") {
     const id = String(body.submission_id ?? "");
     if (!id) return json({ error: "submission_id required" }, 400);
+    const { data: sub } = await admin.from("kaizen_payment_submissions").select("status").eq("id", id).maybeSingle();
+    if (!sub) return json({ error: "Submission not found" }, 404);
+    if (sub.status !== "pending") return json({ error: "Already reviewed." }, 400);
     const { error } = await admin.from("kaizen_payment_submissions").update({ status: "rejected", reviewed_at: new Date().toISOString() }).eq("id", id);
     if (error) return json({ error: error.message }, 400);
     await audit("reject_payment", { id }, ip, true);

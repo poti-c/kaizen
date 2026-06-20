@@ -83,8 +83,7 @@ export function PMSummaryCard() {
     else if (s === 'due_soon') dueSoon++
     else if (s === 'overdue') overdueAssets++
   }
-  const scheduled = good + dueSoon + overdueAssets
-  const compliance = scheduled === 0 ? null : Math.round(((scheduled - overdueAssets) / scheduled) * 100)
+  const compliance = active.length === 0 ? null : Math.round(((good + dueSoon) / active.length) * 100)
 
   const todayKey = bangkokDate(new Date())
   const weekKey = bangkokDate(new Date(Date.now() + dueSoonDays * 86400000))

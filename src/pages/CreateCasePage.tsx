@@ -81,6 +81,7 @@ export function CreateCasePage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!profile) return
+    if (loading) return
     // All four carry a red "*" in the UI, but Radix Selects don't block native submit,
     // so enforce them here — otherwise a case could be saved with a null/blank category
     // or location, or an "Other"/"Others" choice with no specify-text.
@@ -115,7 +116,6 @@ export function CreateCasePage() {
           category: category || null,
           category_other: category === 'other' ? categoryOther.trim() || null : null,
           location: location || null,
-          person_in_charge: profile.id,
           location_other: location === 'Others' ? locationOther.trim() || null : null,
           is_recurring: isRecurring,
         })
@@ -151,14 +151,29 @@ export function CreateCasePage() {
       })
       if (timelineErr) console.error('case timeline insert failed', timelineErr)
 
-      const { data: managers } = await supabase
-        .from('kaizen_profiles')
-        .select('id')
-        .eq('company_id', activeCompany?.id ?? '') // this tenant only — don't notify other companies
-        .or(`department.eq."${department.replace(/"/g, '\\"')}",managed_departments.cs.{"${department.replace(/"/g, '\\"')}"}`)
-        .eq('role', 'manager')
-        .eq('is_active', true)
-        .neq('id', profile.id)
+      const deptQuoted = `"${department.replace(/"/g, '\\"')}"`
+      const [{ data: managersByDept }, { data: managersByManaged }] = await Promise.all([
+        supabase
+          .from('kaizen_profiles')
+          .select('id')
+          .eq('company_id', activeCompany?.id ?? '')
+          .eq('role', 'manager')
+          .eq('is_active', true)
+          .neq('id', profile.id)
+          .eq('department', department),
+        supabase
+          .from('kaizen_profiles')
+          .select('id')
+          .eq('company_id', activeCompany?.id ?? '')
+          .eq('role', 'manager')
+          .eq('is_active', true)
+          .neq('id', profile.id)
+          .contains('managed_departments', `{${deptQuoted}}`),
+      ])
+      const managerIdsSeen = new Set<string>()
+      const managers = [...(managersByDept ?? []), ...(managersByManaged ?? [])].filter(
+        (m: { id: string }) => { if (managerIdsSeen.has(m.id)) return false; managerIdsSeen.add(m.id); return true }
+      )
 
       if (managers && managers.length > 0) {
         const { error: mgrNotifErr } = await supabase.from('kaizen_notifications').insert(
@@ -201,6 +216,16 @@ export function CreateCasePage() {
       toast.success(t.createCase.created(caseNumber))
       navigate(`/cases/${newCase.id}`)
     } catch (err) {
+      if (photoUrls.length > 0) {
+        const paths = photoUrls.map((url) => {
+          const marker = '/kaizen-photos/'
+          const idx = url.indexOf(marker)
+          return idx !== -1 ? url.slice(idx + marker.length) : url
+        })
+        supabase.storage.from('kaizen-photos').remove(paths).catch((rmErr) =>
+          console.error('photo cleanup after failed insert failed', rmErr)
+        )
+      }
       toast.error(t.createCase.failed)
       console.error(err)
     } finally {

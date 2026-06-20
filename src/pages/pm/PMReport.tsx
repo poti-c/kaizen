@@ -77,7 +77,7 @@ export function PMReport({ companyName, onClose }: { companyName: string; onClos
       supabase.from('kaizen_pm_tasks')
         .select('id, status, due_date, performed_at, performed_by, asset_id, checklist_results, approved_at, asset:kaizen_pm_assets(name, location, department, type:kaizen_pm_equipment_types(name, category))')
         .eq('company_id', companyId)
-        .gte('due_date', (() => { const d = new Date(); d.setMonth(d.getMonth() - 20); return d.toISOString().slice(0, 10) })()),
+        .gte('due_date', bangkokDate(new Date(Date.now() - 20 * 30 * 86400000))),
       supabase.from('kaizen_pm_assets')
         .select('id, name, location, department, is_active, last_maintenance_date, next_maintenance_date, type:kaizen_pm_equipment_types(name, category)')
         .eq('company_id', companyId),
@@ -188,7 +188,7 @@ export function PMReport({ companyName, onClose }: { companyName: string; onClos
 
     // Approval backlog
     const pendingApproval = tasks.filter(t => t.status === 'pending_approval').length
-    const approvalWaits = tasks.filter(t => t.approved_at && t.performed_at)
+    const approvalWaits = tasks.filter(t => t.approved_at && t.performed_at && perfKey(t.performed_at) >= periodStartKey && perfKey(t.performed_at) <= todayKey)
       .map(t => diffDays(perfKey(t.approved_at!), perfKey(t.performed_at!))).filter(d => d >= 0)
     const avgApprovalWait = approvalWaits.length ? Math.round(approvalWaits.reduce((a, b) => a + b, 0) / approvalWaits.length) : 0
 
@@ -309,7 +309,7 @@ export function PMReport({ companyName, onClose }: { companyName: string; onClos
               <Stat icon={<ClipboardList className="h-4 w-4 text-violet-500" />} value={data.pendingApproval} label={r.approvalBacklog} />
               <Stat icon={<CheckCircle2 className="h-4 w-4 text-teal-500" />} value={`${data.avgApprovalWait} ${r.days}`} label={r.avgApprovalWait} />
               <Stat icon={<CheckCircle2 className="h-4 w-4 text-green-500" />} value={data.totalPerformed} label={r.completed} />
-              <Stat icon={<AlertTriangle className="h-4 w-4 text-red-500" />} value={data.overdueRows.length} label={r.overdue} />
+              <Stat icon={<AlertTriangle className="h-4 w-4 text-red-500" />} value={data.cur.overdue} label={r.overdue} />
             </div>
 
             {/* 5: Top problem assets */}

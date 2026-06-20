@@ -325,6 +325,8 @@ export function CasesPage() {
 
     setFiltered(result)
     setPageActive(1)
+    setPagePendingMgr(1)
+    setPagePendingAdm(1)
     setPageClosed(1)
   }, [cases, search, statusFilter, groupFilter, priorityFilter, categoryFilter, overdueOnly, advancedSearchEnabled, advFilters, selectedMonths])
 

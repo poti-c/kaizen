@@ -80,7 +80,7 @@ serve(async (req) => {
   }
 
   async function assertCanManage(userId: string): Promise<{ ok: boolean; error?: string; target?: any }> {
-    const { data: target } = await supabaseAdmin.from("kaizen_profiles").select("role, department, company_id, full_name, username").eq("id", userId).single();
+    const { data: target } = await supabaseAdmin.from("kaizen_profiles").select("role, department, company_id, full_name, username, deleted_at").eq("id", userId).is("deleted_at", null).single();
     if (!target) return { ok: false, error: "User not found" };
     if (callerRole === "super_admin") {
       // Honour cross-company access — a super admin manages users in any company
@@ -184,6 +184,9 @@ serve(async (req) => {
     if (!(await isValidDepartment(createCompany, department))) {
       return json({ error: "That department does not exist for this company." }, 400);
     }
+    if (role === "super_admin" && department !== "top_management") {
+      return json({ error: "Top Management accounts must belong to the top_management department." }, 400);
+    }
 
     // Enforce the company package's user limits (Top Management / managers / staff).
     const limitCompany = company_id ?? callerCompany;
@@ -223,7 +226,7 @@ serve(async (req) => {
           // Auth email first — only rename the profile if the auth side succeeds.
           const { error: freeAuthErr } = await supabaseAdmin.auth.admin.updateUserById(clash.id, { email: freedEmail });
           if (!freeAuthErr) {
-            await supabaseAdmin.from("kaizen_profiles").update({ username: freedUsername }).eq("id", clash.id);
+            await supabaseAdmin.from("kaizen_profiles").update({ username: freedUsername }).eq("id", clash.id).eq("username", clash.username);
           }
         }
       }
@@ -286,6 +289,7 @@ serve(async (req) => {
     // is_active=true, so a suspended user is "free"; without this a company could
     // suspend, create a replacement, then reactivate to exceed the limit).
     if (is_active && check.target) {
+      if (check.target.deleted_at) return json({ error: "Cannot reactivate a deleted user" }, 400);
       const limitErr = await roleLimitError(check.target.company_id, check.target.role, userId);
       if (limitErr) return json({ error: limitErr }, 400);
     }
@@ -323,12 +327,20 @@ serve(async (req) => {
       return json({ error: "A username is required when demoting an account to staff." }, 400);
     }
 
+    if (updates.full_name !== undefined && !String(updates.full_name ?? "").trim()) {
+      return json({ error: "full_name must not be blank" }, 400);
+    }
     // MU-003: username changes are super_admin only — managers must not be able to lock staff out
     const allowed: Record<string, unknown> = {
-      full_name: updates.full_name,
+      full_name: updates.full_name !== undefined ? String(updates.full_name).trim() : undefined,
       position: updates.position,
     };
-    if (updates.must_change_password !== undefined) allowed.must_change_password = updates.must_change_password;
+    if (updates.must_change_password !== undefined) {
+      if (callerRole !== "super_admin" && updates.must_change_password === false) {
+        return json({ error: "Only Top Management can clear the must_change_password flag" }, 403);
+      }
+      allowed.must_change_password = updates.must_change_password;
+    }
     if (callerRole === "super_admin") {
       // Allow username change only for super_admin callers
       if (updates.username !== undefined) allowed.username = updates.username;
@@ -403,9 +415,9 @@ serve(async (req) => {
     if (!userId) return json({ error: "userId is required" }, 400);
     if (userId === user.id) return json({ error: "Cannot delete your own account" }, 400);
 
+    if (callerRole === "manager" && callerDept === "human_resource") return json({ error: "HR Manager cannot delete users" }, 403);
     const check = await assertCanManage(userId);
     if (!check.ok) return json({ error: check.error }, 403);
-    if (callerRole === "manager" && callerDept === "human_resource") return json({ error: "HR Manager cannot delete users" }, 403);
 
     // 1) Mark the profile removed and deactivate it (blocks login via the app's is_active check).
     const nowIso = new Date().toISOString();

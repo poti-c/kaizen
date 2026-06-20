@@ -14,7 +14,7 @@ import { cn } from '@/lib/utils'
 import { usePresence } from '@/contexts/PresenceContext'
 import { deptLabel } from '@/types'
 import type { KaizenProfile, KaizenCase, KaizenCaseTimeline } from '@/types'
-import { differenceInHours, format } from 'date-fns'
+import { differenceInHours } from 'date-fns'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 
 const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -43,16 +43,20 @@ export function PerformanceDetailPage() {
   const [openInfo, setOpenInfo] = useState<string | null>(null)  // which indicator's explainer is open
 
   useEffect(() => {
-    if (userId && !isStaffViewer) load()
+    if (!userId || isStaffViewer) return
+    let cancelled = false
+    load(() => cancelled)
+    return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId, isStaffViewer, activeCompany?.id])  // re-load if the active company changes
 
   // Staff: no access (returned after hooks so hook order stays stable)
   if (isStaffViewer) return <Navigate to="/dashboard" replace />
 
-  async function load() {
+  async function load(isCancelled: () => boolean) {
     setLoading(true)
     const profileRes = await supabase.from('kaizen_profiles').select('*').eq('id', userId!).single()
+    if (isCancelled()) return
     const u = profileRes.data as KaizenProfile | null
     if (!u) { setLoading(false); return }
     setUser(u)
@@ -62,13 +66,13 @@ export function PerformanceDetailPage() {
 
     // Role-specific scoring caseload: managers are scored on their whole dept; others on their own work.
     const scoreCasesQuery = u.role === 'manager'
-      ? supabase.from('kaizen_cases').select('*').eq('company_id', companyId).eq('department', u.department)
-      : supabase.from('kaizen_cases').select('*').eq('company_id', companyId).or(`created_by.eq.${userId},pic_ids.cs.{${userId}}`)
+      ? supabase.from('kaizen_cases').select('*').eq('company_id', companyId).eq('department', u.department).limit(5000)
+      : supabase.from('kaizen_cases').select('*').eq('company_id', companyId).or(`created_by.eq.${userId},pic_ids.cs.{${userId}}`).limit(5000)
 
     const [ownCasesRes, activityRes, activeDaysRes, scoreCasesRes] = await Promise.all([
-      supabase.from('kaizen_cases').select('*').eq('created_by', userId!).eq('company_id', companyId).order('created_at', { ascending: false }),
-      supabase.from('kaizen_case_timeline').select('*, case:kaizen_cases(case_number, title, company_id)').eq('performed_by', userId!).order('created_at', { ascending: false }),
-      supabase.from('kaizen_user_activity').select('active_date').eq('user_id', userId!).gte('active_date', since30),
+      supabase.from('kaizen_cases').select('*').eq('created_by', userId!).eq('company_id', companyId).order('created_at', { ascending: false }).limit(5000),
+      supabase.from('kaizen_case_timeline').select('*, case:kaizen_cases(case_number, title, company_id)').eq('performed_by', userId!).order('created_at', { ascending: false }).limit(5000),
+      supabase.from('kaizen_user_activity').select('active_date').eq('user_id', userId!).gte('active_date', since30).limit(5000),
       scoreCasesQuery,
     ])
     setCases((ownCasesRes.data || []) as KaizenCase[])
@@ -348,9 +352,11 @@ export function PerformanceDetailPage() {
 
         // Shared engagement: 50% active-days regularity (15 days = full), 50% in-system actions (20 = full)
         const activeDaysScore = Math.min(100, Math.round((activeDays / 15) * 100))
-        const actionsScore = Math.min(100, Math.round((activity.length / 20) * 100))
+        const since30Render = bangkokDate(new Date(Date.now() - 30 * 86400000))
+        const activity30Cnt = activity.filter(a => a.created_at >= since30Render).length
+        const actionsScore = Math.min(100, Math.round((activity30Cnt / 20) * 100))
         const engagementScore = Math.round(activeDaysScore * 0.5 + actionsScore * 0.5)
-        const engagementNote = `${activeDays} ${activeDays === 1 ? t.perf.activeDay : t.perf.activeDays} · ${activity.length} ${t.perf.actions}`
+        const engagementNote = `${activeDays} ${activeDays === 1 ? t.perf.activeDay : t.perf.activeDays} · ${activity30Cnt} ${t.perf.actions}`
 
         type Crit = { key: string; label: string; value: number | null; weight: number; color: string; note: string; info: string }
         let criteria: Crit[]
@@ -529,7 +535,7 @@ export function PerformanceDetailPage() {
                   </div>
                   <p className="text-sm font-medium text-gray-900 truncate">{c.title}</p>
                 </div>
-                <span className="text-xs text-gray-400 flex-shrink-0">{format(new Date(c.created_at), 'dd MMM')}</span>
+                <span className="text-xs text-gray-400 flex-shrink-0">{new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Bangkok', day: '2-digit', month: 'short' }).format(new Date(c.created_at))}</span>
               </Link>
             ))}
           </div>
