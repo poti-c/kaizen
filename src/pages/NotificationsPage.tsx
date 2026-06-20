@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Bell, CheckCheck } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
@@ -87,14 +87,20 @@ export function NotificationsPage() {
     if (wasUnread) setUnread((c) => { const next = Math.max(0, c - 1); syncBadge(next); return next })
   }
 
+  const markAllReadRef = useRef(false)
   async function markAllRead() {
-    if (!profile) return
-    // NP-003: check error before updating UI state
-    const { error } = await supabase.from('kaizen_notifications').update({ is_read: true }).eq('user_id', profile.id)
-    if (error) return
-    setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })))
-    setUnread(0)
-    syncBadge(0)
+    if (!profile || markAllReadRef.current) return
+    markAllReadRef.current = true
+    try {
+      // NP-003: check error before updating UI state
+      const { error } = await supabase.from('kaizen_notifications').update({ is_read: true }).eq('user_id', profile.id)
+      if (error) return
+      setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })))
+      setUnread(0)
+      syncBadge(0)
+    } finally {
+      markAllReadRef.current = false
+    }
   }
 
   const typeColors: Record<string, string> = {

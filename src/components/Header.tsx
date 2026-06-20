@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Bell, X, LogOut, ChevronDown, Building2 } from 'lucide-react'
 import { useNavigate, Link, NavLink } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
@@ -91,13 +91,19 @@ export function Header() {
     if (wasUnread) setUnreadCount((c) => { const next = Math.max(0, c - 1); syncBadge(next); return next })
   }
 
+  const markAllReadRef = useRef(false)
   async function markAllRead() {
-    if (!profile) return
-    const { error } = await supabase.from('kaizen_notifications').update({ is_read: true }).eq('user_id', profile.id).eq('is_read', false)
-    if (error) return
-    setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })))
-    setUnreadCount(0)
-    syncBadge(0)
+    if (!profile || markAllReadRef.current) return
+    markAllReadRef.current = true
+    try {
+      const { error } = await supabase.from('kaizen_notifications').update({ is_read: true }).eq('user_id', profile.id).eq('is_read', false)
+      if (error) return
+      setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })))
+      setUnreadCount(0)
+      syncBadge(0)
+    } finally {
+      markAllReadRef.current = false
+    }
   }
 
   // Shared notification panel body — used by both mobile (fixed) and desktop (absolute)

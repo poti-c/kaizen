@@ -1206,9 +1206,13 @@ function AuditTab({ call }: { call: <T,>(a: string, p?: Record<string, unknown>)
   }, [call])
   useEffect(() => { reload() }, [reload])
 
+  const resolvingRef = useRef(new Set<string>())
   async function resolve(id: string, resolved: boolean) {
+    if (resolvingRef.current.has(id)) return
+    resolvingRef.current.add(id)
     setAppErrors(prev => prev.map(e => e.id === id ? { ...e, resolved } : e))
     try { await call('resolve_error', { error_id: id, resolved }) } catch { reload() }
+    resolvingRef.current.delete(id)
   }
 
   const { node: periodNode, inPeriod } = usePeriodFilter([...entries.map(e => e.created_at), ...appErrors.map(e => e.created_at)])
@@ -1764,9 +1768,13 @@ function NotificationsView({ call, onGo, onOpenClient }: { call: <T,>(a: string,
     if (!n.read) { setNotifs(prev => prev.map(x => x.id === n.id ? { ...x, read: true } : x)); try { await call('mark_notification_read', { notification_id: n.id }) } catch { /* ignore */ } }
     if (n.company_id) onOpenClient(n.company_id)
   }
+  const markAllRef = useRef(false)
   async function markAll() {
+    if (markAllRef.current) return
+    markAllRef.current = true
     setNotifs(prev => prev.map(x => ({ ...x, read: true })))
     try { await call('mark_all_notifications_read') } catch { /* ignore */ }
+    markAllRef.current = false
   }
   async function markDone(n: ConsoleNotif) {
     setNotifs(prev => prev.map(x => x.id === n.id ? { ...x, done: true, read: true } : x))

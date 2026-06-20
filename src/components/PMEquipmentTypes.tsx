@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Wrench, Plus, Trash2, Check, X, Pencil, Loader2, Sparkles, ChevronDown, ChevronRight } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useCompany } from '@/contexts/CompanyContext'
@@ -122,20 +122,38 @@ export function PMEquipmentTypes() {
     else { toast.success(tr.pm.defaultsAdded); await load() }
     setBusy(false)
   }
+  const processingIds = useRef(new Set<string>())
   async function saveName(id: string) {
-    if (!editName.trim()) return
-    const { error } = await supabase.from('kaizen_pm_equipment_types').update({ name: editName.trim() }).eq('id', id)
-    if (error) toast.error(error.message)
-    else { setEditId(null); await load() }
+    if (!editName.trim() || processingIds.current.has(id)) return
+    processingIds.current.add(id)
+    try {
+      const { error } = await supabase.from('kaizen_pm_equipment_types').update({ name: editName.trim() }).eq('id', id)
+      if (error) toast.error(error.message)
+      else { setEditId(null); await load() }
+    } finally {
+      processingIds.current.delete(id)
+    }
   }
   async function toggleActive(t: EqType) {
-    const { error } = await supabase.from('kaizen_pm_equipment_types').update({ is_active: !t.is_active }).eq('id', t.id)
-    if (error) toast.error(error.message); else load()
+    if (processingIds.current.has(t.id)) return
+    processingIds.current.add(t.id)
+    try {
+      const { error } = await supabase.from('kaizen_pm_equipment_types').update({ is_active: !t.is_active }).eq('id', t.id)
+      if (error) toast.error(error.message); else load()
+    } finally {
+      processingIds.current.delete(t.id)
+    }
   }
   async function remove(t: EqType) {
     if (!confirm(`${tr.pm.confirmDeleteType} "${t.name}"?`)) return
-    const { error } = await supabase.from('kaizen_pm_equipment_types').delete().eq('id', t.id)
-    if (error) toast.error(error.message); else load()
+    if (processingIds.current.has(t.id)) return
+    processingIds.current.add(t.id)
+    try {
+      const { error } = await supabase.from('kaizen_pm_equipment_types').delete().eq('id', t.id)
+      if (error) toast.error(error.message); else load()
+    } finally {
+      processingIds.current.delete(t.id)
+    }
   }
 
   const grouped = PM_CATEGORIES.map((cat) => ({ cat, items: types.filter((t) => t.category === cat) }))

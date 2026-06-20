@@ -1,3 +1,4 @@
+import { useCallback, useRef } from 'react'
 import { clsx, type ClassValue } from 'clsx'
 import { twMerge } from 'tailwind-merge'
 import { formatDistanceToNow, format, differenceInSeconds, differenceInMinutes, differenceInHours, differenceInDays } from 'date-fns'
@@ -392,4 +393,16 @@ export function getInitials(name: string): string {
     .join('')
     .toUpperCase()
     .slice(0, 2)
+}
+
+// Ref-backed busy guard that prevents a double-click from firing an async
+// handler twice. Returns a stable wrapper: call `guard(fn)` instead of `fn()`
+// on any button that triggers a network write.
+export function useAsyncGuard() {
+  const busy = useRef(false)
+  return useCallback(async (fn: () => Promise<void>) => {
+    if (busy.current) return
+    busy.current = true
+    try { await fn() } finally { busy.current = false }
+  }, [])
 }
