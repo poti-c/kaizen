@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import { useServerState } from '@/lib/utils'
 import {
   Lock, Loader2, LogOut, Plus, Building2, Crown, Power,
   Trash2, X, Eye, EyeOff, Users, UserCog, ScrollText, AlertTriangle, Check,
@@ -490,9 +491,9 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
   )
   const [busy, setBusy] = useState<string | null>(null)
   const [editingName, setEditingName] = useState(false)
-  const [nameValue, setNameValue] = useState(c.org_title || c.name)
+  const [nameValue, setNameValue] = useServerState(c.org_title || c.name, !editingName)
   const [editingCode, setEditingCode] = useState(false)
-  const [codeValue, setCodeValue] = useState(c.login_code ?? c.slug)
+  const [codeValue, setCodeValue] = useServerState(c.login_code ?? c.slug, !editingCode)
   const [editingBilling, setEditingBilling] = useState(false)
   const [billingOpen, setBillingOpen] = useState(false)
   const [bill, setBill] = useState({

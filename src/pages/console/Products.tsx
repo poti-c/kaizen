@@ -316,6 +316,8 @@ function L({ label, children }: { label: string; children: React.ReactNode }) {
 function PromoRow({ promo, call, onSaved, onDeleted, isNew }: { promo: Promo; call: Call; onSaved: () => void; onDeleted: () => void; isNew?: boolean }) {
   const [d, setD] = useState<Promo>(promo)
   const [busy, setBusy] = useState(false)
+  // Sync from parent when the server reloads after a save (prop identity changes).
+  useEffect(() => { if (!busy) setD(promo) }, [promo])
   const [confirmDel, setConfirmDel] = useState(false)
   function set(patch: Partial<Promo>) { setD({ ...d, ...patch }) }
   async function save() {

@@ -1,4 +1,4 @@
-import { useCallback, useRef } from 'react'
+import { useCallback, useRef, useState, useEffect } from 'react'
 import { clsx, type ClassValue } from 'clsx'
 import { twMerge } from 'tailwind-merge'
 import { formatDistanceToNow, format, differenceInSeconds, differenceInMinutes, differenceInHours, differenceInDays } from 'date-fns'
@@ -405,4 +405,17 @@ export function useAsyncGuard() {
     busy.current = true
     try { await fn() } finally { busy.current = false }
   }, [])
+}
+
+// Mirrors a server-supplied value into local state. When `locked` is true
+// (component is in read-only / view mode) the local state is kept in sync with
+// the latest prop so the next edit session starts from the current server value.
+// When `locked` is false (user is actively editing) the local state is left
+// alone so in-progress edits are not clobbered by a background prop change.
+export function useServerState<T>(serverValue: T, locked: boolean): [T, React.Dispatch<React.SetStateAction<T>>] {
+  const [state, setState] = useState<T>(serverValue)
+  useEffect(() => {
+    if (locked) setState(serverValue)
+  }, [serverValue, locked])
+  return [state, setState]
 }
