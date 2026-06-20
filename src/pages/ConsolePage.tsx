@@ -821,11 +821,10 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
               const on = !!c.addons?.[a.key]
               const ad = c.addons as Record<string, unknown> | null
               const trialUntilRaw = ad ? ad[`${a.key}_trial_until`] : null
-              // Parse as LOCAL midnight (no 'Z') so the trial stays active through the
-              // whole trial-until calendar day in Bangkok — matches companyHasAddon/
-              // dayDiff. The UTC-anchored variant flipped to "ended" ~17h early.
+              // +07:00 anchors to Bangkok midnight so the trial stays active through
+              // the whole trial-until calendar day regardless of viewer timezone.
               const trialLeft = (!on && typeof trialUntilRaw === 'string')
-                ? Math.ceil((new Date(trialUntilRaw + 'T00:00:00').getTime() - Date.now()) / 86400000)
+                ? Math.ceil((new Date(trialUntilRaw + 'T00:00:00+07:00').getTime() - Date.now()) / 86400000)
                 : null
               return (
                 <label key={a.key} className="flex items-center gap-2.5 cursor-pointer">

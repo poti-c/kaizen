@@ -49,7 +49,7 @@ type CompanyLike = {
 
 function dayDiff(dateStr: string): number {
   const today = new Date(bangkokDate() + 'T00:00:00+07:00')
-  const end = new Date(dateStr.length <= 10 ? dateStr + 'T00:00:00' : dateStr)
+  const end = new Date(dateStr.length <= 10 ? dateStr + 'T00:00:00+07:00' : dateStr)
   return Math.ceil((end.getTime() - today.getTime()) / 86400000)
 }
 
