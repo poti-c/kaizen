@@ -138,32 +138,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [user, profile?.company_id])
 
+  // Shared post-auth checks applied to every sign-in path: role gate → suspension
+  // gate → company-active gate → hydrate state. Adding a new check here covers all
+  // three login flows automatically; forgetting it in one path is no longer possible.
+  async function completeSignIn(p: KaizenProfile, allowedRole: Role, roleDeniedMsg: string, suspendedMsg: string) {
+    if (p.role !== allowedRole) {
+      await supabase.auth.signOut().catch(() => { setUser(null); setProfile(null) })
+      throw new Error(roleDeniedMsg)
+    }
+    if (!p.is_active) {
+      await supabase.auth.signOut().catch(() => { setUser(null); setProfile(null) })
+      throw new Error(suspendedMsg)
+    }
+    await assertCompanyActive(p.company_id)
+    companyRef.current = p.company_id
+    setProfile(p)
+    stampLogin(p.id)
+  }
+
   async function signInAdmin(email: string, password: string) {
     signingInRef.current = true
     try {
       const { data, error } = await supabase.auth.signInWithPassword({ email, password })
       if (error) throw error
-
-      const { data: prof, error: profError } = await supabase
-        .from('kaizen_profiles')
-        .select('*')
-        .eq('id', data.user.id)
-        .single()
-
+      const { data: prof, error: profError } = await supabase.from('kaizen_profiles').select('*').eq('id', data.user.id).single()
       if (profError || !prof) throw new Error('Profile not found.')
-      const p = prof as KaizenProfile
-      if (p.role !== 'super_admin') {
-        await supabase.auth.signOut().catch(() => { setUser(null); setProfile(null) })
-        throw new Error('Access denied. Not a Super Admin account.')
-      }
-      if (!p.is_active) {
-        await supabase.auth.signOut().catch(() => { setUser(null); setProfile(null) })
-        throw new Error('This account has been suspended. Please contact the system administrator.')
-      }
-      await assertCompanyActive(p.company_id)
-      companyRef.current = p.company_id
-      setProfile(p)
-      stampLogin(p.id)
+      await completeSignIn(
+        prof as KaizenProfile,
+        'super_admin',
+        'Access denied. Not a Super Admin account.',
+        'This account has been suspended. Please contact the system administrator.',
+      )
     } finally {
       signingInRef.current = false
     }
@@ -174,27 +179,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const { data, error } = await supabase.auth.signInWithPassword({ email, password })
       if (error) throw error
-
-      const { data: prof, error: profError } = await supabase
-        .from('kaizen_profiles')
-        .select('*')
-        .eq('id', data.user.id)
-        .single()
-
+      const { data: prof, error: profError } = await supabase.from('kaizen_profiles').select('*').eq('id', data.user.id).single()
       if (profError || !prof) throw new Error('Profile not found.')
-      const p = prof as KaizenProfile
-      if (p.role !== 'manager') {
-        await supabase.auth.signOut().catch(() => { setUser(null); setProfile(null) })
-        throw new Error('Access denied. Not a Manager account.')
-      }
-      if (!p.is_active) {
-        await supabase.auth.signOut().catch(() => { setUser(null); setProfile(null) })
-        throw new Error('This account has been suspended. Please contact the system administrator.')
-      }
-      await assertCompanyActive(p.company_id)
-      companyRef.current = p.company_id
-      setProfile(p)
-      stampLogin(p.id)
+      await completeSignIn(
+        prof as KaizenProfile,
+        'manager',
+        'Access denied. Not a Manager account.',
+        'This account has been suspended. Please contact the system administrator.',
+      )
     } finally {
       signingInRef.current = false
     }
@@ -205,34 +197,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       // Staff auth email is deterministic from username + company code — no pre-auth DB read.
       const email = staffEmail(username, companyCode)
-
       const { data: signInData, error } = await supabase.auth.signInWithPassword({ email, password })
       if (error || !signInData.user) throw new Error('Invalid company code, username, or password.')
-
-      // Authenticated — now read own profile (RLS-allowed) and verify role/status
-      const { data: prof, error: profError } = await supabase
-        .from('kaizen_profiles')
-        .select('*')
-        .eq('id', signInData.user.id)
-        .single()
-
+      const { data: prof, error: profError } = await supabase.from('kaizen_profiles').select('*').eq('id', signInData.user.id).single()
       if (profError || !prof) {
         await supabase.auth.signOut().catch(() => { setUser(null); setProfile(null) })
         throw new Error('No staff account found for this company and username.')
       }
-      const p = prof as KaizenProfile
-      if (p.role !== 'staff') {
-        await supabase.auth.signOut().catch(() => { setUser(null); setProfile(null) })
-        throw new Error('This is not a staff account.')
-      }
-      if (!p.is_active) {
-        await supabase.auth.signOut().catch(() => { setUser(null); setProfile(null) })
-        throw new Error('This account has been suspended. Please contact your manager or HR.')
-      }
-      await assertCompanyActive(p.company_id)
-      companyRef.current = p.company_id
-      setProfile(p)
-      stampLogin(p.id)
+      await completeSignIn(
+        prof as KaizenProfile,
+        'staff',
+        'This is not a staff account.',
+        'This account has been suspended. Please contact your manager or HR.',
+      )
     } finally {
       signingInRef.current = false
     }
