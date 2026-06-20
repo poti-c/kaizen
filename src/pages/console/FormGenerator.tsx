@@ -728,7 +728,7 @@ function PrintPreview({ form, issuer, onClose, unconfirmed, confirming, onConfir
   const words = lang === 'th' ? bahtTextTh(form.total) : bahtText(form.total)
   // Validity window for quotations (issue → due date).
   const validityDays = form.form_type === 'quotation' && form.due_date
-    ? Math.max(0, Math.round((new Date(form.due_date + 'T00:00:00Z').getTime() - new Date(form.issue_date + 'T00:00:00Z').getTime()) / 86400000))
+    ? Math.max(0, Math.round((new Date(form.due_date + 'T00:00:00+07:00').getTime() - new Date(form.issue_date + 'T00:00:00+07:00').getTime()) / 86400000))
     : null
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-black/70 backdrop-blur-sm print:bg-white print:static print:overflow-visible">

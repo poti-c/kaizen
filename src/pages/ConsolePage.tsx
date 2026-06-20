@@ -110,7 +110,7 @@ function packageLabel(plan: string) {
 }
 function fmtDate(d: string | null) {
   if (!d) return '—'
-  return new Date(d.length <= 10 ? d + 'T00:00:00Z' : d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+  return new Date(d.length <= 10 ? d + 'T00:00:00+07:00' : d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Bangkok' })
 }
 function money(amount: number | null, currency: string) {
   if (amount == null) return '—'
@@ -1245,7 +1245,7 @@ function AuditTab({ call }: { call: <T,>(a: string, p?: Record<string, unknown>)
               <span className="font-mono text-slate-300 w-40 flex-shrink-0">{e.action}</span>
               <span className="text-slate-400 flex-1 truncate">{JSON.stringify(e.detail)}</span>
               <span className="text-slate-300 flex-shrink-0">{e.ip}</span>
-              <span className="text-slate-300 flex-shrink-0 w-32 text-right">{new Date(e.created_at).toLocaleString()}</span>
+              <span className="text-slate-300 flex-shrink-0 w-32 text-right">{new Date(e.created_at).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bangkok' })}</span>
             </div>
           ))}
           {activity.length === 0 && <div className="px-4 py-8 text-center text-sm text-slate-300">No events yet.</div>}
@@ -1282,7 +1282,7 @@ function AuditTab({ call }: { call: <T,>(a: string, p?: Record<string, unknown>)
                     <span className="font-mono text-[10px] text-slate-400 w-16 flex-shrink-0 uppercase">{e.source}</span>
                     <button onClick={() => setExpanded(expanded === e.id ? null : e.id)} className="text-slate-200 flex-1 truncate text-left hover:text-white">{e.message}</button>
                     <span className="text-slate-400 flex-shrink-0 w-32 truncate text-right">{e.company_name ?? '—'}</span>
-                    <span className="text-slate-400 flex-shrink-0 w-32 text-right">{new Date(e.created_at).toLocaleString()}</span>
+                    <span className="text-slate-400 flex-shrink-0 w-32 text-right">{new Date(e.created_at).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bangkok' })}</span>
                     <button onClick={() => resolve(e.id, !e.resolved)} className="flex-shrink-0 text-[10px] px-2 py-0.5 rounded-md border border-slate-700 text-slate-300 hover:bg-slate-800">{e.resolved ? 'Reopen' : 'Resolve'}</button>
                   </div>
                   {expanded === e.id && (
@@ -1308,7 +1308,7 @@ function AuditTab({ call }: { call: <T,>(a: string, p?: Record<string, unknown>)
                   <span className="font-mono text-slate-300 w-40 flex-shrink-0">{e.action}</span>
                   <span className="text-slate-400 flex-1 truncate">{JSON.stringify(e.detail)}</span>
                   <span className="text-slate-300 flex-shrink-0">{e.ip}</span>
-                  <span className="text-slate-300 flex-shrink-0 w-32 text-right">{new Date(e.created_at).toLocaleString()}</span>
+                  <span className="text-slate-300 flex-shrink-0 w-32 text-right">{new Date(e.created_at).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bangkok' })}</span>
                 </div>
               ))}
               {consoleErrors.length === 0 && <div className="px-4 py-8 text-center text-sm text-slate-300">No console errors. 🎉</div>}
@@ -1336,7 +1336,7 @@ interface ReceiptReq { id: string; company_id: string; company_name: string | nu
 const PLAN_LABEL: Record<string, string> = { trial: 'Starter', gold: 'Gold', premium: 'Premium' }
 const PAY_ROLE_LABEL: Record<string, string> = { super_admin: 'Top Management', manager: 'Manager', staff: 'Staff' }
 const planLabel = (p?: string | null) => (p ? PLAN_LABEL[p] ?? p : '—')
-const fmtDateTime = (iso?: string | null) => iso ? new Date(iso).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'
+const fmtDateTime = (iso?: string | null) => iso ? new Date(iso).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bangkok' }) : '—'
 
 function PaymentDetail({ p }: { p: PaymentSub }) {
   const amt = p.amount ?? null
@@ -1800,7 +1800,7 @@ function NotificationsView({ call, onGo, onOpenClient }: { call: <T,>(a: string,
             <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold text-white flex items-center gap-2">{n.title}{!n.read && !n.done && <span className="w-1.5 h-1.5 rounded-full bg-violet-400" />}</p>
               <p className="text-[11px] text-slate-400 truncate">{n.body}</p>
-              <p className="text-[10px] text-slate-500 mt-0.5">{new Date(n.created_at).toLocaleString()}</p>
+              <p className="text-[10px] text-slate-500 mt-0.5">{new Date(n.created_at).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bangkok' })}</p>
             </div>
           </button>
           {n.done
@@ -2666,7 +2666,7 @@ function FeedbackView({ call }: { call: <T,>(action: string, payload?: Record<st
                   <span className="text-sm font-medium text-white">{r.company_name ?? '—'}</span>
                   <span className="text-xs text-slate-400">· {r.user_name ?? 'Unknown'}{r.role ? ` (${r.role})` : ''}</span>
                   {r.lang && <span className="text-[10px] uppercase text-slate-500">{r.lang}</span>}
-                  <span className="ml-auto text-[11px] text-slate-500">{new Date(r.created_at).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
+                  <span className="ml-auto text-[11px] text-slate-500">{new Date(r.created_at).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bangkok' })}</span>
                 </div>
                 <p className="text-sm text-slate-200 whitespace-pre-wrap leading-relaxed">{r.message}</p>
                 <div className="flex items-center gap-2 mt-2">

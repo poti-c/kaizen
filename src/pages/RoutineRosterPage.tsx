@@ -454,8 +454,8 @@ function PlaceOrderModal({ template: tp, companyId, profile, today, tomorrow, ro
   const variants = tp.variants ?? null
   const name = lang === 'th' && tp.name_th ? tp.name_th : tp.name
   const unitOf = (n: number) => (tp.unit_label ? `${n} ${tp.unit_label}` : String(n))
-  const dateLabel = (d: string) => new Date(d + 'T00:00:00').toLocaleDateString(
-    lang === 'th' ? 'th-TH' : 'en-GB', { weekday: 'short', day: 'numeric', month: 'short' })
+  const dateLabel = (d: string) => new Date(d + 'T00:00:00+07:00').toLocaleDateString(
+    lang === 'th' ? 'th-TH' : 'en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'Asia/Bangkok' })
 
   async function place() {
     const order_date = serviceDate
@@ -1618,8 +1618,8 @@ function ReportView({ companyId, companyName, generatedBy, statusLabel, template
     return acc
   }, {})
 
-  const fmtDay = (key: string) => new Date(key + 'T00:00:00').toLocaleDateString(
-    lang === 'th' ? 'th-TH' : 'en-GB', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })
+  const fmtDay = (key: string) => new Date(key + 'T00:00:00+07:00').toLocaleDateString(
+    lang === 'th' ? 'th-TH' : 'en-GB', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Bangkok' })
   const periodLabel = mode === 'daily' ? fmtDay(from) : `${fmtDay(from)} – ${fmtDay(to)}`
 
   // Room-order aggregation: items per department (with delivered count) + status names.
@@ -1688,7 +1688,7 @@ function ReportView({ companyId, companyName, generatedBy, statusLabel, template
       <p class="sub">${esc(tr.rr.reportPeriod)}: ${esc(periodLabel)} · ${esc(tr.rr.reportForAccounting)}</p>
       ${routineHtml}
       ${roomHtml}
-      <p class="foot">${esc(tr.rr.reportGeneratedBy)}: ${esc(generatedBy)} · ${esc(tr.rr.reportGeneratedAt)}: ${new Date().toLocaleString(lang === 'th' ? 'th-TH' : 'en-GB')}</p>
+      <p class="foot">${esc(tr.rr.reportGeneratedBy)}: ${esc(generatedBy)} · ${esc(tr.rr.reportGeneratedAt)}: ${new Date().toLocaleString(lang === 'th' ? 'th-TH' : 'en-GB', { timeZone: 'Asia/Bangkok' })}</p>
       </body></html>`
   }
 

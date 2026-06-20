@@ -40,7 +40,7 @@ export function ResolutionCard({
   const resolvedTimelineEntry = [...timeline].reverse().find((e) => e.action === 'resolved' || e.action === 'closed')
   const resolutionDate = resolvedTimelineEntry?.created_at
     ? new Date(resolvedTimelineEntry.created_at).toLocaleDateString('en-GB', {
-        day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
+        day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bangkok',
       })
     : null
 

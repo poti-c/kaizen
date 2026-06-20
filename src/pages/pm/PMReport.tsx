@@ -4,7 +4,7 @@ import { supabase } from '@/lib/supabase'
 import { useCompany } from '@/contexts/CompanyContext'
 import { useLanguage } from '@/contexts/LanguageContext'
 import { DEPARTMENT_LABELS, type Department } from '@/types'
-import { bangkokDate } from '@/lib/utils'
+import { bangkokDate, parseDateOnlyBkk } from '@/lib/utils'
 
 // ── Types for the data we query ──────────────────────────────────────────────
 interface RTask {
@@ -30,7 +30,7 @@ const perfKey = (ts: string) => bangkokDate(new Date(ts))
 let todayKey = bangkokDate() // overridden inside useMemo to avoid module-level freeze
 function addMonths(base: Date, m: number) { const d = new Date(base); d.setMonth(d.getMonth() + m); return d }
 function diffDays(a: string, b: string) {
-  return Math.round((new Date(a + 'T00:00:00').getTime() - new Date(b + 'T00:00:00').getTime()) / 86400000)
+  return Math.round((parseDateOnlyBkk(a).getTime() - parseDateOnlyBkk(b).getTime()) / 86400000)
 }
 const FINISHED = new Set(['done', 'approved'])
 const OPEN_OVERDUE_EXCLUDED = new Set(['done', 'approved', 'cancelled'])
@@ -206,7 +206,7 @@ export function PMReport({ companyName, onClose }: { companyName: string; onClos
   }, [tasks, assets, period, r])
 
   const periodLabel: Record<Period, string> = { 30: r.last30, 90: r.last90, 180: r.last180, 365: r.last365 }
-  const today = new Date().toLocaleDateString(lang === 'th' ? 'th-TH' : 'en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+  const today = new Date().toLocaleDateString(lang === 'th' ? 'th-TH' : 'en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Bangkok' })
   const deptLabel = (d: string) => DEPARTMENT_LABELS[d as Department] ?? d
 
   return (

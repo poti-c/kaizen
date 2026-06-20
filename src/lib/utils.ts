@@ -368,6 +368,17 @@ export function parseDateOnlyBkk(s: string): Date {
   return new Date(`${s}T00:00:00+07:00`)
 }
 
+// Format a Date for display in Asia/Bangkok time — always pass this instead of
+// d.toLocaleDateString(locale, opts) so the result is stable regardless of the
+// browser/server's local timezone.
+export function fmtLocaleDateBkk(
+  d: Date,
+  locale: string,
+  opts: Omit<Intl.DateTimeFormatOptions, 'timeZone'> = {},
+): string {
+  return new Intl.DateTimeFormat(locale, { ...opts, timeZone: 'Asia/Bangkok' }).format(d)
+}
+
 // Stable unique ID for draft array items — use as React key instead of array index
 // so keys survive mid-array insertion/deletion without remounting the wrong component.
 export function makeDraftId(): string {
