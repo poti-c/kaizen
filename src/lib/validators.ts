@@ -22,6 +22,12 @@ export function validatePositiveAmount(value: number | null | undefined, fieldNa
   return null
 }
 
+// Allows zero (e.g. a free package / placeholder add-on) but rejects negatives & NaN.
+export function validateNonNegativeAmount(value: number | null | undefined, fieldName = 'Amount'): string | null {
+  if (value == null || !isFinite(value) || value < 0) return `${fieldName} must be zero or greater.`
+  return null
+}
+
 export function validatePercentDiscount(value: number | null | undefined): string | null {
   if (value == null || !isFinite(value) || value <= 0 || value > 100) return 'Discount must be between 1 and 100.'
   return null

@@ -17,6 +17,17 @@ function esc(v: unknown): string {
     .replace(/'/g, '&#39;')
 }
 
+// Safely format a timestamp for the print document. A null/blank/malformed value
+// yields an Invalid Date, and Intl.DateTimeFormat.format(Invalid Date) throws a
+// RangeError that would abort the whole document build and leave a blank print
+// window. Fall back to an em-dash instead of throwing.
+function fmtDateSafe(value: string | null | undefined, loc: string, opts: Intl.DateTimeFormatOptions): string {
+  if (!value) return '—'
+  const d = new Date(value)
+  if (isNaN(d.getTime())) return '—'
+  return new Intl.DateTimeFormat(loc, { ...opts, timeZone: 'Asia/Bangkok' }).format(d)
+}
+
 /**
  * Build a standalone printable HTML document for a case.
  * Pure function — no DOM side effects; the caller handles window.open/print.
@@ -91,7 +102,7 @@ export function buildCasePrintHtml(
         </div>
         <div class="meta">
           <div class="meta-item"><span class="meta-label">${L.department}</span><span class="meta-value">${esc(deptLabel(kcase.department, lang))}</span></div>
-          <div class="meta-item"><span class="meta-label">${L.created}</span><span class="meta-value">${new Intl.DateTimeFormat(loc, { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Bangkok' }).format(new Date(kcase.created_at))}</span></div>
+          <div class="meta-item"><span class="meta-label">${L.created}</span><span class="meta-value">${fmtDateSafe(kcase.created_at, loc, { day: 'numeric', month: 'long', year: 'numeric' })}</span></div>
           ${kcase.due_date ? `<div class="meta-item"><span class="meta-label">${L.dueDate}</span><span class="meta-value">${esc(formatDueBy(kcase.due_date, lang))}</span></div>` : ''}
           <div class="meta-item"><span class="meta-label">${L.reporter}</span><span class="meta-value">${esc((kcase.creator as KaizenProfile)?.full_name || L.unknown)}</span></div>
         </div>
@@ -139,7 +150,7 @@ export function buildCasePrintHtml(
             <div class="timeline-content">
               <p class="action">${esc(timelineActionLabel(e.action, lang))}</p>
               ${e.description ? `<p>${esc(e.description).replace(/\n/g, '<br>')}</p>` : ''}
-              <p class="time">${new Intl.DateTimeFormat(loc, { year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bangkok' }).format(new Date(e.created_at))}</p>
+              <p class="time">${fmtDateSafe(e.created_at, loc, { year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
             </div>
           </div>
         `).join('')}
@@ -147,7 +158,7 @@ export function buildCasePrintHtml(
 
       <div class="footer">
         <span>${th ? 'เคส' : 'Case'} ${esc(kcase.case_number)} — ${L.brand}</span>
-        <span>${L.printed}: ${new Intl.DateTimeFormat(loc, { year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bangkok' }).format(new Date())}</span>
+        <span>${L.printed}: ${fmtDateSafe(new Date().toISOString(), loc, { year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
       </div>
     </body>
     </html>

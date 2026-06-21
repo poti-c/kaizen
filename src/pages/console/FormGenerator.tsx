@@ -216,7 +216,9 @@ export function FormGeneratorView({ call, onBack, initialPreviewId, onPreviewCon
     finally { setConfirming(false) }
   }
   // Close the preview without recording — returns to the editor with data intact.
-  function discardDraft() { setDraftPayload(null); setPreview(null) }
+  // Also release any pending receipt link, otherwise the NEXT unrelated document that
+  // gets confirmed would be silently linked to this stale invoice id.
+  function discardDraft() { setDraftPayload(null); setPreview(null); setLinkInvoiceId(null) }
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -725,6 +727,9 @@ function PrintPreview({ form, issuer, onClose, unconfirmed, confirming, onConfir
   const clientAddr = lang === 'th'
     ? (composeAddress(cb, 'th') || form.client_address || '')
     : (form.client_address || composeAddress(cb, 'en') || '')
+  // Amount-in-words is hardcoded to baht/สตางค์, so only render it for THB documents —
+  // otherwise a USD/EUR invoice would print a legally-wrong "… baht" line.
+  const isThb = (form.currency || 'THB').toUpperCase() === 'THB'
   const words = lang === 'th' ? bahtTextTh(form.total) : bahtText(form.total)
   // Validity window for quotations (issue → due date).
   const validityDays = form.form_type === 'quotation' && form.due_date
@@ -840,13 +845,13 @@ function PrintPreview({ form, issuer, onClose, unconfirmed, confirming, onConfir
               <Row label={t.subtotal} val={`${form.currency} ${money(form.subtotal)}`} />
               {form.discount_amount > 0 && <Row label={`${t.discount}${form.discount_code ? ` (${form.discount_code}, ${form.discount_percent}%)` : ''}`} val={`− ${form.currency} ${money(form.discount_amount)}`} />}
               {form.non_vat_amount > 0 && <Row label={t.nonVat} val={`${form.currency} ${money(form.non_vat_amount)}`} />}
-              {showVat && <Row label={`${t.vat} ${form.vat_rate}%`} val={`${form.currency} ${money(form.vat_amount)}`} />}
+              {showVat && form.vat_rate > 0 && <Row label={`${t.vat} ${form.vat_rate}%`} val={`${form.currency} ${money(form.vat_amount)}`} />}
               <div className="flex justify-between border-t border-slate-300 pt-1.5 font-bold text-[#4a3424] text-sm">
                 <span>{t.grandTotal}</span><span>{form.currency} {money(form.total)}</span>
               </div>
             </div>
           </div>
-          <p className="text-[11px] text-slate-600 italic mt-2">( {words} )</p>
+          {isThb && <p className="text-[11px] text-slate-600 italic mt-2">( {words} )</p>}
 
           {/* validity & notes */}
           <div className="mt-4 border-t border-slate-200 pt-2 space-y-1">

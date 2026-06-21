@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Navigate } from 'react-router-dom'
 import { Eye, EyeOff, Loader2, ArrowLeft, CheckCircle } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useLanguage } from '@/contexts/LanguageContext'
@@ -12,7 +12,7 @@ type LoginRole = 'super_admin' | 'manager' | 'staff'
 
 export function LoginPage() {
   const navigate = useNavigate()
-  const { signInAdmin, signInManager, signInStaff } = useAuth()
+  const { signInAdmin, signInManager, signInStaff, user, profile, loading: authLoading } = useAuth()
   const { lang, setLang, t } = useLanguage()
 
   const [role, setRole] = useState<LoginRole>('staff')
@@ -77,13 +77,21 @@ export function LoginPage() {
       } else {
         await signInStaff(emailOrUsername, password, companyCode)
       }
-      navigate('/dashboard')
+      // Route through the app root so RoleRedirect picks the correct home for the role
+      // (staff → /cases, others → /dashboard) and honours must_change_password.
+      navigate('/')
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : (lang === 'th' ? 'เข้าสู่ระบบไม่สำเร็จ กรุณาลองอีกครั้ง' : 'Login failed. Please try again.'))
     } finally {
       setLoading(false)
     }
   }
+
+  // Already signed in (arrived here via back-button or a typed /login URL): bounce to
+  // the app root rather than render a working login form. Re-submitting it against a
+  // live session can sign the user out (wrong-role tab) or silently swap accounts
+  // without resetting company/query state.
+  if (!authLoading && user && profile) return <Navigate to="/" replace />
 
   return (
     <div

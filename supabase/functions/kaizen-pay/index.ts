@@ -55,7 +55,12 @@ async function verifySlip(proofDataUrl: string, expectAmount: number | null) {
     });
     if (!res.ok) return { verified: false };
     const data = await res.json().catch(() => null);
-    const ok = !!(data && (data.success === true || data?.data?.success === true));
+    // SlipOK nests the slip-verification result under `data.data`. Trust that inner
+    // result when present; only fall back to the top-level envelope flag when there is
+    // no nested object. Do NOT OR the two — an outer `success:true` envelope with an
+    // inner `success:false` (request OK, slip invalid) must NOT pass verification.
+    const inner = data?.data;
+    const ok = !!(inner && typeof inner === "object" ? inner.success === true : data?.success === true);
     const amount = Number(data?.data?.amount ?? data?.amount ?? 0) || null;
     if (!ok) return { verified: false };
     // If we know the expected price, the slip MUST carry a matching amount. A missing
@@ -80,6 +85,12 @@ Deno.serve(async (req) => {
   const body = await req.json().catch(() => ({}));
   const { company_id, kind, target, target_label, amount, currency = "THB", proof_url } = body;
   if (!company_id || !kind || !target) return json({ error: "Missing fields" }, 400);
+  // Guard against an oversized base64 proof data-URL bloating the row and spiking
+  // edge-function memory (the whole string is SHA-256'd in memory below). ~2 MB image
+  // ≈ ~2.8M base64 chars; cap at 4M to leave headroom for legitimate slips.
+  if (typeof proof_url === "string" && proof_url.length > 4_000_000) {
+    return json({ error: "Payment slip image is too large. Please upload a smaller image." }, 413);
+  }
 
   // Verify the caller is a manager/owner of this company.
   const { data: prof } = await admin.from("kaizen_profiles").select("role, company_id").eq("id", uid).maybeSingle();
@@ -150,16 +161,22 @@ Deno.serve(async (req) => {
   if (slip.verified) {
     let activationErr: string | null = null;
     if (kind === "subscription") {
+      // Look up by key alone (matching the price lookup at the top). Filtering on
+      // kind='package' here caused a silent activation failure whenever a product's
+      // kind column held any other value — the slip verified and money was taken,
+      // but the plan never activated.
       const { data: prod, error: prodErr } = await admin.from("kaizen_products")
         .select("max_super_admins, max_managers, max_staff, multi_company, features, duration_days")
-        .eq("kind", "package").eq("key", target).maybeSingle();
+        .eq("key", target).maybeSingle();
       if (prodErr || !prod) {
         activationErr = "Product lookup failed — payment recorded but plan not activated. Contact support.";
       } else {
         const term = Number(prod?.duration_days) || 365;
         const { data: curCo } = await admin.from("kaizen_companies").select("plan, subscription_end").eq("id", company_id).maybeSingle();
         // Extend from existing expiry so early renewers don't lose remaining days.
-        const baseDate = curCo?.subscription_end ? new Date(curCo.subscription_end + 'T00:00:00+07:00') : new Date();
+        // For a first-ever subscription, anchor to Bangkok midnight TODAY (not the raw
+        // UTC instant) so the term length doesn't drift ±1 day with the payment hour.
+        const baseDate = curCo?.subscription_end ? new Date(curCo.subscription_end + 'T00:00:00+07:00') : new Date(bangkokDate() + 'T00:00:00+07:00');
         const end = bangkokDate(new Date(baseDate.getTime() + term * 86400000));
         const fromPlan = curCo?.plan ?? null;
         const { error: updateErr } = await admin.from("kaizen_companies").update({
@@ -206,10 +223,15 @@ Deno.serve(async (req) => {
       return json({ error: activationErr }, 500);
     }
 
-    // All side effects succeeded — mark as approved now.
-    await admin.from("kaizen_payment_submissions")
+    // All side effects succeeded — mark as approved now. Surface (log) an update
+    // failure: the plan is already active, so a record left in 'pending' would be a
+    // misleading state in the Console review queue.
+    const { error: approveErr } = await admin.from("kaizen_payment_submissions")
       .update({ status: "approved", reviewed_at: new Date().toISOString() })
       .eq("id", sub.id);
+    if (approveErr) {
+      console.error("payment activated but status update to 'approved' failed", sub.id, approveErr.message);
+    }
   }
 
   return json({ success: true, id: sub.id, status: slip.verified ? "approved" : "pending", verified: slip.verified });

@@ -29,8 +29,14 @@ export function Header() {
   const [unreadCount, setUnreadCount] = useState(0)
   const showSwitcher = profile?.role === 'super_admin' && companies.length > 1
 
-  // Today's date — e.g. "Sat. 13 - June 2026" (shown on mobile, where the sidebar is hidden)
-  const _now = new Date()
+  // Today's date — e.g. "Sat. 13 - June 2026" (shown on mobile, where the sidebar is hidden).
+  // Held in state and refreshed each minute (like Sidebar) so a tablet left open across
+  // Bangkok midnight rolls over to the new day instead of freezing on the mount date.
+  const [_now, setNow] = useState(() => new Date())
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 60000)
+    return () => clearInterval(id)
+  }, [])
   const _loc = lang === 'th' ? 'th-TH' : 'en-GB'
   const _fmt = (opts: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat(_loc, { timeZone: 'Asia/Bangkok', ...opts }).format(_now)
   const todayLabel = `${_fmt({ weekday: 'short' })}. ${_fmt({ day: 'numeric' })} - ${_fmt({ month: 'long' })} ${_fmt({ year: 'numeric' })}`
@@ -71,12 +77,18 @@ export function Header() {
     else if ('clearAppBadge' in navigator) (navigator as any).clearAppBadge().catch(() => {})
   }
 
+  const fetchSeqRef = useRef(0)
   async function fetchNotifications() {
     if (!profile) return
+    // Sequence each call so overlapping realtime bursts can't write a stale result:
+    // a slower earlier query resolving after a faster later one would otherwise
+    // overwrite the fresh list/unread badge with old data.
+    const seq = ++fetchSeqRef.current
     const [listRes, countRes] = await Promise.all([
       supabase.from('kaizen_notifications').select('*').eq('user_id', profile.id).order('created_at', { ascending: false }).limit(10),
       supabase.from('kaizen_notifications').select('id', { count: 'exact', head: true }).eq('user_id', profile.id).eq('is_read', false),
     ])
+    if (seq !== fetchSeqRef.current) return // superseded by a newer fetch
     if (listRes.data) setNotifications(listRes.data as KaizenNotification[])
     const unread = countRes.count ?? 0
     setUnreadCount(unread)

@@ -105,7 +105,9 @@ export function CalendarView({ call, onOpenForm }: { call: Call; onOpenForm: (fo
       const start = new Date(a.start_at)
       const meta = KIND_META[a.kind]
       const cancelled = a.status === 'cancelled'
-      const bkkH = Number(new Intl.DateTimeFormat('en', { timeZone: 'Asia/Bangkok', hour: 'numeric', hour12: false }).format(start))
+      // hour:'2-digit' (not 'numeric') so midnight is '00' not '24' — 'numeric' with
+      // hour12:false returns '24' for 00:00 in Chromium, which sorted midnight last.
+      const bkkH = Number(new Intl.DateTimeFormat('en', { timeZone: 'Asia/Bangkok', hour: '2-digit', hour12: false }).format(start)) % 24
       const bkkM = Number(new Intl.DateTimeFormat('en', { timeZone: 'Asia/Bangkok', minute: 'numeric' }).format(start))
       out.push({
         key: `a-${a.id}`, date: dayKey(start), sort: 2 + (bkkH * 60 + bkkM) / 1440,
@@ -144,7 +146,13 @@ export function CalendarView({ call, onOpenForm }: { call: Call; onOpenForm: (fo
     })
   }, [cursor])
 
-  const todayKey = dayKey(new Date())
+  // Recompute the 'today' key once a minute so the highlight follows Bangkok midnight
+  // even if the calendar is left open overnight without any interaction.
+  const [todayKey, setTodayKey] = useState(() => dayKey(new Date()))
+  useEffect(() => {
+    const id = setInterval(() => setTodayKey(dayKey(new Date())), 60000)
+    return () => clearInterval(id)
+  }, [])
   const monthTitle = new Date(`${dayKey(cursor)}T12:00:00+07:00`).toLocaleDateString('en-GB', { month: 'long', year: 'numeric', timeZone: 'Asia/Bangkok' })
 
   // Form events open the document (PDF) directly; appointments open the detail card.
@@ -229,7 +237,7 @@ export function CalendarView({ call, onOpenForm }: { call: Call; onOpenForm: (fo
           onEdit={(a) => { setOpenDetail(null); setEditAppt(a) }} />
       )}
       {editAppt && (
-        <AppointmentEditor call={call} companies={companies} appt={editAppt === 'new' ? null : editAppt}
+        <AppointmentEditor key={editAppt === 'new' ? '__new__' : editAppt.id} call={call} companies={companies} appt={editAppt === 'new' ? null : editAppt}
           onClose={() => setEditAppt(null)} onSaved={() => { setEditAppt(null); load() }} />
       )}
     </div>

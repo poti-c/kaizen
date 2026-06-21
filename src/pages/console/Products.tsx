@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { validateRequired, validatePercentDiscount, validatePositiveAmount } from '@/lib/validators'
+import { validateRequired, validatePercentDiscount, validateNonNegativeAmount } from '@/lib/validators'
 import {
   Package, Loader2, Plus, Trash2, ArrowLeft, Check, Crown, Tag, Box, Ticket, X, Power, Pencil, Lock,
 } from 'lucide-react'
@@ -187,7 +187,8 @@ function ProductCard({ product, call, onSaved, onDeleted, isNew }: { product: Pr
   async function save() {
     const nameErr = validateRequired(d.name, 'Name')
     if (nameErr) { alert(nameErr); return }
-    const priceErr = validatePositiveAmount(d.price, 'Price')
+    // Allow a 0 price — free packages and zero-cost placeholder add-ons are legitimate.
+    const priceErr = validateNonNegativeAmount(d.price, 'Price')
     if (priceErr) { alert(priceErr); return }
     setBusy(true)
     try {
@@ -243,9 +244,9 @@ function ProductCard({ product, call, onSaved, onDeleted, isNew }: { product: Pr
 
       {isPackage && (
         <div className="grid grid-cols-3 gap-2.5 mb-2.5">
-          <L label="Max Top Management (blank = unlimited)"><input value={d.max_super_admins ?? ''} onChange={e => set({ max_super_admins: e.target.value === '' ? null : Number(e.target.value.replace(/[^0-9]/g, '')) })} className={inputCls} placeholder="Unlimited" inputMode="numeric" /></L>
-          <L label="Max Managers (blank = unlimited)"><input value={d.max_managers ?? ''} onChange={e => set({ max_managers: e.target.value === '' ? null : Number(e.target.value.replace(/[^0-9]/g, '')) })} className={inputCls} placeholder="Unlimited" inputMode="numeric" /></L>
-          <L label="Max Staff (blank = unlimited)"><input value={d.max_staff ?? ''} onChange={e => set({ max_staff: e.target.value === '' ? null : Number(e.target.value.replace(/[^0-9]/g, '')) })} className={inputCls} placeholder="Unlimited" inputMode="numeric" /></L>
+          <L label="Max Top Management (blank = unlimited)"><input value={d.max_super_admins ?? ''} onChange={e => { const v = e.target.value.replace(/[^0-9]/g, ''); set({ max_super_admins: v === '' ? null : Number(v) }) }} className={inputCls} placeholder="Unlimited" inputMode="numeric" /></L>
+          <L label="Max Managers (blank = unlimited)"><input value={d.max_managers ?? ''} onChange={e => { const v = e.target.value.replace(/[^0-9]/g, ''); set({ max_managers: v === '' ? null : Number(v) }) }} className={inputCls} placeholder="Unlimited" inputMode="numeric" /></L>
+          <L label="Max Staff (blank = unlimited)"><input value={d.max_staff ?? ''} onChange={e => { const v = e.target.value.replace(/[^0-9]/g, ''); set({ max_staff: v === '' ? null : Number(v) }) }} className={inputCls} placeholder="Unlimited" inputMode="numeric" /></L>
         </div>
       )}
 
@@ -316,16 +317,20 @@ function L({ label, children }: { label: string; children: React.ReactNode }) {
 function PromoRow({ promo, call, onSaved, onDeleted, isNew }: { promo: Promo; call: Call; onSaved: () => void; onDeleted: () => void; isNew?: boolean }) {
   const [d, setD] = useState<Promo>(promo)
   const [busy, setBusy] = useState(false)
-  // Sync from parent when the server reloads after a save (prop identity changes).
-  useEffect(() => { if (!busy) setD(promo) }, [promo])
+  const [dirty, setDirty] = useState(false)
+  // Resync from the server prop only when this row has NO unsaved edits. A parent
+  // reload (e.g. saving a DIFFERENT promo/product) replaces every promo prop identity;
+  // without the dirty guard that would clobber the edits the user is mid-way through.
+  // (The previous `busy` guard was also a stale closure — not in the dep array.)
+  useEffect(() => { if (!dirty) setD(promo) }, [promo, dirty])
   const [confirmDel, setConfirmDel] = useState(false)
-  function set(patch: Partial<Promo>) { setD({ ...d, ...patch }) }
+  function set(patch: Partial<Promo>) { setDirty(true); setD({ ...d, ...patch }) }
   async function save() {
     if (!d.code.trim()) { alert('Code is required.'); return }
     const discErr = validatePercentDiscount(d.discount_percent)
     if (discErr) { alert(discErr); return }
     setBusy(true)
-    try { await call('upsert_promo', { promo: d }); onSaved() }
+    try { await call('upsert_promo', { promo: d }); setDirty(false); onSaved() }
     catch (e) { alert(e instanceof Error ? e.message : 'Failed') } finally { setBusy(false) }
   }
   async function del() {
