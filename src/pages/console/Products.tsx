@@ -95,8 +95,7 @@ export function ProductsView({ call, onBack }: { call: Call; onBack: () => void 
     // Compute sort order at draft-creation time based on the highest saved sort_order,
     // not the count — so discarding a draft doesn't create a duplicate slot number.
     const maxSaved = products.filter(p => p.kind === kind).reduce((m, p) => Math.max(m, p.sort_order), 0)
-    const pending = drafts.filter(d => d.data.kind === kind).length
-    setDrafts(prev => [...prev, { key, data: blankProduct(kind, maxSaved + pending + 1) }])
+    setDrafts(prev => { const pending = prev.filter(d => d.data.kind === kind).length; return [...prev, { key, data: blankProduct(kind, maxSaved + pending + 1) }] })
   }
   function removeDraft(key: string) { setDrafts(prev => prev.filter(d => d.key !== key)) }
 
@@ -190,13 +189,14 @@ function ProductCard({ product, call, onSaved, onDeleted, isNew }: { product: Pr
     // Allow a 0 price — free packages and zero-cost placeholder add-ons are legitimate.
     const priceErr = validateNonNegativeAmount(d.price, 'Price')
     if (priceErr) { alert(priceErr); return }
+    const snapshot = d
     setBusy(true)
     try {
       const result = await call<{ product: Product }>('upsert_product', { product: d })
       if (result.product) setD(result.product)
       setLocked(true); onSaved()
     }
-    catch (e) { alert(e instanceof Error ? e.message : 'Failed'); setD(product) } finally { setBusy(false) }
+    catch (e) { alert(e instanceof Error ? e.message : 'Failed'); setD(snapshot) } finally { setBusy(false) }
   }
   async function toggleActive() {
     if (togglingRef.current) return
@@ -224,7 +224,7 @@ function ProductCard({ product, call, onSaved, onDeleted, isNew }: { product: Pr
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mb-2.5">
-        <L label="Price"><input value={d.price || ''} onChange={e => { const v = e.target.value.replace(/[^0-9.]/g, '').replace(/^(\d*\.?\d*).*$/, '$1'); set({ price: Math.max(0, parseFloat(v) || 0) }) }} className={inputCls} placeholder="0" inputMode="decimal" /></L>
+        <L label="Price"><input value={String(d.price)} onChange={e => { const v = e.target.value.replace(/[^0-9.]/g, '').replace(/^(\d*\.?\d*).*$/, '$1'); set({ price: Math.max(0, parseFloat(v) || 0) }) }} className={inputCls} placeholder="0" inputMode="decimal" /></L>
         <L label="Currency"><input value={d.currency} onChange={e => set({ currency: e.target.value.toUpperCase().slice(0, 4) })} className={inputCls} /></L>
         {isPackage && (
           <L label="Duration">

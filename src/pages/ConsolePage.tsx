@@ -552,6 +552,10 @@ function CompanyDetailView({ company, owners, allCompanies, call, reload, onBack
     setEditingBilling(true)
   }
   async function saveBilling() {
+    if (bill.office_type === 'branch' && bill.branch_code.length !== 5) {
+      alert('Branch code must be exactly 5 digits.')
+      return
+    }
     setBusy('billing')
     try {
       await call('update_company', {

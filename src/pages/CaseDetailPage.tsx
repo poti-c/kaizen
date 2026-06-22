@@ -266,8 +266,8 @@ export function CaseDetailPage() {
             title: 'Department Case Update',
             message: deptMsg,
             notification_type: 'info',
-            title_key: 'case_dept_update',
-            body_params: { names: names || kcase.case_number, caseNo: kcase.case_number },
+            title_key: names ? 'case_dept_update' : null,
+            body_params: names ? { names, caseNo: kcase.case_number } : null,
           }))
         }
         const deptNames = notifyDepts.map(d => DEPARTMENT_LABELS[d as Department] ?? d).join(', ')
