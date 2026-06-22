@@ -118,10 +118,20 @@ Deno.serve(async (req) => {
   // Idempotency: the same slip (proof) must not create a second submission / duplicate
   // plan activation + invoice on retry or replay. Dedup on a hash of the proof.
   const proofHash = proof_url ? await sha256Hex(String(proof_url)) : null;
+  // KP-001: a row left in 'activation_failed' (slip verified, but a downstream activation
+  // step failed) must stay retryable with the SAME slip — otherwise the proof_hash dedup
+  // returns the stale failure forever and the paying customer can never self-heal.
+  // activation_failed only happens BEFORE the company/addon was actually changed (prod
+  // lookup / company update / addon RPC all fail before committing the change), so
+  // re-running activation on the reused row is safe (no double extension).
+  let reuseId: string | null = null;
   if (proofHash) {
     const { data: dup } = await admin.from("kaizen_payment_submissions")
       .select("id, status").eq("company_id", company_id).eq("proof_hash", proofHash).maybeSingle();
-    if (dup) return json({ success: true, id: dup.id, status: dup.status, verified: dup.status === "approved", duplicate: true });
+    if (dup) {
+      if (dup.status === "activation_failed") reuseId = dup.id;
+      else return json({ success: true, id: dup.id, status: dup.status, verified: dup.status === "approved", duplicate: true });
+    }
   } else {
     // Slip-free: dedup on (company_id, kind, target) with pending status to prevent repeated
     // unverified submissions for the same purchase from reaching the approval queue multiple times.
@@ -135,28 +145,46 @@ Deno.serve(async (req) => {
   // entirely so an unchecked amount can never auto-activate a plan.
   const slip = expectedPrice != null ? await verifySlip(proof_url, expectedPrice) : { verified: false };
 
-  // Always insert as 'pending' first — we update to 'approved' only after ALL side
+  // Always (re)set the row to 'pending' first — we update to 'approved' only after ALL side
   // effects succeed. This prevents an approved-but-unactivated orphan record if any
   // downstream step (product lookup, company update, invoice) fails after the insert.
-  const { data: sub, error } = await admin.from("kaizen_payment_submissions").insert({
-    company_id, kind, target, target_label, amount: storedAmount, currency, proof_url, proof_hash: proofHash,
-    status: "pending", submitted_by: uid, reviewed_at: null,
-  }).select("id").single();
-  if (error) {
-    // Unique-violation on proof_hash = concurrent request already recorded this slip.
-    if (/duplicate key|unique/i.test(error.message) && proofHash) {
-      const { data: existing } = await admin.from("kaizen_payment_submissions")
-        .select("id, status").eq("company_id", company_id).eq("proof_hash", proofHash).maybeSingle();
-      if (existing) return json({ success: true, id: existing.id, status: existing.status, verified: existing.status === "approved", duplicate: true });
+  let sub: { id: string } | null = null;
+  if (reuseId) {
+    await admin.from("kaizen_payment_submissions").update({ status: "pending" }).eq("id", reuseId);
+    sub = { id: reuseId };
+  } else {
+    const { data: inserted, error } = await admin.from("kaizen_payment_submissions").insert({
+      company_id, kind, target, target_label, amount: storedAmount, currency, proof_url, proof_hash: proofHash,
+      status: "pending", submitted_by: uid, reviewed_at: null,
+    }).select("id").single();
+    if (error) {
+      // Unique-violation on proof_hash = concurrent request already recorded this slip.
+      if (/duplicate key|unique/i.test(error.message) && proofHash) {
+        const { data: existing } = await admin.from("kaizen_payment_submissions")
+          .select("id, status").eq("company_id", company_id).eq("proof_hash", proofHash).maybeSingle();
+        if (existing?.status === "activation_failed") {
+          // Concurrent insert lost the race to an existing failed row — reuse + retry it.
+          await admin.from("kaizen_payment_submissions").update({ status: "pending" }).eq("id", existing.id);
+          sub = { id: existing.id };
+        } else if (existing) {
+          return json({ success: true, id: existing.id, status: existing.status, verified: existing.status === "approved", duplicate: true });
+        } else {
+          return json({ error: error.message }, 400);
+        }
+      } else if (/duplicate key|unique/i.test(error.message) && !proofHash) {
+        // Unique-violation on slip-free partial index = concurrent slip-free submission.
+        const { data: existing } = await admin.from("kaizen_payment_submissions")
+          .select("id, status").eq("company_id", company_id).eq("kind", kind).eq("target", target).eq("status", "pending").maybeSingle();
+        if (existing) return json({ success: true, id: existing.id, status: "pending", verified: false, duplicate: true });
+        return json({ error: error.message }, 400);
+      } else {
+        return json({ error: error.message }, 400);
+      }
+    } else {
+      sub = inserted;
     }
-    // Unique-violation on slip-free partial index = concurrent slip-free submission.
-    if (/duplicate key|unique/i.test(error.message) && !proofHash) {
-      const { data: existing } = await admin.from("kaizen_payment_submissions")
-        .select("id, status").eq("company_id", company_id).eq("kind", kind).eq("target", target).eq("status", "pending").maybeSingle();
-      if (existing) return json({ success: true, id: existing.id, status: "pending", verified: false, duplicate: true });
-    }
-    return json({ error: error.message }, 400);
   }
+  if (!sub) return json({ error: "Submission could not be recorded." }, 500);
 
   if (slip.verified) {
     let activationErr: string | null = null;
@@ -172,21 +200,27 @@ Deno.serve(async (req) => {
         activationErr = "Product lookup failed — payment recorded but plan not activated. Contact support.";
       } else {
         const term = Number(prod?.duration_days) || 365;
-        const { data: curCo } = await admin.from("kaizen_companies").select("plan, subscription_end").eq("id", company_id).maybeSingle();
-        // Extend from existing expiry so early renewers don't lose remaining days.
-        // For a first-ever subscription, anchor to Bangkok midnight TODAY (not the raw
-        // UTC instant) so the term length doesn't drift ±1 day with the payment hour.
-        const baseDate = curCo?.subscription_end ? new Date(curCo.subscription_end + 'T00:00:00+07:00') : new Date(bangkokDate() + 'T00:00:00+07:00');
-        const end = bangkokDate(new Date(baseDate.getTime() + term * 86400000));
-        const fromPlan = curCo?.plan ?? null;
-        const { error: updateErr } = await admin.from("kaizen_companies").update({
-          plan: target, subscription_end: end,
-          max_super_admins: prod?.max_super_admins ?? null, max_managers: prod?.max_managers ?? null,
-          max_staff: prod?.max_staff ?? null, multi_company: !!prod?.multi_company, features: prod?.features ?? {},
-        }).eq("id", company_id);
-        if (updateErr) {
+        // KP-002: extend the subscription atomically in-DB (row-locked) instead of a
+        // read-modify-write, so two concurrent verified renewals stack rather than
+        // clobbering each other (the loser previously overwrote the winner, losing a paid
+        // term). The function extends from the existing expiry, or anchors a first-ever
+        // subscription to today in Asia/Bangkok, and returns the prior plan + new end.
+        const { data: actRows, error: updateErr } = await admin.rpc("kaizen_activate_subscription", {
+          p_company_id: company_id,
+          p_plan: target,
+          p_term_days: term,
+          p_max_super_admins: prod?.max_super_admins ?? null,
+          p_max_managers: prod?.max_managers ?? null,
+          p_max_staff: prod?.max_staff ?? null,
+          p_multi_company: !!prod?.multi_company,
+          p_features: prod?.features ?? {},
+        });
+        const act = Array.isArray(actRows) ? actRows[0] : actRows;
+        if (updateErr || !act) {
           activationErr = "Plan activation failed — payment recorded, contact support to apply your plan.";
         } else {
+          const fromPlan = act.from_plan ?? null;
+          const end = act.new_end as string;
           if (fromPlan !== target) {
             await admin.from("kaizen_plan_changes").insert({ company_id, from_plan: fromPlan, to_plan: target, source: "payment" });
           }

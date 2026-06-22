@@ -110,7 +110,10 @@ export function CalendarView({ call, onOpenForm }: { call: Call; onOpenForm: (fo
       const bkkH = Number(new Intl.DateTimeFormat('en', { timeZone: 'Asia/Bangkok', hour: '2-digit', hour12: false }).format(start)) % 24
       const bkkM = Number(new Intl.DateTimeFormat('en', { timeZone: 'Asia/Bangkok', minute: 'numeric' }).format(start))
       out.push({
-        key: `a-${a.id}`, date: dayKey(start), sort: 2 + (bkkH * 60 + bkkM) / 1440,
+        // CAL-001: an all-day event spans the whole day, so it sorts FIRST among
+        // appointments — not by its arbitrary noon-Bangkok storage anchor (which landed it
+        // after any morning timed appt).
+        key: `a-${a.id}`, date: dayKey(start), sort: a.all_day ? 2 : 2 + (bkkH * 60 + bkkM) / 1440,
         source: 'appt', appt: a, label: `${a.all_day ? '' : fmtTime(start) + ' · '}${a.title}`,
         color: cancelled ? 'bg-slate-700/40 text-slate-500 border-slate-700 line-through' : meta.color,
         dot: cancelled ? 'bg-slate-500' : meta.dot,
