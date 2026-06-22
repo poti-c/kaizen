@@ -1073,6 +1073,21 @@ Deno.serve(async (req) => {
       const addons = (co?.addons && typeof co.addons === "object") ? co.addons : {};
       addons[sub.target] = true;
       await admin.from("kaizen_companies").update({ addons }).eq("id", sub.company_id);
+      // Log an invoice so the add-on appears in confirmed revenue — mirrors what kaizen-pay
+      // does for auto-verified add-on payments via SlipOK.
+      const today = bangkokToday();
+      const { data: addOnProd } = await admin.from("kaizen_products").select("duration_days").eq("key", sub.target).maybeSingle();
+      const addonDays = addOnProd?.duration_days ? Number(addOnProd.duration_days) : null;
+      let addonEnd = "2099-12-31";
+      if (addonDays) {
+        const pe = new Date(today + "T00:00:00+07:00"); pe.setUTCDate(pe.getUTCDate() + addonDays);
+        addonEnd = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok", year: "numeric", month: "2-digit", day: "2-digit" }).format(pe);
+      }
+      await admin.from("kaizen_invoices").insert({
+        company_id: sub.company_id, payee: sub.target_label ?? sub.target, amount: sub.amount,
+        currency: sub.currency ?? "THB", payment_date: today, period_start: today, period_end: addonEnd,
+        notes: "Client PromptPay payment (approved) — addon", submission_id: sub.id,
+      });
     }
     await admin.from("kaizen_payment_submissions").update({ status: "approved", reviewed_at: new Date().toISOString() }).eq("id", id);
     await audit("approve_payment", { id, kind: sub.kind, target: sub.target, company_id: sub.company_id }, ip, true);
