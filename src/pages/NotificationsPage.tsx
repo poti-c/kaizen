@@ -30,6 +30,22 @@ export function NotificationsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profile])
 
+  // NP-001: live-refresh while the page is open. Without a realtime channel, new
+  // notifications inserted (or marked read elsewhere) never appear and the unread
+  // subtitle/badge go stale until a full remount. Mirrors BottomNav/Header.
+  useEffect(() => {
+    if (!profile) return
+    const channel = supabase
+      .channel(`notifications_page_${profile.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'kaizen_notifications', filter: `user_id=eq.${profile.id}` }, () => {
+        fetchNotifications()
+        refreshUnread()
+      })
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile])
+
   // Keep the OS app-icon badge in sync with the true unread count (mirrors Header).
   function syncBadge(n: number) {
     if (n > 0 && 'setAppBadge' in navigator) (navigator as any).setAppBadge(n).catch(() => {})

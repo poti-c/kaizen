@@ -541,7 +541,7 @@ export function CasesPage() {
           <td className="px-5 py-3.5 whitespace-nowrap">
             {c.due_date ? (
               <span className={cn('text-xs', isSLABreached(c) ? 'text-red-500 font-medium' : 'text-gray-500')}>
-                {new Date(c.due_date + 'T00:00:00+07:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'Asia/Bangkok' })}
+                {new Date(c.due_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'Asia/Bangkok' })}
               </span>
             ) : <span className="text-xs text-gray-300">—</span>}
           </td>
@@ -581,7 +581,7 @@ export function CasesPage() {
               </span>
               {c.due_date && (
                 <span className={cn('text-xs', isSLABreached(c) ? 'text-red-500 font-medium' : 'text-gray-400')}>
-                  {t.cases.due}: {new Date(c.due_date + 'T00:00:00+07:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'Asia/Bangkok' })}
+                  {t.cases.due}: {new Date(c.due_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'Asia/Bangkok' })}
                 </span>
               )}
             </div>

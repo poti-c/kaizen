@@ -282,9 +282,21 @@ export function SettingsPage() {
     list: string[],
     setList: (l: string[]) => void,
   ) {
-    const items = indices.map(i => list[i])
+    // SP-004 (bulk): 'Preventive Maintenance' is re-injected on every load for PMS
+    // companies and auto-overdue cases depend on it, so it must never be deletable —
+    // mirror the single-item removeItem guard, which the bulk path previously bypassed.
+    let targetIndices = indices
+    if (dbKey === 'custom_categories' && companyHasAddon(activeCompany, 'pms')) {
+      const safe = indices.filter(i => list[i]?.toLowerCase() !== 'preventive maintenance')
+      if (safe.length < indices.length) {
+        toast.error(lang === 'th' ? 'ไม่สามารถลบ "Preventive Maintenance" ขณะเปิดใช้ PMS' : 'Cannot remove "Preventive Maintenance" while PMS is active.')
+        if (safe.length === 0) return
+        targetIndices = safe
+      }
+    }
+    const items = targetIndices.map(i => list[i])
     // Show dialog immediately with checking state
-    setBulkConfirm({ listKey, dbKey, items, indices, affectedCases: 0, checking: true })
+    setBulkConfirm({ listKey, dbKey, items, indices: targetIndices, affectedCases: 0, checking: true })
 
     // Count affected cases (location is a direct string match)
     let affected = 0
@@ -1475,6 +1487,17 @@ function EditableListCard({
 
   // Reset selection + showAll if items list changes
   React.useEffect(() => { setSelected(new Set()); setShowAll(false) }, [items.length])
+
+  // SP-002b: when the list collapses ("Show less"), drop any selection that is now
+  // hidden — otherwise a no-longer-visible item can still be silently bulk-deleted.
+  React.useEffect(() => {
+    if (maxVisible && !showAll) {
+      setSelected(prev => {
+        const next = new Set([...prev].filter(i => i < maxVisible))
+        return next.size === prev.size ? prev : next
+      })
+    }
+  }, [showAll, maxVisible])
 
   function toggleSelect(i: number) {
     setSelected(prev => {

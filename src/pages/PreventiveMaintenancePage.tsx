@@ -92,7 +92,14 @@ export function PreventiveMaintenancePage() {
       supabase.from('kaizen_pm_tasks').select(taskSel).eq('company_id', companyId).in('status', ['done', 'approved']).gte('performed_at', monthStartKey),
       supabase.from('kaizen_settings').select('value').eq('company_id', companyId).eq('key', 'custom_locations').maybeSingle(),
     ])
-    if (a.error) { toast.error(a.error.message) } else { setAssets((a.data as Asset[]) ?? []) }
+    if (a.error) { toast.error(a.error.message) } else {
+      const rawAssets = (a.data as Asset[]) ?? []
+      // PM-002: staff see only their own department's assets (and thus counts, the
+      // asset list, and the filter dropdowns) — mirrors PMSummaryCard so the page and
+      // the dashboard card agree on what a staff user is allowed to see.
+      const staffDept = profile?.role === 'staff' ? profile?.department : null
+      setAssets(staffDept ? rawAssets.filter(r => r.department === staffDept) : rawAssets)
+    }
     if (t.error) toast.error(t.error.message)
     else setTypes((t.data as EqType[]) ?? [])
     if (s.error) toast.error(s.error.message)
@@ -604,9 +611,13 @@ function AssetEditor({ companyId, types, locations, asset, onClose, onSaved, all
                 <option value="custom">{tr.pm.customEvery}</option>
               </select>
             </Field>
-            {f.freqMode === 'custom' ? (
+            {/* PM-est: 'Estimated minutes' must stay editable in every frequency mode.
+                In custom mode show the every-N-days input as its own cell so it no longer
+                replaces est_minutes (which previously made est_minutes unreachable). */}
+            {f.freqMode === 'custom' && (
               <Field label={tr.pm.everyNDays}><input value={f.customDays} onChange={(e) => { const v = Number(e.target.value.replace(/[^0-9]/g, '')) || 1; set({ customDays: v }); recalcNext(f.last_maintenance_date || f.purchase_date, 'custom', v) }} className={inputCls} inputMode="numeric" /></Field>
-            ) : <Field label={tr.pm.estMinutes}><input value={f.est_minutes} onChange={(e) => set({ est_minutes: e.target.value.replace(/[^0-9]/g, '') })} className={inputCls} inputMode="numeric" placeholder={tr.pm.optional} /></Field>}
+            )}
+            <Field label={tr.pm.estMinutes}><input value={f.est_minutes} onChange={(e) => set({ est_minutes: e.target.value.replace(/[^0-9]/g, '') })} className={inputCls} inputMode="numeric" placeholder={tr.pm.optional} /></Field>
           </div>
           <div className="grid grid-cols-2 gap-2.5">
             <Field label={tr.pm.lastMaint}><input type="date" value={f.last_maintenance_date} onChange={(e) => { set({ last_maintenance_date: e.target.value }); recalcNext(e.target.value, f.freqMode, f.customDays) }} className={inputCls} /></Field>

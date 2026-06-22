@@ -256,7 +256,7 @@ export function UsersPage() {
       if (editPosition.trim() !== (editUser.position || '')) changes.push(`Position → ${editPosition.trim() || '(cleared)'}`)
       if (editUsername.trim() !== (editUser.username || '')) changes.push(`Username → @${editUsername.trim()}`)
       if (emailLogin && editEmail.trim() !== (editUser.email || '')) changes.push(`Login email → ${editEmail.trim()}`)
-      if (editNewPassword.trim().length >= 6) changes.push('Password reset (must change on login)')
+      if (resettingPassword) changes.push('Password reset (must change on login)')
       if (profile?.role === 'super_admin' && editRole !== editUser.role) changes.push(`Role → ${editRole}`)
       if (profile?.role === 'super_admin' && editDepartment !== editUser.department) changes.push(`Department → ${editDepartment}`)
 
@@ -703,7 +703,7 @@ export function UsersPage() {
             <div className="space-y-1.5 border-t pt-4">
               <Label className="flex items-center gap-2"><KeyRound className="h-3.5 w-3.5 text-gray-400" /> {lang === 'th' ? 'รีเซ็ตรหัสผ่าน' : 'Reset Password'} <span className="text-gray-400 text-xs font-normal">{lang === 'th' ? '(พนักงานจะถูกขอให้เปลี่ยนเมื่อเข้าสู่ระบบครั้งถัดไป)' : '(staff will be prompted to change on next login)'}</span></Label>
               <div className="relative">
-                <Input type={showEditPassword ? 'text' : 'password'} value={editNewPassword} onChange={(e) => setEditNewPassword(e.target.value)} placeholder={lang === 'th' ? 'รหัสผ่านใหม่ (อย่างน้อย 6 ตัวอักษร)' : 'New password (min 6 chars)'} className="pr-10" />
+                <Input type={showEditPassword ? 'text' : 'password'} value={editNewPassword} onChange={(e) => setEditNewPassword(e.target.value)} placeholder={lang === 'th' ? 'รหัสผ่านใหม่ (อย่างน้อย 8 ตัวอักษร)' : 'New password (min 8 chars)'} className="pr-10" />
                 <button type="button" onClick={() => setShowEditPassword(!showEditPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">{showEditPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}</button>
               </div>
             </div>

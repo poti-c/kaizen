@@ -582,9 +582,13 @@ export function CaseDetailPage() {
       //    straight to Top Management.
       const resolverManagerial = profile?.role === 'manager' || profile?.role === 'super_admin'
       const picDepts = picProfiles.map(p => p.department).filter(Boolean) as string[]
-      const approverDepts = (picDepts.length ? picDepts : [kcase?.department].filter(Boolean)) as string[]
+      // HR managers can never approve cases (mirrors canManagerApprove's isHRManager
+      // bar), so an HR-only department must route straight to Top Management — never
+      // count an HR manager toward hasDeptManager or the case strands forever.
+      const approverDepts = ((picDepts.length ? picDepts : [kcase?.department].filter(Boolean)) as string[])
+        .filter(d => d !== 'human_resource')
       let hasDeptManager = false
-      if (!resolverManagerial) {
+      if (!resolverManagerial && approverDepts.length) {
         const { data: mgrs } = await supabase.from('kaizen_profiles')
           .select('id').eq('role', 'manager').eq('is_active', true).in('department', approverDepts)
           .eq('company_id', kcase?.company_id ?? '')
@@ -901,6 +905,8 @@ export function CaseDetailPage() {
       const openFamilyStatuses = ['open', 'assigned', 'in_progress', 'reopened']
       const statusChanged = editStatus && editStatus !== kcase?.status
       const rollingBackToOpen = statusChanged && openFamilyStatuses.includes(editStatus!)
+      const movingToClosed = statusChanged && editStatus === 'closed'
+      const nowIso = new Date().toISOString()
       await supabase.from('kaizen_cases').update({
         title: editTitle.trim(),
         description: editDescription.trim(),
@@ -914,7 +920,19 @@ export function CaseDetailPage() {
           admin_approved_by: null, admin_approved_at: null,
           resolved_by: null,
         } : {}),
-        updated_at: new Date().toISOString(),
+        // CDP-006: moving directly to 'closed' via the edit modal must stamp closure
+        // fields, otherwise the case is closed with closed_at=null and "Open for"
+        // duration / closed-date reporting break. Only fill stamps that are missing.
+        ...(movingToClosed ? {
+          closed_at: kcase?.closed_at ?? nowIso,
+          resolved_at: kcase?.resolved_at ?? nowIso,
+          resolved_by: kcase?.resolved_by ?? profile?.id,
+          manager_approved_by: kcase?.manager_approved_by ?? profile?.id,
+          manager_approved_at: kcase?.manager_approved_at ?? nowIso,
+          admin_approved_by: kcase?.admin_approved_by ?? profile?.id,
+          admin_approved_at: kcase?.admin_approved_at ?? nowIso,
+        } : {}),
+        updated_at: nowIso,
       }).eq('id', id!)
 
       await addTimeline('case_edited', `Case edited by ${profile?.full_name}${changes.length ? ': ' + changes.join('; ') : ''}`)

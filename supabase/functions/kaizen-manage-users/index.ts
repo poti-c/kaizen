@@ -444,12 +444,30 @@ serve(async (req) => {
         continue;
       }
       // No one left in charge → assign the CASE's department manager (active, not deleted).
-      const { data: mgr } = await supabaseAdmin.from("kaizen_profiles")
-        .select("id, full_name")
-        .eq("company_id", c.company_id).eq("department", c.department).eq("role", "manager")
-        .eq("is_active", true).is("deleted_at", null)
-        .neq("id", userId)
-        .limit(1).maybeSingle();
+      // Match a manager whose PRIMARY department is the case's department, OR who covers
+      // it via managed_departments (mirrors callerEffectiveDepts). Two queries instead of
+      // a single .or() avoid PostgREST or-filter escaping issues with custom dept labels
+      // that contain commas, '&', etc.
+      let mgr: { id: string; full_name: string } | null = null;
+      {
+        const { data } = await supabaseAdmin.from("kaizen_profiles")
+          .select("id, full_name")
+          .eq("company_id", c.company_id).eq("department", c.department).eq("role", "manager")
+          .eq("is_active", true).is("deleted_at", null)
+          .neq("id", userId)
+          .limit(1).maybeSingle();
+        mgr = data ?? null;
+      }
+      if (!mgr && c.department) {
+        const { data } = await supabaseAdmin.from("kaizen_profiles")
+          .select("id, full_name")
+          .eq("company_id", c.company_id).eq("role", "manager")
+          .contains("managed_departments", [c.department])
+          .eq("is_active", true).is("deleted_at", null)
+          .neq("id", userId)
+          .limit(1).maybeSingle();
+        mgr = data ?? null;
+      }
       if (mgr) {
         await supabaseAdmin.from("kaizen_cases")
           .update({ pic_ids: [mgr.id], person_in_charge: mgr.id, updated_at: nowIso })
