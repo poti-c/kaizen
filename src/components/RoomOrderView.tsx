@@ -497,7 +497,7 @@ function RoomOrderBuild({ companyId, unit, requireApproval, initialDate }: { com
   async function saveRoom(roomNo: string, lines: SheetLine[], status: RoomStatus) {
     if (busy) return false
     setBusy(true)
-    const orderResult = await ensureOrder(); if (!orderResult) { setBusy(false); return false }; const oid = orderResult.id
+    const orderResult = await ensureOrder(); if (!orderResult) { setBusy(false); return false } const oid = orderResult.id
     const room = rooms.find((r) => r.no === roomNo)!
     const clean = lines.filter((l) => l.item.trim() || l.slot.trim())
     const nextStatuses = { ...roomStatuses, [roomNo]: status }
@@ -541,6 +541,12 @@ function RoomOrderBuild({ companyId, unit, requireApproval, initialDate }: { com
           // next re-submit — notifyFulfillers filters by created_at > last-submit time,
           // and the row otherwise keeps its original (pre-submit) timestamp and would be
           // silently skipped, leaving the fulfilling dept with un-notified work.
+          patch.created_at = new Date().toISOString()
+        } else if (l.active && prev && prev.fulfill_department !== l.fulfill_department) {
+          // RR-002: an already-active line re-routed to a DIFFERENT fulfilling department
+          // must also bump created_at, so the newly-responsible department is picked up by
+          // notifyFulfillers on this re-submit. Without it the re-routed row keeps its old
+          // timestamp and the new department is never told it has work to do.
           patch.created_at = new Date().toISOString()
         }
         const { error } = await supabase.from('kaizen_rr_room_lines').update(patch).eq('id', l.id)
@@ -609,7 +615,7 @@ function RoomOrderBuild({ companyId, unit, requireApproval, initialDate }: { com
     if (busy) return
     setBusy(true)
     const blanks = blankPrompt ?? []
-    const orderResult = await ensureOrder(); if (!orderResult) { setBusy(false); return }; const oid = orderResult.id
+    const orderResult = await ensureOrder(); if (!orderResult) { setBusy(false); return } const oid = orderResult.id
     const next = { ...roomStatuses }
     blanks.forEach((no) => { next[no] = 'empty' })
     const { error } = await supabase.from('kaizen_rr_room_orders').update({ room_statuses: next }).eq('id', oid)
@@ -626,7 +632,7 @@ function RoomOrderBuild({ companyId, unit, requireApproval, initialDate }: { com
     if (!profile) { toast.error(lang === 'th' ? 'เซสชันหมดอายุ — กรุณาเข้าสู่ระบบใหม่' : 'Session expired — please sign in again'); return }
     if (busy) return
     setBusy(true)
-    const orderResult = await ensureOrder(); if (!orderResult) { setBusy(false); return }; const oid = orderResult.id
+    const orderResult = await ensureOrder(); if (!orderResult) { setBusy(false); return } const oid = orderResult.id
     // Materialize defaults for any room not explicitly saved or statused.
     const untouched = rooms.filter((r) => !savedRooms[r.no] && !statuses[r.no])
     const rows = untouched.flatMap((r) => seedLines(recipeForRoom(r), date).filter((l) => l.item.trim() || l.slot.trim()).map((l) => lineRow(oid, r.no, r, l)))

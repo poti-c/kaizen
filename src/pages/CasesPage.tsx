@@ -85,6 +85,11 @@ export function CasesPage() {
   const [validDeptValues, setValidDeptValues] = useState<string[]>(DEPARTMENTS.map(d => d.value))
   // Valid category slugs derived from custom category display names
   const [validCategorySlugs, setValidCategorySlugs] = useState<string[]>([...CATEGORIES] as string[])
+  // BUG-004: the valid dept/location/category lists arrive from a SEPARATE settings query
+  // than the cases fetch. Until it resolves, a case carrying a (valid) custom-dept LABEL
+  // looks "incomplete". Gate the incomplete-case banner on this flag so it never flashes
+  // a false "Dept removed" warning before the settings are known.
+  const [settingsLoaded, setSettingsLoaded] = useState(false)
   // Filter options = this company's categories, plus a "PMS" category only for
   // PMS-subscribed clients. (Avoids the hardcoded generic "Maintenance" option.)
   const categoryOptions = useMemo(() => {
@@ -99,7 +104,7 @@ export function CasesPage() {
       .eq('company_id', activeCompany.id)
       .in('key', ['custom_locations', 'custom_departments', 'custom_categories'])
       .then(({ data }) => {
-        if (!data) return
+        if (!data) { setSettingsLoaded(true); return }
         const labelToSlug = Object.fromEntries(DEPARTMENTS.map((d) => [d.label, d.value]))
         data.forEach((row: { key: string; value: unknown }) => {
           // BUG-003: custom_departments must reset to built-ins when empty (empty array IS meaningful)
@@ -119,6 +124,7 @@ export function CasesPage() {
             if (slugs.length > 0) setValidCategorySlugs(slugs)
           }
         })
+        setSettingsLoaded(true)
       })
   }, [activeCompany])
 
@@ -718,7 +724,7 @@ export function CasesPage() {
       </div>
 
       {/* ── Incomplete Case Registration ── */}
-      {!loading && incompleteCases.length > 0 && (
+      {!loading && settingsLoaded && incompleteCases.length > 0 && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl overflow-hidden mb-4">
           <div className="flex items-center gap-2 px-4 py-3 border-b border-amber-200">
             <AlertCircle className="h-4 w-4 text-amber-600 flex-shrink-0" />

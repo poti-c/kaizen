@@ -270,6 +270,19 @@ serve(async (req) => {
       return json({ error: profileErr.message }, 400);
     }
 
+    // SEAT-001 (mitigation): the pre-insert roleLimitError check is a TOCTOU window — two
+    // concurrent creates can each pass it and push the company over its seat cap. Re-verify
+    // AFTER inserting and roll this user back if we now exceed the limit. This fails closed
+    // (a rare concurrent pair may both roll back; the admin just retries one at a time)
+    // rather than silently leaving the company over its paid seat count. A DB-level
+    // constraint/trigger would make it fully atomic; this is the no-migration mitigation.
+    const overLimitErr = await roleLimitError(targetCompanyId ?? null, role, userId);
+    if (overLimitErr) {
+      await supabaseAdmin.from("kaizen_profiles").delete().eq("id", userId);
+      await supabaseAdmin.auth.admin.deleteUser(userId).catch(() => {});
+      return json({ error: overLimitErr }, 400);
+    }
+
     if (role === "super_admin" && targetCompanyId) {
       await supabaseAdmin.from("kaizen_super_admin_companies")
         .upsert({ super_admin_id: userId, company_id: targetCompanyId }, { onConflict: "super_admin_id,company_id", ignoreDuplicates: true });
@@ -295,6 +308,15 @@ serve(async (req) => {
     }
     const { error: updErr } = await supabaseAdmin.from("kaizen_profiles").update({ is_active }).eq("id", userId);
     if (updErr) return json({ error: updErr.message }, 400);
+    // SEAT-001 (mitigation): re-verify the cap AFTER reactivating and re-suspend if a
+    // concurrent reactivate/create pushed us over (same TOCTOU window as create). Fails closed.
+    if (is_active && check.target) {
+      const overLimitErr = await roleLimitError(check.target.company_id, check.target.role, userId);
+      if (overLimitErr) {
+        await supabaseAdmin.from("kaizen_profiles").update({ is_active: false }).eq("id", userId);
+        return json({ error: overLimitErr }, 400);
+      }
+    }
     // Revoke (or restore) the auth session so a SUSPENDED user can't keep using a
     // still-valid JWT until it expires. Best-effort; the is_active flag remains the
     // source of truth (the client also re-checks it on session restore).

@@ -455,8 +455,14 @@ Deno.serve(async (req) => {
       opportunity_value: opportunityBy[c.id] ?? 0,
     }));
     const ownersOut = owners.map((o) => {
-      const ids = links.filter(l => l.super_admin_id === o.id).map(l => l.company_id);
-      return { ...o, companies: companyStats.filter(c => ids.includes(c.id)) };
+      // CONS-001: an owner's home company lives in kaizen_profiles.company_id and is NOT
+      // necessarily present in kaizen_super_admin_companies (create_owner only wrote the
+      // cross-links). Derive the company set from the UNION of both, otherwise a
+      // single-company owner shows zero companies and a multi-company owner is missing
+      // their primary one.
+      const linkIds = links.filter(l => l.super_admin_id === o.id).map(l => l.company_id);
+      const ids = new Set<string>([...(o.company_id ? [o.company_id] : []), ...linkIds]);
+      return { ...o, companies: companyStats.filter(c => ids.has(c.id)) };
     });
     return json({ owners: ownersOut, companies: companyStats, payments_pending: paymentsPending ?? 0, metrics });
   }

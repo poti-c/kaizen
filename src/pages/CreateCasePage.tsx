@@ -137,6 +137,18 @@ export function CreateCasePage() {
         // lost evidence visible instead of silently dropping the reporter's photos.
         if (photoErr) {
           console.error('case photo insert failed', photoErr)
+          // CC-002: the photos were uploaded to storage BEFORE submit, but their DB rows
+          // didn't commit — remove the now-orphaned objects so they don't leak. The catch
+          // block's cleanup only runs when the CASE insert throws, which this swallowed
+          // error never reaches. The user is told to re-add (which re-uploads), so the
+          // dangling objects would otherwise never be referenced.
+          const orphanPaths = photoUrls.map((url) => {
+            const marker = '/kaizen-photos/'
+            const idx = url.indexOf(marker)
+            return idx !== -1 ? url.slice(idx + marker.length) : url
+          })
+          supabase.storage.from('kaizen-photos').remove(orphanPaths).catch((rmErr) =>
+            console.error('photo cleanup after failed photo-row insert failed', rmErr))
           toast.error(lang === 'th'
             ? 'สร้างเคสแล้ว แต่แนบรูปภาพไม่สำเร็จ — กรุณาเพิ่มรูปอีกครั้งในหน้าเคส'
             : 'Case created, but attaching photos failed — please re-add them on the case page.')
@@ -151,7 +163,6 @@ export function CreateCasePage() {
       })
       if (timelineErr) console.error('case timeline insert failed', timelineErr)
 
-      const deptQuoted = `"${department.replace(/"/g, '\\"')}"`
       const [{ data: managersByDept }, { data: managersByManaged }] = await Promise.all([
         supabase
           .from('kaizen_profiles')
@@ -168,7 +179,10 @@ export function CreateCasePage() {
           .eq('role', 'manager')
           .eq('is_active', true)
           .neq('id', profile.id)
-          .contains('managed_departments', `{${deptQuoted}}`),
+          // CC-003: pass the array form and let the client encode it — hand-building the
+          // `{"label"}` literal only escaped double-quotes, so a custom dept label with a
+          // backslash or brace produced an invalid array literal and matched nobody.
+          .contains('managed_departments', [department]),
       ])
       const managerIdsSeen = new Set<string>()
       const managers = [...(managersByDept ?? []), ...(managersByManaged ?? [])].filter(

@@ -7,6 +7,7 @@ import { useCompany } from '@/contexts/CompanyContext'
 import { useLanguage } from '@/contexts/LanguageContext'
 import { assetStatus } from '@/lib/pm'
 import { bangkokDate } from '@/lib/utils'
+import { getEffectiveDepts } from '@/types'
 
 interface AssetRow { next_maintenance_date: string | null; is_active: boolean; department: string | null }
 interface TaskRow { due_date: string; status: string; performed_at: string | null; asset?: { department: string | null } | null }
@@ -64,6 +65,13 @@ export function PMSummaryCard() {
         tRows = tRows.filter(r => r.asset?.department === profile.department)
         mRows = mRows.filter(r => r.asset?.department === profile.department)
         pRows = pRows.filter(r => r.asset?.department === profile.department)
+      }
+      // PMRPT-003: a manager can only approve tasks in departments they cover (primary +
+      // managed), so the "Awaiting approval" backlog must not include departments they have
+      // no authority over. Super admins approve everything, so they keep the company count.
+      if (!isStaff && profile?.role === 'manager') {
+        const deptSet = new Set<string>(getEffectiveDepts(profile) as string[])
+        pRows = pRows.filter(r => r.asset?.department != null && deptSet.has(r.asset.department))
       }
       setAssets(aRows); setTasks(tRows); setMonthTasks(mRows); setPendingTasks(pRows)
       setLoading(false)

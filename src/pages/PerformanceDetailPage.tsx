@@ -8,12 +8,12 @@ import { useLanguage } from '@/contexts/LanguageContext'
 import { StatusBadge, PriorityBadge } from '@/components/StatusBadge'
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
-import { getInitials, formatDateTime, isSLABreached, activityLabel, companyHasFeature, companyHasAddon, bangkokDate } from '@/lib/utils'
+import { getInitials, formatDateTime, isSLABreached, getSLAHours, activityLabel, companyHasFeature, companyHasAddon, bangkokDate } from '@/lib/utils'
 import { loadPerfConfig, DEFAULT_PERF_CONFIG, type PerfConfig } from '@/lib/perfConfig'
 import { cn } from '@/lib/utils'
 import { usePresence } from '@/contexts/PresenceContext'
-import { deptLabel } from '@/types'
-import type { KaizenProfile, KaizenCase, KaizenCaseTimeline } from '@/types'
+import { deptLabel, getEffectiveDepts } from '@/types'
+import type { KaizenProfile, KaizenCase, KaizenCaseTimeline, Department } from '@/types'
 import { differenceInHours } from 'date-fns'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 
@@ -64,9 +64,11 @@ export function PerformanceDetailPage() {
     const companyId = activeCompany?.id ?? u.company_id ?? ''
     const since30 = bangkokDate(new Date(Date.now() - 30 * 86400000))
 
-    // Role-specific scoring caseload: managers are scored on their whole dept; others on their own work.
+    // Role-specific scoring caseload: managers are scored on every department they cover
+    // (primary + managed_departments, PERF-001), not just their primary one; others on
+    // their own work.
     const scoreCasesQuery = u.role === 'manager'
-      ? supabase.from('kaizen_cases').select('*').eq('company_id', companyId).eq('department', u.department).limit(5000)
+      ? supabase.from('kaizen_cases').select('*').eq('company_id', companyId).in('department', getEffectiveDepts(u)).limit(5000)
       : supabase.from('kaizen_cases').select('*').eq('company_id', companyId).or(`created_by.eq.${userId},pic_ids.cs.{${userId}}`).limit(5000)
 
     const [ownCasesRes, activityRes, activeDaysRes, scoreCasesRes] = await Promise.all([
@@ -88,22 +90,38 @@ export function PerformanceDetailPage() {
     // status alone undercounts quality issues — the timeline is the source of truth.
     const scIds = scList.map(c => c.id)
     if (scIds.length) {
-      const { data: ro } = await supabase
-        .from('kaizen_case_timeline').select('case_id').eq('action', 'reopened').in('case_id', scIds)
-      setReopenedIds(new Set((ro || []).map((r: any) => r.case_id as string)))
-      // Durable resolution timestamps from the timeline. A reopen clears
-      // kaizen_cases.resolved_at, so a case this manager approved that was later
-      // reopened would otherwise vanish from the approval-speed metric. Keep the
-      // latest 'resolved' event time per case as a fallback.
-      const { data: resEv } = await supabase
-        .from('kaizen_case_timeline').select('case_id, created_at').eq('action', 'resolved').in('case_id', scIds)
+      // PERF-003: page the id list. A single .in() with up to 5000 ids can exceed the
+      // request URL length limit; the result was destructured as `data` only, so a failed
+      // request silently became "zero reopens" — inflating Quality/Leadership scores.
+      // Chunk into small batches, check errors, and merge.
+      const chunk = <T,>(arr: T[], n: number) => {
+        const out: T[][] = []
+        for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n))
+        return out
+      }
+      const roIds = new Set<string>()
       const rmap = new Map<string, string[]>()
-      for (const e of (resEv || []) as { case_id: string; created_at: string }[]) {
-        const list = rmap.get(e.case_id) ?? []
-        list.push(e.created_at)
-        rmap.set(e.case_id, list)
+      for (const ids of chunk(scIds, 200)) {
+        const { data: ro, error: roErr } = await supabase
+          .from('kaizen_case_timeline').select('case_id').eq('action', 'reopened').in('case_id', ids)
+        if (roErr) console.error('[PerformanceDetail] reopened lookup failed', roErr.message)
+        for (const r of (ro || []) as { case_id: string }[]) roIds.add(r.case_id)
+
+        // Durable resolution timestamps from the timeline. A reopen clears
+        // kaizen_cases.resolved_at, so a case this manager approved that was later
+        // reopened would otherwise vanish from the approval-speed metric. Keep the
+        // 'resolved' event times per case as a fallback.
+        const { data: resEv, error: resErr } = await supabase
+          .from('kaizen_case_timeline').select('case_id, created_at').eq('action', 'resolved').in('case_id', ids)
+        if (resErr) console.error('[PerformanceDetail] resolved lookup failed', resErr.message)
+        for (const e of (resEv || []) as { case_id: string; created_at: string }[]) {
+          const list = rmap.get(e.case_id) ?? []
+          list.push(e.created_at)
+          rmap.set(e.case_id, list)
+        }
       }
       rmap.forEach((v, k) => rmap.set(k, v.sort()))
+      setReopenedIds(roIds)
       setResolvedAtMap(rmap)
     } else {
       setReopenedIds(new Set())
@@ -123,7 +141,7 @@ export function PerformanceDetailPage() {
           .from('kaizen_pm_tasks')
           .select('status, due_date, performed_at, asset:kaizen_pm_assets!inner(department)')
           .eq('company_id', companyId)
-          .eq('asset.department', u.department)
+          .in('asset.department', getEffectiveDepts(u))
         pmRows = (data || []) as typeof pmRows
       } else {
         const { data } = await supabase
@@ -156,13 +174,17 @@ export function PerformanceDetailPage() {
       let rrRows: { status: string; due_at: string | null; delivered_at: string | null; confirmed_at: string | null }[] = []
       const rrSel = 'status, due_at, delivered_at, confirmed_at'
       if (u.role === 'manager') {
+        // PERF-001: score every department the manager covers (primary + managed), and
+        // filter client-side — a raw .or() over custom dept LABELS would break on labels
+        // containing commas/parens. RLS already scopes to the company.
+        const depts = getEffectiveDepts(u)
         const { data } = await supabase
           .from('kaizen_rr_orders')
-          .select(rrSel)
+          .select(rrSel + ', request_department, fulfill_department')
           .eq('company_id', companyId)
           .neq('status', 'cancelled')
-          .or(`request_department.eq.${u.department},fulfill_department.eq.${u.department}`)
-        rrRows = (data || []) as typeof rrRows
+        rrRows = ((data ?? []) as unknown as Array<typeof rrRows[number] & { request_department: Department; fulfill_department: Department }>)
+          .filter(o => depts.includes(o.request_department) || depts.includes(o.fulfill_department))
       } else {
         const { data } = await supabase
           .from('kaizen_rr_orders')
@@ -340,10 +362,19 @@ export function PerformanceDetailPage() {
       {(() => {
         const sc = scoreCases
         const scClosed = sc.filter(c => c.status === 'closed')
-        const slaHours: Record<string, number> = { critical: 4, high: 24, medium: 72, low: 168 }
-        const scOverdue = sc.filter(c => isSLABreached(c) ||
-          (c.status === 'closed' && !!c.closed_at &&
-            differenceInHours(new Date(c.closed_at), new Date(c.created_at)) > (slaHours[c.priority] ?? 72)))
+        // PERF-002: judge a CLOSED case against the same source of truth as isSLABreached —
+        // honour an explicit due_date when set, otherwise the priority SLA from creation —
+        // instead of a second hardcoded table that ignored the agreed deadline.
+        const wasClosedLate = (c: KaizenCase) => {
+          if (c.status !== 'closed' || !c.closed_at) return false
+          if (c.due_date) {
+            const raw = String(c.due_date)
+            const due = new Date(raw.length <= 10 ? `${raw}T23:59:59` : raw)
+            if (!isNaN(due.getTime())) return new Date(c.closed_at) > due
+          }
+          return differenceInHours(new Date(c.closed_at), new Date(c.created_at)) > getSLAHours(c.priority)
+        }
+        const scOverdue = sc.filter(c => isSLABreached(c) || wasClosedLate(c))
         const reopenedCount = sc.filter(c => reopenedIds.has(c.id)).length  // distinct cases ever reopened (durable)
         // Cases that ever reached a resolution. A reopened case has resolved_at cleared, so
         // include it via the durable reopen set — otherwise the quality denominator can be
@@ -352,8 +383,10 @@ export function PerformanceDetailPage() {
 
         // Shared engagement: 50% active-days regularity (15 days = full), 50% in-system actions (20 = full)
         const activeDaysScore = Math.min(100, Math.round((activeDays / 15) * 100))
-        const since30Render = bangkokDate(new Date(Date.now() - 30 * 86400000))
-        const activity30Cnt = activity.filter(a => a.created_at >= since30Render).length
+        // PERF-004: compare on a real instant — a.created_at is a full ISO timestamp, so a
+        // lexical compare against a bare 'YYYY-MM-DD' cut at UTC midnight (07:00 Bangkok).
+        const since30Ms = Date.now() - 30 * 86400000
+        const activity30Cnt = activity.filter(a => new Date(a.created_at).getTime() >= since30Ms).length
         const actionsScore = Math.min(100, Math.round((activity30Cnt / 20) * 100))
         const engagementScore = Math.round(activeDaysScore * 0.5 + actionsScore * 0.5)
         const engagementNote = `${activeDays} ${activeDays === 1 ? t.perf.activeDay : t.perf.activeDays} · ${activity30Cnt} ${t.perf.actions}`

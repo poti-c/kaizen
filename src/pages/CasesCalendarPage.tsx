@@ -138,23 +138,31 @@ export function CasesCalendarPage() {
 
     if (showCaseData) {
       // Staff see their own department's cases PLUS any case they are Person In Charge
-      // of (which may live in another department), matching the Cases list page. Quote
-      // the department so custom labels with spaces/punctuation stay literal.
-      const staffScope = profile?.role === 'staff' && profile.department
-        ? `department.eq."${profile.department.replace(/"/g, '\\"')}",pic_ids.cs.{${profile.id}}`
+      // of (which may live in another department), matching the Cases list page.
+      // CCAL-001: filter client-side rather than with a raw PostgREST .or() string —
+      // custom dept LABELS can contain commas/parens that break .or() parsing (this is
+      // the same fix CasesPage got as BUG-002). RLS already scopes results to the company.
+      const staffId = profile?.id
+      const staffDept = profile?.role === 'staff' ? profile.department : null
+      const staffFilter = staffDept
+        ? (c: KaizenCase) => c.department === staffDept || (c.pic_ids ?? []).includes(staffId!)
         : null
-      let q = supabase.from('kaizen_cases').select('*').eq('company_id', activeCompany.id)
+      const q = supabase.from('kaizen_cases').select('*').eq('company_id', activeCompany.id)
         .gte('created_at', bkkStartIso).lt('created_at', bkkEndIso)
-      if (staffScope) q = q.or(staffScope)
-      jobs.push(q.then(({ data }) => { _cases = (data || []) as KaizenCase[] }))
+      jobs.push(q.then(({ data }) => {
+        const rows = (data || []) as KaizenCase[]
+        _cases = staffFilter ? rows.filter(staffFilter) : rows
+      }))
 
       // Open cases whose DEADLINE falls in this month — plotted on the due day (may have
       // been created in an earlier month, so this is a separate query from the one above).
-      let dq = supabase.from('kaizen_cases').select('*').eq('company_id', activeCompany.id)
+      const dq = supabase.from('kaizen_cases').select('*').eq('company_id', activeCompany.id)
         .not('due_date', 'is', null).neq('status', 'closed')
         .gte('due_date', bkkStartIso).lt('due_date', bkkEndIso)
-      if (staffScope) dq = dq.or(staffScope)
-      jobs.push(dq.then(({ data }) => { _due = (data || []) as KaizenCase[] }))
+      jobs.push(dq.then(({ data }) => {
+        const rows = (data || []) as KaizenCase[]
+        _due = staffFilter ? rows.filter(staffFilter) : rows
+      }))
     } else { setCases([]); setDueCases([]) }
 
     if (showPmData) {

@@ -33,7 +33,13 @@ function diffDays(a: string, b: string) {
   return Math.round((parseDateOnlyBkk(a).getTime() - parseDateOnlyBkk(b).getTime()) / 86400000)
 }
 const FINISHED = new Set(['done', 'approved'])
-const OPEN_OVERDUE_EXCLUDED = new Set(['done', 'approved', 'cancelled'])
+// PMRPT-001/002: a task counts as still-open (overdue or upcoming) only if it has NOT
+// been performed yet and isn't cancelled. 'pending_approval' carries a performed_at
+// (work is done, awaiting sign-off), so it must not be flagged overdue or counted as
+// upcoming — the previous status-only set wrongly included it.
+function isStillOpen(t: { status: string; performed_at: string | null }) {
+  return t.status !== 'cancelled' && !t.performed_at
+}
 
 function isFail(r: string) { const v = String(r).toLowerCase(); return v === 'fail' || v === 'failed' || v === 'false' }
 function isPass(r: string) { const v = String(r).toLowerCase(); return v === 'pass' || v === 'passed' || v === 'ok' || v === 'true' }
@@ -47,7 +53,7 @@ function computeMetric(tasks: RTask[], windowStartKey: string, anchorKey: string
     if (dueInWindow) {
       due++
       if (FINISHED.has(t.status) && t.performed_at && perfKey(t.performed_at) <= t.due_date) onTime++
-      if (!OPEN_OVERDUE_EXCLUDED.has(t.status) && t.due_date < anchorKey) overdue++
+      if (isStillOpen(t) && t.due_date < anchorKey) overdue++
     }
     // checklist fails for tasks performed within the window
     if (t.performed_at && perfKey(t.performed_at) >= windowStartKey && perfKey(t.performed_at) <= anchorKey) {
@@ -116,10 +122,16 @@ export function PMReport({ companyName, onClose }: { companyName: string; onClos
     })
 
     // Overdue list (current open overdue tasks, regardless of period window)
-    const overdueTasks = tasks.filter(t => !OPEN_OVERDUE_EXCLUDED.has(t.status) && t.due_date < todayKey)
+    const overdueTasks = tasks.filter(t => isStillOpen(t) && t.due_date < todayKey)
+    // PMRPT-004: "ever performed" must consider the asset's full history, not just the
+    // windowed task list — an asset last serviced before the ~600-day fetch window has no
+    // performed row in memory and would be wrongly labelled "never performed". Fall back to
+    // the asset's last_maintenance_date (always loaded).
+    const performedAssetIds = new Set(tasks.filter(o => o.performed_at && o.asset_id).map(o => o.asset_id))
+    const maintainedAssetIds = new Set(assets.filter(a => a.last_maintenance_date).map(a => a.id))
     const overdueRows = overdueTasks.map(t => {
       const late = diffDays(todayKey, t.due_date)
-      const everPerformed = tasks.some(o => o.asset_id === t.asset_id && o.performed_at)
+      const everPerformed = !!t.asset_id && (performedAssetIds.has(t.asset_id) || maintainedAssetIds.has(t.asset_id))
       return {
         id: t.id, name: t.asset?.name ?? '—', dept: t.asset?.department ?? null,
         days: late, reason: everPerformed ? 'missed' as const : 'never' as const,
@@ -176,8 +188,8 @@ export function PMReport({ companyName, onClose }: { companyName: string; onClos
     // Extra insights
     const in7 = new Date(); in7.setDate(in7.getDate() + 7); const in7Key = keyOf(in7)
     const in30 = new Date(); in30.setDate(in30.getDate() + 30); const in30Key = keyOf(in30)
-    const dueThisWeek = tasks.filter(t => !OPEN_OVERDUE_EXCLUDED.has(t.status) && t.due_date >= todayKey && t.due_date <= in7Key).length
-    const forecast30 = tasks.filter(t => !OPEN_OVERDUE_EXCLUDED.has(t.status) && t.due_date >= todayKey && t.due_date <= in30Key).length
+    const dueThisWeek = tasks.filter(t => isStillOpen(t) && t.due_date >= todayKey && t.due_date <= in7Key).length
+    const forecast30 = tasks.filter(t => isStillOpen(t) && t.due_date >= todayKey && t.due_date <= in30Key).length
     const neverMaintained = assets.filter(a => a.is_active && !a.last_maintenance_date).length
 
     const avgDaysLate = (() => {
