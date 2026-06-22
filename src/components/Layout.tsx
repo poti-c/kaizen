@@ -53,8 +53,12 @@ export function Layout() {
     return <Navigate to="/change-password" replace />
   }
 
+  // Mobile: natural document flow (min-height) so content can never be clipped
+  // by a viewport the device reports slightly wrong (Android display-size /
+  // gesture-bar). Desktop (md+): fixed app-shell with an internally scrolling
+  // <main> so the sidebar stays put.
   return (
-    <div className="flex overflow-hidden bg-gray-50" style={{ height: '100dvh' }}>
+    <div className="flex min-h-[100dvh] bg-gray-50 md:h-[100dvh] md:overflow-hidden">
       {/* Sidebar — conditionally shown based on view mode */}
       {showSidebar && (
         <div className="flex flex-shrink-0">
@@ -62,12 +66,12 @@ export function Layout() {
         </div>
       )}
 
-      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 md:overflow-hidden">
         <Header />
         <TrialBanner />
         <PmsTrialBanner />
         <main
-          className="flex-1 overflow-y-auto overflow-x-hidden"
+          className="flex-1 overflow-x-hidden md:overflow-y-auto"
           style={{ background: 'var(--brand-background, #f9fafb)', paddingBottom: showBottomNav ? 'calc(4rem + env(safe-area-inset-bottom, 0px))' : undefined }}
         >
           <Outlet />
