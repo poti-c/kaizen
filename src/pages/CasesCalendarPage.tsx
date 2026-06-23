@@ -62,7 +62,7 @@ export function CasesCalendarPage() {
   const [rrRoomOrders, setRrRoomOrders] = useState<RoomOrderCal[]>([])
   const [roomUnit, setRoomUnit] = useState<UnitNoun>(DEFAULT_UNIT)
   const [loading, setLoading] = useState(true)
-  const [selectedKey, setSelectedKey] = useState<string>(_bkkNow)
+  const [selectedKey, setSelectedKey] = useState<string | null>(_bkkNow)
   const [deptFilter, setDeptFilter] = useState<Department | 'all'>(
     () => (localStorage.getItem('kaizen-default-dept') as Department | 'all') || 'all'
   )

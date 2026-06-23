@@ -389,7 +389,8 @@ export function PerformanceDetailPage() {
         const activeDaysScore = Math.min(100, Math.round((activeDays / 15) * 100))
         // PERF-004: compare on a real instant — a.created_at is a full ISO timestamp, so a
         // lexical compare against a bare 'YYYY-MM-DD' cut at UTC midnight (07:00 Bangkok).
-        const activity30Cnt = activity.filter(a => bangkokDate(new Date(a.created_at)) >= since30).length
+        const since30Bkk = bangkokDate(new Date(Date.now() - 30 * 86400000))
+        const activity30Cnt = activity.filter(a => bangkokDate(new Date(a.created_at)) >= since30Bkk).length
         const actionsScore = Math.min(100, Math.round((activity30Cnt / 20) * 100))
         const engagementScore = Math.round(activeDaysScore * 0.5 + actionsScore * 0.5)
         const engagementNote = `${activeDays} ${activeDays === 1 ? t.perf.activeDay : t.perf.activeDays} · ${activity30Cnt} ${t.perf.actions}`
