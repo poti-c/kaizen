@@ -203,7 +203,7 @@ export function PreventiveMaintenancePage() {
           const active = filter === s && taskView === null
           return (
             <SummaryTile key={s} count={counts[s] ?? 0} label={statusLabel(s)} active={active}
-              color={STATUS_META[s].pill} onClick={() => { setTaskView(null); setFilter(active ? 'all' : s) }} />
+              color={STATUS_META[s].pill} onClick={() => { setTaskView(null); setFilter(active ? 'all' : s); setInactiveOnly(false) }} />
           )
         })}
         {/* Task-activity tiles switch to a task list view; clicking the active one (× hint) returns to the asset list. */}

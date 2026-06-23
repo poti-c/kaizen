@@ -63,7 +63,7 @@ export function SettingsPage() {
   React.useEffect(() => { setAvatarUrl(profile?.avatar_url ?? null) }, [profile?.avatar_url])
 
   function cropToSquare(file: File): Promise<Blob> {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       const img = new Image()
       const url = URL.createObjectURL(file)
       img.onload = () => {
@@ -76,6 +76,7 @@ export function SettingsPage() {
         URL.revokeObjectURL(url)
         canvas.toBlob((blob) => resolve(blob!), 'image/jpeg', 0.72)
       }
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Could not decode image')) }
       img.src = url
     })
   }
@@ -374,16 +375,18 @@ export function SettingsPage() {
           body_params: { count: affectedCases, kind: listLabel, items: items.join(', ') },
         }))
         if (notifications.length > 0) {
-          await supabase.from('kaizen_notifications').insert(notifications)
+          // Notification failure must not mask a successful deletion — separate try/catch
+          try { await supabase.from('kaizen_notifications').insert(notifications) }
+          catch (notifErr) { console.error('[confirmBulkDelete:notify]', notifErr) }
         }
       }
 
       toast.success(lang === 'th' ? `ลบ ${items.length} รายการแล้ว` : `Removed ${items.length} item${items.length > 1 ? 's' : ''}.`)
+      setBulkConfirm(null)
     } catch (err) {
       console.error('[confirmBulkDelete]', err)
       toast.error(lang === 'th' ? 'ลบไม่สำเร็จ กรุณาลองใหม่' : 'Delete failed. Please try again.')
     }
-    setBulkConfirm(null)
   }
   // ────────────────────────────────────────────────────────────────────────
 
@@ -1203,10 +1206,13 @@ function MultiDeptManagersSection({ companyId }: { companyId: string | null }) {
 
   React.useEffect(() => {
     if (!companyId) return
+    let cancelled = false
     Promise.all([
       supabase.from('kaizen_profiles').select('*').eq('company_id', companyId).eq('role', 'manager').is('deleted_at', null).order('full_name'),
       supabase.from('kaizen_settings').select('value').eq('company_id', companyId).eq('key', 'custom_departments').maybeSingle(),
     ]).then(([mgrsRes, deptsRes]) => {
+      if (cancelled) return
+      if (mgrsRes.error) { console.error('[MultiDeptManagers:managers]', mgrsRes.error.message); return }
       setManagers((mgrsRes.data ?? []) as KaizenProfile[])
       if (deptsRes.data?.value) {
         const labels = deptsRes.data.value as string[]
@@ -1214,7 +1220,8 @@ function MultiDeptManagersSection({ companyId }: { companyId: string | null }) {
         setAllDepts(labels.map((label) => ({ value: LABEL_TO_DEPT_VALUE[label] ?? label, label }))
           .filter(d => d.value !== 'top_management'))
       }
-    })
+    }).catch(err => console.error('[MultiDeptManagers]', err))
+    return () => { cancelled = true }
   }, [companyId])
 
   async function toggle(mgr: KaizenProfile, deptValue: string) {

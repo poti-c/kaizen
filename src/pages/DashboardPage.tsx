@@ -83,7 +83,18 @@ export function DashboardPage() {
     setSelectedMonths(prev => {
       const allSelected = yearMonths.every(k => prev.has(k))
       const next = new Set(prev)
-      if (allSelected) { yearMonths.forEach(k => { if (next.size > 1) next.delete(k) }) }
+      if (allSelected) {
+        const outsideCount = [...prev].filter(k => !yearMonths.includes(k)).length
+        if (outsideCount > 0) {
+          yearMonths.forEach(k => next.delete(k))
+        } else {
+          // Keep only the current Bangkok month so the invariant (≥1 selected) is preserved
+          const bkk = bangkokDate(); const [bkkY, bkkMm] = bkk.split('-').map(Number)
+          const defaultKey = monthKey(bkkY, bkkMm - 1)
+          yearMonths.forEach(k => next.delete(k))
+          next.add(defaultKey)
+        }
+      }
       else { yearMonths.forEach(k => next.add(k)) }
       return next
     })

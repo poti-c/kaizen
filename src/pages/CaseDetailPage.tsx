@@ -344,11 +344,12 @@ export function CaseDetailPage() {
   async function fetchCase() {
     setLoading(true)
     try {
-    const { data } = await supabase
+    const { data, error: caseErr } = await supabase
       .from('kaizen_cases')
       .select('*, creator:kaizen_profiles!kaizen_cases_created_by_fkey(*)')
       .eq('id', id!)
       .single()
+    if (caseErr) throw caseErr
 
     if (data) {
       setKcase(data as KaizenCase)
@@ -476,7 +477,7 @@ export function CaseDetailPage() {
   function handleCommentChange(value: string) {
     setNewComment(value)
     const lastAt = value.lastIndexOf('@')
-    if (lastAt !== -1 && lastAt > value.lastIndexOf(' ', lastAt - 1)) {
+    if (lastAt !== -1 && (lastAt === 0 || value[lastAt - 1] === ' ' || value[lastAt - 1] === '\n')) {
       const afterAt = value.slice(lastAt + 1)
       // Don't reopen if this @ is already a completed mention (name + space already inserted)
       const alreadyCompleted = mentionUsers.some(u =>
@@ -625,6 +626,8 @@ export function CaseDetailPage() {
       }
 
       toast.success(goesToManager ? (lang === 'th' ? 'บันทึกการแก้ไขแล้ว รอผู้จัดการอนุมัติ' : 'Case marked as resolved. Awaiting manager approval.') : (lang === 'th' ? 'ส่งการแก้ไขแล้ว รอผู้บริหารระดับสูงปิดเคส' : 'Resolution submitted. Awaiting Top Management closure.'))
+      setResolutionNote('')
+      setResolutionPhotos([])
       fetchCase()
     } catch {
       toast.error(lang === 'th' ? 'ส่งการแก้ไขไม่สำเร็จ' : 'Failed to submit resolution.')

@@ -131,6 +131,7 @@ export function CasesPage() {
   // Prune any saved dept filter values that no longer exist in this company's dept list.
   // Stale values would silently hide all cases (filter returns no match) with no visible error.
   useEffect(() => {
+    if (!settingsLoaded) return  // CP-004: don't prune before custom depts are loaded — initial validDeptValues only has built-in slugs
     if (validDeptValues.length === 0) return
     const valid = new Set(validDeptValues)
     setAdvFilters(prev => {
@@ -653,9 +654,10 @@ export function CasesPage() {
     if (!activeCompany?.id || !pmsEnabled) { setPmTasks([]); return }
     void (async () => {
       try { await supabase.rpc('kaizen_pm_sync') } catch { /* materialize tasks; ignore if it fails */ }
-      const { data } = await supabase.from('kaizen_pm_tasks')
+      const { data, error: pmErr } = await supabase.from('kaizen_pm_tasks')
         .select('*, asset:kaizen_pm_assets(name, location, notes, checklist, department, type:kaizen_pm_equipment_types(name))')
         .eq('company_id', activeCompany.id).in('status', ['scheduled', 'in_progress', 'pending_approval'])
+      if (pmErr) { console.error('[loadPmTasks]', pmErr.message); return }
       setPmTasks((data as PMTask[]) ?? [])
     })()
   }, [activeCompany?.id, pmsEnabled])

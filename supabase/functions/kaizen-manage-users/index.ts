@@ -80,8 +80,9 @@ serve(async (req) => {
   }
 
   async function assertCanManage(userId: string): Promise<{ ok: boolean; error?: string; target?: any }> {
-    const { data: target } = await supabaseAdmin.from("kaizen_profiles").select("role, department, company_id, full_name, username, deleted_at").eq("id", userId).is("deleted_at", null).single();
+    const { data: target } = await supabaseAdmin.from("kaizen_profiles").select("role, department, company_id, full_name, username, deleted_at").eq("id", userId).maybeSingle();
     if (!target) return { ok: false, error: "User not found" };
+    if (target.deleted_at) return { ok: false, error: "Cannot modify a deleted user" };
     if (callerRole === "super_admin") {
       // Honour cross-company access — a super admin manages users in any company
       // they can switch into, not only their home company.
@@ -302,7 +303,6 @@ serve(async (req) => {
     // is_active=true, so a suspended user is "free"; without this a company could
     // suspend, create a replacement, then reactivate to exceed the limit).
     if (is_active && check.target) {
-      if (check.target.deleted_at) return json({ error: "Cannot reactivate a deleted user" }, 400);
       const limitErr = await roleLimitError(check.target.company_id, check.target.role, userId);
       if (limitErr) return json({ error: limitErr }, 400);
     }

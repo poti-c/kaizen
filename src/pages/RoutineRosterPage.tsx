@@ -671,17 +671,23 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
   }
 
   async function update(patch: Partial<RrOrder>, okMsg: string, ev: { action: string; detail: string | null },
-    notify?: { dept: Department; title: string; message: string; useDeptConfig?: boolean }) {
+    notify?: { dept: Department; title: string; message: string; useDeptConfig?: boolean },
+    noToast?: boolean) {
     if (!profile) return
     setBusy(true)
     const { error } = await supabase.from('kaizen_rr_orders').update(patch).eq('id', o.id)
     if (error) { setBusy(false); toast.error(error.message); return }
     await logEvent(ev.action, ev.detail)
     setBusy(false)
-    if (notify) await notifyDept(notify.dept, notify.title, notify.message,
-      { templateId: o.template_id, picMode, picIds, useDeptConfig: notify.useDeptConfig })
-    toast.success(okMsg)
-    onChanged()
+    if (notify) {
+      try {
+        await notifyDept(notify.dept, notify.title, notify.message,
+          { templateId: o.template_id, picMode, picIds, useDeptConfig: notify.useDeptConfig })
+      } catch (err) {
+        console.error('[update:notifyDept]', err)
+      }
+    }
+    if (!noToast) { toast.success(okMsg); onChanged() }
   }
 
   async function sendOrder() {
@@ -706,7 +712,7 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
       const roomsWord = lang === 'th' ? 'ห้อง' : 'rooms'
       const detail = hasVariants ? `${variantBreakdown(picked.map((r) => ({ variant: grid[r] } as RrOrderItem)), variants, lang)} · ${picked.length} ${roomsWord}` : `${picked.length} ${roomsWord}`
       // Update status first so a failed items insert can be safely retried without duplicating the status update.
-      // update() releases busy internally; re-acquire it for the items insert below.
+      // noToast=true: success toast fires only after the items insert succeeds.
       await update(
         { status: 'sent', quantity: picked.length, note: note.trim() || null, sent_by: profile.id, sent_at: now() },
         tr.rr.orderSent,
@@ -716,6 +722,7 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
           message: lang === 'th'
             ? `"${o.title}"${itemSuffix} — ${picked.length} ห้อง จากแผนก ${deptLabel(o.request_department, lang)}`
             : `"${o.title}"${itemSuffix} — ${picked.length} rooms, requested by ${deptLabel(o.request_department, lang)}` },
+        true,
       )
       setBusy(true)
       const ins = await supabase.from('kaizen_rr_order_items').insert(
@@ -725,7 +732,11 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
         }))
       )
       setBusy(false)
-      if (ins.error) { toast.error(ins.error.message); return }
+      if (ins.error) {
+        await supabase.from('kaizen_rr_orders').update({ status: 'pending', sent_by: null, sent_at: null, quantity: 0 }).eq('id', o.id)
+        toast.error(ins.error.message); return
+      }
+      toast.success(tr.rr.orderSent); onChanged()
     }
   }
 
@@ -804,20 +815,22 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
       allDone = !!rows && rows.length > 0 && rows.every((x) => x.delivered)
     }
     if (allDone) {
-      const { error: e2 } = await supabase.from('kaizen_rr_orders').update({
+      const { data: promoted, error: e2 } = await supabase.from('kaizen_rr_orders').update({
         status: 'delivered', delivered_by: profile.id, delivered_at: now(),
-      }).eq('id', o.id)
+      }).eq('id', o.id).eq('status', 'accepted').select('id')
       if (e2) toast.error(e2.message)
-      else {
+      else if (promoted && promoted.length > 0) {
         // RR-006: use DB row count rather than stale closure items.length
         const dbCount = dbRows?.length ?? items.length
         await logEvent('delivered', null)
-        await notifyDept(o.request_department,
-          lang === 'th' ? 'จัดส่งออเดอร์แล้ว' : 'Routine order delivered',
-          lang === 'th'
-            ? `"${o.title}"${itemSuffix} — ครบทั้ง ${dbCount} ห้อง โดยแผนก ${deptLabel(o.fulfill_department, lang)}`
-            : `"${o.title}"${itemSuffix} — all ${dbCount} rooms done by ${deptLabel(o.fulfill_department, lang)}`,
-          { templateId: o.template_id, picMode, picIds })
+        try {
+          await notifyDept(o.request_department,
+            lang === 'th' ? 'จัดส่งออเดอร์แล้ว' : 'Routine order delivered',
+            lang === 'th'
+              ? `"${o.title}"${itemSuffix} — ครบทั้ง ${dbCount} ห้อง โดยแผนก ${deptLabel(o.fulfill_department, lang)}`
+              : `"${o.title}"${itemSuffix} — all ${dbCount} rooms done by ${deptLabel(o.fulfill_department, lang)}`,
+            { templateId: o.template_id, picMode, picIds })
+        } catch (err) { console.error('[toggleRoom:notifyDept]', err) }
         toast.success(tr.rr.orderDelivered)
       }
     }
@@ -1016,7 +1029,7 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
     })
     if (parsed.length === 0) { toast.error(tr.rr.roomsRequired); return }
     // Update status first so a failed items insert can be safely retried without duplicates.
-    // update() releases busy internally; re-acquire it for the items insert below.
+    // noToast=true: success toast fires only after the items insert succeeds.
     await update(
       { status: 'sent', quantity: parsed.length, note: note.trim() || null, sent_by: profile.id, sent_at: now() },
       tr.rr.orderSent,
@@ -1027,13 +1040,18 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
         message: lang === 'th'
           ? `"${o.title}"${itemSuffix} — ${parsed.length} ห้อง จากแผนก ${deptLabel(o.request_department, lang)}`
           : `"${o.title}"${itemSuffix} — ${parsed.length} rooms, requested by ${deptLabel(o.request_department, lang)}` },
+      true,
     )
     setBusy(true)
     const ins = await supabase.from('kaizen_rr_order_items').insert(
       parsed.map((r) => ({ order_id: o.id, company_id: o.company_id, room_no: r.room_no, item_label: r.item_label, variant: null }))
     )
     setBusy(false)
-    if (ins.error) { toast.error(ins.error.message); return }
+    if (ins.error) {
+      await supabase.from('kaizen_rr_orders').update({ status: 'pending', sent_by: null, sent_at: null, quantity: 0 }).eq('id', o.id)
+      toast.error(ins.error.message); return
+    }
+    toast.success(tr.rr.orderSent); onChanged()
   }
 }
 

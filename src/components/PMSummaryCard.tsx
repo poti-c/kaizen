@@ -77,7 +77,7 @@ export function PMSummaryCard() {
       setLoading(false)
     })()
     return () => { cancelled = true }
-  }, [companyId, isStaff, profile?.department])
+  }, [companyId, isStaff, profile?.department, profile?.role])
 
   if (loading) {
     return <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-3 mb-4 h-20 animate-pulse" />
