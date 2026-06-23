@@ -200,16 +200,19 @@ export function CasesCalendarPage() {
       })())
     } else { setRrOrders([]); setRrRoomOrders([]) }
 
-    await Promise.all(jobs)
-    if (fetchSeq != null && fetchSeq !== fetchSeqCal.current) return
-    if (showCaseData) { setCases(_cases); setDueCases(_due) }
-    if (showPmData) setPmTasks(_pm)
-    if (showRrData) { setRrOrders(_rr); setRrRoomOrders(_rrRoom) }
-    setLoading(false)
+    try {
+      await Promise.all(jobs)
+      if (fetchSeq != null && fetchSeq !== fetchSeqCal.current) return
+      if (showCaseData) { setCases(_cases); setDueCases(_due) }
+      if (showPmData) setPmTasks(_pm)
+      if (showRrData) { setRrOrders(_rr); setRrRoomOrders(_rrRoom) }
+    } finally {
+      setLoading(false)
+    }
   }
 
-  function prevMonth() { if (viewMonth === 0) { setViewMonth(11); setViewYear(y => y - 1) } else setViewMonth(m => m - 1) }
-  function nextMonth() { if (viewMonth === 11) { setViewMonth(0); setViewYear(y => y + 1) } else setViewMonth(m => m + 1) }
+  function prevMonth() { setSelectedKey(null); if (viewMonth === 0) { setViewMonth(11); setViewYear(y => y - 1) } else setViewMonth(m => m - 1) }
+  function nextMonth() { setSelectedKey(null); if (viewMonth === 11) { setViewMonth(0); setViewYear(y => y + 1) } else setViewMonth(m => m + 1) }
   function goToday() { const bkk = bangkokDate(); const [y, m] = bkk.split('-').map(Number); setViewMonth(m - 1); setViewYear(y); setSelectedKey(bkk) }
 
   const deptOk = (c: KaizenCase) => profile?.role === 'staff' || deptFilter === 'all' || c.department === deptFilter

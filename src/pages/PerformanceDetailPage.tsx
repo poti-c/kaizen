@@ -77,6 +77,7 @@ export function PerformanceDetailPage() {
       supabase.from('kaizen_user_activity').select('active_date').eq('user_id', userId!).gte('active_date', since30).limit(5000),
       scoreCasesQuery,
     ])
+    if (isCancelled()) return
     setCases((ownCasesRes.data || []) as KaizenCase[])
     setActivity((activityRes.data || [])
       .filter((a: any) => !a.case || (a.case as any).company_id === companyId)
@@ -128,8 +129,11 @@ export function PerformanceDetailPage() {
       setResolvedAtMap(new Map())
     }
 
+    if (isCancelled()) return
+
     // ── Configurable scoring: load weights + optional PMS / RR reliability ──
     const perfCfg = await loadPerfConfig(activeCompany?.id)
+    if (isCancelled()) return
     setCfg(perfCfg)
 
     // PMS reliability: on-time completion %. Staff = own tasks; manager = dept-wide.
@@ -385,8 +389,7 @@ export function PerformanceDetailPage() {
         const activeDaysScore = Math.min(100, Math.round((activeDays / 15) * 100))
         // PERF-004: compare on a real instant — a.created_at is a full ISO timestamp, so a
         // lexical compare against a bare 'YYYY-MM-DD' cut at UTC midnight (07:00 Bangkok).
-        const since30Ms = Date.now() - 30 * 86400000
-        const activity30Cnt = activity.filter(a => new Date(a.created_at).getTime() >= since30Ms).length
+        const activity30Cnt = activity.filter(a => bangkokDate(new Date(a.created_at)) >= since30).length
         const actionsScore = Math.min(100, Math.round((activity30Cnt / 20) * 100))
         const engagementScore = Math.round(activeDaysScore * 0.5 + actionsScore * 0.5)
         const engagementNote = `${activeDays} ${activeDays === 1 ? t.perf.activeDay : t.perf.activeDays} · ${activity30Cnt} ${t.perf.actions}`

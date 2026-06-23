@@ -281,7 +281,7 @@ export function PMReport({ companyName, onClose }: { companyName: string; onClos
               {/* Overdue */}
               <Card>
                 <CardTitle icon={<AlertTriangle className="h-3.5 w-3.5 text-red-500" />}>{r.overdue}</CardTitle>
-                <p className="text-3xl font-bold text-red-600 leading-none">{data.cur.overdue}</p>
+                <p className="text-3xl font-bold text-red-600 leading-none">{data.overdueRows.length}</p>
                 <p className="text-xs text-gray-500">{r.overdueTasks}</p>
                 <DeltaRow invert deltas={data.deltas.map(d => ({ label: d.label, cur: data.cur.overdue, prev: d.metric.overdue, suffix: '' }))} />
                 <div className="mt-2 space-y-1 max-h-32 overflow-y-auto print:overflow-visible print:max-h-none">
@@ -321,7 +321,7 @@ export function PMReport({ companyName, onClose }: { companyName: string; onClos
               <Stat icon={<ClipboardList className="h-4 w-4 text-violet-500" />} value={data.pendingApproval} label={r.approvalBacklog} />
               <Stat icon={<CheckCircle2 className="h-4 w-4 text-teal-500" />} value={`${data.avgApprovalWait} ${r.days}`} label={r.avgApprovalWait} />
               <Stat icon={<CheckCircle2 className="h-4 w-4 text-green-500" />} value={data.totalPerformed} label={r.completed} />
-              <Stat icon={<AlertTriangle className="h-4 w-4 text-red-500" />} value={data.cur.overdue} label={r.overdue} />
+              <Stat icon={<AlertTriangle className="h-4 w-4 text-red-500" />} value={data.overdueRows.length} label={r.overdue} />
             </div>
 
             {/* 5: Top problem assets */}

@@ -72,7 +72,8 @@ export function CreateCasePage() {
             setCustomCategories([...builtIns, ...custom])
           }
           if (row.key === 'custom_locations') {
-            setCustomLocations(row.value as string[])
+            const customs = (row.value as string[]).filter(l => !LOCATIONS.includes(l as never))
+            setCustomLocations([...LOCATIONS, ...customs])
           }
         })
       })

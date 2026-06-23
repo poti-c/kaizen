@@ -59,7 +59,8 @@ serve(async (req) => {
     return json({ error: "Forbidden" }, 403);
   }
 
-  const body = await req.json();
+  let body: any;
+  try { body = await req.json(); } catch { return json({ error: "Invalid request body" }, 400); }
   const { action } = body;
 
   // Companies a super admin may manage: their home company plus every company
@@ -365,7 +366,7 @@ serve(async (req) => {
     }
     if (callerRole === "super_admin") {
       // Allow username change only for super_admin callers
-      if (updates.username !== undefined) allowed.username = updates.username;
+      if (updates.username !== undefined) allowed.username = typeof updates.username === "string" ? updates.username.trim() : updates.username;
       if (updates.department !== undefined) {
         if (!(await isValidDepartment(target.company_id, updates.department))) {
           return json({ error: "That department does not exist for this company." }, 400);
@@ -373,6 +374,8 @@ serve(async (req) => {
         allowed.department = updates.department;
       }
       if (updates.role !== undefined) {
+        const VALID_ROLES = new Set(["super_admin", "manager", "staff"]);
+        if (!VALID_ROLES.has(updates.role)) return json({ error: "Invalid role." }, 400);
         if (updates.role !== target.role) {
           const limitErr = await roleLimitError(target.company_id, updates.role, userId);
           if (limitErr) return json({ error: limitErr }, 400);

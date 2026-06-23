@@ -349,14 +349,24 @@ Deno.serve(async (req) => {
   if (action === "delete_admin") {
     const admin_id = String(body.admin_id ?? "");
     if (!admin_id) return json({ error: "admin_id required" }, 400);
-    const { count: preDel } = await admin.from("kaizen_console_admins").select("id", { count: "exact", head: true }).eq("is_active", true);
-    if ((preDel ?? 0) <= 1) return json({ error: "Cannot delete the last admin account." }, 400);
+    // Fetch the target admin to know if it's active before touching anything.
+    const { data: targetAdmin } = await admin.from("kaizen_console_admins").select("is_active").eq("id", admin_id).maybeSingle();
+    if (!targetAdmin) return json({ error: "Admin not found" }, 400);
+    // Only check the active-count guard when deleting an active admin.
+    if (targetAdmin.is_active) {
+      const { count: preDel } = await admin.from("kaizen_console_admins").select("id", { count: "exact", head: true }).eq("is_active", true);
+      if ((preDel ?? 0) <= 1) return json({ error: "Cannot delete the last admin account." }, 400);
+    }
     const { error } = await admin.from("kaizen_console_admins").delete().eq("id", admin_id);
     if (error) return json({ error: error.message }, 400);
-    const { count: postDel } = await admin.from("kaizen_console_admins").select("id", { count: "exact", head: true }).eq("is_active", true);
-    if ((postDel ?? 0) === 0) {
-      await audit("delete_admin_unsafe", { admin_id }, ip, false);
-      return json({ error: "Delete aborted: no active admin accounts would remain. Please recreate an admin account immediately." }, 500);
+    // Post-delete safety net: if somehow the active count reached 0 (concurrent race),
+    // log it — we cannot undo but at least the audit trail captures it.
+    if (targetAdmin.is_active) {
+      const { count: postDel } = await admin.from("kaizen_console_admins").select("id", { count: "exact", head: true }).eq("is_active", true);
+      if ((postDel ?? 0) === 0) {
+        await audit("delete_admin_unsafe", { admin_id }, ip, false);
+        return json({ error: "Delete aborted: no active admin accounts would remain. Please recreate an admin account immediately." }, 500);
+      }
     }
     await audit("delete_admin", { admin_id }, ip, true);
     return json({ success: true });
@@ -1280,16 +1290,10 @@ Deno.serve(async (req) => {
     if (p.id) res = await admin.from("kaizen_products").update(row).eq("id", String(p.id)).select("*").single();
     else res = await admin.from("kaizen_products").insert(row).select("*").single();
     if (res.error) return json({ error: res.error.message }, 400);
-    // Keep companies on this package in sync with edited limits/authorities.
-    if (res.data.kind === "package" && res.data.key) {
-      await admin.from("kaizen_companies").update({
-        max_super_admins: res.data.max_super_admins,
-        max_managers: res.data.max_managers,
-        max_staff: res.data.max_staff,
-        multi_company: !!res.data.multi_company,
-        features: res.data.features ?? {},
-      }).eq("plan", res.data.key);
-    }
+    // Do NOT blanket-sync limits back to companies on every product edit —
+    // companies can have per-company overrides (set via update_company) and a blind
+    // sync would silently revert them. Admins who want to push new package defaults
+    // should use update_company for the specific companies that need it.
     await audit("upsert_product", { id: res.data.id, name, kind }, ip, true);
     return json({ success: true, product: res.data });
   }

@@ -536,7 +536,7 @@ function RoomOrderBuild({ companyId, unit, requireApproval, initialDate }: { com
         if (l.active && prevActive.get(l.id) === false) {
           patch.status = 'pending'; patch.delivered_by = null; patch.delivered_at = null
           patch.acknowledged_by = null; patch.acknowledged_at = null
-          patch.approval_status = requireApproval ? 'pending' : 'approved'
+          patch.approval_status = l.source === 'special' && requireApproval ? 'pending' : 'approved'
           // Bump created_at so this freshly-resurrected line counts as NEW work on the
           // next re-submit — notifyFulfillers filters by created_at > last-submit time,
           // and the row otherwise keeps its original (pre-submit) timestamp and would be
@@ -630,7 +630,8 @@ function RoomOrderBuild({ companyId, unit, requireApproval, initialDate }: { com
 
   async function performSubmit(statuses: Record<string, RoomStatus>) {
     if (!profile) { toast.error(lang === 'th' ? 'เซสชันหมดอายุ — กรุณาเข้าสู่ระบบใหม่' : 'Session expired — please sign in again'); return }
-    if (busy) return
+    // RO-001: do NOT read the busy React state here — callers own the busy lifecycle
+    // and setBusy(false) is not synchronous, so reading it here returns a stale true.
     setBusy(true)
     const orderResult = await ensureOrder(); if (!orderResult) { setBusy(false); return } const oid = orderResult.id
     // Materialize defaults for any room not explicitly saved or statused.
@@ -684,10 +685,10 @@ function RoomOrderBuild({ companyId, unit, requireApproval, initialDate }: { com
     if (busy) return
     const targets = untouchedRooms()
     if (targets.length === 0) { toast.info(lang === 'th' ? 'ไม่มีห้องที่ยังไม่ได้ตั้งค่า' : `No untouched ${many.toLowerCase()} left`); return }
-    const orderResult = await ensureOrder(); if (!orderResult) return; const oid = orderResult.id
+    setBusy(true)  // RO-003: set busy before the first await to block concurrent clicks
+    const orderResult = await ensureOrder(); if (!orderResult) { setBusy(false); return } const oid = orderResult.id
     const next = { ...roomStatuses }
     targets.forEach((r) => { next[r.no] = 'empty' })
-    setBusy(true)
     const { error } = await supabase.from('kaizen_rr_room_orders').update({ room_statuses: next }).eq('id', oid)
     setBusy(false)
     if (error) { toast.error(error.message); return }
@@ -1360,7 +1361,7 @@ function RoomApprovalsView({ companyId, onChanged }: { companyId: string; onChan
   async function decide(ids: string[], status: 'approved' | 'rejected') {
     if (ids.length === 0) return
     setBusy(true)
-    const { error } = await supabase.from('kaizen_rr_room_lines').update({ approval_status: status }).in('id', ids)
+    const { error } = await supabase.from('kaizen_rr_room_lines').update({ approval_status: status }).in('id', ids).eq('approval_status', 'pending')
     setBusy(false)
     if (error) { toast.error(error.message); return }
     if (orderId) await logRoomEvent(companyId, orderId, date, profile?.id, status, `${ids.length} special request${ids.length === 1 ? '' : 's'}`)

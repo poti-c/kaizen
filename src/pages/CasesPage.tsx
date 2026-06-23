@@ -289,8 +289,9 @@ export function CasesPage() {
         const realStatuses = advFilters.statuses.filter((s) => s !== 'overdue') as CaseStatus[]
         result = result.filter((c) => realStatuses.includes(c.status) || (wantOverdue && isSLABreached(c)))
       }
-      // Department filter: OR logic
-      if (advFilters.departments.length > 0) {
+      // Department filter: OR logic. Skip until settings are loaded — custom dept labels
+      // from localStorage haven't been validated yet and would silently hide all cases.
+      if (advFilters.departments.length > 0 && settingsLoaded) {
         result = result.filter((c) => advFilters.departments.includes(c.department))
       }
       // Priority filter: OR logic
@@ -473,13 +474,15 @@ export function CasesPage() {
       formatDuration(c.created_at, c.closed_at || undefined),
     ].map(cell))
     const csv = [headers.map(cell).join(','), ...rows.map((r) => r.join(','))].join('\n')
-    const blob = new Blob([csv], { type: 'text/csv' })
+    const blob = new Blob(['﻿', csv], { type: 'text/csv;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
     a.download = `kaizen-cases-${bangkokDate()}.csv`
+    document.body.appendChild(a)
     a.click()
-    URL.revokeObjectURL(url)
+    document.body.removeChild(a)
+    setTimeout(() => URL.revokeObjectURL(url), 100)
   }
 
   function CaseTableHeader() {
