@@ -138,7 +138,7 @@ export function Header() {
               key={n.id}
               className={`px-4 py-3 cursor-pointer hover:bg-gray-50 active:bg-gray-100 transition-colors ${!n.is_read ? 'bg-blue-50/50' : ''}`}
               onClick={() => {
-                markRead(n.id)
+                void markRead(n.id)
                 if (n.case_id) navigate(`/cases/${n.case_id}`)
                 else if (n.notification_type === 'pm') navigate('/maintenance')
                 else if (n.notification_type === 'rr') navigate('/routine-roster')

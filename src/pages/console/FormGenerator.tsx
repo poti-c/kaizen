@@ -234,8 +234,7 @@ export function FormGeneratorView({ call, onBack, initialPreviewId, onPreviewCon
   useEffect(() => {
     if (!initialPreviewId || !forms.length) return
     const target = forms.find(f => f.id === initialPreviewId)
-    if (target) { setFilterType(target.form_type); setPreview(target) }
-    onPreviewConsumed?.()
+    if (target) { setDraftPayload(null); setFilterType(target.form_type); setPreview(target); onPreviewConsumed?.() }
   }, [initialPreviewId, forms, onPreviewConsumed])
 
   const filtered = filterType === 'all' ? forms : forms.filter(f => f.form_type === filterType)
@@ -716,7 +715,7 @@ function PrintPreview({ form, issuer, onClose, unconfirmed, confirming, onConfir
     ? (issuer?.branch_code ? t.branch(issuer.branch_code) : (issuer?.branch_name || t.branch('')))
     : t.headOffice
   const issuerAddr = composeAddress(issuer?.billing_address, lang) || issuer?.address || ''
-  const showVat = form.form_type !== 'receipt'
+  const showVat = form.form_type !== 'receipt' || form.vat_rate > 0
   const signatoryName = issuer?.signatory_name || 'Dr. Poti Chaopaisarn'
   const signatoryTitle = issuer?.signatory_title || 'Managing Director'
   const docTitle = lang === 'th' ? typeThai(form.form_type) : typeLabel(form.form_type)

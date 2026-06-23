@@ -150,7 +150,8 @@ Deno.serve(async (req) => {
   // downstream step (product lookup, company update, invoice) fails after the insert.
   let sub: { id: string } | null = null;
   if (reuseId) {
-    await admin.from("kaizen_payment_submissions").update({ status: "pending" }).eq("id", reuseId);
+    const { error: resetErr } = await admin.from("kaizen_payment_submissions").update({ status: "pending" }).eq("id", reuseId);
+    if (resetErr) return json({ error: "Could not retry activation — please contact support." }, 500);
     sub = { id: reuseId };
   } else {
     const { data: inserted, error } = await admin.from("kaizen_payment_submissions").insert({
@@ -205,6 +206,9 @@ Deno.serve(async (req) => {
         // clobbering each other (the loser previously overwrote the winner, losing a paid
         // term). The function extends from the existing expiry, or anchors a first-ever
         // subscription to today in Asia/Bangkok, and returns the prior plan + new end.
+        // Capture current expiry BEFORE extending — this becomes the invoice period_start.
+        const { data: coNow } = await admin.from("kaizen_companies").select("plan_expires_at").eq("id", company_id).maybeSingle();
+        const periodStart = coNow?.plan_expires_at ? (coNow.plan_expires_at as string).slice(0, 10) : bangkokDate();
         const { data: actRows, error: updateErr } = await admin.rpc("kaizen_activate_subscription", {
           p_company_id: company_id,
           p_plan: target,
@@ -226,7 +230,7 @@ Deno.serve(async (req) => {
           }
           await admin.from("kaizen_invoices").insert({
             company_id, payee: target_label ?? target, amount: storedAmount, currency,
-            payment_date: bangkokDate(), period_start: bangkokDate(), period_end: end,
+            payment_date: bangkokDate(), period_start: periodStart, period_end: end,
             notes: "Auto-verified PromptPay payment (SlipOK)",
           });
         }

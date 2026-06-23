@@ -300,7 +300,7 @@ export function CasesCalendarPage() {
 
   const showDeptFilter = (profile?.role === 'super_admin' || profile?.role === 'manager') && showCaseData
   const selectedDate = selectedKey ? parseDateOnlyBkk(selectedKey) : null
-  const selectedEntries = byDay[selectedKey] ?? []
+  const selectedEntries: Entry[] = selectedKey ? (byDay[selectedKey] ?? []) : []
 
   return (
     <div className="p-4 md:p-6 max-w-5xl mx-auto animate-fade-in">

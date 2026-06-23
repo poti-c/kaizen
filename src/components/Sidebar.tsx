@@ -33,7 +33,7 @@ export function Sidebar() {
   const allNavItems = useNavItems()
 
   async function handleSignOut() {
-    await signOut()
+    try { await signOut() } catch { /* ignore — navigate to login regardless */ }
     navigate('/login')
   }
 

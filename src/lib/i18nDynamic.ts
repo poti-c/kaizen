@@ -119,7 +119,7 @@ export function localizeNotif(
   n: { title: string; message: string; title_key?: string | null; body_params?: NotifParams | null },
   lang: string,
 ): { title: string; message: string } {
-  const tpl = n.title_key ? NOTIF_TEMPLATES[n.title_key] : undefined
+  const tpl = n.title_key && Object.prototype.hasOwnProperty.call(NOTIF_TEMPLATES, n.title_key) ? NOTIF_TEMPLATES[n.title_key] : undefined
   if (!tpl) return { title: n.title, message: n.message }
   const l: Lang = lang === 'th' ? 'th' : 'en'
   const p = n.body_params ?? {}

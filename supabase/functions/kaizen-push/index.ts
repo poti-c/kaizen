@@ -100,7 +100,7 @@ const TEMPLATES: Record<string, { title: (p: P, l: Lang) => string; body: (p: P,
 };
 
 function localize(row: any, lang: Lang): { title: string; body: string } {
-  const tpl = row.title_key ? TEMPLATES[row.title_key] : undefined;
+  const tpl = row.title_key && Object.hasOwn(TEMPLATES, row.title_key) ? TEMPLATES[row.title_key] : undefined;
   if (!tpl) return { title: row.title ?? "Kaizen", body: row.message ?? "" };
   const p = (row.body_params ?? {}) as P;
   return { title: tpl.title(p, lang), body: tpl.body(p, lang) };
@@ -118,6 +118,16 @@ Deno.serve(async (req) => {
   }
   webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
 
+  // Optional shared secret — set PUSH_SECRET in Supabase Function Secrets and update
+  // the kaizen_trigger_push_notification trigger to send Authorization: Bearer <secret>.
+  // When set, unauthenticated callers are rejected; when unset, the check is skipped
+  // so existing deployments without the trigger update keep working.
+  const PUSH_SECRET = Deno.env.get("PUSH_SECRET");
+  if (PUSH_SECRET) {
+    const auth = req.headers.get("Authorization") ?? "";
+    if (auth !== `Bearer ${PUSH_SECRET}`) return json({ error: "Unauthorized" }, 401);
+  }
+
   const row = await req.json().catch(() => null);
   const userId = row?.user_id;
   if (!userId) return json({ error: "missing user_id" }, 400);
@@ -129,11 +139,12 @@ Deno.serve(async (req) => {
   );
 
   // Recipient language (persisted from the app); count their unread for the badge.
-  const [{ data: prof }, { count: unread }, { data: subs }] = await Promise.all([
+  const [{ data: prof }, { count: unread }, { data: subs, error: subsErr }] = await Promise.all([
     admin.from("kaizen_profiles").select("preferred_lang").eq("id", userId).maybeSingle(),
     admin.from("kaizen_notifications").select("id", { count: "exact", head: true }).eq("user_id", userId).eq("is_read", false),
     admin.from("kaizen_push_subscriptions").select("id, endpoint, p256dh, auth").eq("user_id", userId),
   ]);
+  if (subsErr) { console.error("[kaizen-push] subscriptions query failed:", subsErr.message); return json({ error: "Failed to fetch subscriptions" }, 500); }
   const lang: Lang = (prof?.preferred_lang === "th") ? "th" : "en";
   const subscriptions = subs ?? [];
   if (subscriptions.length === 0) return json({ sent: 0, reason: "no_subscriptions" });

@@ -1952,6 +1952,10 @@ function CreateCompanyDialog({ call, onClose, onCreated }: {
       setError('Owner full name, email, and a password of at least 6 characters are required.')
       return
     }
+    if (officeType === 'branch' && branchCode.replace(/\D/g, '').length !== 5) {
+      setError('Branch code must be exactly 5 digits.')
+      return
+    }
     setSaving(true)
     try {
       // Create the company AND its owner together (server rolls back the
@@ -2339,6 +2343,10 @@ function AdminSettingsView({ call, onBack }: { call: <T,>(a: string, p?: Record<
     setEditCo(true)
   }
   async function saveCo() {
+    if (co.office_type === 'branch' && (co.branch_code ?? '').replace(/\D/g, '').length !== 5) {
+      alert('Branch code must be exactly 5 digits.')
+      return
+    }
     setBusy('co')
     try {
       await call('update_settings', {

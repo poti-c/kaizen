@@ -110,13 +110,13 @@ export function buildCasePrintHtml(
 
       <div class="section">
         <h2>${L.description}</h2>
-        <p>${esc(kcase.description).replace(/\n/g, '<br>')}</p>
+        <p>${esc(kcase.description).replace(/\r?\n/g, '<br>')}</p>
       </div>
 
       ${kcase.proposed_solution ? `
       <div class="section">
         <h2>${L.proposedSolution}</h2>
-        <p>${esc(kcase.proposed_solution).replace(/\n/g, '<br>')}</p>
+        <p>${esc(kcase.proposed_solution).replace(/\r?\n/g, '<br>')}</p>
       </div>` : ''}
 
       ${kcase.assigned_departments && kcase.assigned_departments.length > 0 ? `
@@ -149,7 +149,7 @@ export function buildCasePrintHtml(
             <div class="timeline-dot"></div>
             <div class="timeline-content">
               <p class="action">${esc(timelineActionLabel(e.action, lang))}</p>
-              ${e.description ? `<p>${esc(e.description).replace(/\n/g, '<br>')}</p>` : ''}
+              ${e.description ? `<p>${esc(e.description).replace(/\r?\n/g, '<br>')}</p>` : ''}
               <p class="time">${fmtDateSafe(e.created_at, loc, { year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
             </div>
           </div>
