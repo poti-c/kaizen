@@ -129,8 +129,8 @@ export function BillingAddressFields({ officeType, branchCode, address, onChange
           {officeType === 'branch' && (
             <div className="relative">
               <input value={branchCode} onChange={(e) => setBranch(e.target.value.replace(/\D/g, '').slice(0, 5))}
-                placeholder="00000" className={`${inp} w-28 ${branchCode && branchCode.length < 5 ? 'border-red-500/60' : ''}`} inputMode="numeric" maxLength={5} />
-              {branchCode && branchCode.length < 5 && <p className="text-[10px] text-red-400 mt-0.5">Must be 5 digits</p>}
+                placeholder="00000" className={`${inp} w-28 ${branchCode.length !== 5 ? 'border-red-500/60' : ''}`} inputMode="numeric" maxLength={5} />
+              {branchCode.length !== 5 && <p className="text-[10px] text-red-400 mt-0.5">Must be 5 digits</p>}
             </div>
           )}
         </div>

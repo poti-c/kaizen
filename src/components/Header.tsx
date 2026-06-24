@@ -47,7 +47,7 @@ export function Header() {
     (profile ? item.roles.includes(profile.role) : false) &&
     (item.addon === undefined || companyHasAddon(activeCompany, item.addon)) &&
     (!item.feature || companyHasFeature(activeCompany, item.feature)) &&
-    (item.to !== '/routine-roster' || rrFo.allowed)
+    (item.to !== '/routine-roster' || (!rrFo.loading && rrFo.allowed))
   )
 
   async function handleSignOut() {

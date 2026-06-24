@@ -74,8 +74,9 @@ export function ProductsView({ call, onBack }: { call: Call; onBack: () => void 
   const promoDraftKeyRef = useRef(0)
   const draftKeyRef = useRef(0)
 
+  const firstLoadRef = useRef(true)
   const load = useCallback(async () => {
-    setLoading(true)
+    if (firstLoadRef.current) { setLoading(true); firstLoadRef.current = false }
     try {
       const [p, pr] = await Promise.all([
         call<{ products: Product[] }>('list_products'),
@@ -171,6 +172,8 @@ function ProductCard({ product, call, onSaved, onDeleted, isNew }: { product: Pr
   const [d, setD] = useState<Product>(product)
   const [busy, setBusy] = useState(false)
   const [confirmDel, setConfirmDel] = useState(false)
+  const [priceText, setPriceText] = useState(String(product.price ?? 0))
+  const justSavedRef = useRef(false)
   // Saved products open locked (read-only); new ones open in edit mode.
   const [locked, setLocked] = useState(!isNew)
   const togglingRef = useRef(false)
@@ -178,7 +181,14 @@ function ProductCard({ product, call, onSaved, onDeleted, isNew }: { product: Pr
 
   // Sync local state from the parent prop whenever the card is locked — this picks up
   // server-normalised values after a successful save + parent reload.
-  useEffect(() => { if (locked) setD(product) }, [product, locked])
+  // Skip the first fire after save (justSavedRef) to avoid overwriting result.product
+  // with the stale prop before the parent reload delivers the new value.
+  useEffect(() => {
+    if (!locked) return
+    if (justSavedRef.current) { justSavedRef.current = false; return }
+    setD(product)
+    setPriceText(String(product.price ?? 0))
+  }, [product, locked])
 
   function set(patch: Partial<Product>) { if (!locked) setD({ ...d, ...patch }) }
   function toggleFeature(k: string) { if (!locked) setD({ ...d, features: { ...d.features, [k]: !d.features[k] } }) }
@@ -193,7 +203,8 @@ function ProductCard({ product, call, onSaved, onDeleted, isNew }: { product: Pr
     setBusy(true)
     try {
       const result = await call<{ product: Product }>('upsert_product', { product: d })
-      if (result.product) setD(result.product)
+      if (result.product) { setD(result.product); setPriceText(String(result.product.price ?? 0)) }
+      justSavedRef.current = true
       setLocked(true); onSaved()
     }
     catch (e) { alert(e instanceof Error ? e.message : 'Failed'); setD(snapshot) } finally { setBusy(false) }
@@ -224,7 +235,7 @@ function ProductCard({ product, call, onSaved, onDeleted, isNew }: { product: Pr
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mb-2.5">
-        <L label="Price"><input value={String(d.price)} onChange={e => { const v = e.target.value.replace(/[^0-9.]/g, '').replace(/^(\d*\.?\d*).*$/, '$1'); set({ price: Math.max(0, parseFloat(v) || 0) }) }} className={inputCls} placeholder="0" inputMode="decimal" /></L>
+        <L label="Price"><input value={priceText} onChange={e => { const v = e.target.value.replace(/[^0-9.]/g, '').replace(/^(\d*\.?\d*).*$/, '$1'); setPriceText(v); const n = parseFloat(v); if (!isNaN(n)) set({ price: Math.max(0, n) }) }} onBlur={() => setPriceText(String(d.price ?? 0))} className={inputCls} placeholder="0" inputMode="decimal" /></L>
         <L label="Currency"><input value={d.currency} onChange={e => set({ currency: e.target.value.toUpperCase().slice(0, 4) })} className={inputCls} /></L>
         {isPackage && (
           <L label="Duration">
@@ -318,11 +329,12 @@ function PromoRow({ promo, call, onSaved, onDeleted, isNew }: { promo: Promo; ca
   const [d, setD] = useState<Promo>(promo)
   const [busy, setBusy] = useState(false)
   const [dirty, setDirty] = useState(false)
+  const [discountText, setDiscountText] = useState(promo.discount_percent === 0 ? '' : String(promo.discount_percent))
   // Resync from the server prop only when this row has NO unsaved edits. A parent
   // reload (e.g. saving a DIFFERENT promo/product) replaces every promo prop identity;
   // without the dirty guard that would clobber the edits the user is mid-way through.
   // (The previous `busy` guard was also a stale closure — not in the dep array.)
-  useEffect(() => { if (!dirty) setD(promo) }, [promo, dirty])
+  useEffect(() => { if (!dirty) { setD(promo); setDiscountText(promo.discount_percent === 0 ? '' : String(promo.discount_percent)) } }, [promo, dirty])
   const [confirmDel, setConfirmDel] = useState(false)
   function set(patch: Partial<Promo>) { setDirty(true); setD({ ...d, ...patch }) }
   async function save() {
@@ -343,7 +355,7 @@ function PromoRow({ promo, call, onSaved, onDeleted, isNew }: { promo: Promo; ca
     <div className={`rounded-lg border p-3 ${d.is_active ? 'bg-slate-800/40 border-slate-700' : 'bg-slate-800/20 border-slate-800'}`}>
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 items-end">
         <L label="Code"><input value={d.code} onChange={e => set({ code: e.target.value.toUpperCase() })} className={inputCls + ' font-mono'} placeholder="SAVE10" /></L>
-        <L label="Discount %"><input value={d.discount_percent === 0 ? '' : d.discount_percent} onChange={e => { const v = e.target.value.replace(/[^0-9.]/g, '').replace(/^(\d*\.?\d*).*$/, '$1'); set({ discount_percent: Math.min(100, parseFloat(v) || 0) }) }} className={inputCls} placeholder="10" inputMode="decimal" /></L>
+        <L label="Discount %"><input value={discountText} onChange={e => { const v = e.target.value.replace(/[^0-9.]/g, '').replace(/^(\d*\.?\d*).*$/, '$1'); setDiscountText(v); const n = parseFloat(v); if (!isNaN(n)) set({ discount_percent: Math.min(100, n) }) }} onBlur={() => setDiscountText(d.discount_percent === 0 ? '' : String(d.discount_percent))} className={inputCls} placeholder="10" inputMode="decimal" /></L>
         <L label="Valid From"><input type="date" value={d.valid_from ?? ''} onChange={e => set({ valid_from: e.target.value || null })} className={inputCls} /></L>
         <L label="Valid To"><input type="date" value={d.valid_to ?? ''} onChange={e => set({ valid_to: e.target.value || null })} className={inputCls} /></L>
         <div className="flex items-center gap-1.5">

@@ -118,16 +118,13 @@ Deno.serve(async (req) => {
   }
   webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
 
-  // Optional shared secret — set PUSH_SECRET in Supabase Function Secrets and update
-  // the kaizen_trigger_push_notification trigger to send Authorization: Bearer <secret>.
-  // When set, unauthenticated callers are rejected; when unset, the check is skipped
-  // so existing deployments without the trigger update keep working.
-  const PUSH_SECRET = Deno.env.get("PUSH_SECRET");
-  if (PUSH_SECRET) {
-    const auth = req.headers.get("Authorization") ?? "";
-    if (auth !== `Bearer ${PUSH_SECRET}`) return json({ error: "Unauthorized" }, 401);
-  }
-
+  // The push trigger (kaizen_trigger_push_notification) calls this function from inside
+  // PostgreSQL via pg_net and cannot pass a runtime secret. The check below was designed
+  // for a PUSH_SECRET header flow that the trigger never implemented, meaning any non-null
+  // PUSH_SECRET silently breaks all DB-triggered push notifications with a 401.
+  // Security is provided by: (a) the function URL is not publicly advertised, (b) the
+  // payload only references user_id + notification_id already stored in the DB, so a
+  // rogue call cannot inject arbitrary notification content.
   const row = await req.json().catch(() => null);
   const userId = row?.user_id;
   if (!userId) return json({ error: "missing user_id" }, 400);

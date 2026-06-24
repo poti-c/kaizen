@@ -598,7 +598,7 @@ function FormEditor({ formType, companies, products, promos, existingForms, rese
           <Field label="Due / Valid Until"><input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} className={inputCls} /></Field>
         )}
         <Field label="Currency"><input value={currency} onChange={e => setCurrency(e.target.value.toUpperCase().slice(0, 4))} className={inputCls} /></Field>
-        <Field label="VAT %"><input value={vatRate} onChange={e => setVatRate(e.target.value.replace(/[^0-9.]/g, ''))} className={inputCls} inputMode="decimal" /></Field>
+        <Field label="VAT %"><input value={vatRate} onChange={e => { const v = e.target.value.replace(/[^0-9.]/g, '').replace(/^(\d*\.?\d*).*$/, '$1'); const n = parseFloat(v); setVatRate(isNaN(n) ? v : String(Math.min(100, n))) }} className={inputCls} inputMode="decimal" /></Field>
       </div>
 
       {/* Line items */}

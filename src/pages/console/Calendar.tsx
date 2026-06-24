@@ -96,7 +96,7 @@ export function CalendarView({ call, onOpenForm }: { call: Call; onOpenForm: (fo
           color: 'bg-amber-500/15 text-amber-300 border-amber-500/30', dot: 'bg-amber-400',
         })
       }
-      if (f.form_type === 'invoice' && f.due_date) {
+      if ((f.form_type === 'invoice' || f.form_type === 'tax_invoice_receipt') && f.due_date) {
         out.push({
           key: `f-${f.id}-due`, date: f.due_date, sort: 0, source: 'form', form: f, variant: 'expiry',
           label: `${label} ${f.doc_number} payment due`,
@@ -106,7 +106,7 @@ export function CalendarView({ call, onOpenForm }: { call: Call; onOpenForm: (fo
     }
     for (const a of appts) {
       const start = new Date(a.start_at)
-      const meta = KIND_META[a.kind]
+      const meta = KIND_META[a.kind] ?? KIND_META['other']
       const cancelled = a.status === 'cancelled'
       // hour:'2-digit' (not 'numeric') so midnight is '00' not '24' — 'numeric' with
       // hour12:false returns '24' for 00:00 in Chromium, which sorted midnight last.

@@ -41,7 +41,7 @@ export function Sidebar() {
     if (!profile || !item.roles.includes(profile.role)) return false
     if (item.feature && !companyHasFeature(activeCompany, item.feature)) return false
     if (item.addon && !companyHasAddon(activeCompany, item.addon)) return false
-    if (item.to === '/routine-roster' && !rrFo.allowed) return false
+    if (item.to === '/routine-roster' && (rrFo.loading || !rrFo.allowed)) return false
     return true
   })
 

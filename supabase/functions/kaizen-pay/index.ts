@@ -85,6 +85,7 @@ Deno.serve(async (req) => {
   const body = await req.json().catch(() => ({}));
   const { company_id, kind, target, target_label, amount, currency = "THB", proof_url } = body;
   if (!company_id || !kind || !target) return json({ error: "Missing fields" }, 400);
+  if (currency !== "THB") return json({ error: "Unsupported currency." }, 400);
   // Guard against an oversized base64 proof data-URL bloating the row and spiking
   // edge-function memory (the whole string is SHA-256'd in memory below). ~2 MB image
   // ≈ ~2.8M base64 chars; cap at 4M to leave headroom for legitimate slips.
@@ -93,7 +94,8 @@ Deno.serve(async (req) => {
   }
 
   // Verify the caller is a manager/owner of this company.
-  const { data: prof } = await admin.from("kaizen_profiles").select("role, company_id").eq("id", uid).maybeSingle();
+  const { data: prof, error: profErr } = await admin.from("kaizen_profiles").select("role, company_id").eq("id", uid).maybeSingle();
+  if (profErr) return json({ error: "Authorisation check failed — please try again." }, 500);
   if (!prof || (prof.role !== "super_admin" && prof.role !== "manager")) return json({ error: "Not authorised" }, 403);
   const { data: linked, error: linkedErr } = await admin.from("kaizen_super_admin_companies").select("company_id").eq("super_admin_id", uid).eq("company_id", company_id).maybeSingle();
   // super_admin: use the link table as sole authority — prof.company_id is their primary company,
@@ -127,10 +129,14 @@ Deno.serve(async (req) => {
   let reuseId: string | null = null;
   if (proofHash) {
     const { data: dup } = await admin.from("kaizen_payment_submissions")
-      .select("id, status").eq("company_id", company_id).eq("proof_hash", proofHash).maybeSingle();
+      .select("id, status, kind, target").eq("company_id", company_id).eq("proof_hash", proofHash).maybeSingle();
     if (dup) {
-      if (dup.status === "activation_failed") reuseId = dup.id;
-      else return json({ success: true, id: dup.id, status: dup.status, verified: dup.status === "approved", duplicate: true });
+      if (dup.status === "activation_failed") {
+        if (dup.kind !== kind || dup.target !== target) {
+          return json({ error: "This payment slip was submitted for a different purchase. Please contact support." }, 409);
+        }
+        reuseId = dup.id;
+      } else return json({ success: true, id: dup.id, status: dup.status, verified: dup.status === "approved", duplicate: true });
     }
   } else {
     // Slip-free: dedup on (company_id, kind, target) with pending status to prevent repeated

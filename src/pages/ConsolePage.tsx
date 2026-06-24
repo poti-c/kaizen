@@ -341,7 +341,7 @@ function Dashboard({ token, adminName, onLogout }: { token: string; adminName: s
           {loading ? (
             <div className="flex justify-center py-20"><Loader2 className="h-6 w-6 animate-spin text-slate-300" /></div>
           ) : selectedCompany ? (
-            <CompanyDetailView company={selectedCompany} owners={owners} allCompanies={companies} call={call} reload={load}
+            <CompanyDetailView key={selectedCompany.id} company={selectedCompany} owners={owners} allCompanies={companies} call={call} reload={load}
               onBack={() => setSelectedCompanyId(null)} onAddOwner={() => { setPreselectCompany(selectedCompany.id); setShowCreate(true) }} onOpenForm={openForm} />
           ) : view === 'dashboard' ? (
             <DashboardHome companies={companies} metrics={metrics} call={call} onView={go} onOpenClient={setSelectedCompanyId} />
@@ -2430,7 +2430,7 @@ function AdminSettingsView({ call, onBack }: { call: <T,>(a: string, p?: Record<
                       <Field label="Username"><input value={eUser} onChange={(e) => setEUser(e.target.value)} className={inputCls} autoComplete="off" /></Field>
                       <Field label="Display Name (shown in welcome bar)"><input value={eName} onChange={(e) => setEName(e.target.value)} className={inputCls} placeholder="e.g. Poti" autoComplete="off" /></Field>
                       <Field label="Admin Email (for password reset)"><input type="email" value={eEmail} onChange={(e) => setEEmail(e.target.value)} className={inputCls} placeholder="admin@nnr-solutions.com" autoComplete="off" /></Field>
-                      <Field label="New Password (leave blank to keep)"><input type="text" value={ePass} onChange={(e) => setEPass(e.target.value)} className={inputCls} placeholder="••••••••" autoComplete="new-password" /></Field>
+                      <Field label="New Password (leave blank to keep)"><input type="password" value={ePass} onChange={(e) => setEPass(e.target.value)} className={inputCls} placeholder="••••••••" autoComplete="new-password" /></Field>
                       <div className="flex items-center gap-2 pt-1">
                         <button onClick={() => saveAdmin(a.id)} disabled={busy === 'admin'} className="flex items-center gap-1.5 px-3 h-8 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-semibold disabled:opacity-50">
                           {busy === 'admin' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}Save
@@ -2462,7 +2462,7 @@ function AdminSettingsView({ call, onBack }: { call: <T,>(a: string, p?: Record<
                   <Field label="Username"><input value={nUser} onChange={(e) => setNUser(e.target.value)} className={inputCls} placeholder="username" autoComplete="off" /></Field>
                   <Field label="Display Name (shown in welcome bar)"><input value={nName} onChange={(e) => setNName(e.target.value)} className={inputCls} placeholder="e.g. Poti" autoComplete="off" /></Field>
                   <Field label="Admin Email"><input type="email" value={nEmail} onChange={(e) => setNEmail(e.target.value)} className={inputCls} placeholder="admin@nnr-solutions.com" autoComplete="off" /></Field>
-                  <Field label="Password (min 6 chars)"><input type="text" value={nPass} onChange={(e) => setNPass(e.target.value)} className={inputCls} placeholder="••••••••" autoComplete="new-password" /></Field>
+                  <Field label="Password (min 6 chars)"><input type="password" value={nPass} onChange={(e) => setNPass(e.target.value)} className={inputCls} placeholder="••••••••" autoComplete="new-password" /></Field>
                   <div className="flex items-center gap-2 pt-1">
                     <button onClick={addAdmin} disabled={busy === 'add' || !nUser || nPass.length < 6} className="flex items-center gap-1.5 px-3 h-8 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-semibold disabled:opacity-50">
                       {busy === 'add' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}Create

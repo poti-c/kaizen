@@ -58,7 +58,9 @@ export function buildCasePrintHtml(
     timeline: th ? 'ไทม์ไลน์' : 'Timeline',
     printed: th ? 'พิมพ์เมื่อ' : 'Printed',
   }
-  const catLabel = kcase.category ? categoryLabel(kcase.category, lang) : ''
+  const catLabel = kcase.category
+    ? (kcase.category === 'other' && (kcase as any).category_other ? (kcase as any).category_other : categoryLabel(kcase.category, lang))
+    : ''
 
   return `
     <!DOCTYPE html>
@@ -105,6 +107,7 @@ export function buildCasePrintHtml(
           <div class="meta-item"><span class="meta-label">${L.created}</span><span class="meta-value">${fmtDateSafe(kcase.created_at, loc, { day: 'numeric', month: 'long', year: 'numeric' })}</span></div>
           ${kcase.due_date ? `<div class="meta-item"><span class="meta-label">${L.dueDate}</span><span class="meta-value">${esc(formatDueBy(kcase.due_date, lang))}</span></div>` : ''}
           <div class="meta-item"><span class="meta-label">${L.reporter}</span><span class="meta-value">${esc((kcase.creator as KaizenProfile)?.full_name || L.unknown)}</span></div>
+          ${(kcase as any).location ? `<div class="meta-item"><span class="meta-label">${th ? 'สถานที่' : 'Location'}</span><span class="meta-value">${esc((kcase as any).location === 'other' && (kcase as any).location_other ? (kcase as any).location_other : (kcase as any).location)}</span></div>` : ''}
         </div>
       </div>
 
@@ -117,6 +120,12 @@ export function buildCasePrintHtml(
       <div class="section">
         <h2>${L.proposedSolution}</h2>
         <p>${esc(kcase.proposed_solution).replace(/\r?\n/g, '<br>')}</p>
+      </div>` : ''}
+
+      ${(kcase as any).resolution_note ? `
+      <div class="section">
+        <h2>${th ? 'บันทึกการแก้ไข' : 'Resolution Note'}</h2>
+        <p>${esc((kcase as any).resolution_note).replace(/\r?\n/g, '<br>')}</p>
       </div>` : ''}
 
       ${kcase.assigned_departments && kcase.assigned_departments.length > 0 ? `
