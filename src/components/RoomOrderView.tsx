@@ -629,7 +629,7 @@ function RoomOrderBuild({ companyId, unit, requireApproval, initialDate }: { com
   }
 
   async function performSubmit(statuses: Record<string, RoomStatus>) {
-    if (!profile) { toast.error(lang === 'th' ? 'เซสชันหมดอายุ — กรุณาเข้าสู่ระบบใหม่' : 'Session expired — please sign in again'); return }
+    if (!profile) { setBusy(false); toast.error(lang === 'th' ? 'เซสชันหมดอายุ — กรุณาเข้าสู่ระบบใหม่' : 'Session expired — please sign in again'); return }
     // RO-001: do NOT read the busy React state here — callers own the busy lifecycle
     // and setBusy(false) is not synchronous, so reading it here returns a stale true.
     setBusy(true)
@@ -1361,11 +1361,12 @@ function RoomApprovalsView({ companyId, onChanged }: { companyId: string; onChan
   async function decide(ids: string[], status: 'approved' | 'rejected') {
     if (ids.length === 0) return
     setBusy(true)
-    const { error } = await supabase.from('kaizen_rr_room_lines').update({ approval_status: status }).in('id', ids).eq('approval_status', 'pending')
+    const { data: updated, error } = await supabase.from('kaizen_rr_room_lines').update({ approval_status: status }).in('id', ids).eq('approval_status', 'pending').select('id')
     setBusy(false)
     if (error) { toast.error(error.message); return }
     if (orderId) await logRoomEvent(companyId, orderId, date, profile?.id, status, `${ids.length} special request${ids.length === 1 ? '' : 's'}`)
-    setLines((prev) => prev.map((l) => ids.includes(l.id) ? { ...l, approval_status: status } : l))
+    const updatedIds = new Set((updated ?? []).map((r: { id: string }) => r.id))
+    setLines((prev) => prev.map((l) => updatedIds.has(l.id) ? { ...l, approval_status: status } : l))
     onChanged()
   }
 

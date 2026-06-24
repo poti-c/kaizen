@@ -365,7 +365,7 @@ Deno.serve(async (req) => {
       const { count: postDel } = await admin.from("kaizen_console_admins").select("id", { count: "exact", head: true }).eq("is_active", true);
       if ((postDel ?? 0) === 0) {
         await audit("delete_admin_unsafe", { admin_id }, ip, false);
-        return json({ error: "Delete aborted: no active admin accounts would remain. Please recreate an admin account immediately." }, 500);
+        return json({ error: "Admin deleted but no active admin accounts remain. Please recreate an admin account immediately." }, 500);
       }
     }
     await audit("delete_admin", { admin_id }, ip, true);
@@ -1126,7 +1126,9 @@ Deno.serve(async (req) => {
     const { data: co } = await admin.from("kaizen_companies").select("plan, subscription_end").eq("id", company_id).maybeSingle();
     const durations = await planDurations();
     const term = Number(durations[co?.plan]) || 365;
-    const pe = new Date(pd); pe.setUTCDate(pe.getUTCDate() + term);
+    const baseDate = (co?.subscription_end && co.subscription_end > payment_date)
+      ? new Date(co.subscription_end + "T00:00:00+07:00") : pd;
+    const pe = new Date(baseDate); pe.setUTCDate(pe.getUTCDate() + term);
     const period_end = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok', year: 'numeric', month: '2-digit', day: '2-digit' }).format(pe);
     const payee = body.payee ? String(body.payee).trim() : null;
     const amount = (body.amount !== undefined && body.amount !== null && body.amount !== "") ? Number(body.amount) : null;
@@ -1160,7 +1162,8 @@ Deno.serve(async (req) => {
     const invoice_id = String(body.invoice_id ?? "");
     if (!invoice_id) return json({ error: "invoice_id required" }, 400);
     const { data: inv } = await admin.from("kaizen_invoices").select("proof_path, submission_id, company_id, amount").eq("id", invoice_id).maybeSingle();
-    if (inv?.proof_path) { await admin.storage.from(INVOICE_BUCKET).remove([inv.proof_path]); }
+    if (!inv) return json({ error: "Invoice not found." }, 404);
+    if (inv.proof_path) { await admin.storage.from(INVOICE_BUCKET).remove([inv.proof_path]); }
     const { error } = await admin.from("kaizen_invoices").delete().eq("id", invoice_id);
     if (error) return json({ error: error.message }, 400);
     // Keep the Payments inbox in sync: removing the recorded payment also

@@ -92,7 +92,7 @@ export function PMSummaryCard() {
     else if (s === 'overdue') overdueAssets++
   }
   const scheduledActive = active.filter(a => a.next_maintenance_date)
-  const compliance = scheduledActive.length === 0 ? null : Math.round(((good + dueSoon) / scheduledActive.length) * 100)
+  const compliance = scheduledActive.length === 0 ? null : Math.round((good / scheduledActive.length) * 100)
 
   const todayKey = bangkokDate(new Date())
   const weekKey = bangkokDate(new Date(Date.now() + dueSoonDays * 86400000))

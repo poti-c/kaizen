@@ -431,6 +431,7 @@ export function CasesPage() {
     localStorage.setItem('kaizen-adv-filters', JSON.stringify(empty))
     setStatusFilter('all'); setGroupFilter(''); setPriorityFilter('all'); setCategoryFilter('all')
     setOverdueOnly(false)
+    setSelectedMonths(new Set())
     setPagePendingMgr(1); setPagePendingAdm(1)
   }
   const pendingMgrCases   = sortCases(filtered.filter(c => c.status === 'pending_manager_approval'))

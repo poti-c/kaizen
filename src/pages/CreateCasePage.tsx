@@ -55,6 +55,10 @@ export function CreateCasePage() {
   const { customDepts } = useDepartments()
 
   useEffect(() => {
+    if (profile?.department && profile.role !== 'super_admin') setDepartment(profile.department as Department)
+  }, [profile?.department, profile?.role])
+
+  useEffect(() => {
     if (!activeCompany?.id) return
     supabase.from('kaizen_settings').select('key, value')
       .eq('company_id', activeCompany.id) // this tenant's taxonomy only
@@ -159,7 +163,6 @@ export function CreateCasePage() {
       const { error: timelineErr } = await supabase.from('kaizen_case_timeline').insert({
         case_id: newCase.id,
         action: 'case_created',
-        description: `Case created by ${profile.full_name}`,
         performed_by: profile.id,
       })
       if (timelineErr) console.error('case timeline insert failed', timelineErr)
@@ -180,10 +183,9 @@ export function CreateCasePage() {
           .eq('role', 'manager')
           .eq('is_active', true)
           .neq('id', profile.id)
-          // CC-003: pass the array form and let the client encode it — hand-building the
-          // `{"label"}` literal only escaped double-quotes, so a custom dept label with a
-          // backslash or brace produced an invalid array literal and matched nobody.
-          .contains('managed_departments', [department]),
+          // CC-003: use explicit JSON serialisation so special characters (& < > etc.)
+          // in custom department labels are correctly encoded for PostgREST's cs filter.
+          .filter('managed_departments', 'cs', JSON.stringify([department])),
       ])
       const managerIdsSeen = new Set<string>()
       const managers = [...(managersByDept ?? []), ...(managersByManaged ?? [])].filter(

@@ -9,6 +9,7 @@ import { StatusBadge, PriorityBadge } from '@/components/StatusBadge'
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { getInitials, formatDateTime, isSLABreached, getSLAHours, activityLabel, companyHasFeature, companyHasAddon, bangkokDate } from '@/lib/utils'
+import { timelineActionLabel } from '@/lib/i18nDynamic'
 import { loadPerfConfig, DEFAULT_PERF_CONFIG, type PerfConfig } from '@/lib/perfConfig'
 import { cn } from '@/lib/utils'
 import { usePresence } from '@/contexts/PresenceContext'
@@ -55,6 +56,7 @@ export function PerformanceDetailPage() {
 
   async function load(isCancelled: () => boolean) {
     setLoading(true)
+    setOpenInfo(null)
     const profileRes = await supabase.from('kaizen_profiles').select('*').eq('id', userId!).single()
     if (isCancelled()) return
     const u = profileRes.data as KaizenProfile | null
@@ -275,7 +277,7 @@ export function PerformanceDetailPage() {
     const isHR = myProfile.department === 'human_resource'
     const canView = userId === myProfile.id ||
       (isHR ? user.role === 'manager' || user.role === 'staff'
-            : user.role === 'staff' && user.department === myProfile.department)
+            : user.role === 'staff' && getEffectiveDepts(myProfile).includes(user.department as Department))
     if (!canView) return <Navigate to="/performance" replace />
   }
 
@@ -594,7 +596,7 @@ export function PerformanceDetailPage() {
               <div key={a.id} className="flex items-start gap-3 px-5 py-3">
                 <div className="w-2 h-2 rounded-full bg-[var(--brand-primary)] mt-1.5 flex-shrink-0" />
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-gray-800">{a.action.replace(/_/g, ' ')}</p>
+                  <p className="text-sm font-medium text-gray-800">{timelineActionLabel(a.action, lang)}</p>
                   {a.case_number && (
                     <Link to={`/cases/${a.case_id}`} className="text-xs text-[var(--brand-primary)] hover:underline">{a.case_number} · {a.case_title}</Link>
                   )}

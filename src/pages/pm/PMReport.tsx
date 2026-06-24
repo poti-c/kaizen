@@ -283,7 +283,7 @@ export function PMReport({ companyName, onClose }: { companyName: string; onClos
                 <CardTitle icon={<AlertTriangle className="h-3.5 w-3.5 text-red-500" />}>{r.overdue}</CardTitle>
                 <p className="text-3xl font-bold text-red-600 leading-none">{data.overdueRows.length}</p>
                 <p className="text-xs text-gray-500">{r.overdueTasks}</p>
-                <DeltaRow invert deltas={data.deltas.map(d => ({ label: d.label, cur: data.cur.overdue, prev: d.metric.overdue, suffix: '' }))} />
+                <DeltaRow invert deltas={data.deltas.map(d => ({ label: d.label, cur: data.overdueRows.length, prev: d.metric.overdue, suffix: '' }))} />
                 <div className="mt-2 space-y-1 max-h-32 overflow-y-auto print:overflow-visible print:max-h-none">
                   {data.overdueRows.length === 0 ? (
                     <p className="text-[11px] text-green-600">{r.noOverdue}</p>

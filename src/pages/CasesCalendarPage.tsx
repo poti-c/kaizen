@@ -70,12 +70,18 @@ export function CasesCalendarPage() {
   const rrEnabled = companyHasAddon(activeCompany, 'routine_roster')
   const [searchParams] = useSearchParams()
   const initialTab = searchParams.get('tab')
-  const [mode, setMode] = useState<'cases' | 'pm' | 'rr' | 'combined'>(() => {
-    if (pmEnabled && initialTab === 'pm') return 'pm'
-    if (rrEnabled && initialTab === 'rr') return 'rr'
-    if ((pmEnabled || rrEnabled) && initialTab === 'combined') return 'combined'
-    return 'cases'
-  })
+  const [mode, setMode] = useState<'cases' | 'pm' | 'rr' | 'combined'>('cases')
+  const modeInitRef = useRef(false)
+  useEffect(() => {
+    if (!activeCompany || modeInitRef.current) return
+    modeInitRef.current = true
+    const pmEn = companyHasAddon(activeCompany, 'pms')
+    const rrEn = companyHasAddon(activeCompany, 'routine_roster')
+    if (pmEn && initialTab === 'pm') setMode('pm')
+    else if (rrEn && initialTab === 'rr') setMode('rr')
+    else if ((pmEn || rrEn) && initialTab === 'combined') setMode('combined')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeCompany])
   const [openTask, setOpenTask] = useState<PMTask | null>(null)
   const fetchSeqCal = useRef(0)
   const { allOptions: calDepts } = useDepartments()
@@ -135,6 +141,8 @@ export function CasesCalendarPage() {
     let _cases: KaizenCase[] = [], _due: KaizenCase[] = []
     let _pm: PMTask[] = []
     let _rr: RrOrder[] = [], _rrRoom: RoomOrderCal[] = []
+    let _rrActorIds: (string | null | undefined)[] = []
+    let _rrRoomActorIds: (string | null | undefined)[] = []
 
     if (showCaseData) {
       // Staff see their own department's cases PLUS any case they are Person In Charge
@@ -186,8 +194,7 @@ export function CasesCalendarPage() {
           .gte('order_date', isoKey(start)).lte('order_date', monthEnd)
         const list = (data as RrOrder[]) ?? []
         _rr = list
-        // Resolve actor names so rows can show "Confirmed by …", "Accepted by …", etc.
-        await resolveNames(list.flatMap(o => [o.sent_by, o.accepted_by, o.delivered_by, o.confirmed_by]))
+        _rrActorIds = list.flatMap(o => [o.sent_by, o.accepted_by, o.delivered_by, o.confirmed_by])
       })())
       jobs.push((async () => {
         const { data } = await supabase.from('kaizen_rr_room_orders')
@@ -196,7 +203,7 @@ export function CasesCalendarPage() {
           .gte('order_date', isoKey(start)).lte('order_date', monthEnd)
         const list = (data as RoomOrderCal[]) ?? []
         _rrRoom = list
-        await resolveNames(list.map(ro => ro.submitted_by))
+        _rrRoomActorIds = list.map(ro => ro.submitted_by)
       })())
     } else { setRrOrders([]); setRrRoomOrders([]) }
 
@@ -205,9 +212,12 @@ export function CasesCalendarPage() {
       if (fetchSeq != null && fetchSeq !== fetchSeqCal.current) return
       if (showCaseData) { setCases(_cases); setDueCases(_due) }
       if (showPmData) setPmTasks(_pm)
-      if (showRrData) { setRrOrders(_rr); setRrRoomOrders(_rrRoom) }
+      if (showRrData) {
+        setRrOrders(_rr); setRrRoomOrders(_rrRoom)
+        await resolveNames([..._rrActorIds, ..._rrRoomActorIds])
+      }
     } finally {
-      setLoading(false)
+      if (fetchSeq == null || fetchSeq === fetchSeqCal.current) setLoading(false)
     }
   }
 

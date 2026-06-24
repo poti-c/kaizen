@@ -216,12 +216,13 @@ serve(async (req) => {
         .select("id, username, company_id")
         .eq("company_id", targetCompany)
         .eq("role", "staff")
+        .eq("username", normUser(username))
         .not("deleted_at", "is", null);
       const clash = (removedStaff ?? []).find(
         (r: any) => normUser(r.username ?? "") === normUser(username)
       );
       if (clash) {
-        const tomb = `.removed.${Math.floor(Date.now() / 1000)}`;
+        const tomb = `.removed.${Math.floor(Date.now() / 1000)}.${Math.random().toString(36).slice(2, 7)}`;
         const freedUsername = `${clash.username ?? "removed"}${tomb}`;
         const freedEmail = await staffLoginEmail(freedUsername, clash.company_id);
         if (freedEmail) {
@@ -376,6 +377,12 @@ serve(async (req) => {
       if (updates.role !== undefined) {
         const VALID_ROLES = new Set(["super_admin", "manager", "staff"]);
         if (!VALID_ROLES.has(updates.role)) return json({ error: "Invalid role." }, 400);
+        if (updates.role === "super_admin") {
+          const effectiveDept = updates.department ?? target.department;
+          if (effectiveDept !== "top_management") {
+            return json({ error: "Top Management accounts must belong to the Top Management department." }, 400);
+          }
+        }
         if (updates.role !== target.role) {
           const limitErr = await roleLimitError(target.company_id, updates.role, userId);
           if (limitErr) return json({ error: limitErr }, 400);
@@ -427,6 +434,13 @@ serve(async (req) => {
         await supabaseAdmin.auth.admin.updateUserById(userId, { email: oldAuthEmail, email_confirm: true }).catch(() => {});
       }
       return json({ error: updErr.message }, 400);
+    }
+
+    // When a user is promoted to super_admin ensure they have a company grant row.
+    if (allowed.role === "super_admin" && target.company_id) {
+      await supabaseAdmin.from("kaizen_super_admin_companies")
+        .upsert({ super_admin_id: userId, company_id: target.company_id }, { onConflict: "super_admin_id,company_id", ignoreDuplicates: true })
+        .catch(() => {});
     }
 
     return json({ success: true });
