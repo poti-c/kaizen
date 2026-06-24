@@ -151,6 +151,7 @@ export function PreventiveMaintenancePage() {
   const deptOptions = Array.from(new Set(assets.map(a => a.department).filter(Boolean) as string[])).sort()
 
   const filtered = assets.filter((a) => {
+    if (!inactiveOnly && !a.is_active) return false
     if (filter !== 'all' && assetStatus(a.next_maintenance_date, a.is_active, dueSoonDays) !== filter) return false
     if (inactiveOnly && a.is_active) return false
     if (typeFilter !== 'all' && a.type?.name !== typeFilter) return false
@@ -273,9 +274,14 @@ export function PreventiveMaintenancePage() {
             // Card click opens the asset's next open PM task (checklist view);
             // assets with no open task fall back to a read-only detail modal.
             const openCard = () => {
+              const STATUS_PRIO: Record<string, number> = { in_progress: 0, pending_approval: 1, scheduled: 2 }
               const task = pmTasks
                 .filter((tk) => tk.asset_id === a.id)
-                .sort((x, y) => x.due_date.localeCompare(y.due_date))[0]
+                .sort((x, y) => {
+                  const sp = (STATUS_PRIO[x.status] ?? 9) - (STATUS_PRIO[y.status] ?? 9)
+                  if (sp !== 0) return sp
+                  return x.due_date.localeCompare(y.due_date)
+                })[0]
               if (task) setOpenTask(task)
               else setDetailAsset(a)
             }

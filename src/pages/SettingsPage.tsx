@@ -233,6 +233,31 @@ export function SettingsPage() {
       toast.error(lang === 'th' ? 'ไม่สามารถลบ "Preventive Maintenance" ขณะเปิดใช้ PMS' : 'Cannot remove "Preventive Maintenance" while PMS is active.')
       return
     }
+    // Check for open cases using this item before deletion (mirrors the bulk-remove affected-cases guard)
+    if (companyId && (key === 'custom_categories' || key === 'custom_locations' || key === 'custom_departments')) {
+      const item = list[index]
+      let affectedCount = 0
+      if (key === 'custom_categories') {
+        const { count } = await supabase.from('kaizen_cases').select('*', { count: 'exact', head: true })
+          .eq('company_id', companyId).eq('category', item.toLowerCase().replace(/ /g, '_')).neq('status', 'closed')
+        affectedCount = count ?? 0
+      } else if (key === 'custom_locations') {
+        const { count } = await supabase.from('kaizen_cases').select('*', { count: 'exact', head: true })
+          .eq('company_id', companyId).eq('location', item).neq('status', 'closed')
+        affectedCount = count ?? 0
+      } else if (key === 'custom_departments') {
+        const deptValue = DEPARTMENTS.find(d => d.label === item)?.value ?? item
+        const { count } = await supabase.from('kaizen_cases').select('*', { count: 'exact', head: true })
+          .eq('company_id', companyId).eq('department', deptValue).neq('status', 'closed')
+        affectedCount = count ?? 0
+      }
+      if (affectedCount > 0) {
+        const msg = lang === 'th'
+          ? `มีเคสที่เปิดอยู่ ${affectedCount} เคสที่ใช้ "${list[index]}" ต้องการลบต่อหรือไม่?`
+          : `${affectedCount} open case${affectedCount === 1 ? '' : 's'} use "${list[index]}". Remove anyway?`
+        if (!window.confirm(msg)) return
+      }
+    }
     const updated = list.filter((_, i) => i !== index)
     try {
       await saveList(key, updated)
@@ -296,6 +321,7 @@ export function SettingsPage() {
       }
     }
     const items = targetIndices.map(i => list[i])
+    const token = ++_bulkTokenRef.current
     // Show dialog immediately with checking state
     setBulkConfirm({ listKey, dbKey, items, indices: targetIndices, affectedCases: 0, checking: true })
 
@@ -333,6 +359,7 @@ export function SettingsPage() {
       affected = count ?? 0
     }
 
+    if (_bulkTokenRef.current !== token) return
     setBulkConfirm(prev => prev ? { ...prev, affectedCases: affected, checking: false } : null)
 
     // Remove the list + setList reference so we can use them in confirmBulkDelete
@@ -341,6 +368,7 @@ export function SettingsPage() {
 
   // We need a ref to pass list/setList through the async gap
   const _pendingBulkRef = useRef<{ list: string[]; setList: (l: string[]) => void } | null>(null)
+  const _bulkTokenRef = useRef(0)
 
   // Support dialog
   const [supportDialog, setSupportDialog] = useState<'help' | 'feedback' | 'compatibility' | 'legal' | null>(null)
@@ -1219,6 +1247,8 @@ function MultiDeptManagersSection({ companyId }: { companyId: string | null }) {
         // SP-003: filter out top_management from the assignable extra-depts list
         setAllDepts(labels.map((label) => ({ value: LABEL_TO_DEPT_VALUE[label] ?? label, label }))
           .filter(d => d.value !== 'top_management'))
+      } else {
+        setAllDepts(DEPARTMENTS.filter(d => d.value !== 'top_management'))
       }
     }).catch(err => console.error('[MultiDeptManagers]', err))
     return () => { cancelled = true }

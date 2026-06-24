@@ -86,6 +86,11 @@ export function UsersPage() {
   const isStaffViewer = profile?.role === 'staff'
 
   useEffect(() => { if (!isStaffViewer) fetchUsers() }, [profile, activeCompany, isStaffViewer])
+  useEffect(() => {
+    if (deptFilter !== 'all' && !users.some(u => u.department === deptFilter)) {
+      setDeptFilter('all')
+    }
+  }, [users, deptFilter])
 
   // Staff have no access (returned after hooks so hook order stays stable)
   if (isStaffViewer) return <Navigate to="/dashboard" replace />
@@ -332,6 +337,7 @@ export function UsersPage() {
     manager: visibleUsers.filter(u => u.role === 'manager'),
     staff: visibleUsers.filter(u => u.role === 'staff').filter(u => staffDeptFilter === 'all' || u.department === staffDeptFilter),
   }
+  const displayedCount = roleGroups.super_admin.length + roleGroups.manager.length + roleGroups.staff.length
   const roleIcons = { super_admin: Shield, manager: Shield, staff: Users }
   const roleLabels = { super_admin: t.users.superAdmins, manager: t.users.managers, staff: t.users.staff }
 
@@ -372,7 +378,7 @@ export function UsersPage() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">{t.users.title}</h1>
-          <p className="text-sm text-gray-500 mt-0.5">{visibleUsers.length} {t.users.accounts}</p>
+          <p className="text-sm text-gray-500 mt-0.5">{displayedCount} {t.users.accounts}</p>
         </div>
         <div className="flex items-center gap-2">
           {profile?.role === 'super_admin' && (

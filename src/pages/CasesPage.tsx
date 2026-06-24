@@ -336,7 +336,9 @@ export function CasesPage() {
     setPagePendingMgr(1)
     setPagePendingAdm(1)
     setPageClosed(1)
-  }, [cases, search, statusFilter, groupFilter, priorityFilter, categoryFilter, overdueOnly, advancedSearchEnabled, advFilters, selectedMonths])
+    setPageActivePms(1)
+    setPageOverduePms(1)
+  }, [cases, search, statusFilter, groupFilter, priorityFilter, categoryFilter, overdueOnly, advancedSearchEnabled, advFilters, selectedMonths, settingsLoaded])
 
   async function fetchCases() {
     if (!profile) return

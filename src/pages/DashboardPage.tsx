@@ -223,8 +223,9 @@ export function DashboardPage() {
     // DASH-002: surface query errors instead of silently showing empty dashboard
     const { data, error } = await query.order('created_at', { ascending: false })
     if (seq !== fetchSeq.current) return
-    if (error) { setLoading(false); console.error('[Dashboard] fetch error', error.message); return }
+    if (error) { setAllCases([]); setCatList([]); setLoading(false); console.error('[Dashboard] fetch error', error.message); return }
     setAllCases((data || []) as KaizenCase[])
+    if (seq !== fetchSeq.current) return
     if (activeCompany) {
       const { data: catRow } = await supabase.from('kaizen_settings').select('value')
         .eq('company_id', activeCompany.id).eq('key', 'custom_categories').maybeSingle()

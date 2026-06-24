@@ -26,7 +26,11 @@ export function NotificationsPage() {
   const PAGE_SIZE = 50
 
   useEffect(() => {
-    if (profile) { fetchNotifications(); refreshUnread() }
+    if (!profile) return
+    const controller = new AbortController()
+    fetchNotifications(undefined, undefined, controller.signal)
+    refreshUnread()
+    return () => { controller.abort() }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profile])
 
@@ -37,8 +41,23 @@ export function NotificationsPage() {
     if (!profile) return
     const channel = supabase
       .channel(`notifications_page_${profile.id}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'kaizen_notifications', filter: `user_id=eq.${profile.id}` }, () => {
-        fetchNotifications()
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'kaizen_notifications', filter: `user_id=eq.${profile.id}` }, async () => {
+        // Merge-refresh: fetch the newest page and upsert into existing list so
+        // Load-More pages are not discarded when a realtime event fires.
+        const { data } = await supabase
+          .from('kaizen_notifications')
+          .select('*')
+          .eq('user_id', profile.id)
+          .order('created_at', { ascending: false })
+          .order('id', { ascending: false })
+          .limit(PAGE_SIZE)
+        if (data) {
+          setNotifications(prev => {
+            const fresh = data as KaizenNotification[]
+            const freshIds = new Set(fresh.map(n => n.id))
+            return [...fresh, ...prev.filter(n => !freshIds.has(n.id))]
+          })
+        }
         refreshUnread()
       })
       .subscribe()
@@ -68,7 +87,7 @@ export function NotificationsPage() {
   // pulling the entire history into memory on every open. Keyset pagination on
   // created_at avoids the duplicate/skip that offset ranges suffer when new rows
   // are inserted between fetches.
-  async function fetchNotifications(before?: string, beforeId?: string) {
+  async function fetchNotifications(before?: string, beforeId?: string, signal?: AbortSignal) {
     if (!profile) return
     if (!before) { setLoading(true); setFetchError(null) } else setLoadingMore(true)
     let q = supabase
@@ -83,7 +102,9 @@ export function NotificationsPage() {
     } else if (before) {
       q = q.lt('created_at', before)
     }
+    if (signal) q = (q as any).abortSignal(signal)
     const { data, error } = await q
+    if (signal?.aborted) return
     if (error) {
       setLoading(false); setLoadingMore(false)
       if (!before) setFetchError(error.message)

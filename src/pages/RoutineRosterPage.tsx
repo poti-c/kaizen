@@ -145,7 +145,7 @@ export function RoutineRosterPage() {
   // Which routines have *I* muted (for the bell toggle + notify filtering).
   const loadMutes = useCallback(async () => {
     if (!companyId || !profile) { setMutes(new Set()); return }
-    const { data } = await supabase.from('kaizen_rr_mutes').select('template_id').eq('user_id', profile.id)
+    const { data } = await supabase.from('kaizen_rr_mutes').select('template_id').eq('user_id', profile.id).eq('company_id', companyId)
     setMutes(new Set(((data as { template_id: string }[]) ?? []).map((m) => m.template_id)))
   }, [companyId, profile])
   useEffect(() => { loadMutes() }, [loadMutes])
@@ -678,7 +678,6 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
     const { error } = await supabase.from('kaizen_rr_orders').update(patch).eq('id', o.id)
     if (error) { setBusy(false); toast.error(error.message); return }
     await logEvent(ev.action, ev.detail)
-    setBusy(false)
     if (notify) {
       try {
         await notifyDept(notify.dept, notify.title, notify.message,
@@ -687,6 +686,7 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
         console.error('[update:notifyDept]', err)
       }
     }
+    setBusy(false)
     if (!noToast) { toast.success(okMsg); onChanged() }
   }
 
@@ -712,16 +712,12 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
       const roomsWord = lang === 'th' ? 'ห้อง' : 'rooms'
       const detail = hasVariants ? `${variantBreakdown(picked.map((r) => ({ variant: grid[r] } as RrOrderItem)), variants, lang)} · ${picked.length} ${roomsWord}` : `${picked.length} ${roomsWord}`
       // Update status first so a failed items insert can be safely retried without duplicating the status update.
-      // noToast=true: success toast fires only after the items insert succeeds.
+      // noToast=true: success toast and notify fire only after the items insert succeeds.
       await update(
         { status: 'sent', quantity: picked.length, note: note.trim() || null, sent_by: profile.id, sent_at: now() },
         tr.rr.orderSent,
         { action: 'sent', detail },
-        { dept: o.fulfill_department, useDeptConfig: true,
-          title: lang === 'th' ? 'มีออเดอร์ประจำเข้ามาใหม่' : 'Routine order received',
-          message: lang === 'th'
-            ? `"${o.title}"${itemSuffix} — ${picked.length} ห้อง จากแผนก ${deptLabel(o.request_department, lang)}`
-            : `"${o.title}"${itemSuffix} — ${picked.length} rooms, requested by ${deptLabel(o.request_department, lang)}` },
+        undefined,
         true,
       )
       setBusy(true)
@@ -736,6 +732,15 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
         await supabase.from('kaizen_rr_orders').update({ status: 'pending', sent_by: null, sent_at: null, quantity: 0 }).eq('id', o.id)
         toast.error(ins.error.message); return
       }
+      // Items inserted — notify fulfilling department now that the order is complete
+      try {
+        await notifyDept(o.fulfill_department,
+          lang === 'th' ? 'มีออเดอร์ประจำเข้ามาใหม่' : 'Routine order received',
+          lang === 'th'
+            ? `"${o.title}"${itemSuffix} — ${picked.length} ห้อง จากแผนก ${deptLabel(o.request_department, lang)}`
+            : `"${o.title}"${itemSuffix} — ${picked.length} rooms, requested by ${deptLabel(o.request_department, lang)}`,
+          { templateId: o.template_id, picMode, picIds, useDeptConfig: true })
+      } catch (err) { console.error('[sendOrder:notifyDept]', err) }
       toast.success(tr.rr.orderSent); onChanged()
     }
   }
@@ -1029,17 +1034,12 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
     })
     if (parsed.length === 0) { toast.error(tr.rr.roomsRequired); return }
     // Update status first so a failed items insert can be safely retried without duplicates.
-    // noToast=true: success toast fires only after the items insert succeeds.
+    // noToast=true: success toast and notify fire only after the items insert succeeds.
     await update(
       { status: 'sent', quantity: parsed.length, note: note.trim() || null, sent_by: profile.id, sent_at: now() },
       tr.rr.orderSent,
       { action: 'sent', detail: `${parsed.length} ${lang === 'th' ? 'ห้อง' : 'rooms'}` },
-      // RR-005: useDeptConfig:true so the company's notification policy is applied (matches sendOrder)
-      { dept: o.fulfill_department, useDeptConfig: true,
-        title: lang === 'th' ? 'มีออเดอร์ประจำเข้ามาใหม่' : 'Routine order received',
-        message: lang === 'th'
-          ? `"${o.title}"${itemSuffix} — ${parsed.length} ห้อง จากแผนก ${deptLabel(o.request_department, lang)}`
-          : `"${o.title}"${itemSuffix} — ${parsed.length} rooms, requested by ${deptLabel(o.request_department, lang)}` },
+      undefined,
       true,
     )
     setBusy(true)
@@ -1051,6 +1051,15 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
       await supabase.from('kaizen_rr_orders').update({ status: 'pending', sent_by: null, sent_at: null, quantity: 0 }).eq('id', o.id)
       toast.error(ins.error.message); return
     }
+    // Items inserted — notify fulfilling department now that the order is complete
+    try {
+      await notifyDept(o.fulfill_department,
+        lang === 'th' ? 'มีออเดอร์ประจำเข้ามาใหม่' : 'Routine order received',
+        lang === 'th'
+          ? `"${o.title}"${itemSuffix} — ${parsed.length} ห้อง จากแผนก ${deptLabel(o.request_department, lang)}`
+          : `"${o.title}"${itemSuffix} — ${parsed.length} rooms, requested by ${deptLabel(o.request_department, lang)}`,
+        { templateId: o.template_id, picMode, picIds, useDeptConfig: true })
+    } catch (err) { console.error('[sendOrderFromText:notifyDept]', err) }
     toast.success(tr.rr.orderSent); onChanged()
   }
 }

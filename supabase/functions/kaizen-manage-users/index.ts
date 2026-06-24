@@ -359,8 +359,8 @@ serve(async (req) => {
       position: updates.position,
     };
     if (updates.must_change_password !== undefined) {
-      if (callerRole !== "super_admin" && updates.must_change_password === false) {
-        return json({ error: "Only Top Management can clear the must_change_password flag" }, 403);
+      if (callerRole !== "super_admin") {
+        return json({ error: "Only Top Management can set the must_change_password flag" }, 403);
       }
       allowed.must_change_password = updates.must_change_password;
     }
@@ -404,6 +404,7 @@ serve(async (req) => {
       targetAuthEmail = emailIn;
     }
     let oldAuthEmail: string | null = null;
+    let didUpdateAuthEmail = false;
     if (targetAuthEmail) {
       const { data: authU } = await supabaseAdmin.auth.admin.getUserById(userId);
       oldAuthEmail = authU?.user?.email ?? null;
@@ -413,14 +414,15 @@ serve(async (req) => {
           const taken = /already.*registered|already.*exists|email.*taken|duplicate/i.test(emailErr.message);
           return json({ error: taken ? "That email is already registered to another account." : "Failed to update login: " + emailErr.message }, 400);
         }
+        didUpdateAuthEmail = true;
       }
     }
 
     // Auth update succeeded (or wasn't needed) — now commit the profile row.
-    // On profile failure, roll back to oldAuthEmail (captured before the auth update).
+    // On profile failure, roll back the auth email if it was changed.
     const { error: updErr } = await supabaseAdmin.from("kaizen_profiles").update(allowed).eq("id", userId);
     if (updErr) {
-      if (targetAuthEmail && oldAuthEmail !== null) {
+      if (didUpdateAuthEmail && oldAuthEmail !== null) {
         // Best-effort rollback — restore the previous auth email
         await supabaseAdmin.auth.admin.updateUserById(userId, { email: oldAuthEmail, email_confirm: true }).catch(() => {});
       }

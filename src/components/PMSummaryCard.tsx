@@ -77,7 +77,7 @@ export function PMSummaryCard() {
       setLoading(false)
     })()
     return () => { cancelled = true }
-  }, [companyId, isStaff, profile?.department, profile?.role])
+  }, [companyId, isStaff, profile?.department, profile?.role, profile?.managed_departments])
 
   if (loading) {
     return <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-3 mb-4 h-20 animate-pulse" />
@@ -91,7 +91,8 @@ export function PMSummaryCard() {
     else if (s === 'due_soon') dueSoon++
     else if (s === 'overdue') overdueAssets++
   }
-  const compliance = active.length === 0 ? null : Math.round(((good + dueSoon) / active.length) * 100)
+  const scheduledActive = active.filter(a => a.next_maintenance_date)
+  const compliance = scheduledActive.length === 0 ? null : Math.round(((good + dueSoon) / scheduledActive.length) * 100)
 
   const todayKey = bangkokDate(new Date())
   const weekKey = bangkokDate(new Date(Date.now() + dueSoonDays * 86400000))

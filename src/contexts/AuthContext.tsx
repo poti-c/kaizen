@@ -28,14 +28,14 @@ const AuthContext = createContext<AuthContextValue | null>(null)
 // and throws a clear message. (Super admins are gated per-company in CompanyContext.)
 async function assertCompanyActive(companyId: string | null) {
   if (!companyId) return
-  const { data: co } = await supabase
+  const { data: co, error: coErr } = await supabase
     .from('kaizen_companies')
     .select('is_active')
     .eq('id', companyId)
     .maybeSingle()
-  if (!co || co.is_active === false) {
+  if (!coErr && (!co || co.is_active === false)) {
     await supabase.auth.signOut()
-    throw new Error('Your company’s access has been suspended. Please contact your administrator.')
+    throw new Error("Your company’s access has been suspended. Please contact your administrator.")
   }
 }
 

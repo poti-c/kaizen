@@ -321,7 +321,17 @@ export function CaseDetailPage() {
   // ───────────────────────────────────────────────────────────────────────────
 
   useEffect(() => {
-    if (id) fetchCase()
+    if (!id) return
+    setResolutionNote('')
+    setResolutionPhotos([])
+    setPmPromptDismissed(false)
+    setPromptDue('')
+    setSelectedPics([])
+    setShowPicEditor(false)
+    setNewComment('')
+    setRecurringOpen(false)
+    setSelectedPriority('')
+    fetchCase()
   }, [id])
 
   // Load all active users for @mentions — scoped to the active company to prevent cross-tenant name leakage
@@ -910,7 +920,7 @@ export function CaseDetailPage() {
       const rollingBackToOpen = statusChanged && openFamilyStatuses.includes(editStatus!)
       const movingToClosed = statusChanged && editStatus === 'closed'
       const nowIso = new Date().toISOString()
-      await supabase.from('kaizen_cases').update({
+      const { error: editErr } = await supabase.from('kaizen_cases').update({
         title: editTitle.trim(),
         description: editDescription.trim(),
         department: editDepartment,
@@ -937,6 +947,7 @@ export function CaseDetailPage() {
         } : {}),
         updated_at: nowIso,
       }).eq('id', id!)
+      if (editErr) throw editErr
 
       await addTimeline('case_edited', `Case edited by ${profile?.full_name}${changes.length ? ': ' + changes.join('; ') : ''}`)
 
@@ -972,10 +983,11 @@ export function CaseDetailPage() {
     try {
       const priorityLabel = t.priority[selectedPriority as CasePriority]
 
-      await supabase.from('kaizen_cases').update({
+      const { error: prioErr } = await supabase.from('kaizen_cases').update({
         priority: selectedPriority,
         updated_at: new Date().toISOString(),
       }).eq('id', id!)
+      if (prioErr) throw prioErr
 
       await addTimeline('priority_changed', `Priority changed from ${kcase?.priority} to ${selectedPriority} by ${profile?.full_name}`)
 
