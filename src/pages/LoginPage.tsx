@@ -91,7 +91,7 @@ export function LoginPage() {
   // the app root rather than render a working login form. Re-submitting it against a
   // live session can sign the user out (wrong-role tab) or silently swap accounts
   // without resetting company/query state.
-  if (!authLoading && user && profile) return <Navigate to="/" replace />
+  if (!authLoading && user) return <Navigate to="/" replace />
 
   return (
     <div
@@ -131,7 +131,7 @@ export function LoginPage() {
                   <button
                     key={r}
                     type="button"
-                    onClick={() => { setRole(r); setCompanyCode(''); setEmailOrUsername(''); setPassword(''); setError('') }}
+                    onClick={() => { setRole(r); setCompanyCode(''); setEmailOrUsername(''); setPassword(''); setError(''); setShowPassword(false) }}
                     className={`py-1 px-2.5 rounded-lg text-xs font-medium border transition-all ${
                       role === r
                         ? 'border-[var(--brand-primary)] bg-[var(--brand-primary)] text-white'
@@ -230,7 +230,7 @@ export function LoginPage() {
                 <Label>{t.login.password}</Label>
                 <button
                   type="button"
-                  onClick={() => { setForgotMode(true); setResetEmail(emailOrUsername) }}
+                  onClick={() => { setForgotMode(true); setResetEmail(role !== 'staff' ? emailOrUsername : '') }}
                   className="text-xs text-[var(--brand-primary)] hover:underline"
                 >
                   {t.login.forgotPassword}

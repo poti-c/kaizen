@@ -141,7 +141,7 @@ export function Header() {
                 void markRead(n.id)
                 if (n.case_id) navigate(`/cases/${n.case_id}`)
                 else if (n.notification_type === 'pm') navigate('/maintenance')
-                else if (n.notification_type === 'rr') navigate('/routine-roster')
+                else if (n.notification_type === 'rr' && rrFo.allowed) navigate('/routine-roster')
                 else navigate('/notifications')
                 setShowNotifs(false)
               }}

@@ -129,7 +129,7 @@ export function buildCasePrintHtml(
       <div class="section">
         <h2>${L.problemPhotos}</h2>
         <div class="photos">
-          ${problemPhotosList.map((p) => `<img src="${esc(p.photo_url)}" alt="Problem photo" />`).join('')}
+          ${problemPhotosList.map((p) => { const safeUrl = /^https:\/\//i.test(p.photo_url) ? p.photo_url : ''; return safeUrl ? `<img src="${esc(safeUrl)}" alt="Problem photo" />` : '' }).join('')}
         </div>
       </div>` : ''}
 
@@ -137,7 +137,7 @@ export function buildCasePrintHtml(
       <div class="section">
         <h2>${L.resolutionPhotos}</h2>
         <div class="photos">
-          ${resolutionPhotosList.map((p) => `<img src="${esc(p.photo_url)}" alt="Resolution photo" />`).join('')}
+          ${resolutionPhotosList.map((p) => { const safeUrl = /^https:\/\//i.test(p.photo_url) ? p.photo_url : ''; return safeUrl ? `<img src="${esc(safeUrl)}" alt="Resolution photo" />` : '' }).join('')}
         </div>
       </div>` : ''}
 

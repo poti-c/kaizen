@@ -102,7 +102,7 @@ Deno.serve(async (req) => {
     if (linkedErr) return json({ error: "Authorisation check failed — please try again." }, 500);
     if (!linked) return json({ error: "Not authorised for this company" }, 403);
   } else {
-    if (prof.company_id !== company_id) return json({ error: "Not authorised for this company" }, 403);
+    if (!prof.company_id || prof.company_id !== company_id) return json({ error: "Not authorised for this company" }, 403);
   }
 
   // The price is SERVER-authoritative — look it up from kaizen_products by key (works for
@@ -179,7 +179,8 @@ Deno.serve(async (req) => {
         if (existing) return json({ success: true, id: existing.id, status: "pending", verified: false, duplicate: true });
         return json({ error: error.message }, 400);
       } else {
-        return json({ error: error.message }, 400);
+        console.error('[kaizen-pay] insert error:', error.message);
+        return json({ error: "Submission could not be recorded — please try again." }, 400);
       }
     } else {
       sub = inserted;

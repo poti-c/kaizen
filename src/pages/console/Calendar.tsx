@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import {
   Calendar as CalIcon, ChevronLeft, ChevronRight, Plus, X, Loader2, Trash2, Check,
   FileText, Wrench, Settings2, Users, MapPin, ExternalLink, AlertTriangle,
@@ -62,17 +62,20 @@ export function CalendarView({ call, onOpenForm }: { call: Call; onOpenForm: (fo
   const [editAppt, setEditAppt] = useState<ApptRow | 'new' | null>(null)
   const [dayExpand, setDayExpand] = useState<string | null>(null)
 
+  const loadSeq = useRef(0)
   const load = useCallback(async () => {
+    const seq = ++loadSeq.current
     setLoading(true)
     try {
       const [f, a] = await Promise.all([
         call<{ forms: FormRow[] }>('list_forms'),
         call<{ appointments: ApptRow[]; companies: CalCompany[] }>('list_appointments'),
       ])
+      if (seq !== loadSeq.current) return
       setForms(f.forms ?? [])
       setAppts(a.appointments ?? [])
       setCompanies(a.companies ?? [])
-    } catch (e) { console.error('Calendar load failed:', e) } finally { setLoading(false) }
+    } catch (e) { console.error('Calendar load failed:', e) } finally { if (seq === loadSeq.current) setLoading(false) }
   }, [call])
   useEffect(() => { load() }, [load])
 
@@ -110,10 +113,9 @@ export function CalendarView({ call, onOpenForm }: { call: Call; onOpenForm: (fo
       const bkkH = Number(new Intl.DateTimeFormat('en', { timeZone: 'Asia/Bangkok', hour: '2-digit', hour12: false }).format(start)) % 24
       const bkkM = Number(new Intl.DateTimeFormat('en', { timeZone: 'Asia/Bangkok', minute: 'numeric' }).format(start))
       out.push({
-        // CAL-001: an all-day event spans the whole day, so it sorts FIRST among
-        // appointments — not by its arbitrary noon-Bangkok storage anchor (which landed it
-        // after any morning timed appt).
-        key: `a-${a.id}`, date: dayKey(start), sort: a.all_day ? 2 : 2 + (bkkH * 60 + bkkM) / 1440,
+        // All-day events sort before timed appointments for the same day (1.5 puts
+        // them after form events at 1 but before any timed appointment at 2+).
+        key: `a-${a.id}`, date: dayKey(start), sort: a.all_day ? 1.5 : 2 + (bkkH * 60 + bkkM) / 1440,
         source: 'appt', appt: a, label: `${a.all_day ? '' : fmtTime(start) + ' · '}${a.title}`,
         color: cancelled ? 'bg-slate-700/40 text-slate-500 border-slate-700 line-through' : meta.color,
         dot: cancelled ? 'bg-slate-500' : meta.dot,

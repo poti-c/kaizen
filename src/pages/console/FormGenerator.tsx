@@ -263,7 +263,7 @@ export function FormGeneratorView({ call, onBack, initialPreviewId, onPreviewCon
       {/* Tabs */}
       <div className="flex gap-1 border-b border-slate-800 mb-5 overflow-x-auto">
         {FORM_TYPES.map(ft => (
-          <button key={ft.key} onClick={() => setTab(ft.key)}
+          <button key={ft.key} onClick={() => { setTab(ft.key); setLinkInvoiceId(null) }}
             className={`px-3 py-2.5 text-xs font-medium border-b-2 whitespace-nowrap transition-colors ${tab === ft.key ? 'border-amber-500 text-amber-400' : 'border-transparent text-slate-400 hover:text-slate-300'}`}>
             {ft.label}
           </button>
@@ -832,7 +832,7 @@ function PrintPreview({ form, issuer, onClose, unconfirmed, confirming, onConfir
                   <td className="py-1.5 pr-2">{it.description}</td>
                   <td className="py-1.5 text-right">{it.qty}</td>
                   <td className="py-1.5 text-right">{money(it.unit_price)}</td>
-                  <td className="py-1.5 text-right">{money(it.qty * it.unit_price)}</td>
+                  <td className="py-1.5 text-right">{money((Number(it.qty) || 0) * (Number(it.unit_price) || 0))}</td>
                 </tr>
               ))}
             </tbody>

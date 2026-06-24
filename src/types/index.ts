@@ -60,6 +60,7 @@ export interface KaizenProfile {
   job_title: string | null
   position: string | null
   must_change_password: boolean
+  preferred_lang?: 'en' | 'th' | null
   last_active_at?: string | null
   last_login_at?: string | null
   deleted_at?: string | null
