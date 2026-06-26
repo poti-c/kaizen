@@ -32,11 +32,25 @@ export function useDepartments() {
       })
   }, [activeCompany?.id])
 
-  // Built-in departments with typed slugs; custom departments with their label as both
-  // value and label (because cases store the label string, not a generated slug).
-  const builtInOptions: DepartmentOption[] = DEPARTMENTS.map(d => ({ ...d, isCustom: false }))
-  const customOptions: DepartmentOption[] = customDepts.map(label => ({ value: label, label, isCustom: true }))
-  const allOptions: DepartmentOption[] = [...builtInOptions, ...customOptions]
+  // `custom_departments` (when set) is the company's COMPLETE, curated roster of labels —
+  // not extras to append. Map each label back to its built-in slug where one matches (so
+  // cases stay consistent with the typed Department values); anything unmatched is a genuine
+  // custom department whose label doubles as its value. Appending the built-ins here was the
+  // old bug: it duplicated every default (e.g. front_office + "Front Office").
+  const LABEL_TO_VALUE: Record<string, string> = Object.fromEntries(DEPARTMENTS.map(d => [d.label, d.value]))
+  const TOP_MANAGEMENT = DEPARTMENTS.find(d => d.value === 'top_management')!
+  const curated: DepartmentOption[] = customDepts.map(label => {
+    const builtinValue = LABEL_TO_VALUE[label]
+    return builtinValue
+      ? { value: builtinValue, label, isCustom: false }
+      : { value: label, label, isCustom: true }
+  })
+  // Top Management is deliberately excluded from the editable Settings roster, but it's still
+  // a real department some screens rely on — keep it at the front. Fall back to the full
+  // built-in set when a company hasn't curated anything yet.
+  const allOptions: DepartmentOption[] = curated.length > 0
+    ? (curated.some(o => o.value === 'top_management') ? curated : [{ ...TOP_MANAGEMENT, isCustom: false }, ...curated])
+    : DEPARTMENTS.map(d => ({ ...d, isCustom: false }))
 
   return {
     allOptions,

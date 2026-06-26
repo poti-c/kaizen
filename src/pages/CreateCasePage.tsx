@@ -12,7 +12,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { PhotoUpload } from '@/components/PhotoUpload'
 import { generateCaseNumber, CATEGORIES, LOCATIONS, companyHasAddon, formatDueBy, toDateTimeLocal, fromDateTimeLocal, bangkokDate } from '@/lib/utils'
-import { DEPARTMENTS, CATEGORY_LABELS_EN, categoryLabel, deptLabel } from '@/types'
+import { CATEGORY_LABELS_EN, categoryLabel, deptLabel } from '@/types'
 import type { CasePriority, Department } from '@/types'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
@@ -52,7 +52,7 @@ export function CreateCasePage() {
     CATEGORIES.map(c => ({ slug: c, label: CATEGORY_LABELS_EN[c] ?? c }))
   )
   const [customLocations, setCustomLocations] = useState<string[]>([...LOCATIONS] as string[])
-  const { customDepts } = useDepartments()
+  const { allOptions: deptOptions } = useDepartments()
 
   useEffect(() => {
     if (profile?.department && profile.role !== 'super_admin') setDepartment(profile.department as Department)
@@ -68,12 +68,14 @@ export function CreateCasePage() {
         data.forEach((row: { key: string; value: unknown }) => {
           if (!Array.isArray(row.value) || row.value.length === 0) return
           if (row.key === 'custom_categories') {
-            const builtIns = CATEGORIES.map(c => ({ slug: c, label: CATEGORY_LABELS_EN[c] ?? c }))
-            const custom = (row.value as string[]).map(label => ({
+            // The stored list is the company's COMPLETE, curated category set — use it as-is.
+            // Re-merging the built-in CATEGORIES (the old behaviour) duplicated every default
+            // (→ "SafetySafety" in the trigger) and resurrected categories the admin had
+            // deliberately removed in Settings (e.g. "Maintenance").
+            setCustomCategories((row.value as string[]).map(label => ({
               slug: label.toLowerCase().replace(/ /g, '_'),
               label,
-            }))
-            setCustomCategories([...builtIns, ...custom])
+            })))
           }
           if (row.key === 'custom_locations') {
             const customs = (row.value as string[]).filter(l => !LOCATIONS.includes(l as never))
@@ -282,11 +284,8 @@ export function CreateCasePage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {DEPARTMENTS.filter((d) => d.value !== 'top_management').map((d) => (
+                  {deptOptions.filter((d) => d.value !== 'top_management').map((d) => (
                     <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>
-                  ))}
-                  {customDepts.map((label) => (
-                    <SelectItem key={label} value={label}>{label}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>

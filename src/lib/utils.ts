@@ -227,7 +227,9 @@ export function buildPhotoPath(caseNumber: string, department: string, index: nu
   return `${folder}/${filename}`
 }
 
-export const CATEGORIES = ['maintenance', 'cleanliness', 'safety', 'guest_complaint', 'equipment', 'other'] as const
+// 'maintenance' was retired — it overlapped with the Preventive Maintenance (PMS) add-on
+// and confused reporters. Existing cases still resolve their label via CATEGORY_LABELS_EN.
+export const CATEGORIES = ['cleanliness', 'safety', 'guest_complaint', 'equipment', 'other'] as const
 export type Category = typeof CATEGORIES[number]
 
 export const LOCATIONS = [
