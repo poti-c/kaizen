@@ -326,7 +326,11 @@ export function RoomOrderView({ companyId, initialDate, initialMode }: { company
   const myDept = (profile?.department ?? null) as Department | null
   const isRequester = canManage || myDept === 'front_office'
 
-  const [mode, setMode] = useState<'build' | 'fulfil' | 'approvals' | 'monitor'>(initialMode ?? (isRequester ? 'build' : 'fulfil'))
+  const initMode = initialMode ?? (isRequester ? 'build' : 'fulfil')
+  const [mode, setMode] = useState<'build' | 'fulfil' | 'approvals' | 'monitor'>(initMode)
+  // One shared service date across Place order / Fulfil / Monitor so switching tabs keeps it.
+  // Seeded from the first tab's natural default (Place order → tomorrow; others → today).
+  const [date, setDate] = useState<string>(() => initialDate ?? (initMode === 'build' ? shiftDate(bangkokDate(), 1) : bangkokDate()))
   const [fulfilDept, setFulfilDept] = useState<Department>(myDept && myDept !== 'front_office' ? myDept : 'restaurant')
   const [assignedDepts, setAssignedDepts] = useState<Department[]>([]) // depts actually used as a fulfilling dept in the recipes
   const [monitorDepts, setMonitorDepts] = useState<string[]>([]) // extra depts granted the read-only Monitor tab
@@ -428,9 +432,9 @@ export function RoomOrderView({ companyId, initialDate, initialMode }: { company
           <span className="text-xs text-gray-500 font-medium">{deptLabel(myDept ?? fulfilDept, lang)}</span>
         ))}
       </div>
-      {mode === 'build' ? <RoomOrderBuild companyId={companyId} unit={unit} requireApproval={requireApproval} initialDate={initialDate} />
-        : mode === 'monitor' ? <RoomMonitorBoard companyId={companyId} unit={unit} initialDate={initialDate} />
-        : mode === 'fulfil' ? <RoomFulfilBoard companyId={companyId} dept={isRequester ? fulfilDept : (myDept ?? fulfilDept)} unit={unit} initialDate={initialDate} />
+      {mode === 'build' ? <RoomOrderBuild companyId={companyId} unit={unit} requireApproval={requireApproval} date={date} onDateChange={setDate} />
+        : mode === 'monitor' ? <RoomMonitorBoard companyId={companyId} unit={unit} date={date} onDateChange={setDate} />
+        : mode === 'fulfil' ? <RoomFulfilBoard companyId={companyId} dept={isRequester ? fulfilDept : (myDept ?? fulfilDept)} unit={unit} date={date} onDateChange={setDate} />
         : <RoomApprovalsView companyId={companyId} onChanged={refreshPending} />}
     </div>
   )
@@ -438,7 +442,7 @@ export function RoomOrderView({ companyId, initialDate, initialMode }: { company
 
 // ── build view (requesting side: grid → room sheet → submit) ────────────────────
 
-function RoomOrderBuild({ companyId, unit, requireApproval, initialDate }: { companyId: string; unit: UnitNoun; requireApproval: boolean; initialDate?: string }) {
+function RoomOrderBuild({ companyId, unit, requireApproval, date: controlledDate, onDateChange, initialDate }: { companyId: string; unit: UnitNoun; requireApproval: boolean; date?: string; onDateChange?: (d: string) => void; initialDate?: string }) {
   const { profile } = useAuth()
   const { lang } = useLanguage()
   const canManage = profile?.role === 'super_admin' || profile?.role === 'manager'
@@ -449,7 +453,10 @@ function RoomOrderBuild({ companyId, unit, requireApproval, initialDate }: { com
   const many = unitMany(unit, lang)
 
   const today = bangkokDate()
-  const [date, setDate] = useState(() => initialDate ?? shiftDate(today, 1)) // default: tomorrow (placed evening before)
+  // Date is shared across tabs when controlled by the parent; otherwise local (default tomorrow).
+  const [internalDate, setInternalDate] = useState(() => initialDate ?? shiftDate(today, 1))
+  const date = controlledDate ?? internalDate
+  const setDate = onDateChange ?? setInternalDate
 
   const [categories, setCategories] = useState<RoomCategory[]>([])
   const [types, setTypes] = useState<RoomType[]>([])
@@ -1268,12 +1275,15 @@ interface FulfilLine {
 const isDocLine = (l: { prepare_department: string | null; fulfill_department: string }) =>
   l.prepare_department === 'accounting' || (!l.prepare_department && l.fulfill_department === 'accounting')
 
-function RoomFulfilBoard({ companyId, dept, unit, initialDate }: { companyId: string; dept: Department; unit: UnitNoun; initialDate?: string }) {
+function RoomFulfilBoard({ companyId, dept, unit, initialDate, date: controlledDate, onDateChange }: { companyId: string; dept: Department; unit: UnitNoun; initialDate?: string; date?: string; onDateChange?: (d: string) => void }) {
   const { profile } = useAuth()
   const { lang } = useLanguage()
   const one = unitOne(unit, lang)
   const today = bangkokDate()
-  const [date, setDate] = useState(initialDate ?? today) // fulfil happens on the service date
+  // Shared across tabs when controlled by the parent; otherwise local (fulfil = service date, today).
+  const [internalDate, setInternalDate] = useState(initialDate ?? today)
+  const date = controlledDate ?? internalDate
+  const setDate = onDateChange ?? setInternalDate
   const [groupBy, setGroupBy] = useState<'item' | 'room'>('item')
   const [lines, setLines] = useState<FulfilLine[]>([])
   const [names, setNames] = useState<Record<string, string>>({}) // deliverer/preparer id → name
@@ -1638,11 +1648,14 @@ function lineOverdue(l: MonitorLine, date: string): boolean {
   return Date.now() > cutoff
 }
 
-function RoomMonitorBoard({ companyId, unit, initialDate }: { companyId: string; unit: UnitNoun; initialDate?: string }) {
+function RoomMonitorBoard({ companyId, unit, initialDate, date: controlledDate, onDateChange }: { companyId: string; unit: UnitNoun; initialDate?: string; date?: string; onDateChange?: (d: string) => void }) {
   const { lang } = useLanguage()
   const one = unitOne(unit, lang)
   const today = bangkokDate()
-  const [date, setDate] = useState(initialDate ?? today)
+  // Shared across tabs when controlled by the parent; otherwise local (today).
+  const [internalDate, setInternalDate] = useState(initialDate ?? today)
+  const date = controlledDate ?? internalDate
+  const setDate = onDateChange ?? setInternalDate
   const [groupBy, setGroupBy] = useState<'room' | 'item'>('room')
   const [outstandingOnly, setOutstandingOnly] = useState(false) // default: show the full picture; toggle to filter
   const [lines, setLines] = useState<MonitorLine[]>([])
