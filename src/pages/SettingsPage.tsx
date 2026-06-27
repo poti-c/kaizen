@@ -18,6 +18,7 @@ import { PMSettings } from '@/components/PMSettings'
 import { RRSettings } from '@/components/RRSettings'
 import { RoomSetupSettings } from '@/components/RoomSetupSettings'
 import { RoomRecipesSettings } from '@/components/RoomRecipesSettings'
+import { RoomMonitorAccessSettings } from '@/components/RoomMonitorAccessSettings'
 import { SpecialApprovalSettings } from '@/components/SpecialApprovalSettings'
 import { RoomNotifySettings } from '@/components/RoomNotifySettings'
 import { RrFoAccessSettings } from '@/components/RrFoAccessSettings'
@@ -931,6 +932,8 @@ export function SettingsPage() {
           <RoomSetupSettings />
           <div className="border-t border-gray-100 my-6" />
           <RoomRecipesSettings />
+          <div className="border-t border-gray-100 my-6" />
+          <RoomMonitorAccessSettings />
           <div className="border-t border-gray-100 my-6" />
           <SpecialApprovalSettings />
           <div className="border-t border-gray-100 my-6" />

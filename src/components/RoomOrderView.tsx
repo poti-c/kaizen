@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   Loader2, X, Check, Plus, Trash2, Send, ChevronLeft, ChevronRight,
   Truck, ListChecks, ArrowRight, DoorOpen, DoorClosed, CheckCircle2, ShieldCheck, Clock, AlertTriangle, RotateCcw, History, ChevronDown, Eye,
@@ -319,12 +319,16 @@ export function RoomOrderView({ companyId, initialDate, initialMode }: { company
   const myDept = (profile?.department ?? null) as Department | null
   const isRequester = canManage || myDept === 'front_office'
 
-  const [mode, setMode] = useState<'build' | 'fulfil' | 'approvals'>(initialMode ?? (isRequester ? 'build' : 'fulfil'))
+  const [mode, setMode] = useState<'build' | 'fulfil' | 'approvals' | 'monitor'>(initialMode ?? (isRequester ? 'build' : 'fulfil'))
   const [fulfilDept, setFulfilDept] = useState<Department>(myDept && myDept !== 'front_office' ? myDept : 'restaurant')
   const [assignedDepts, setAssignedDepts] = useState<Department[]>([]) // depts actually used as a fulfilling dept in the recipes
+  const [monitorDepts, setMonitorDepts] = useState<string[]>([]) // extra depts granted the read-only Monitor tab
   const [pendingApprovals, setPendingApprovals] = useState(0)
   const [requireApproval, setRequireApproval] = useState(true) // master gate from settings
   const [unit, setUnit] = useState<UnitNoun>(DEFAULT_UNIT)
+
+  // Front Office + managers/Top Management always have oversight; other depts only if granted.
+  const canMonitor = canManage || myDept === 'front_office' || (!!myDept && monitorDepts.includes(myDept))
 
   // Load the unit noun + the set of departments that recipes actually route work to.
   useEffect(() => {
@@ -333,8 +337,10 @@ export function RoomOrderView({ companyId, initialDate, initialMode }: { company
     Promise.all([
       supabase.from('kaizen_settings').select('value').eq('company_id', companyId).eq('key', 'rr_room_config').maybeSingle(),
       supabase.from('kaizen_settings').select('value').eq('company_id', companyId).eq('key', 'rr_room_recipes').maybeSingle(),
-    ]).then(([cfgRes, recRes]) => {
+      supabase.from('kaizen_settings').select('value').eq('company_id', companyId).eq('key', 'rr_monitor_depts').maybeSingle(),
+    ]).then(([cfgRes, recRes, monRes]) => {
       if (stale) return
+      setMonitorDepts(Array.isArray(monRes.data?.value) ? (monRes.data!.value as string[]) : [])
       const u = (cfgRes.data?.value as { unit?: UnitNoun } | undefined)?.unit
       if (u) setUnit(u)
       const recipes = (recRes.data?.value as RoomRecipes) ?? {}
@@ -376,20 +382,27 @@ export function RoomOrderView({ companyId, initialDate, initialMode }: { company
   // If approval is turned off while sitting on the Approvals tab, fall back to Place order.
   useEffect(() => { if (!requireApproval && mode === 'approvals') setMode('build') }, [requireApproval, mode])
 
-  // Non-requester staff only ever see their own department's fulfil board.
-  if (!isRequester) return <RoomFulfilBoard companyId={companyId} dept={myDept ?? 'restaurant'} unit={unit} initialDate={initialDate} />
+  // Non-requester staff with no Monitor grant only ever see their own department's fulfil board.
+  if (!isRequester && !canMonitor) return <RoomFulfilBoard companyId={companyId} dept={myDept ?? 'restaurant'} unit={unit} initialDate={initialDate} />
 
   return (
     <div className="space-y-4">
       {/* Mode switch — requesters/managers can place orders, inspect any dept's board, and approve specials */}
       <div className="flex items-center gap-2 flex-wrap">
         <div className="flex rounded-lg border border-gray-300 overflow-hidden text-xs font-medium">
-          <button onClick={() => setMode('build')} className={`px-3 h-8 ${mode === 'build' ? 'bg-[var(--brand-primary)] text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
-            {lang === 'th' ? 'สร้างใบสั่ง' : 'Place order'}
-          </button>
+          {isRequester && (
+            <button onClick={() => setMode('build')} className={`px-3 h-8 ${mode === 'build' ? 'bg-[var(--brand-primary)] text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
+              {lang === 'th' ? 'สร้างใบสั่ง' : 'Place order'}
+            </button>
+          )}
           <button onClick={() => setMode('fulfil')} className={`px-3 h-8 ${mode === 'fulfil' ? 'bg-[var(--brand-primary)] text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
             {lang === 'th' ? 'งานแผนก' : 'Fulfil'}
           </button>
+          {canMonitor && (
+            <button onClick={() => setMode('monitor')} className={`px-3 h-8 flex items-center gap-1 ${mode === 'monitor' ? 'bg-[var(--brand-primary)] text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
+              <Eye className="h-3.5 w-3.5" />{lang === 'th' ? 'ติดตาม' : 'Monitor'}
+            </button>
+          )}
           {canManage && requireApproval && (
             <button onClick={() => setMode('approvals')} className={`px-3 h-8 flex items-center gap-1 ${mode === 'approvals' ? 'bg-[var(--brand-primary)] text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
               {lang === 'th' ? 'อนุมัติ' : 'Approvals'}
@@ -397,17 +410,20 @@ export function RoomOrderView({ companyId, initialDate, initialMode }: { company
             </button>
           )}
         </div>
-        {mode === 'fulfil' && (assignedDepts.length > 0 ? (
+        {mode === 'fulfil' && (isRequester ? (assignedDepts.length > 0 ? (
           <select value={fulfilDept} onChange={(e) => setFulfilDept(e.target.value as Department)}
             className="h-8 rounded-lg border border-gray-300 px-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/40">
             {assignedDepts.map((d) => <option key={d} value={d}>{deptLabel(d, lang)}</option>)}
           </select>
         ) : (
           <span className="text-xs text-gray-400">{lang === 'th' ? 'ยังไม่มีแผนกผู้ดำเนินการในสูตร' : 'No departments assigned in recipes yet'}</span>
+        )) : (
+          <span className="text-xs text-gray-500 font-medium">{deptLabel(myDept ?? fulfilDept, lang)}</span>
         ))}
       </div>
       {mode === 'build' ? <RoomOrderBuild companyId={companyId} unit={unit} requireApproval={requireApproval} initialDate={initialDate} />
-        : mode === 'fulfil' ? <RoomFulfilBoard companyId={companyId} dept={fulfilDept} unit={unit} initialDate={initialDate} />
+        : mode === 'monitor' ? <RoomMonitorBoard companyId={companyId} unit={unit} initialDate={initialDate} />
+        : mode === 'fulfil' ? <RoomFulfilBoard companyId={companyId} dept={isRequester ? fulfilDept : (myDept ?? fulfilDept)} unit={unit} initialDate={initialDate} />
         : <RoomApprovalsView companyId={companyId} onChanged={refreshPending} />}
     </div>
   )
@@ -1516,6 +1532,200 @@ function RoomFulfilBoard({ companyId, dept, unit, initialDate }: { companyId: st
               </div>
             ))}
           </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+// ── monitor board (read-only oversight of every room/line across all departments) ──
+
+interface MonitorLine {
+  id: string; room_no: string; room_type: string | null; slot: string | null; item: string | null
+  fulfill_department: string; prepare_department: string | null
+  serving_at: string | null; line_type: LineType; source: 'default' | 'special'
+  status: 'pending' | 'acknowledged' | 'ready' | 'done'
+  delivered_by: string | null; delivered_at: string | null
+  prepared_by: string | null; prepared_at: string | null
+}
+
+type MonitorStatusKey = 'pending' | 'preparing' | 'inprogress' | 'ready' | 'delivered'
+
+// True once the line's serving time has passed (Asia/Bangkok) and it isn't delivered yet.
+function lineOverdue(l: MonitorLine, date: string): boolean {
+  if (l.status === 'done' || !l.serving_at) return false
+  const cutoff = new Date(`${date}T${l.serving_at}:00+07:00`).getTime()
+  return Date.now() > cutoff
+}
+
+function RoomMonitorBoard({ companyId, unit, initialDate }: { companyId: string; unit: UnitNoun; initialDate?: string }) {
+  const { lang } = useLanguage()
+  const one = unitOne(unit, lang)
+  const today = bangkokDate()
+  const [date, setDate] = useState(initialDate ?? today)
+  const [groupBy, setGroupBy] = useState<'room' | 'item'>('room')
+  const [outstandingOnly, setOutstandingOnly] = useState(true)
+  const [lines, setLines] = useState<MonitorLine[]>([])
+  const [names, setNames] = useState<Record<string, string>>({})
+  const [orderExists, setOrderExists] = useState(false)
+  const [loading, setLoading] = useState(true)
+
+  const load = useCallback(async () => {
+    if (!companyId) return
+    setLoading(true)
+    const { data: order } = await supabase.from('kaizen_rr_room_orders').select('id, status')
+      .eq('company_id', companyId).eq('order_date', date).maybeSingle()
+    const o = order as { id: string; status: string } | null
+    if (!o || o.status !== 'submitted') { setLines([]); setOrderExists(false); setLoading(false); return }
+    setOrderExists(true)
+    const { data } = await supabase.from('kaizen_rr_room_lines').select('*')
+      .eq('room_order_id', o.id).eq('active', true).in('approval_status', ['approved', 'auto'])
+    const list = (data as MonitorLine[]) ?? []
+    setLines(list)
+    const ids = [...new Set(list.flatMap((l) => [l.delivered_by, l.prepared_by]).filter(Boolean))] as string[]
+    if (ids.length > 0) {
+      const { data: profs } = await supabase.from('kaizen_profiles').select('id, full_name').in('id', ids)
+      const m: Record<string, string> = {}
+      ;((profs as { id: string; full_name: string }[]) ?? []).forEach((p) => { m[p.id] = p.full_name })
+      setNames(m)
+    } else setNames({})
+    setLoading(false)
+  }, [companyId, date])
+  useEffect(() => { load() }, [load])
+
+  // Live updates: any change to this company's room lines re-pulls the board (debounced so a
+  // burst of ticks coalesces into one reload).
+  const reloadTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => {
+    if (!companyId) return
+    const ch = supabase.channel(`rr_monitor_${companyId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'kaizen_rr_room_lines', filter: `company_id=eq.${companyId}` },
+        () => { if (reloadTimer.current) clearTimeout(reloadTimer.current); reloadTimer.current = setTimeout(() => load(), 400) })
+      .subscribe()
+    return () => { if (reloadTimer.current) clearTimeout(reloadTimer.current); supabase.removeChannel(ch) }
+  }, [companyId, load])
+
+  const statusOf = (l: MonitorLine): { key: MonitorStatusKey; label: string } => {
+    if (l.status === 'done') {
+      const who = l.delivered_by ? names[l.delivered_by] : null
+      const at = l.delivered_at ? ` · ${new Date(l.delivered_at).toLocaleTimeString(lang === 'th' ? 'th-TH' : 'en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bangkok' })}` : ''
+      return { key: 'delivered', label: `${lang === 'th' ? 'ส่งแล้ว' : 'Delivered'}${at}${who ? ` · ${who}` : ''}` }
+    }
+    if (l.prepare_department) {
+      if (l.status === 'ready') return { key: 'ready', label: `${lang === 'th' ? 'พร้อม · รอ' : 'Ready · awaiting'} ${deptLabel(l.fulfill_department, lang)}` }
+      return { key: 'preparing', label: `${lang === 'th' ? 'กำลังเตรียม · ' : 'Preparing · '}${deptLabel(l.prepare_department, lang)}` }
+    }
+    if (l.status === 'acknowledged') return { key: 'inprogress', label: `${lang === 'th' ? 'กำลังทำ · ' : 'In progress · '}${deptLabel(l.fulfill_department, lang)}` }
+    return { key: 'pending', label: `${lang === 'th' ? 'รอ · ' : 'Pending · '}${deptLabel(l.fulfill_department, lang)}` }
+  }
+  const CHIP: Record<MonitorStatusKey, string> = {
+    delivered: 'bg-green-50 text-green-700 border-green-200',
+    ready: 'bg-blue-50 text-blue-700 border-blue-200',
+    preparing: 'bg-amber-50 text-amber-700 border-amber-200',
+    inprogress: 'bg-amber-50 text-amber-700 border-amber-200',
+    pending: 'bg-gray-100 text-gray-500 border-gray-200',
+  }
+
+  const itemKey = (l: MonitorLine) => (l.item?.trim() || l.slot?.trim() || '—')
+  const visible = outstandingOnly ? lines.filter((l) => l.status !== 'done') : lines
+  const total = lines.length
+  const counts = {
+    delivered: lines.filter((l) => statusOf(l).key === 'delivered').length,
+    ready: lines.filter((l) => statusOf(l).key === 'ready').length,
+    working: lines.filter((l) => ['preparing', 'inprogress'].includes(statusOf(l).key)).length,
+    pending: lines.filter((l) => statusOf(l).key === 'pending').length,
+    overdue: lines.filter((l) => lineOverdue(l, date)).length,
+  }
+
+  const groups = new Map<string, MonitorLine[]>()
+  if (groupBy === 'room') {
+    for (const l of visible.slice().sort((a, b) => roomSort(a.room_no, b.room_no) || (a.serving_at ?? '').localeCompare(b.serving_at ?? '')))
+      (groups.get(l.room_no) ?? groups.set(l.room_no, []).get(l.room_no))!.push(l)
+  } else {
+    for (const l of visible.slice().sort((a, b) => itemKey(a).localeCompare(itemKey(b)) || roomSort(a.room_no, b.room_no)))
+      (groups.get(itemKey(l)) ?? groups.set(itemKey(l), []).get(itemKey(l)))!.push(l)
+  }
+
+  const dateLabel = parseDateOnlyBkk(date).toLocaleDateString(lang === 'th' ? 'th-TH' : 'en-GB',
+    { timeZone: 'Asia/Bangkok', weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-2">
+        <button onClick={() => setDate(shiftDate(date, -1))} className="h-9 w-9 flex items-center justify-center rounded-lg border border-gray-300 bg-white text-gray-600 hover:border-gray-400"><ChevronLeft className="h-4 w-4" /></button>
+        <div className="flex-1 text-center">
+          <p className="text-sm font-semibold text-gray-900">{dateLabel}</p>
+          <p className="text-[11px] text-gray-400 flex items-center justify-center gap-1">
+            <span className="inline-block h-1.5 w-1.5 rounded-full bg-green-500" />{lang === 'th' ? 'อัปเดตสด' : 'live'}{date === today ? ` · ${lang === 'th' ? 'วันนี้' : 'today'}` : ''}
+          </p>
+        </div>
+        <button onClick={() => setDate(shiftDate(date, 1))} className="h-9 w-9 flex items-center justify-center rounded-lg border border-gray-300 bg-white text-gray-600 hover:border-gray-400"><ChevronRight className="h-4 w-4" /></button>
+      </div>
+
+      {loading ? (
+        <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-gray-400" /></div>
+      ) : !orderExists ? (
+        <div className="text-center py-16 bg-white rounded-xl border border-gray-200 text-sm text-gray-400">
+          {lang === 'th' ? `ยังไม่มีใบสั่ง${one}สำหรับวันนี้` : 'No submitted order for this date.'}
+        </div>
+      ) : (
+        <>
+          <div className="flex items-center gap-2 flex-wrap rounded-xl border border-gray-200 bg-white px-4 py-3">
+            <div className="flex-1 flex items-center gap-1.5 flex-wrap">
+              <span className="text-sm font-semibold text-gray-900">{counts.delivered}/{total} {lang === 'th' ? 'ส่งแล้ว' : 'delivered'}</span>
+              {counts.overdue > 0 && <span className="text-[11px] px-1.5 py-0.5 rounded-full bg-red-50 text-red-700 border border-red-200">{counts.overdue} {lang === 'th' ? 'เลยเวลา' : 'overdue'}</span>}
+              {counts.ready > 0 && <span className="text-[11px] px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">{counts.ready} {lang === 'th' ? 'พร้อมส่ง' : 'ready'}</span>}
+              {counts.working > 0 && <span className="text-[11px] px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">{counts.working} {lang === 'th' ? 'กำลังทำ' : 'in progress'}</span>}
+              {counts.pending > 0 && <span className="text-[11px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500 border border-gray-200">{counts.pending} {lang === 'th' ? 'รอ' : 'pending'}</span>}
+            </div>
+            <button onClick={() => setOutstandingOnly((v) => !v)}
+              className={`px-2.5 h-8 rounded-lg border text-xs font-medium ${outstandingOnly ? 'border-[var(--brand-primary)] text-[var(--brand-primary)] bg-[var(--brand-primary)]/5' : 'border-gray-300 text-gray-600 bg-white'}`}>
+              {lang === 'th' ? 'เฉพาะค้าง' : 'Outstanding'}
+            </button>
+            <div className="flex rounded-lg border border-gray-300 overflow-hidden text-xs font-medium">
+              <button onClick={() => setGroupBy('room')} className={`px-2.5 h-8 ${groupBy === 'room' ? 'bg-[var(--brand-primary)] text-white' : 'bg-white text-gray-600'}`}>{lang === 'th' ? `ตาม${one}` : `By ${one.toLowerCase()}`}</button>
+              <button onClick={() => setGroupBy('item')} className={`px-2.5 h-8 ${groupBy === 'item' ? 'bg-[var(--brand-primary)] text-white' : 'bg-white text-gray-600'}`}>{lang === 'th' ? 'ตามรายการ' : 'By item'}</button>
+            </div>
+          </div>
+
+          {groups.size === 0 ? (
+            <div className="text-center py-12 bg-white rounded-xl border border-gray-200 text-sm text-gray-400">
+              {lang === 'th' ? 'ส่งครบทุกรายการแล้ว 🎉' : 'Everything delivered 🎉'}
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {Array.from(groups.entries()).map(([key, gls]) => (
+                <div key={key} className="rounded-xl border border-gray-200 bg-white p-3">
+                  <div className="flex items-center gap-2 mb-2">
+                    <p className="text-sm font-semibold text-gray-900">{key}</p>
+                    {groupBy === 'room' && gls[0]?.room_type && <span className="text-[11px] text-gray-400">{gls[0].room_type}</span>}
+                    <span className="ml-auto text-[11px] text-gray-400">{gls.filter((l) => l.status === 'done').length}/{gls.length} {lang === 'th' ? 'ส่งแล้ว' : 'done'}</span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                    {gls.map((l) => {
+                      const st = statusOf(l)
+                      const secondary = groupBy === 'room' ? itemKey(l) : l.room_no
+                      const od = lineOverdue(l, date)
+                      const route = l.prepare_department ? `${deptLabel(l.prepare_department, lang)} → ${deptLabel(l.fulfill_department, lang)}` : deptLabel(l.fulfill_department, lang)
+                      return (
+                        <div key={l.id} className={`flex items-center gap-2 rounded-lg border px-2.5 py-2 ${od ? 'border-red-200 bg-red-50/40' : 'border-gray-200 bg-gray-50/50'}`}>
+                          <span className="flex-1 min-w-0">
+                            <span className="text-sm text-gray-800">{secondary}</span>
+                            {l.source === 'special' && <span className="ml-1 text-[9px] px-1 rounded bg-amber-100 text-amber-700 align-middle">{lang === 'th' ? 'พิเศษ' : 'special'}</span>}
+                            <span className="block text-[11px] text-gray-400 truncate">
+                              {route}{l.serving_at ? ` · ${lang === 'th' ? 'ภายใน' : 'by'} ${l.serving_at}` : ''}
+                            </span>
+                          </span>
+                          {od && <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 flex-shrink-0">{lang === 'th' ? 'เลยเวลา' : 'overdue'}</span>}
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded-full border flex-shrink-0 ${CHIP[st.key]}`}>{st.label}</span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </>
       )}
     </div>
