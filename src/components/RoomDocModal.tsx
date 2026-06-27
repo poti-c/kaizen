@@ -45,16 +45,18 @@ async function shrinkImage(file: File): Promise<File> {
  * - mode 'view': renders the stored doc via a short-lived signed URL with Save / Print and,
  *   when canConfirm, a "Confirm received" action.
  */
-export function RoomDocModal({ companyId, line, mode, canConfirm, onClose, onUploaded, onConfirm }: {
+export function RoomDocModal({ companyId, line, mode, canConfirm, canReplace, onClose, onUploaded, onConfirm }: {
   companyId: string
   line: DocLineRef
   mode: 'upload' | 'view'
   canConfirm?: boolean
+  canReplace?: boolean
   onClose: () => void
   onUploaded?: (path: string, name: string) => void | Promise<void>
   onConfirm?: () => void | Promise<void>
 }) {
   const { lang } = useLanguage()
+  const [curMode, setCurMode] = useState<'upload' | 'view'>(mode)
   const [picked, setPicked] = useState<{ file: File; url: string } | null>(null)
   const [signedUrl, setSignedUrl] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -64,7 +66,7 @@ export function RoomDocModal({ companyId, line, mode, canConfirm, onClose, onUpl
 
   // View mode: mint a short-lived signed URL for the stored object.
   useEffect(() => {
-    if (mode !== 'view' || !line.document_path) { setLoadingDoc(false); return }
+    if (curMode !== 'view' || !line.document_path) { setLoadingDoc(false); return }
     let stale = false
     supabase.storage.from(BUCKET).createSignedUrl(line.document_path, 300).then(({ data, error }) => {
       if (stale) return
@@ -73,7 +75,7 @@ export function RoomDocModal({ companyId, line, mode, canConfirm, onClose, onUpl
       setLoadingDoc(false)
     })
     return () => { stale = true }
-  }, [mode, line.document_path])
+  }, [curMode, line.document_path])
 
   function onPick(file: File | undefined) {
     if (!file) return
@@ -121,8 +123,8 @@ export function RoomDocModal({ companyId, line, mode, canConfirm, onClose, onUpl
     onClose()
   }
 
-  const isPdf = (picked?.file.type === 'application/pdf') || (mode === 'view' && (line.document_name?.toLowerCase().endsWith('.pdf') || line.document_path?.toLowerCase().endsWith('.pdf')))
-  const previewUrl = mode === 'upload' ? picked?.url : signedUrl
+  const isPdf = (picked?.file.type === 'application/pdf') || (curMode === 'view' && (line.document_name?.toLowerCase().endsWith('.pdf') || line.document_path?.toLowerCase().endsWith('.pdf')))
+  const previewUrl = curMode === 'upload' ? picked?.url : signedUrl
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -131,13 +133,13 @@ export function RoomDocModal({ companyId, line, mode, canConfirm, onClose, onUpl
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 flex-shrink-0">
           <div className="min-w-0">
             <h3 className="font-semibold text-gray-900 truncate">{title}</h3>
-            <p className="text-xs text-gray-400">{line.room_no}{mode === 'upload' ? ` · ${lang === 'th' ? 'อัปโหลดเอกสาร' : 'Upload document'}` : ''}</p>
+            <p className="text-xs text-gray-400">{line.room_no}{curMode === 'upload' ? ` · ${lang === 'th' ? 'อัปโหลดเอกสาร' : 'Upload document'}` : ''}</p>
           </div>
           <button onClick={onClose} className="p-1 rounded text-gray-400 hover:bg-gray-100"><X className="h-4 w-4" /></button>
         </div>
 
         <div className="flex-1 overflow-auto p-5">
-          {mode === 'upload' && !picked && (
+          {curMode === 'upload' && !picked && (
             <label className="flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-gray-300 py-12 cursor-pointer hover:border-[var(--brand-primary)]">
               <Upload className="h-8 w-8 text-gray-400" />
               <span className="text-sm font-medium text-gray-600">{lang === 'th' ? 'เลือกไฟล์ PDF หรือรูปภาพ' : 'Choose a PDF or image'}</span>
@@ -152,7 +154,7 @@ export function RoomDocModal({ companyId, line, mode, canConfirm, onClose, onUpl
                 ? <iframe title="document" src={previewUrl} className="w-full" style={{ height: '60vh' }} />
                 : <img src={previewUrl} alt={title} className="w-full max-h-[60vh] object-contain" />}
             </div>
-          ) : mode === 'view' && (loadingDoc ? (
+          ) : curMode === 'view' && (loadingDoc ? (
             <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-gray-400" /></div>
           ) : (
             <div className="flex flex-col items-center gap-2 py-16 text-gray-400">
@@ -162,7 +164,7 @@ export function RoomDocModal({ companyId, line, mode, canConfirm, onClose, onUpl
         </div>
 
         <div className="flex items-center gap-2 px-5 py-4 border-t border-gray-200 flex-shrink-0">
-          {mode === 'upload' ? (
+          {curMode === 'upload' ? (
             <>
               {picked && (
                 <label className="flex items-center gap-1.5 px-3 h-9 rounded-lg border border-gray-300 text-sm text-gray-600 hover:bg-gray-50 cursor-pointer">
@@ -183,6 +185,12 @@ export function RoomDocModal({ companyId, line, mode, canConfirm, onClose, onUpl
               <button onClick={print} disabled={!signedUrl} className="flex items-center gap-1.5 px-3 h-9 rounded-lg border border-gray-300 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-50">
                 <Printer className="h-4 w-4" />{lang === 'th' ? 'พิมพ์' : 'Print'}
               </button>
+              {canReplace && (
+                <button onClick={() => { setCurMode('upload'); setPicked(null) }}
+                  className="flex items-center gap-1.5 px-3 h-9 rounded-lg border border-gray-300 text-sm text-gray-600 hover:bg-gray-50">
+                  <RefreshCw className="h-4 w-4" />{lang === 'th' ? 'เปลี่ยนเอกสาร' : 'Replace'}
+                </button>
+              )}
               {canConfirm && (
                 <button onClick={confirm} disabled={busy || !line.document_path}
                   className="ml-auto flex items-center gap-1.5 bg-[var(--brand-primary)] text-white text-sm font-semibold px-4 h-9 rounded-lg disabled:opacity-50">

@@ -1272,7 +1272,7 @@ function RoomFulfilBoard({ companyId, dept, unit, initialDate }: { companyId: st
   const [prepBufferMin, setPrepBufferMin] = useState(DEFAULT_PREP_BUFFER_MIN) // serving_at minus this = "prep by" hint
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
-  const [docModal, setDocModal] = useState<{ line: FulfilLine; mode: 'upload' | 'view'; canConfirm: boolean } | null>(null)
+  const [docModal, setDocModal] = useState<{ line: FulfilLine; mode: 'upload' | 'view'; canConfirm: boolean; canReplace: boolean } | null>(null)
 
   const load = useCallback(async () => {
     if (!companyId) return
@@ -1416,17 +1416,23 @@ function RoomFulfilBoard({ companyId, dept, unit, initialDate }: { companyId: st
   // plain tick. Accounting uploads (→ ready); the deliverer views then confirms (→ done).
   function openDocFor(l: FulfilLine) {
     if (isPrep(l)) {
-      setDocModal({ line: l, mode: l.status === 'pending' ? 'upload' : 'view', canConfirm: false })
+      // Accounting: upload first time; once uploaded they can still replace it — until the
+      // deliverer confirms receipt (status 'done'), after which it's locked to view-only.
+      setDocModal({ line: l, mode: l.status === 'pending' ? 'upload' : 'view', canConfirm: false, canReplace: l.status === 'ready' })
     } else if (isHandoffDeliver(l)) {
       if (l.status === 'pending') { toast.info(lang === 'th' ? 'บัญชียังไม่ได้อัปโหลดเอกสาร' : 'Accounting hasn’t uploaded the document yet.'); return }
-      setDocModal({ line: l, mode: 'view', canConfirm: l.status === 'ready' })
+      setDocModal({ line: l, mode: 'view', canConfirm: l.status === 'ready', canReplace: false })
     } else {
-      setDocModal({ line: l, mode: 'view', canConfirm: false })
+      setDocModal({ line: l, mode: 'view', canConfirm: false, canReplace: false })
     }
   }
-  // Accounting submitted the document → mark the line ready, store the doc, notify the deliverer.
+  // Accounting submitted (or replaced) the document → mark the line ready, store the doc,
+  // notify the deliverer. Removes a superseded object if the replacement has a different path.
   async function onDocUploaded(l: FulfilLine, path: string, name: string) {
     if (!profile) return
+    if (l.document_path && l.document_path !== path) {
+      await supabase.storage.from('kaizen-invoices').remove([l.document_path])
+    }
     const at = new Date().toISOString()
     const patch = { status: 'ready' as const, prepared_by: profile.id, prepared_at: at, document_path: path, document_name: name }
     const { error } = await supabase.from('kaizen_rr_room_lines').update(patch).eq('id', l.id)
@@ -1579,6 +1585,7 @@ function RoomFulfilBoard({ companyId, dept, unit, initialDate }: { companyId: st
           line={docModal.line}
           mode={docModal.mode}
           canConfirm={docModal.canConfirm}
+          canReplace={docModal.canReplace}
           onClose={() => setDocModal(null)}
           onUploaded={(path, name) => onDocUploaded(docModal.line, path, name)}
           onConfirm={() => toggleLine(docModal.line)}
