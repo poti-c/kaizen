@@ -1564,7 +1564,7 @@ function RoomMonitorBoard({ companyId, unit, initialDate }: { companyId: string;
   const today = bangkokDate()
   const [date, setDate] = useState(initialDate ?? today)
   const [groupBy, setGroupBy] = useState<'room' | 'item'>('room')
-  const [outstandingOnly, setOutstandingOnly] = useState(true)
+  const [outstandingOnly, setOutstandingOnly] = useState(false) // default: show the full picture; toggle to filter
   const [lines, setLines] = useState<MonitorLine[]>([])
   const [names, setNames] = useState<Record<string, string>>({})
   const [orderExists, setOrderExists] = useState(false)
