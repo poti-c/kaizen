@@ -1253,9 +1253,12 @@ interface FulfilLine {
   document_path: string | null; document_name: string | null
 }
 
-// Lines whose preparer is Accounting are document handoffs: the "ready" step IS uploading
-// the receipt / tax invoice, and the deliverer confirms after viewing it.
-const isDocLine = (l: { prepare_department: string | null }) => l.prepare_department === 'accounting'
+// Any line involving Accounting is a document line: instead of a plain tick, Accounting
+// uploads the receipt / tax invoice. Handoff (prepare=accounting → some deliverer): upload
+// makes it Ready, the deliverer confirms after viewing. Single-stage (Accounting fulfils it
+// directly): uploading completes it. Either way Front Office can view it on the Monitor tab.
+const isDocLine = (l: { prepare_department: string | null; fulfill_department: string }) =>
+  l.prepare_department === 'accounting' || (!l.prepare_department && l.fulfill_department === 'accounting')
 
 function RoomFulfilBoard({ companyId, dept, unit, initialDate }: { companyId: string; dept: Department; unit: UnitNoun; initialDate?: string }) {
   const { profile } = useAuth()
@@ -1412,13 +1415,21 @@ function RoomFulfilBoard({ companyId, dept, unit, initialDate }: { companyId: st
     if (after) await after()
   }
 
-  // Document handoff (Accounting → Front Office): open the upload/view modal instead of a
-  // plain tick. Accounting uploads (→ ready); the deliverer views then confirms (→ done).
+  // The dept that uploads a document line: the preparer (handoff) or, for a single-stage
+  // Accounting line, Accounting itself (which fulfils it directly).
+  const isDocUploader = (l: FulfilLine) => isDocLine(l) && (isPrep(l) || isSingle(l))
+
+  // Open the upload/view modal instead of a plain tick.
   function openDocFor(l: FulfilLine) {
-    if (isPrep(l)) {
-      // Accounting: upload first time; once uploaded they can still replace it — until the
-      // deliverer confirms receipt (status 'done'), after which it's locked to view-only.
-      setDocModal({ line: l, mode: l.status === 'pending' ? 'upload' : 'view', canConfirm: false, canReplace: l.status === 'ready' })
+    if (isDocUploader(l)) {
+      if (!l.document_path) {
+        setDocModal({ line: l, mode: 'upload', canConfirm: false, canReplace: false })
+      } else {
+        // Replace allowed: single-stage Accounting owns it outright; a handoff only until the
+        // deliverer confirms receipt (status 'done'), after which it's locked to view-only.
+        const canReplace = isPrep(l) ? l.status === 'ready' : true
+        setDocModal({ line: l, mode: 'view', canConfirm: false, canReplace })
+      }
     } else if (isHandoffDeliver(l)) {
       if (l.status === 'pending') { toast.info(lang === 'th' ? 'บัญชียังไม่ได้อัปโหลดเอกสาร' : 'Accounting hasn’t uploaded the document yet.'); return }
       setDocModal({ line: l, mode: 'view', canConfirm: l.status === 'ready', canReplace: false })
@@ -1426,20 +1437,23 @@ function RoomFulfilBoard({ companyId, dept, unit, initialDate }: { companyId: st
       setDocModal({ line: l, mode: 'view', canConfirm: false, canReplace: false })
     }
   }
-  // Accounting submitted (or replaced) the document → mark the line ready, store the doc,
-  // notify the deliverer. Removes a superseded object if the replacement has a different path.
+  // Accounting submitted (or replaced) the document. Handoff → mark Ready and notify the
+  // deliverer; single-stage → mark Done (Accounting completes it directly). Removes a
+  // superseded object if the replacement has a different path.
   async function onDocUploaded(l: FulfilLine, path: string, name: string) {
     if (!profile) return
     if (l.document_path && l.document_path !== path) {
       await supabase.storage.from('kaizen-invoices').remove([l.document_path])
     }
     const at = new Date().toISOString()
-    const patch = { status: 'ready' as const, prepared_by: profile.id, prepared_at: at, document_path: path, document_name: name }
+    const patch = isPrep(l)
+      ? { status: 'ready' as const, prepared_by: profile.id, prepared_at: at, document_path: path, document_name: name }
+      : { status: 'done' as const, delivered_by: profile.id, delivered_at: at, prepared_by: profile.id, prepared_at: at, document_path: path, document_name: name }
     const { error } = await supabase.from('kaizen_rr_room_lines').update(patch).eq('id', l.id)
     if (error) { toast.error(error.message); return }
     if (profile.full_name) setNames((m) => ({ ...m, [profile.id]: profile.full_name }))
     setLines((prev) => prev.map((x) => x.id === l.id ? { ...x, ...patch } : x))
-    await notifyReady(l)
+    if (isPrep(l)) await notifyReady(l)
     if (orderId) await logRoomEvent(companyId, orderId, date, profile.id, 'prepared', `${l.room_no} · ${itemText(l)}`)
     toast.success(lang === 'th' ? 'ส่งเอกสารแล้ว' : 'Document submitted')
   }
@@ -1467,7 +1481,7 @@ function RoomFulfilBoard({ companyId, dept, unit, initialDate }: { companyId: st
   }
   // The action verb shown on an actionable, not-yet-done line.
   const actionLabel = (l: FulfilLine) => isDocLine(l)
-    ? (isPrep(l) ? (lang === 'th' ? 'อัปโหลด' : 'upload') : (lang === 'th' ? 'ดู/ยืนยัน' : 'view'))
+    ? (isDocUploader(l) && !l.document_path ? (lang === 'th' ? 'อัปโหลด' : 'upload') : (lang === 'th' ? 'ดู' : 'view'))
     : isPrep(l)
       ? (lang === 'th' ? 'พร้อม' : 'mark ready')
       : tickLabel(l)
