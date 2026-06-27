@@ -16,6 +16,7 @@ import { resolveDeptRecipients } from '@/lib/rrNotify'
 import { bangkokDate, parseDateOnlyBkk, bangkokDayOfWeek } from '@/lib/utils'
 import type { RecipeLine, RoomRecipes, LineType } from '@/components/RoomRecipesSettings'
 import { ItemField } from '@/components/RoomRecipesSettings'
+import { recipeSeedOff } from '@/lib/roomRecipe'
 
 const DEPT_OPTIONS = DEPARTMENTS.filter((d) => d.value !== 'top_management')
 const WEEKDAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const
@@ -264,16 +265,11 @@ function statusLabel(s: RoomStatus, lang: string): string {
 function isArrivalLine(slot: string): boolean {
   return /fruit|minibar|มินิบาร์|ผลไม้/i.test(slot)
 }
-/** Receipt / tax invoice — issued on demand (e.g. at checkout), so it's opt-in, not seeded on. */
-function isReceiptLine(slot: string): boolean {
-  return /receipt|tax invoice|ใบเสร็จ|ใบกำกับภาษี/i.test(slot)
-}
-/** Default active state of a line under a given room status. */
+/** Status-based default active state (before the per-line "default off" preference). */
 function lineActiveFor(status: RoomStatus, slot: string): boolean {
   if (status === 'empty' || status === 'oo') return false
-  if (isReceiptLine(slot)) return false // opt-in only — the requester ticks it when a receipt is needed
   if (status === 'occupied') return !isArrivalLine(slot)
-  return true // check-in: everything else active
+  return true // check-in: everything active
 }
 
 /** One editable line in the room sheet. */
@@ -288,23 +284,28 @@ interface SheetLine {
   source: 'default' | 'special'
   note: string
   active: boolean
+  default_off: boolean                    // recipe preference: seed this line unticked
 }
 
 /** Resolve a category's recipe to concrete sheet lines for a given service date + status. */
 function seedLines(recipe: RecipeLine[], date: string, status: RoomStatus = 'checkin'): SheetLine[] {
   const wd = WEEKDAY_KEYS[bangkokDayOfWeek(parseDateOnlyBkk(date))]
-  return recipe.map((l) => ({
-    id: l.id,
-    slot: l.slot,
-    item: (l.by_weekday && l.by_weekday[wd]?.trim()) ? l.by_weekday[wd] : l.item,
-    fulfill_department: l.fulfill_department,
-    prepare_department: l.prepare_department ?? null,
-    serving_at: l.serving_at,
-    line_type: l.line_type,
-    source: 'default' as const,
-    note: '',
-    active: lineActiveFor(status, l.slot),
-  }))
+  return recipe.map((l) => {
+    const off = recipeSeedOff(l)
+    return {
+      id: l.id,
+      slot: l.slot,
+      item: (l.by_weekday && l.by_weekday[wd]?.trim()) ? l.by_weekday[wd] : l.item,
+      fulfill_department: l.fulfill_department,
+      prepare_department: l.prepare_department ?? null,
+      serving_at: l.serving_at,
+      line_type: l.line_type,
+      source: 'default' as const,
+      note: '',
+      default_off: off,
+      active: !off && lineActiveFor(status, l.slot),
+    }
+  })
 }
 function newId(): string {
   return globalThis.crypto?.randomUUID?.() ?? `l_${Math.floor(performance.now() * 1000)}`
@@ -507,6 +508,7 @@ function RoomOrderBuild({ companyId, unit, requireApproval, initialDate }: { com
           prepare_department: (l.prepare_department as Department | null) ?? null,
           serving_at: l.serving_at ?? '', line_type: (l.line_type as LineType) ?? 'delivery',
           source: (l.source as 'default' | 'special') ?? 'default', note: l.note ?? '', active: l.active ?? true,
+          default_off: recipeSeedOff({ slot: l.slot ?? '' }),
         })
       }
       setSavedRooms(byRoom)
@@ -688,6 +690,7 @@ function RoomOrderBuild({ companyId, unit, requireApproval, initialDate }: { com
       prepare_department: (l.prepare_department as Department | null) ?? null,
       serving_at: l.serving_at ?? '', line_type: (l.line_type as LineType) ?? 'delivery',
       source: (l.source as 'default' | 'special') ?? 'default', note: l.note ?? '', active: l.active ?? true,
+      default_off: recipeSeedOff({ slot: l.slot ?? '' }),
     }))
     setSavedRooms((prev) => ({ ...prev, [roomNo]: freshLines }))
     setRoomStatuses(nextStatuses)
@@ -1081,12 +1084,12 @@ function RoomSheet({ room, cat, items, lang, unit, initial, initialStatus, busy,
   }
   function remove(id: string) { setLines((prev) => prev.filter((l) => l.id !== id)) }
   function addSpecial() {
-    setLines((prev) => [...prev, { id: newId(), slot: '', item: '', fulfill_department: DEPT_OPTIONS[0]?.value ?? 'restaurant', prepare_department: null, serving_at: '', line_type: 'delivery', source: 'special', note: '', active: status !== 'empty' && status !== 'oo' }])
+    setLines((prev) => [...prev, { id: newId(), slot: '', item: '', fulfill_department: DEPT_OPTIONS[0]?.value ?? 'restaurant', prepare_department: null, serving_at: '', line_type: 'delivery', source: 'special', note: '', active: status !== 'empty' && status !== 'oo', default_off: false }])
   }
   // Changing the room status re-applies the default active preset to every line.
   function applyStatus(s: RoomStatus) {
     setStatus(s)
-    setLines((prev) => prev.map((l) => l.source === 'special' ? l : { ...l, active: lineActiveFor(s, l.slot) }))
+    setLines((prev) => prev.map((l) => l.source === 'special' ? l : { ...l, active: !l.default_off && lineActiveFor(s, l.slot) }))
   }
 
   const defaults = lines.filter((l) => l.source === 'default')

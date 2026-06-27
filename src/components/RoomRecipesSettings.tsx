@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Plus, Trash2, Loader2, Check, X, ChefHat, ChevronDown, Truck, ListChecks, CalendarDays, ArrowRight } from 'lucide-react'
+import { Plus, Trash2, Loader2, Check, X, ChefHat, ChevronDown, Truck, ListChecks, CalendarDays, ArrowRight, ToggleLeft, ToggleRight } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useCompany } from '@/contexts/CompanyContext'
 import { useAuth } from '@/contexts/AuthContext'
@@ -8,6 +8,7 @@ import { DEPARTMENTS, deptLabel, type Department } from '@/types'
 import type { RrItem } from '@/components/RRSettings'
 import type { RoomCategory } from '@/components/RoomSetupSettings'
 import { DEFAULT_UNIT, unitOne, type UnitNoun } from '@/lib/roomUnit'
+import { recipeSeedOff } from '@/lib/roomRecipe'
 import { toast } from 'sonner'
 
 // ── shared types (reused by the Daily Room Order seeding in later steps) ─────────
@@ -26,6 +27,9 @@ export interface RecipeLine {
   serving_at: string           // "12:00" or ""
   line_type: LineType
   by_weekday?: Record<string, string> | null  // mon..sun item overrides (turndown-of-the-day)
+  // When true the line is seeded OFF (unticked) on the order, so the requester opts in.
+  // Absent → falls back to the receipt heuristic (receipts default off, everything else on).
+  default_off?: boolean
 }
 /** Recipes keyed by RoomCategory.id. */
 export type RoomRecipes = Record<string, RecipeLine[]>
@@ -345,6 +349,18 @@ function RecipeModal({ category, lines, items, lang, onClose, onSave }: {
                     {line.by_weekday ? (lang === 'th' ? 'รายวัน' : 'By day') : (lang === 'th' ? 'รายวัน?' : 'By day?')}
                     {line.by_weekday && <ChevronDown className={`h-3 w-3 transition-transform ${expanded === line.id ? 'rotate-180' : ''}`} onClick={(e) => { e.stopPropagation(); setExpanded(expanded === line.id ? null : line.id) }} />}
                   </button>
+
+                  {(() => {
+                    const seedOff = recipeSeedOff(line)
+                    return (
+                      <button onClick={() => patch(line.id, { default_off: !seedOff })}
+                        title={lang === 'th' ? 'ติ๊กไว้ล่วงหน้าในใบสั่งหรือไม่' : 'Whether this line is pre-ticked on a new order'}
+                        className={`h-8 px-2 flex items-center gap-1 rounded-md border text-xs ${seedOff ? 'border-gray-200 text-gray-400 hover:text-gray-600' : 'border-[var(--brand-primary)] text-[var(--brand-primary)] bg-[var(--brand-primary)]/5'}`}>
+                        {seedOff ? <ToggleLeft className="h-3.5 w-3.5" /> : <ToggleRight className="h-3.5 w-3.5" />}
+                        {seedOff ? (lang === 'th' ? 'ปิดเริ่มต้น' : 'Off by default') : (lang === 'th' ? 'เปิดเริ่มต้น' : 'On by default')}
+                      </button>
+                    )
+                  })()}
                 </div>
 
                 {/* Weekday override panel */}
