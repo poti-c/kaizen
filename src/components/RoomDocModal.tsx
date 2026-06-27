@@ -60,6 +60,7 @@ export function RoomDocModal({ companyId, line, mode, canConfirm, canReplace, on
   const [picked, setPicked] = useState<{ file: File; url: string } | null>(null)
   const [signedUrl, setSignedUrl] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [confirming, setConfirming] = useState(false) // submit guard ("are you sure?")
   const [loadingDoc, setLoadingDoc] = useState(mode === 'view')
 
   const title = line.item?.trim() || line.slot?.trim() || (lang === 'th' ? 'เอกสาร' : 'Document')
@@ -85,14 +86,15 @@ export function RoomDocModal({ companyId, line, mode, canConfirm, canReplace, on
     }
     if (picked?.url) URL.revokeObjectURL(picked.url)
     setPicked({ file, url: URL.createObjectURL(file) })
+    setConfirming(false)
   }
 
-  async function submit() {
+  async function doSubmit() {
     if (!picked) return
     setBusy(true)
     const file = await shrinkImage(picked.file)
     if (file.size > MAX_BYTES) {
-      setBusy(false)
+      setBusy(false); setConfirming(false)
       toast.error(lang === 'th'
         ? 'ไฟล์ใหญ่เกิน 2 MB — กรุณาบันทึก PDF ให้เล็กลง หรือถ่ายรูปเอกสารแทน'
         : 'File is over 2 MB — export a smaller PDF or upload a photo of the document instead.')
@@ -165,6 +167,18 @@ export function RoomDocModal({ companyId, line, mode, canConfirm, canReplace, on
 
         <div className="flex items-center gap-2 px-5 py-4 border-t border-gray-200 flex-shrink-0">
           {curMode === 'upload' ? (
+            confirming ? (
+              <>
+                <span className="text-xs text-gray-600 flex-1">{lang === 'th' ? 'ยืนยันส่งเอกสารนี้ไปยังแผนกต้อนรับ?' : 'Send this document to Front Office?'}</span>
+                <button onClick={() => setConfirming(false)} disabled={busy} className="flex items-center gap-1.5 px-3 h-9 rounded-lg border border-gray-300 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-50">
+                  {lang === 'th' ? 'ย้อนกลับ' : 'Back'}
+                </button>
+                <button onClick={doSubmit} disabled={busy}
+                  className="flex items-center gap-1.5 bg-[var(--brand-primary)] text-white text-sm font-semibold px-4 h-9 rounded-lg disabled:opacity-50">
+                  {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}{lang === 'th' ? 'ยืนยันส่ง' : 'Yes, submit'}
+                </button>
+              </>
+            ) : (
             <>
               {picked && (
                 <label className="flex items-center gap-1.5 px-3 h-9 rounded-lg border border-gray-300 text-sm text-gray-600 hover:bg-gray-50 cursor-pointer">
@@ -172,11 +186,12 @@ export function RoomDocModal({ companyId, line, mode, canConfirm, canReplace, on
                   <input type="file" accept="application/pdf,image/*" className="hidden" onChange={(e) => { onPick(e.target.files?.[0]); e.target.value = '' }} />
                 </label>
               )}
-              <button onClick={submit} disabled={!picked || busy}
+              <button onClick={() => setConfirming(true)} disabled={!picked || busy}
                 className="ml-auto flex items-center gap-1.5 bg-[var(--brand-primary)] text-white text-sm font-semibold px-4 h-9 rounded-lg disabled:opacity-50">
                 {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}{lang === 'th' ? 'ส่งเอกสาร' : 'Submit document'}
               </button>
             </>
+            )
           ) : (
             <>
               <button onClick={save} disabled={!line.document_path} className="flex items-center gap-1.5 px-3 h-9 rounded-lg border border-gray-300 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-50">
