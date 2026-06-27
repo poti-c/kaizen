@@ -66,6 +66,20 @@ function cutoffTs(servingAt: string | null, date: string, cfg: ApprovalConfig): 
   return new Date(`${date}T${(cfg.clock_time || '16:00')}:00+07:00`).getTime()
 }
 
+// Default "prep by" buffer: a preparer should be done this many minutes before serving_at.
+// Overridable per company via rr_room_config.prep_buffer_min.
+const DEFAULT_PREP_BUFFER_MIN = 30
+
+/** "HH:MM" minus N minutes, wrapping within a day. Returns '' for blank/invalid input. */
+function minusMinutes(hhmm: string | null, mins: number): string {
+  if (!hhmm) return ''
+  const [h, m] = hhmm.split(':').map(Number)
+  if (Number.isNaN(h) || Number.isNaN(m)) return ''
+  let t = h * 60 + m - mins
+  t = ((t % 1440) + 1440) % 1440
+  return `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`
+}
+
 /** Notify the company's managers / super-admins (excluding the actor). */
 async function notifyManagers(companyId: string, actorId: string | undefined, title: string, message: string) {
   const { data } = await supabase.from('kaizen_profiles').select('id')
@@ -84,25 +98,75 @@ async function notifyManagers(companyId: string, actorId: string | undefined, ti
  */
 async function notifyFulfillers(companyId: string, orderId: string, date: string, actorId: string | undefined, lang: string, sinceTs?: string | null) {
   let q = supabase.from('kaizen_rr_room_lines')
-    .select('fulfill_department').eq('room_order_id', orderId).eq('active', true).in('approval_status', ['approved', 'auto'])
+    .select('fulfill_department, prepare_department').eq('room_order_id', orderId).eq('active', true).in('approval_status', ['approved', 'auto'])
   // On a re-submit (edit), only notify departments that gained NEW lines since the last
   // submit — so an edit doesn't re-blast every department with the full order count.
   if (sinceTs) q = q.gt('created_at', sinceTs)
   const { data: lineRows } = await q
-  const counts = new Map<string, number>()
-  for (const l of (lineRows as { fulfill_department: string }[]) ?? []) {
-    counts.set(l.fulfill_department, (counts.get(l.fulfill_department) ?? 0) + 1)
+  // Work a dept must actively start now: single-stage lines it fulfils + handoff lines it
+  // prepares. Plus a separate heads-up for the deliverer of a handoff (item still being made).
+  const work = new Map<string, number>()
+  const incoming = new Map<string, number>()
+  for (const l of (lineRows as { fulfill_department: string; prepare_department: string | null }[]) ?? []) {
+    if (l.prepare_department) {
+      work.set(l.prepare_department, (work.get(l.prepare_department) ?? 0) + 1)
+      incoming.set(l.fulfill_department, (incoming.get(l.fulfill_department) ?? 0) + 1)
+    } else {
+      work.set(l.fulfill_department, (work.get(l.fulfill_department) ?? 0) + 1)
+    }
   }
-  if (counts.size === 0) return
+  if (work.size === 0 && incoming.size === 0) return
 
   const rows: { user_id: string; title: string; message: string; notification_type: string }[] = []
-  const seen = new Set<string>() // de-dupe a person who covers multiple depts
-  for (const [dept, n] of counts) {
+  const seenWork = new Set<string>()      // de-dupe a person who covers multiple work depts
+  const seenIncoming = new Set<string>()
+  for (const [dept, n] of work) {
     const recipients = await resolveDeptRecipients(companyId, dept)
     const title = lang === 'th' ? 'ออเดอร์ห้องใหม่' : 'New room order'
     const message = lang === 'th'
       ? `มีงาน ${n} รายการสำหรับวันที่ ${date} โปรดตรวจสอบบอร์ดของแผนก`
       : `${n} item${n === 1 ? '' : 's'} to prepare for ${date} — check your department board.`
+    for (const p of recipients) {
+      if (p.id === actorId || seenWork.has(p.id)) continue
+      seenWork.add(p.id)
+      rows.push({ user_id: p.id, title, message, notification_type: 'rr' })
+    }
+  }
+  for (const [dept, n] of incoming) {
+    const recipients = await resolveDeptRecipients(companyId, dept)
+    const title = lang === 'th' ? 'มีงานจัดส่งกำลังมา' : 'Deliveries incoming'
+    const message = lang === 'th'
+      ? `${n} รายการสำหรับวันที่ ${date} กำลังถูกเตรียมโดยอีกแผนก แล้วจะส่งให้คุณจัดส่ง`
+      : `${n} item${n === 1 ? '' : 's'} for ${date} ${n === 1 ? 'is' : 'are'} being prepared by another dept — you'll deliver once ready.`
+    for (const p of recipients) {
+      if (p.id === actorId || seenIncoming.has(p.id)) continue
+      seenIncoming.add(p.id)
+      rows.push({ user_id: p.id, title, message, notification_type: 'rr' })
+    }
+  }
+  if (rows.length > 0) await supabase.from('kaizen_notifications').insert(rows)
+}
+
+/**
+ * Tell the department that currently HOLDS a handoff line that it's been cancelled
+ * (its room was emptied / removed after work had begun) so prepped food isn't wasted.
+ * Grouped by dept with a count. No-op when there's nothing to report.
+ */
+async function notifyHandoffCancellations(
+  companyId: string, actorId: string | undefined, lang: string,
+  cancels: { dept: string; room: string }[],
+) {
+  if (cancels.length === 0) return
+  const counts = new Map<string, number>()
+  for (const c of cancels) counts.set(c.dept, (counts.get(c.dept) ?? 0) + 1)
+  const rows: { user_id: string; title: string; message: string; notification_type: string }[] = []
+  const seen = new Set<string>()
+  for (const [dept, n] of counts) {
+    const recipients = await resolveDeptRecipients(companyId, dept)
+    const title = lang === 'th' ? 'ออเดอร์ห้องถูกยกเลิก' : 'Room order cancelled'
+    const message = lang === 'th'
+      ? `${n} รายการที่กำลังดำเนินการถูกยกเลิก (ห้องถูกปิด/นำออก) — ไม่ต้องเตรียม/จัดส่ง`
+      : `${n} in-progress item${n === 1 ? '' : 's'} cancelled (room emptied/removed) — no need to prepare or deliver ${n === 1 ? 'it' : 'them'}.`
     for (const p of recipients) {
       if (p.id === actorId || seen.has(p.id)) continue
       seen.add(p.id)
@@ -138,6 +202,7 @@ function eventLabel(e: RoomEvent, lang: string): string {
     }
     case 'emptied_rest': return lang === 'th' ? `ตั้ง ${d} ห้องเป็นว่าง` : `set ${d} rooms to Empty`
     case 'order_received': return lang === 'th' ? `รับงาน (${deptLabel(d as Department, lang)})` : `acknowledged (${deptLabel(d as Department, lang)})`
+    case 'prepared': return lang === 'th' ? `เตรียมเสร็จ · ${d}` : `prepared · ${d}`
     case 'approved': return lang === 'th' ? `อนุมัติ ${d}` : `approved ${d}`
     case 'rejected': return lang === 'th' ? `ปฏิเสธ ${d}` : `rejected ${d}`
     default: return e.action
@@ -210,7 +275,8 @@ interface SheetLine {
   id: string
   slot: string
   item: string
-  fulfill_department: Department
+  fulfill_department: Department          // final deliverer (single-stage: the only dept)
+  prepare_department: Department | null   // preparer for two-stage handoff; null = single-stage
   serving_at: string
   line_type: LineType
   source: 'default' | 'special'
@@ -226,6 +292,7 @@ function seedLines(recipe: RecipeLine[], date: string, status: RoomStatus = 'che
     slot: l.slot,
     item: (l.by_weekday && l.by_weekday[wd]?.trim()) ? l.by_weekday[wd] : l.item,
     fulfill_department: l.fulfill_department,
+    prepare_department: l.prepare_department ?? null,
     serving_at: l.serving_at,
     line_type: l.line_type,
     source: 'default' as const,
@@ -239,7 +306,7 @@ function newId(): string {
 
 interface DbLine {
   id: string; room_no: string; slot: string | null; item: string | null
-  fulfill_department: string; serving_at: string | null; line_type: string
+  fulfill_department: string; prepare_department: string | null; serving_at: string | null; line_type: string
   source: string; note: string | null; active: boolean | null
 }
 
@@ -272,7 +339,12 @@ export function RoomOrderView({ companyId, initialDate, initialMode }: { company
       if (u) setUnit(u)
       const recipes = (recRes.data?.value as RoomRecipes) ?? {}
       const set = new Set<Department>()
-      Object.values(recipes).forEach((lines) => (lines ?? []).forEach((l) => set.add(l.fulfill_department)))
+      // Both roles route work to a department's board: the deliverer and, for handoff
+      // lines, the preparer (e.g. Kitchen needs a board even if it only ever prepares).
+      Object.values(recipes).forEach((lines) => (lines ?? []).forEach((l) => {
+        set.add(l.fulfill_department)
+        if (l.prepare_department) set.add(l.prepare_department)
+      }))
       const list = DEPT_OPTIONS.map((d) => d.value).filter((v) => set.has(v)) // canonical order, only assigned
       setAssignedDepts(list)
       setFulfilDept((cur) => list.includes(cur) ? cur : (myDept && list.includes(myDept) ? myDept : (list[0] ?? cur)))
@@ -410,6 +482,7 @@ function RoomOrderBuild({ companyId, unit, requireApproval, initialDate }: { com
       for (const l of (lines as DbLine[]) ?? []) {
         (byRoom[l.room_no] ||= []).push({
           id: l.id, slot: l.slot ?? '', item: l.item ?? '', fulfill_department: l.fulfill_department as Department,
+          prepare_department: (l.prepare_department as Department | null) ?? null,
           serving_at: l.serving_at ?? '', line_type: (l.line_type as LineType) ?? 'delivery',
           source: (l.source as 'default' | 'special') ?? 'default', note: l.note ?? '', active: l.active ?? true,
         })
@@ -488,6 +561,7 @@ function RoomOrderBuild({ companyId, unit, requireApproval, initialDate }: { com
       room_order_id: oid, company_id: companyId, order_date: date,
       room_no: roomNo, room_type: room.type, category: cat?.id ?? null,
       slot: l.slot || null, item: l.item || null, fulfill_department: l.fulfill_department,
+      prepare_department: l.prepare_department ?? null,
       serving_at: l.serving_at || null, line_type: l.line_type, source: l.source,
       note: l.note || null, active: l.active,
       approval_status: l.source === 'special' && requireApproval ? 'pending' : 'approved',
@@ -506,9 +580,10 @@ function RoomOrderBuild({ companyId, unit, requireApproval, initialDate }: { com
     // survives an edit to an already-submitted order. Only genuinely new lines are inserted,
     // and only lines the requester removed are deleted.
     const { data: existingRows } = await supabase.from('kaizen_rr_room_lines')
-      .select('id, active, item, slot, serving_at, fulfill_department, source, approval_status, note')
+      .select('id, active, item, slot, serving_at, fulfill_department, prepare_department, status, source, approval_status, note')
       .eq('room_order_id', oid).eq('room_no', roomNo)
-    type ExistingRow = { id: string; active: boolean | null; item: string | null; slot: string | null; serving_at: string | null; fulfill_department: string; source: string; approval_status: string; note: string | null }
+    type ExistingRow = { id: string; active: boolean | null; item: string | null; slot: string | null; serving_at: string | null; fulfill_department: string; prepare_department: string | null; status: string; source: string; approval_status: string; note: string | null }
+    const cancels: { dept: string; room: string }[] = [] // handoff lines deactivated mid-flight
     const prevMap = new Map(((existingRows as ExistingRow[]) ?? []).map((r) => [r.id, r]))
     const prevActive = new Map(((existingRows as ExistingRow[]) ?? []).map((r) => [r.id, r.active !== false]))
     const existingIds = new Set(prevActive.keys())
@@ -519,6 +594,7 @@ function RoomOrderBuild({ companyId, unit, requireApproval, initialDate }: { com
         keptIds.add(l.id)
         const patch: Record<string, unknown> = {
           slot: l.slot || null, item: l.item || null, fulfill_department: l.fulfill_department,
+          prepare_department: l.prepare_department ?? null,
           serving_at: l.serving_at || null, line_type: l.line_type, note: l.note || null, active: l.active,
         }
         // Edited special-request lines go back to pending so the new content is re-approved.
@@ -526,6 +602,7 @@ function RoomOrderBuild({ companyId, unit, requireApproval, initialDate }: { com
         if (prev?.source === 'special') {
           const contentChanged = prev.item !== (l.item || null) || prev.slot !== (l.slot || null) ||
             prev.serving_at !== (l.serving_at || null) || prev.fulfill_department !== l.fulfill_department ||
+            prev.prepare_department !== (l.prepare_department ?? null) ||
             prev.note !== (l.note || null)
           if (contentChanged) patch.approval_status = l.source === 'special' && requireApproval ? 'pending' : 'approved'
         }
@@ -542,12 +619,16 @@ function RoomOrderBuild({ companyId, unit, requireApproval, initialDate }: { com
           // and the row otherwise keeps its original (pre-submit) timestamp and would be
           // silently skipped, leaving the fulfilling dept with un-notified work.
           patch.created_at = new Date().toISOString()
-        } else if (l.active && prev && prev.fulfill_department !== l.fulfill_department) {
-          // RR-002: an already-active line re-routed to a DIFFERENT fulfilling department
-          // must also bump created_at, so the newly-responsible department is picked up by
-          // notifyFulfillers on this re-submit. Without it the re-routed row keeps its old
+        } else if (l.active && prev && (prev.fulfill_department !== l.fulfill_department || prev.prepare_department !== (l.prepare_department ?? null))) {
+          // RR-002: an already-active line re-routed to a DIFFERENT fulfilling (or preparing)
+          // department must also bump created_at, so the newly-responsible department is picked
+          // up by notifyFulfillers on this re-submit. Without it the re-routed row keeps its old
           // timestamp and the new department is never told it has work to do.
           patch.created_at = new Date().toISOString()
+        }
+        // Handoff line switched OFF after work began → alert whoever currently holds it.
+        if (prev && prevActive.get(l.id) && !l.active && prev.prepare_department && prev.status !== 'done' && prev.status !== 'pending') {
+          cancels.push({ dept: prev.status === 'ready' ? prev.fulfill_department : prev.prepare_department, room: roomNo })
         }
         const { error } = await supabase.from('kaizen_rr_room_lines').update(patch).eq('id', l.id)
         if (error) { setBusy(false); toast.error(error.message); return false }
@@ -556,6 +637,13 @@ function RoomOrderBuild({ companyId, unit, requireApproval, initialDate }: { com
       }
     }
     const toDelete = [...existingIds].filter((id) => !keptIds.has(id))
+    // A removed handoff line that was already in progress also needs a cancellation alert.
+    for (const id of toDelete) {
+      const prev = prevMap.get(id)
+      if (prev && prevActive.get(id) && prev.prepare_department && prev.status !== 'done' && prev.status !== 'pending') {
+        cancels.push({ dept: prev.status === 'ready' ? prev.fulfill_department : prev.prepare_department, room: roomNo })
+      }
+    }
     if (toDelete.length > 0) {
       const { error } = await supabase.from('kaizen_rr_room_lines').delete().in('id', toDelete)
       if (error) { setBusy(false); toast.error(error.message); return false }
@@ -568,11 +656,14 @@ function RoomOrderBuild({ companyId, unit, requireApproval, initialDate }: { com
     if (e2) { setBusy(false); toast.error(e2.message); return false }
     // Store the raw status KEY (not an English label) so the History panel can localize it.
     await logRoomEvent(companyId, oid, date, profile?.id, 'room_saved', `${roomNo} · ${status}`)
+    // Alert any dept left holding a now-cancelled handoff item (only matters once submitted).
+    if (orderResult.status === 'submitted' && cancels.length > 0) await notifyHandoffCancellations(companyId, profile?.id, lang, cancels)
     // Re-read this room's rows so local state carries the real DB ids (prevents a second
     // edit from re-inserting the just-added lines as duplicates).
     const { data: fresh } = await supabase.from('kaizen_rr_room_lines').select('*').eq('room_order_id', oid).eq('room_no', roomNo)
     const freshLines: SheetLine[] = ((fresh as DbLine[]) ?? []).map((l) => ({
       id: l.id, slot: l.slot ?? '', item: l.item ?? '', fulfill_department: l.fulfill_department as Department,
+      prepare_department: (l.prepare_department as Department | null) ?? null,
       serving_at: l.serving_at ?? '', line_type: (l.line_type as LineType) ?? 'delivery',
       source: (l.source as 'default' | 'special') ?? 'default', note: l.note ?? '', active: l.active ?? true,
     }))
@@ -968,7 +1059,7 @@ function RoomSheet({ room, cat, items, lang, unit, initial, initialStatus, busy,
   }
   function remove(id: string) { setLines((prev) => prev.filter((l) => l.id !== id)) }
   function addSpecial() {
-    setLines((prev) => [...prev, { id: newId(), slot: '', item: '', fulfill_department: DEPT_OPTIONS[0]?.value ?? 'restaurant', serving_at: '', line_type: 'delivery', source: 'special', note: '', active: status !== 'empty' && status !== 'oo' }])
+    setLines((prev) => [...prev, { id: newId(), slot: '', item: '', fulfill_department: DEPT_OPTIONS[0]?.value ?? 'restaurant', prepare_department: null, serving_at: '', line_type: 'delivery', source: 'special', note: '', active: status !== 'empty' && status !== 'oo' }])
   }
   // Changing the room status re-applies the default active preset to every line.
   function applyStatus(s: RoomStatus) {
@@ -1064,8 +1155,10 @@ function LineRow({ line: l, items, lang, onPatch, onRemove, onToggle, special, r
   special?: boolean
   readOnly?: boolean
 }) {
-  // Both regular and special-request lines pick from the dept's single item list.
-  const deptItems = items.filter((it) => it.department === l.fulfill_department)
+  // Both regular and special-request lines pick from the item's owning dept catalog —
+  // for a handoff line that's the PREPARER (who makes it), else the single dept.
+  const catalogDept = l.prepare_department ?? l.fulfill_department
+  const deptItems = items.filter((it) => it.department === catalogDept)
   return (
     <div className={`rounded-lg border border-gray-100 p-2.5 space-y-2 transition-opacity ${l.active ? 'bg-gray-50/50' : 'bg-gray-100/40 opacity-55'}`}>
       <div className="flex items-center gap-2">
@@ -1079,7 +1172,15 @@ function LineRow({ line: l, items, lang, onPatch, onRemove, onToggle, special, r
         ) : (
           <span className="flex-1 text-sm font-medium text-gray-800">{l.slot || (special ? (lang === 'th' ? 'คำขอพิเศษ' : 'Special request') : '')}</span>
         )}
-        <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${deptBadge(l.fulfill_department)}`}>{deptLabel(l.fulfill_department, lang)}</span>
+        {l.prepare_department ? (
+          <span className="flex items-center gap-1 flex-shrink-0">
+            <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${deptBadge(l.prepare_department)}`}>{deptLabel(l.prepare_department, lang)}</span>
+            <ArrowRight className="h-3 w-3 text-gray-400" />
+            <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${deptBadge(l.fulfill_department)}`}>{deptLabel(l.fulfill_department, lang)}</span>
+          </span>
+        ) : (
+          <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${deptBadge(l.fulfill_department)}`}>{deptLabel(l.fulfill_department, lang)}</span>
+        )}
         {!readOnly && (
           <button onClick={() => onRemove(l.id)} className="h-7 w-7 flex items-center justify-center rounded-md text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors flex-shrink-0"><Trash2 className="h-3.5 w-3.5" /></button>
         )}
@@ -1127,9 +1228,11 @@ function LineRow({ line: l, items, lang, onPatch, onRemove, onToggle, special, r
 
 interface FulfilLine {
   id: string; room_no: string; slot: string | null; item: string | null
+  fulfill_department: string; prepare_department: string | null
   serving_at: string | null; line_type: LineType; source: 'default' | 'special'
-  note: string | null; status: 'pending' | 'acknowledged' | 'done'
+  note: string | null; status: 'pending' | 'acknowledged' | 'ready' | 'done'
   delivered_by: string | null; delivered_at: string | null
+  prepared_by: string | null; prepared_at: string | null
 }
 
 function RoomFulfilBoard({ companyId, dept, unit, initialDate }: { companyId: string; dept: Department; unit: UnitNoun; initialDate?: string }) {
@@ -1140,30 +1243,47 @@ function RoomFulfilBoard({ companyId, dept, unit, initialDate }: { companyId: st
   const [date, setDate] = useState(initialDate ?? today) // fulfil happens on the service date
   const [groupBy, setGroupBy] = useState<'item' | 'room'>('item')
   const [lines, setLines] = useState<FulfilLine[]>([])
-  const [names, setNames] = useState<Record<string, string>>({}) // deliverer id → name
+  const [names, setNames] = useState<Record<string, string>>({}) // deliverer/preparer id → name
   const [orderId, setOrderId] = useState<string | null>(null)
   const [orderExists, setOrderExists] = useState(false)
+  const [submittedBy, setSubmittedBy] = useState<string | null>(null) // who placed the order (for delivered pings)
+  const [prepBufferMin, setPrepBufferMin] = useState(DEFAULT_PREP_BUFFER_MIN) // serving_at minus this = "prep by" hint
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
 
   const load = useCallback(async () => {
     if (!companyId) return
     setLoading(true)
-    const { data: order } = await supabase.from('kaizen_rr_room_orders').select('id, status')
+    const { data: order } = await supabase.from('kaizen_rr_room_orders').select('id, status, submitted_by')
       .eq('company_id', companyId).eq('order_date', date).maybeSingle()
-    const o = order as { id: string; status: string } | null
-    if (!o || o.status !== 'submitted') { setOrderId(null); setLines([]); setOrderExists(false); setLoading(false); return }
+    const o = order as { id: string; status: string; submitted_by: string | null } | null
+    if (!o || o.status !== 'submitted') { setOrderId(null); setLines([]); setOrderExists(false); setSubmittedBy(null); setLoading(false); return }
     setOrderId(o.id)
+    setSubmittedBy(o.submitted_by ?? null)
     // Fire the auto-release safety net for the VIEWED date so an un-approved overdue special
     // surfaces on the fulfilling dept's board instead of silently staying hidden as 'pending'.
     const cfg = await loadApprovalConfig(companyId)
     if (cfg.require) await escalateOverdueSpecials(companyId, date, cfg, lang)
-    const { data } = await supabase.from('kaizen_rr_room_lines').select('*')
-      .eq('room_order_id', o.id).eq('fulfill_department', dept).eq('active', true).in('approval_status', ['approved', 'auto'])
-    const list = (data as FulfilLine[]) ?? []
+    // This dept sees a line if it DELIVERS it (fulfill_department) OR PREPARES it
+    // (prepare_department, two-stage handoff). Two filtered queries merged by id — avoids
+    // PostgREST .or() parsing issues with custom department labels that contain punctuation.
+    const base = () => supabase.from('kaizen_rr_room_lines').select('*')
+      .eq('room_order_id', o.id).eq('active', true).in('approval_status', ['approved', 'auto'])
+    const [delRes, prepRes] = await Promise.all([
+      base().eq('fulfill_department', dept),
+      base().eq('prepare_department', dept),
+    ])
+    const merged = new Map<string, FulfilLine>()
+    ;[...((delRes.data as FulfilLine[]) ?? []), ...((prepRes.data as FulfilLine[]) ?? [])].forEach((l) => merged.set(l.id, l))
+    const list = [...merged.values()]
     setOrderExists(true)
     setLines(list)
-    const ids = [...new Set(list.map((l) => l.delivered_by).filter(Boolean))] as string[]
+    // Prep-by hint buffer (serving time − N minutes) from room config.
+    const { data: cfgRow } = await supabase.from('kaizen_settings').select('value')
+      .eq('company_id', companyId).eq('key', 'rr_room_config').maybeSingle()
+    const buf = (cfgRow?.value as { prep_buffer_min?: number } | undefined)?.prep_buffer_min
+    setPrepBufferMin(typeof buf === 'number' && buf >= 0 ? buf : DEFAULT_PREP_BUFFER_MIN)
+    const ids = [...new Set(list.flatMap((l) => [l.delivered_by, l.prepared_by]).filter(Boolean))] as string[]
     if (ids.length > 0) {
       const { data: profs } = await supabase.from('kaizen_profiles').select('id, full_name').in('id', ids)
       const m: Record<string, string> = {}
@@ -1174,10 +1294,19 @@ function RoomFulfilBoard({ companyId, dept, unit, initialDate }: { companyId: st
   }, [companyId, date, dept, lang])
   useEffect(() => { load() }, [load])
 
+  // A line relates to THIS dept as either its preparer or its deliverer.
+  const isPrep = (l: FulfilLine) => l.prepare_department === dept && l.fulfill_department !== dept
+  const isHandoffDeliver = (l: FulfilLine) => !!l.prepare_department && l.fulfill_department === dept
+  const isSingle = (l: FulfilLine) => !l.prepare_department && l.fulfill_department === dept
+  // "Done" from this dept's perspective: a preparer is finished once the line is ready.
+  const lineDone = (l: FulfilLine) => isPrep(l) ? (l.status === 'ready' || l.status === 'done') : l.status === 'done'
+
   const total = lines.length
-  const doneCount = lines.filter((l) => l.status === 'done').length
-  const pendingCount = lines.filter((l) => l.status === 'pending').length
-  const acknowledged = total > 0 && pendingCount === 0
+  const doneCount = lines.filter(lineDone).length
+  // The acknowledge gate governs single-stage lines only; handoff lines have their own stages.
+  const singleLines = lines.filter(isSingle)
+  const pendingCount = singleLines.filter((l) => l.status === 'pending').length
+  const acknowledged = pendingCount === 0
 
   async function acknowledgeAll() {
     if (!orderId || !profile) return
@@ -1185,6 +1314,7 @@ function RoomFulfilBoard({ companyId, dept, unit, initialDate }: { companyId: st
     const { data: affected, error } = await supabase.from('kaizen_rr_room_lines')
       .update({ status: 'acknowledged', acknowledged_by: profile.id, acknowledged_at: new Date().toISOString() })
       .eq('room_order_id', orderId).eq('fulfill_department', dept).eq('status', 'pending')
+      .is('prepare_department', null) // single-stage only; handoff lines flow pending→ready→done
       .eq('active', true).in('approval_status', ['approved', 'auto']) // only board-visible lines
       .select('id')
     setBusy(false)
@@ -1195,21 +1325,68 @@ function RoomFulfilBoard({ companyId, dept, unit, initialDate }: { companyId: st
     load()
   }
 
+  const itemText = (l: FulfilLine) => l.item?.trim() || l.slot?.trim() || (lang === 'th' ? 'รายการ' : 'item')
+
+  // Tell the deliverer dept a handoff line is ready to pick up and deliver.
+  async function notifyReady(l: FulfilLine) {
+    if (!companyId) return
+    const recipients = await resolveDeptRecipients(companyId, l.fulfill_department)
+    const title = lang === 'th' ? 'พร้อมจัดส่ง' : 'Ready to deliver'
+    const message = lang === 'th'
+      ? `${itemText(l)} — ${one} ${l.room_no} พร้อมแล้ว (เตรียมโดย${deptLabel(dept, lang)})`
+      : `${itemText(l)} — ${one} ${l.room_no} is ready to deliver (prepared by ${deptLabel(dept, lang)}).`
+    const rows = recipients.filter((p) => p.id !== profile?.id)
+      .map((p) => ({ user_id: p.id, title, message, notification_type: 'rr' }))
+    if (rows.length > 0) await supabase.from('kaizen_notifications').insert(rows)
+  }
+
+  // Confirm to whoever placed the order that a handoff item reached the guest.
+  async function notifyDelivered(l: FulfilLine) {
+    if (!submittedBy || submittedBy === profile?.id) return
+    const title = lang === 'th' ? 'จัดส่งแล้ว' : 'Delivered'
+    const message = lang === 'th'
+      ? `${itemText(l)} จัดส่งไปยัง${one} ${l.room_no} แล้ว`
+      : `${itemText(l)} delivered to ${one} ${l.room_no}.`
+    await supabase.from('kaizen_notifications').insert([{ user_id: submittedBy, title, message, notification_type: 'rr' }])
+  }
+
   async function toggleLine(l: FulfilLine) {
     if (!profile || busy) return
-    const done = l.status !== 'done'
     const at = new Date().toISOString()
+    let patch: Partial<FulfilLine>
+    let after: (() => Promise<void>) | null = null
+    if (isPrep(l)) {
+      if (l.status === 'done') return // already delivered downstream — preparer can't change it
+      const toReady = l.status !== 'ready'
+      patch = toReady
+        ? { status: 'ready', prepared_by: profile.id, prepared_at: at }
+        : { status: 'pending', prepared_by: null, prepared_at: null }
+      if (toReady) after = async () => {
+        await notifyReady(l)
+        if (orderId) await logRoomEvent(companyId, orderId, date, profile.id, 'prepared', `${l.room_no} · ${itemText(l)}`)
+      }
+    } else if (isHandoffDeliver(l)) {
+      if (l.status === 'pending') { toast.info(lang === 'th' ? 'ครัวกำลังเตรียม ยังส่งไม่ได้' : 'Still being prepared — not ready to deliver yet.'); return }
+      const toDone = l.status !== 'done'
+      patch = toDone
+        ? { status: 'done', delivered_by: profile.id, delivered_at: at }
+        : { status: 'ready', delivered_by: null, delivered_at: null }
+      if (toDone) after = () => notifyDelivered(l)
+    } else {
+      const toDone = l.status !== 'done'
+      patch = toDone
+        ? { status: 'done', delivered_by: profile.id, delivered_at: at }
+        : { status: 'acknowledged', delivered_by: null, delivered_at: null }
+    }
     setBusy(true)
-    const { error } = await supabase.from('kaizen_rr_room_lines').update({
-      status: done ? 'done' : 'acknowledged',
-      delivered_by: done ? profile.id : null, delivered_at: done ? at : null,
-    }).eq('id', l.id)
+    const { error } = await supabase.from('kaizen_rr_room_lines').update(patch).eq('id', l.id)
     setBusy(false)
     if (error) { toast.error(error.message); return }
-    if (done && profile.full_name) setNames((m) => ({ ...m, [profile.id]: profile.full_name }))
-    setLines((prev) => prev.map((x) => x.id === l.id
-      ? { ...x, status: done ? 'done' : 'acknowledged', delivered_by: done ? profile.id : null, delivered_at: done ? at : null }
-      : x))
+    if (profile.full_name && (patch.delivered_by === profile.id || patch.prepared_by === profile.id)) {
+      setNames((m) => ({ ...m, [profile.id]: profile.full_name }))
+    }
+    setLines((prev) => prev.map((x) => x.id === l.id ? { ...x, ...patch } : x))
+    if (after) await after()
   }
 
   const dateLabel = parseDateOnlyBkk(date).toLocaleDateString(lang === 'th' ? 'th-TH' : 'en-GB',
@@ -1226,6 +1403,19 @@ function RoomFulfilBoard({ companyId, dept, unit, initialDate }: { companyId: st
 
   const tickLabel = (l: FulfilLine) => l.line_type === 'checklist'
     ? (lang === 'th' ? 'จัดเตรียม' : 'set up') : (lang === 'th' ? 'จัดส่ง' : 'deliver')
+
+  // Whether this dept can act on the line right now, given its role + stage.
+  const canTick = (l: FulfilLine) => {
+    if (isPrep(l)) return l.status !== 'done'              // kitchen: until delivered downstream
+    if (isHandoffDeliver(l)) return l.status === 'ready' || l.status === 'done' // restaurant: only once prepared
+    return acknowledged                                    // single-stage: after "Order received"
+  }
+  // The action verb shown on an actionable, not-yet-done line.
+  const actionLabel = (l: FulfilLine) => isPrep(l)
+    ? (lang === 'th' ? 'พร้อม' : 'mark ready')
+    : tickLabel(l)
+  // Handoff delivery line still being prepared upstream.
+  const awaitingPrep = (l: FulfilLine) => isHandoffDeliver(l) && l.status === 'pending'
 
   return (
     <div className="space-y-4">
@@ -1253,7 +1443,7 @@ function RoomFulfilBoard({ companyId, dept, unit, initialDate }: { companyId: st
           <div className="flex items-center gap-2 flex-wrap rounded-xl border border-gray-200 bg-white px-4 py-3">
             <div className="flex-1">
               <p className="text-sm font-semibold text-gray-900">{doneCount}/{total} {lang === 'th' ? 'เสร็จ' : 'done'}</p>
-              <p className="text-[11px] text-gray-400">{acknowledged ? (lang === 'th' ? 'รับงานแล้ว' : 'Acknowledged') : (lang === 'th' ? `${pendingCount} รอรับงาน` : `${pendingCount} awaiting acknowledgement`)}</p>
+              <p className="text-[11px] text-gray-400">{!acknowledged ? (lang === 'th' ? `${pendingCount} รอรับงาน` : `${pendingCount} awaiting acknowledgement`) : singleLines.length > 0 ? (lang === 'th' ? 'รับงานแล้ว' : 'Acknowledged') : ''}</p>
             </div>
             <div className="flex rounded-lg border border-gray-300 overflow-hidden text-xs font-medium">
               <button onClick={() => setGroupBy('item')} className={`px-2.5 h-8 ${groupBy === 'item' ? 'bg-[var(--brand-primary)] text-white' : 'bg-white text-gray-600'}`}>{lang === 'th' ? 'ตามรายการ' : 'By item'}</button>
@@ -1279,33 +1469,46 @@ function RoomFulfilBoard({ companyId, dept, unit, initialDate }: { companyId: st
                       {gls[0].line_type === 'checklist' ? (lang === 'th' ? 'เช็คลิสต์' : 'Checklist') : (lang === 'th' ? 'จัดส่ง' : 'Delivery')}
                     </span>
                   )}
-                  <span className="ml-auto text-[11px] text-gray-400">{gls.filter((l) => l.status === 'done').length}/{gls.length}</span>
+                  <span className="ml-auto text-[11px] text-gray-400">{gls.filter(lineDone).length}/{gls.length}</span>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
                   {gls.slice().sort((a, b) => groupBy === 'item' ? roomSort(a.room_no, b.room_no) : itemKey(a).localeCompare(itemKey(b))).map((l) => {
                     const primary = groupBy === 'item' ? l.room_no : itemKey(l)
-                    const done = l.status === 'done'
+                    const done = lineDone(l)
+                    const tickable = canTick(l)
+                    const preparing = awaitingPrep(l)
+                    // Whose name + time to show once this dept's step is complete.
+                    const stampId = isPrep(l) ? l.prepared_by : l.delivered_by
+                    const stampAt = isPrep(l) ? l.prepared_at : l.delivered_at
+                    const prepByHint = isPrep(l) && !done ? minusMinutes(l.serving_at, prepBufferMin) : ''
                     return (
-                      <button key={l.id} onClick={() => acknowledged ? toggleLine(l) : toast.info(lang === 'th' ? 'กรุณากด “รับงาน” ก่อนติ๊กรายการ' : 'Acknowledge “Order received” before ticking items.')} disabled={busy}
-                        className={`flex items-center gap-2 rounded-lg border px-2.5 py-2 text-left transition-colors ${done ? 'border-green-200 bg-green-50' : 'border-gray-200 bg-gray-50/50'} ${acknowledged ? 'hover:border-gray-300 cursor-pointer' : 'opacity-80 cursor-not-allowed'}`}>
+                      <button key={l.id} onClick={() => {
+                        if (tickable) toggleLine(l)
+                        else if (preparing) toast.info(lang === 'th' ? 'ครัวกำลังเตรียม ยังส่งไม่ได้' : 'Still being prepared — not ready to deliver yet.')
+                        else toast.info(lang === 'th' ? 'กรุณากด “รับงาน” ก่อนติ๊กรายการ' : 'Acknowledge “Order received” before ticking items.')
+                      }} disabled={busy}
+                        className={`flex items-center gap-2 rounded-lg border px-2.5 py-2 text-left transition-colors ${done ? 'border-green-200 bg-green-50' : preparing ? 'border-amber-200 bg-amber-50/50' : 'border-gray-200 bg-gray-50/50'} ${tickable ? 'hover:border-gray-300 cursor-pointer' : 'opacity-80 cursor-not-allowed'}`}>
                         <span className={`h-4 w-4 rounded flex items-center justify-center flex-shrink-0 border ${done ? 'bg-green-500 border-green-500 text-white' : 'border-gray-300 bg-white'}`}>
                           {done && <Check className="h-3 w-3" />}
                         </span>
                         <span className="flex-1 min-w-0">
                           <span className={`text-sm ${done ? 'text-green-800 line-through' : 'text-gray-800'}`}>{primary}</span>
                           {l.source === 'special' && <span className="ml-1 text-[9px] px-1 rounded bg-amber-100 text-amber-700 align-middle">{lang === 'th' ? 'พิเศษ' : 'special'}</span>}
-                          {(l.serving_at || l.note) && (
+                          {(l.serving_at || l.note || prepByHint) && (
                             <span className="block text-[11px] text-gray-400 truncate">
-                              {l.serving_at ? `${lang === 'th' ? 'ภายใน' : 'by'} ${l.serving_at}` : ''}{l.serving_at && l.note ? ' · ' : ''}{l.note ?? ''}
+                              {prepByHint ? `${lang === 'th' ? 'เตรียมให้เสร็จภายใน' : 'prep by'} ${prepByHint}` : (l.serving_at ? `${lang === 'th' ? 'ภายใน' : 'by'} ${l.serving_at}` : '')}
+                              {(prepByHint || l.serving_at) && l.note ? ' · ' : ''}{l.note ?? ''}
                             </span>
                           )}
-                          {done && l.delivered_by && (
+                          {done && stampId && (
                             <span className="block text-[11px] text-green-600 truncate">
-                              ✓ {names[l.delivered_by] ?? '—'}{l.delivered_at ? ` · ${new Date(l.delivered_at).toLocaleTimeString(lang === 'th' ? 'th-TH' : 'en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bangkok' })}` : ''}
+                              ✓ {names[stampId] ?? '—'}{stampAt ? ` · ${new Date(stampAt).toLocaleTimeString(lang === 'th' ? 'th-TH' : 'en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bangkok' })}` : ''}
                             </span>
                           )}
                         </span>
-                        {acknowledged && !done && <span className="text-[10px] text-gray-400 flex-shrink-0">{tickLabel(l)}</span>}
+                        {preparing
+                          ? <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 flex-shrink-0">{lang === 'th' ? `กำลังเตรียม · ${deptLabel(l.prepare_department ?? '', lang)}` : `Preparing · ${deptLabel(l.prepare_department ?? '', lang)}`}</span>
+                          : (tickable && !done && <span className="text-[10px] text-gray-400 flex-shrink-0">{actionLabel(l)}</span>)}
                       </button>
                     )
                   })}

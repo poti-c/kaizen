@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Plus, Trash2, Loader2, Check, X, ChefHat, ChevronDown, Truck, ListChecks, CalendarDays } from 'lucide-react'
+import { Plus, Trash2, Loader2, Check, X, ChefHat, ChevronDown, Truck, ListChecks, CalendarDays, ArrowRight } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useCompany } from '@/contexts/CompanyContext'
 import { useAuth } from '@/contexts/AuthContext'
@@ -18,7 +18,11 @@ export interface RecipeLine {
   id: string
   slot: string                 // "Welcome fruit", "Turndown", "Minibar"
   item: string                 // catalog label, e.g. "F3 — 3 pieces"
-  fulfill_department: Department
+  fulfill_department: Department // the FINAL deliverer (single-stage: the only dept)
+  // Two-stage handoff: when set, this dept PREPARES the item and hands it to
+  // fulfill_department to DELIVER (e.g. Kitchen prepares → Restaurant delivers).
+  // null/absent = single-stage (fulfill_department both prepares and delivers).
+  prepare_department?: Department | null
   serving_at: string           // "12:00" or ""
   line_type: LineType
   by_weekday?: Record<string, string> | null  // mon..sun item overrides (turndown-of-the-day)
@@ -176,6 +180,22 @@ function RecipeModal({ category, lines, items, lang, onClose, onSave }: {
     if (line.by_weekday) { patch(id, { by_weekday: null }); if (expanded === id) setExpanded(null) }
     else { patch(id, { by_weekday: {} }); setExpanded(id) }
   }
+  function toggleHandoff(id: string) {
+    const line = local.find((l) => l.id === id)
+    if (!line) return
+    if (line.prepare_department) {
+      // Off: collapse back to a single dept = the preparer (who actually makes the item).
+      patch(id, { fulfill_department: line.prepare_department, prepare_department: null })
+    } else {
+      // On: the current dept becomes the PREPARER; pick a different dept to DELIVER
+      // (default Restaurant, else the first dept that isn't the preparer). Item catalog
+      // stays keyed to the preparer, so the chosen item remains valid.
+      const deliverer = DEPT_OPTIONS.find((d) => d.value !== line.fulfill_department && d.value === 'restaurant')?.value
+        ?? DEPT_OPTIONS.find((d) => d.value !== line.fulfill_department)?.value
+        ?? line.fulfill_department
+      patch(id, { prepare_department: line.fulfill_department, fulfill_department: deliverer })
+    }
+  }
 
   async function save() {
     setBusy(true)
@@ -183,6 +203,8 @@ function RecipeModal({ category, lines, items, lang, onClose, onSave }: {
       .filter((l) => l.slot.trim() || l.item.trim())
       .map((l) => ({
         ...l, slot: l.slot.trim(), item: l.item.trim(),
+        // A handoff only counts when the preparer differs from the deliverer.
+        prepare_department: l.prepare_department && l.prepare_department !== l.fulfill_department ? l.prepare_department : null,
         by_weekday: l.by_weekday && Object.values(l.by_weekday).some((v) => v?.trim()) ? l.by_weekday : null,
       }))
     const ok = await onSave(category.id, clean)
@@ -210,8 +232,11 @@ function RecipeModal({ category, lines, items, lang, onClose, onSave }: {
             </p>
           )}
           {local.map((line) => {
-            // Pick from the dept's single item list.
-            const deptItems = items.filter((it) => it.department === line.fulfill_department)
+            const handoff = !!line.prepare_department
+            // The item is made by the PREPARER, so it comes from the preparer's catalog
+            // (the deliverer doesn't own the item). Single-stage = fulfill_department.
+            const catalogDept = line.prepare_department ?? line.fulfill_department
+            const deptItems = items.filter((it) => it.department === catalogDept)
             return (
               <div key={line.id} className="rounded-lg border border-gray-150 bg-gray-50/50 p-2.5 space-y-2">
                 {/* Row 1: slot + remove */}
@@ -224,14 +249,34 @@ function RecipeModal({ category, lines, items, lang, onClose, onSave }: {
                   </button>
                 </div>
 
-                {/* Row 2: dept + item */}
-                <div className="grid grid-cols-2 gap-2">
-                  <select value={line.fulfill_department} onChange={(e) => patch(line.id, { fulfill_department: e.target.value as Department, item: '' })}
-                    className={cell}>
-                    {DEPT_OPTIONS.map((d) => <option key={d.value} value={d.value}>{deptLabel(d.value, lang)}</option>)}
-                  </select>
-                  <ItemField value={line.item} options={deptItems} lang={lang} onChange={(v) => patch(line.id, { item: v })} />
-                </div>
+                {/* Row 2: department(s) + item. Single-stage = one dept; handoff = prepare → deliver. */}
+                {handoff ? (
+                  <div className="space-y-2">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-[10px] font-medium text-gray-400 flex items-center gap-1 mb-0.5"><ChefHat className="h-3 w-3" />{lang === 'th' ? 'เตรียมโดย' : 'Prepared by'}</label>
+                        <select value={line.prepare_department ?? ''} onChange={(e) => patch(line.id, { prepare_department: e.target.value as Department, item: '' })} className={cell}>
+                          {DEPT_OPTIONS.map((d) => <option key={d.value} value={d.value}>{deptLabel(d.value, lang)}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-medium text-gray-400 flex items-center gap-1 mb-0.5"><Truck className="h-3 w-3" />{lang === 'th' ? 'ส่งโดย' : 'Delivered by'}</label>
+                        <select value={line.fulfill_department} onChange={(e) => patch(line.id, { fulfill_department: e.target.value as Department })} className={cell}>
+                          {DEPT_OPTIONS.map((d) => <option key={d.value} value={d.value}>{deptLabel(d.value, lang)}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                    <ItemField value={line.item} options={deptItems} lang={lang} onChange={(v) => patch(line.id, { item: v })} />
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-2">
+                    <select value={line.fulfill_department} onChange={(e) => patch(line.id, { fulfill_department: e.target.value as Department, item: '' })}
+                      className={cell}>
+                      {DEPT_OPTIONS.map((d) => <option key={d.value} value={d.value}>{deptLabel(d.value, lang)}</option>)}
+                    </select>
+                    <ItemField value={line.item} options={deptItems} lang={lang} onChange={(v) => patch(line.id, { item: v })} />
+                  </div>
+                )}
 
                 {/* Row 3: serving time + delivery/checklist + weekday toggle */}
                 <div className="flex items-center gap-2 flex-wrap">
@@ -249,6 +294,13 @@ function RecipeModal({ category, lines, items, lang, onClose, onSave }: {
                       <ListChecks className="h-3.5 w-3.5" />{lang === 'th' ? 'เช็คลิสต์' : 'Checklist'}
                     </button>
                   </div>
+
+                  <button onClick={() => toggleHandoff(line.id)}
+                    title={lang === 'th' ? 'เตรียมโดยแผนกหนึ่ง แล้วส่งต่ออีกแผนกเพื่อจัดส่ง' : 'One dept prepares, another delivers'}
+                    className={`h-8 px-2 flex items-center gap-1 rounded-md border text-xs ${handoff ? 'border-[var(--brand-primary)] text-[var(--brand-primary)] bg-[var(--brand-primary)]/5' : 'border-gray-200 text-gray-400 hover:text-gray-600'}`}>
+                    <ArrowRight className="h-3.5 w-3.5" />
+                    {lang === 'th' ? 'ส่งต่อ' : 'Hand off'}
+                  </button>
 
                   <button onClick={() => toggleWeekday(line.id)}
                     title={lang === 'th' ? 'เปลี่ยนตามวัน' : 'Varies by weekday'}
