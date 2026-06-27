@@ -264,11 +264,16 @@ function statusLabel(s: RoomStatus, lang: string): string {
 function isArrivalLine(slot: string): boolean {
   return /fruit|minibar|มินิบาร์|ผลไม้/i.test(slot)
 }
+/** Receipt / tax invoice — issued on demand (e.g. at checkout), so it's opt-in, not seeded on. */
+function isReceiptLine(slot: string): boolean {
+  return /receipt|tax invoice|ใบเสร็จ|ใบกำกับภาษี/i.test(slot)
+}
 /** Default active state of a line under a given room status. */
 function lineActiveFor(status: RoomStatus, slot: string): boolean {
   if (status === 'empty' || status === 'oo') return false
+  if (isReceiptLine(slot)) return false // opt-in only — the requester ticks it when a receipt is needed
   if (status === 'occupied') return !isArrivalLine(slot)
-  return true // check-in: everything active
+  return true // check-in: everything else active
 }
 
 /** One editable line in the room sheet. */
