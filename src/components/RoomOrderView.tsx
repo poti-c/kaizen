@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   Loader2, X, Check, Plus, Trash2, Send, ChevronLeft, ChevronRight,
-  Truck, ListChecks, ArrowRight, DoorOpen, DoorClosed, CheckCircle2, ShieldCheck, Clock, AlertTriangle, RotateCcw, History, ChevronDown, Eye,
+  Truck, ListChecks, ArrowRight, DoorOpen, DoorClosed, CheckCircle2, ShieldCheck, Clock, AlertTriangle, RotateCcw, History, ChevronDown, Eye, FileText,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { RoomDocModal } from '@/components/RoomDocModal'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useLanguage } from '@/contexts/LanguageContext'
@@ -1249,7 +1250,12 @@ interface FulfilLine {
   note: string | null; status: 'pending' | 'acknowledged' | 'ready' | 'done'
   delivered_by: string | null; delivered_at: string | null
   prepared_by: string | null; prepared_at: string | null
+  document_path: string | null; document_name: string | null
 }
+
+// Lines whose preparer is Accounting are document handoffs: the "ready" step IS uploading
+// the receipt / tax invoice, and the deliverer confirms after viewing it.
+const isDocLine = (l: { prepare_department: string | null }) => l.prepare_department === 'accounting'
 
 function RoomFulfilBoard({ companyId, dept, unit, initialDate }: { companyId: string; dept: Department; unit: UnitNoun; initialDate?: string }) {
   const { profile } = useAuth()
@@ -1266,6 +1272,7 @@ function RoomFulfilBoard({ companyId, dept, unit, initialDate }: { companyId: st
   const [prepBufferMin, setPrepBufferMin] = useState(DEFAULT_PREP_BUFFER_MIN) // serving_at minus this = "prep by" hint
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
+  const [docModal, setDocModal] = useState<{ line: FulfilLine; mode: 'upload' | 'view'; canConfirm: boolean } | null>(null)
 
   const load = useCallback(async () => {
     if (!companyId) return
@@ -1405,6 +1412,32 @@ function RoomFulfilBoard({ companyId, dept, unit, initialDate }: { companyId: st
     if (after) await after()
   }
 
+  // Document handoff (Accounting → Front Office): open the upload/view modal instead of a
+  // plain tick. Accounting uploads (→ ready); the deliverer views then confirms (→ done).
+  function openDocFor(l: FulfilLine) {
+    if (isPrep(l)) {
+      setDocModal({ line: l, mode: l.status === 'pending' ? 'upload' : 'view', canConfirm: false })
+    } else if (isHandoffDeliver(l)) {
+      if (l.status === 'pending') { toast.info(lang === 'th' ? 'บัญชียังไม่ได้อัปโหลดเอกสาร' : 'Accounting hasn’t uploaded the document yet.'); return }
+      setDocModal({ line: l, mode: 'view', canConfirm: l.status === 'ready' })
+    } else {
+      setDocModal({ line: l, mode: 'view', canConfirm: false })
+    }
+  }
+  // Accounting submitted the document → mark the line ready, store the doc, notify the deliverer.
+  async function onDocUploaded(l: FulfilLine, path: string, name: string) {
+    if (!profile) return
+    const at = new Date().toISOString()
+    const patch = { status: 'ready' as const, prepared_by: profile.id, prepared_at: at, document_path: path, document_name: name }
+    const { error } = await supabase.from('kaizen_rr_room_lines').update(patch).eq('id', l.id)
+    if (error) { toast.error(error.message); return }
+    if (profile.full_name) setNames((m) => ({ ...m, [profile.id]: profile.full_name }))
+    setLines((prev) => prev.map((x) => x.id === l.id ? { ...x, ...patch } : x))
+    await notifyReady(l)
+    if (orderId) await logRoomEvent(companyId, orderId, date, profile.id, 'prepared', `${l.room_no} · ${itemText(l)}`)
+    toast.success(lang === 'th' ? 'ส่งเอกสารแล้ว' : 'Document submitted')
+  }
+
   const dateLabel = parseDateOnlyBkk(date).toLocaleDateString(lang === 'th' ? 'th-TH' : 'en-GB',
     { timeZone: 'Asia/Bangkok', weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })
   const itemKey = (l: FulfilLine) => (l.item?.trim() || l.slot?.trim() || '—')
@@ -1427,9 +1460,11 @@ function RoomFulfilBoard({ companyId, dept, unit, initialDate }: { companyId: st
     return acknowledged                                    // single-stage: after "Order received"
   }
   // The action verb shown on an actionable, not-yet-done line.
-  const actionLabel = (l: FulfilLine) => isPrep(l)
-    ? (lang === 'th' ? 'พร้อม' : 'mark ready')
-    : tickLabel(l)
+  const actionLabel = (l: FulfilLine) => isDocLine(l)
+    ? (isPrep(l) ? (lang === 'th' ? 'อัปโหลด' : 'upload') : (lang === 'th' ? 'ดู/ยืนยัน' : 'view'))
+    : isPrep(l)
+      ? (lang === 'th' ? 'พร้อม' : 'mark ready')
+      : tickLabel(l)
   // Handoff delivery line still being prepared upstream.
   const awaitingPrep = (l: FulfilLine) => isHandoffDeliver(l) && l.status === 'pending'
 
@@ -1499,11 +1534,12 @@ function RoomFulfilBoard({ companyId, dept, unit, initialDate }: { companyId: st
                     const prepByHint = isPrep(l) && !done ? minusMinutes(l.serving_at, prepBufferMin) : ''
                     return (
                       <button key={l.id} onClick={() => {
-                        if (tickable) toggleLine(l)
+                        if (isDocLine(l)) { openDocFor(l) }
+                        else if (tickable) toggleLine(l)
                         else if (preparing) toast.info(lang === 'th' ? 'ครัวกำลังเตรียม ยังส่งไม่ได้' : 'Still being prepared — not ready to deliver yet.')
                         else toast.info(lang === 'th' ? 'กรุณากด “รับงาน” ก่อนติ๊กรายการ' : 'Acknowledge “Order received” before ticking items.')
                       }} disabled={busy}
-                        className={`flex items-center gap-2 rounded-lg border px-2.5 py-2 text-left transition-colors ${done ? 'border-green-200 bg-green-50' : preparing ? 'border-amber-200 bg-amber-50/50' : 'border-gray-200 bg-gray-50/50'} ${tickable ? 'hover:border-gray-300 cursor-pointer' : 'opacity-80 cursor-not-allowed'}`}>
+                        className={`flex items-center gap-2 rounded-lg border px-2.5 py-2 text-left transition-colors ${done ? 'border-green-200 bg-green-50' : preparing ? 'border-amber-200 bg-amber-50/50' : 'border-gray-200 bg-gray-50/50'} ${(tickable || isDocLine(l)) ? 'hover:border-gray-300 cursor-pointer' : 'opacity-80 cursor-not-allowed'}`}>
                         <span className={`h-4 w-4 rounded flex items-center justify-center flex-shrink-0 border ${done ? 'bg-green-500 border-green-500 text-white' : 'border-gray-300 bg-white'}`}>
                           {done && <Check className="h-3 w-3" />}
                         </span>
@@ -1524,7 +1560,9 @@ function RoomFulfilBoard({ companyId, dept, unit, initialDate }: { companyId: st
                         </span>
                         {preparing
                           ? <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 flex-shrink-0">{lang === 'th' ? `กำลังเตรียม · ${deptLabel(l.prepare_department ?? '', lang)}` : `Preparing · ${deptLabel(l.prepare_department ?? '', lang)}`}</span>
-                          : (tickable && !done && <span className="text-[10px] text-gray-400 flex-shrink-0">{actionLabel(l)}</span>)}
+                          : isDocLine(l)
+                            ? <span className="text-[10px] flex items-center gap-1 flex-shrink-0 text-[var(--brand-primary)]"><FileText className="h-3 w-3" />{done ? (lang === 'th' ? 'ดูเอกสาร' : 'view') : actionLabel(l)}</span>
+                            : (tickable && !done && <span className="text-[10px] text-gray-400 flex-shrink-0">{actionLabel(l)}</span>)}
                       </button>
                     )
                   })}
@@ -1533,6 +1571,18 @@ function RoomFulfilBoard({ companyId, dept, unit, initialDate }: { companyId: st
             ))}
           </div>
         </>
+      )}
+
+      {docModal && (
+        <RoomDocModal
+          companyId={companyId}
+          line={docModal.line}
+          mode={docModal.mode}
+          canConfirm={docModal.canConfirm}
+          onClose={() => setDocModal(null)}
+          onUploaded={(path, name) => onDocUploaded(docModal.line, path, name)}
+          onConfirm={() => toggleLine(docModal.line)}
+        />
       )}
     </div>
   )
@@ -1547,6 +1597,7 @@ interface MonitorLine {
   status: 'pending' | 'acknowledged' | 'ready' | 'done'
   delivered_by: string | null; delivered_at: string | null
   prepared_by: string | null; prepared_at: string | null
+  document_path: string | null; document_name: string | null
 }
 
 type MonitorStatusKey = 'pending' | 'preparing' | 'inprogress' | 'ready' | 'delivered'
@@ -1569,6 +1620,7 @@ function RoomMonitorBoard({ companyId, unit, initialDate }: { companyId: string;
   const [names, setNames] = useState<Record<string, string>>({})
   const [orderExists, setOrderExists] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [viewDoc, setViewDoc] = useState<MonitorLine | null>(null)
 
   const load = useCallback(async () => {
     if (!companyId) return
@@ -1716,6 +1768,12 @@ function RoomMonitorBoard({ companyId, unit, initialDate }: { companyId: string;
                               {route}{l.serving_at ? ` · ${lang === 'th' ? 'ภายใน' : 'by'} ${l.serving_at}` : ''}
                             </span>
                           </span>
+                          {l.document_path && (
+                            <button onClick={() => setViewDoc(l)} title={lang === 'th' ? 'ดูเอกสาร' : 'View document'}
+                              className="text-[10px] flex items-center gap-1 flex-shrink-0 text-[var(--brand-primary)] hover:underline">
+                              <FileText className="h-3 w-3" />{lang === 'th' ? 'เอกสาร' : 'doc'}
+                            </button>
+                          )}
                           {od && <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 flex-shrink-0">{lang === 'th' ? 'เลยเวลา' : 'overdue'}</span>}
                           <span className={`text-[10px] px-1.5 py-0.5 rounded-full border flex-shrink-0 ${CHIP[st.key]}`}>{st.label}</span>
                         </div>
@@ -1727,6 +1785,10 @@ function RoomMonitorBoard({ companyId, unit, initialDate }: { companyId: string;
             </div>
           )}
         </>
+      )}
+
+      {viewDoc && (
+        <RoomDocModal companyId={companyId} line={viewDoc} mode="view" onClose={() => setViewDoc(null)} />
       )}
     </div>
   )
