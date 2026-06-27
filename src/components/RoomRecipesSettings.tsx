@@ -31,6 +31,7 @@ export interface RecipeLine {
 export type RoomRecipes = Record<string, RecipeLine[]>
 
 const DEPT_OPTIONS = DEPARTMENTS.filter((d) => d.value !== 'top_management')
+const DEFAULT_PREP_BUFFER_MIN = 30
 const WEEKDAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const
 const WEEKDAY_LABELS: Record<string, string> = { mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat', sun: 'Sun' }
 const WEEKDAY_LABELS_TH: Record<string, string> = { mon: 'จ.', tue: 'อ.', wed: 'พ.', thu: 'พฤ.', fri: 'ศ.', sat: 'ส.', sun: 'อา.' }
@@ -55,6 +56,8 @@ export function RoomRecipesSettings() {
   const [unit, setUnit] = useState<UnitNoun>(DEFAULT_UNIT)
   const [items, setItems] = useState<RrItem[]>([])
   const [recipes, setRecipes] = useState<RoomRecipes>({})
+  const [prepBuffer, setPrepBuffer] = useState(DEFAULT_PREP_BUFFER_MIN)
+  const [savingBuffer, setSavingBuffer] = useState(false)
   const [loading, setLoading] = useState(true)
   const [canEdit, setCanEdit] = useState(false)
   const [editing, setEditing] = useState<RoomCategory | null>(null)
@@ -62,20 +65,35 @@ export function RoomRecipesSettings() {
   const load = useCallback(async () => {
     if (!companyId || !profile) return
     setLoading(true)
-    const [cfgRes, itemsRes, recipesRes] = await Promise.all([
+    const [cfgRes, itemsRes, recipesRes, bufRes] = await Promise.all([
       supabase.from('kaizen_settings').select('value').eq('company_id', companyId).eq('key', 'rr_room_config').maybeSingle(),
       supabase.from('kaizen_settings').select('value').eq('company_id', companyId).eq('key', 'rr_items').maybeSingle(),
       supabase.from('kaizen_settings').select('value').eq('company_id', companyId).eq('key', 'rr_room_recipes').maybeSingle(),
+      supabase.from('kaizen_settings').select('value').eq('company_id', companyId).eq('key', 'rr_prep_buffer_min').maybeSingle(),
     ])
     const cfg = cfgRes.data?.value as { categories?: RoomCategory[]; unit?: UnitNoun } | undefined
     setCategories((cfg?.categories ?? []).slice().sort((a, b) => a.order - b.order))
     if (cfg?.unit) setUnit(cfg.unit)
     setItems(Array.isArray(itemsRes.data?.value) ? (itemsRes.data!.value as RrItem[]) : [])
     setRecipes((recipesRes.data?.value as RoomRecipes) ?? {})
+    const buf = bufRes.data?.value as number | undefined
+    setPrepBuffer(typeof buf === 'number' && buf >= 0 ? buf : DEFAULT_PREP_BUFFER_MIN)
     setCanEdit(profile.role === 'super_admin' || profile.role === 'manager')
     setLoading(false)
   }, [companyId, profile])
   useEffect(() => { load() }, [load])
+
+  async function savePrepBuffer(val: number) {
+    if (!companyId) return
+    const clamped = Math.max(0, Math.min(240, Math.round(val) || 0))
+    setPrepBuffer(clamped)
+    setSavingBuffer(true)
+    const { error } = await supabase.from('kaizen_settings')
+      .upsert({ company_id: companyId, key: 'rr_prep_buffer_min', value: clamped }, { onConflict: 'company_id,key' })
+    setSavingBuffer(false)
+    if (error) { toast.error(error.message); return }
+    toast.success(lang === 'th' ? 'บันทึกแล้ว' : 'Saved')
+  }
 
   async function saveCategory(catId: string, lines: RecipeLine[]): Promise<boolean> {
     if (!companyId) return false
@@ -105,6 +123,24 @@ export function RoomRecipesSettings() {
           {lang === 'th'
             ? `กำหนดรายการมาตรฐานของแต่ละหมวด${unitOne(unit, lang)} แต่ละรายการส่งไปยังแผนกผู้ดำเนินการของตนเอง`
             : `The standing lines each ${unitOne(unit, lang).toLowerCase()} gets by default — each routed to its own fulfilling department. Used to seed the daily order.`}
+        </p>
+      </div>
+
+      {/* Handoff prep buffer — drives the "prep by" hint on a preparer's board */}
+      <div className="flex items-center gap-2 flex-wrap rounded-lg border border-gray-200 bg-gray-50/60 p-3">
+        <label className="text-[12px] text-gray-600 flex items-center gap-2">
+          {lang === 'th' ? 'เผื่อเวลาเตรียม (ส่งต่อระหว่างแผนก)' : 'Handoff prep buffer'}
+          <input type="number" min={0} max={240} value={prepBuffer}
+            onChange={(e) => setPrepBuffer(Math.max(0, Math.min(240, Number(e.target.value) || 0)))}
+            onBlur={(e) => { const v = Math.max(0, Math.min(240, Number(e.target.value) || 0)); savePrepBuffer(v) }}
+            className="w-16 h-8 rounded-md border border-gray-200 px-2 text-sm bg-white focus:outline-none focus:ring-1 focus:ring-[var(--brand-primary)]/40" />
+          <span className="text-[12px] text-gray-400">{lang === 'th' ? 'นาทีก่อนเวลาส่ง' : 'min before serving'}</span>
+          {savingBuffer && <Loader2 className="h-3.5 w-3.5 animate-spin text-gray-400" />}
+        </label>
+        <p className="basis-full text-[11px] text-gray-400">
+          {lang === 'th'
+            ? 'สำหรับรายการที่แผนกหนึ่งเตรียมแล้วส่งต่ออีกแผนกจัดส่ง บอร์ดของผู้เตรียมจะแสดง “เตรียมให้เสร็จภายใน” = เวลาส่ง ลบด้วยค่านี้'
+            : 'For items one dept prepares and another delivers, the preparer’s board shows a “prep by” time = serving time minus this buffer.'}
         </p>
       </div>
 

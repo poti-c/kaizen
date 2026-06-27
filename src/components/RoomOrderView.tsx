@@ -1278,10 +1278,10 @@ function RoomFulfilBoard({ companyId, dept, unit, initialDate }: { companyId: st
     const list = [...merged.values()]
     setOrderExists(true)
     setLines(list)
-    // Prep-by hint buffer (serving time − N minutes) from room config.
-    const { data: cfgRow } = await supabase.from('kaizen_settings').select('value')
-      .eq('company_id', companyId).eq('key', 'rr_room_config').maybeSingle()
-    const buf = (cfgRow?.value as { prep_buffer_min?: number } | undefined)?.prep_buffer_min
+    // Prep-by hint buffer (serving time − N minutes), configured with the recipes.
+    const { data: bufRow } = await supabase.from('kaizen_settings').select('value')
+      .eq('company_id', companyId).eq('key', 'rr_prep_buffer_min').maybeSingle()
+    const buf = bufRow?.value as number | undefined
     setPrepBufferMin(typeof buf === 'number' && buf >= 0 ? buf : DEFAULT_PREP_BUFFER_MIN)
     const ids = [...new Set(list.flatMap((l) => [l.delivered_by, l.prepared_by]).filter(Boolean))] as string[]
     if (ids.length > 0) {

@@ -31,11 +31,9 @@ export interface RoomConfig {
   categories: RoomCategory[]
   types: RoomType[]
   rooms: Room[]
-  prep_buffer_min?: number // handoff "prep by" hint = serving time minus this many minutes
 }
 
-const DEFAULT_PREP_BUFFER_MIN = 30
-const EMPTY: RoomConfig = { unit: DEFAULT_UNIT, categories: [], types: [], rooms: [], prep_buffer_min: DEFAULT_PREP_BUFFER_MIN }
+const EMPTY: RoomConfig = { unit: DEFAULT_UNIT, categories: [], types: [], rooms: [] }
 const BED_LABELS: Record<Bed, string> = { king: 'King', twin: 'Twin', other: 'Other' }
 const BED_LABELS_TH: Record<Bed, string> = { king: 'เตียงคิง', twin: 'เตียงแฝด', other: 'อื่น ๆ' }
 const bedLabel = (b: Bed, lang: string) => (lang === 'th' ? BED_LABELS_TH[b] : BED_LABELS[b])
@@ -76,7 +74,7 @@ export function RoomSetupSettings() {
     const cfgRes = await supabase.from('kaizen_settings').select('value')
       .eq('company_id', companyId).eq('key', 'rr_room_config').maybeSingle()
     const v = cfgRes.data?.value as RoomConfig | undefined
-    setCfg(v && Array.isArray(v.categories) ? { unit: v.unit ?? DEFAULT_UNIT, categories: v.categories ?? [], types: v.types ?? [], rooms: v.rooms ?? [], prep_buffer_min: v.prep_buffer_min ?? DEFAULT_PREP_BUFFER_MIN } : EMPTY)
+    setCfg(v && Array.isArray(v.categories) ? { unit: v.unit ?? DEFAULT_UNIT, categories: v.categories ?? [], types: v.types ?? [], rooms: v.rooms ?? [] } : EMPTY)
     setCanEdit(profile.role === 'super_admin' || profile.role === 'manager')
     setDirty(false)
     setLoading(false)
@@ -97,7 +95,6 @@ export function RoomSetupSettings() {
       categories: cfg.categories.filter((c) => c.name.trim()).map((c, i) => ({ ...c, name: c.name.trim(), order: i + 1 })),
       types: cfg.types.filter((t) => t.code.trim()).map((t) => ({ ...t, code: t.code.trim().toUpperCase() })),
       rooms: cfg.rooms.filter((r) => r.no.trim()).map((r) => ({ ...r, no: r.no.trim().toUpperCase() })),
-      prep_buffer_min: cfg.prep_buffer_min ?? DEFAULT_PREP_BUFFER_MIN,
     }
     const { error } = await supabase.from('kaizen_settings')
       .upsert({ company_id: companyId, key: 'rr_room_config', value: clean }, { onConflict: 'company_id,key' })
@@ -170,22 +167,6 @@ export function RoomSetupSettings() {
             </button>
           </div>
         )}
-
-        {/* Handoff prep buffer — drives the "prep by" hint on a preparer's board */}
-        <div className="mt-2.5 flex items-center gap-2 flex-wrap rounded-lg border border-gray-200 bg-gray-50/60 p-3">
-          <label className="text-[12px] text-gray-600 flex items-center gap-2">
-            {lang === 'th' ? 'เผื่อเวลาเตรียม (ส่งต่อระหว่างแผนก)' : 'Handoff prep buffer'}
-            <input type="number" min={0} max={240} value={cfg.prep_buffer_min ?? DEFAULT_PREP_BUFFER_MIN}
-              onChange={(e) => mut((c) => ({ ...c, prep_buffer_min: Math.max(0, Math.min(240, Number(e.target.value) || 0)) }))}
-              className="w-16 h-8 rounded-md border border-gray-200 px-2 text-sm bg-white focus:outline-none focus:ring-1 focus:ring-[var(--brand-primary)]/40" />
-            <span className="text-[12px] text-gray-400">{lang === 'th' ? 'นาทีก่อนเวลาส่ง' : 'min before serving'}</span>
-          </label>
-          <p className="basis-full text-[11px] text-gray-400">
-            {lang === 'th'
-              ? 'สำหรับรายการที่แผนกหนึ่งเตรียมแล้วส่งต่ออีกแผนกจัดส่ง บอร์ดของผู้เตรียมจะแสดง “เตรียมให้เสร็จภายใน” = เวลาส่ง ลบด้วยค่านี้'
-              : 'For items one dept prepares and another delivers, the preparer’s board shows a “prep by” time = serving time minus this buffer.'}
-          </p>
-        </div>
       </div>
 
       {/* ── Categories ── */}
