@@ -61,6 +61,7 @@ export function RoomDocModal({ companyId, line, mode, canConfirm, canReplace, on
   const [signedUrl, setSignedUrl] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [confirming, setConfirming] = useState(false) // submit guard ("are you sure?")
+  const [confirmingReceive, setConfirmingReceive] = useState(false) // Front Office receive guard
   const [loadingDoc, setLoadingDoc] = useState(mode === 'view')
 
   const title = line.item?.trim() || line.slot?.trim() || (lang === 'th' ? 'เอกสาร' : 'Document')
@@ -192,6 +193,17 @@ export function RoomDocModal({ companyId, line, mode, canConfirm, canReplace, on
               </button>
             </>
             )
+          ) : confirmingReceive ? (
+            <>
+              <span className="text-xs text-gray-600 flex-1">{lang === 'th' ? 'ยืนยันว่าได้รับเอกสารแล้ว? ความรับผิดชอบจะเป็นของแผนกต้อนรับ และบัญชีจะแก้ไขไม่ได้อีก' : 'Confirm you received this document? Responsibility moves to Front Office and Accounting can no longer change it.'}</span>
+              <button onClick={() => setConfirmingReceive(false)} disabled={busy} className="flex items-center gap-1.5 px-3 h-9 rounded-lg border border-gray-300 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-50">
+                {lang === 'th' ? 'ย้อนกลับ' : 'Back'}
+              </button>
+              <button onClick={confirm} disabled={busy}
+                className="flex items-center gap-1.5 bg-[var(--brand-primary)] text-white text-sm font-semibold px-4 h-9 rounded-lg disabled:opacity-50">
+                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}{lang === 'th' ? 'ยืนยันรับ' : 'Yes, confirm'}
+              </button>
+            </>
           ) : (
             <>
               <button onClick={save} disabled={!line.document_path} className="flex items-center gap-1.5 px-3 h-9 rounded-lg border border-gray-300 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-50">
@@ -207,7 +219,7 @@ export function RoomDocModal({ companyId, line, mode, canConfirm, canReplace, on
                 </button>
               )}
               {canConfirm && (
-                <button onClick={confirm} disabled={busy || !line.document_path}
+                <button onClick={() => setConfirmingReceive(true)} disabled={busy || !line.document_path}
                   className="ml-auto flex items-center gap-1.5 bg-[var(--brand-primary)] text-white text-sm font-semibold px-4 h-9 rounded-lg disabled:opacity-50">
                   {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}{lang === 'th' ? 'ยืนยันรับเอกสาร' : 'Confirm received'}
                 </button>
