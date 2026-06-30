@@ -26,8 +26,10 @@
     <meta name="apple-mobile-web-app-title" content="Kaizen" />
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png?v=3" />
     <script>
-      // Register Service Worker
-      if ('serviceWorker' in navigator) {
+      // Register Service Worker (skip on the Vite dev server — an SW update
+      // there triggers a controllerchange reload loop that never lets the
+      // dev build finish mounting, since /sw.js is re-served on every reload).
+      if ('serviceWorker' in navigator && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
         // Reload once when an updated service worker takes control, so an
         // installed PWA never gets stuck on a stale cached build (an old build
         // can, e.g., wrongly report push notifications as unsupported).
@@ -64,7 +66,7 @@
         })
       }
     </script>
-    <script type="module" crossorigin src="/assets/index-l-_Lz3ga.js"></script>
+    <script type="module" crossorigin src="/assets/index-CbRSPSK-.js"></script>
     <link rel="stylesheet" crossorigin href="/assets/index-CVVVd06f.css">
   </head>
   <body>
