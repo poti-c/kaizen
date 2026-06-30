@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, Loader2, RefreshCw } from 'lucide-react'
+import { ArrowLeft, Loader2, RefreshCw, X } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useCompany } from '@/contexts/CompanyContext'
 import { useLanguage } from '@/contexts/LanguageContext'
@@ -27,25 +27,79 @@ const DUE_PRESETS: { key: string; en: string; th: string; at: () => string }[] =
   { key: 'eod', en: 'End of today', th: 'สิ้นวันนี้', at: () => new Date(`${bangkokDate()}T23:59:00+07:00`).toISOString() },
 ]
 
+// Android can kill and reload the backgrounded tab while the native camera app is in
+// the foreground (especially in an installed PWA), wiping all in-memory React state —
+// the #1 cause of "my typed text disappeared / I can't add a case from my phone"
+// reports. Persisting the draft to sessionStorage lets a forced reload recover it.
+const DRAFT_KEY = 'kaizen_create_case_draft'
+
+interface CaseDraft {
+  caseNumber: string
+  title: string
+  description: string
+  priority: CasePriority
+  department: Department
+  dueDate: string
+  category: string
+  categoryOther: string
+  location: string
+  locationOther: string
+  isRecurring: boolean
+  photoUrls: string[]
+}
+
+function loadDraft(): CaseDraft | null {
+  try {
+    const raw = sessionStorage.getItem(DRAFT_KEY)
+    return raw ? (JSON.parse(raw) as CaseDraft) : null
+  } catch {
+    return null
+  }
+}
+
+function clearDraft() {
+  try { sessionStorage.removeItem(DRAFT_KEY) } catch { /* storage unavailable */ }
+}
+
 export function CreateCasePage() {
   const navigate = useNavigate()
   const { profile } = useAuth()
   const { activeCompany } = useCompany()
   const { t, lang } = useLanguage()
 
-  const [caseNumber] = useState(() => generateCaseNumber())
-  const [title, setTitle] = useState('')
-  const [description, setDescription] = useState('')
-  const [priority, setPriority] = useState<CasePriority>('medium')
-  const [department, setDepartment] = useState<Department>(profile?.department || 'front_office')
-  const [dueDate, setDueDate] = useState('')
-  const [category, setCategory] = useState<string>('')
-  const [categoryOther, setCategoryOther] = useState<string>('')
-  const [location, setLocation] = useState<string>('')
-  const [locationOther, setLocationOther] = useState<string>('')
-  const [isRecurring, setIsRecurring] = useState(false)
-  const [photoUrls, setPhotoUrls] = useState<string[]>([])
+  const [draft] = useState(() => loadDraft())
+
+  const [caseNumber] = useState(() => draft?.caseNumber ?? generateCaseNumber())
+  const [title, setTitle] = useState(draft?.title ?? '')
+  const [description, setDescription] = useState(draft?.description ?? '')
+  const [priority, setPriority] = useState<CasePriority>(draft?.priority ?? 'medium')
+  const [department, setDepartment] = useState<Department>(draft?.department ?? (profile?.department || 'front_office'))
+  const [dueDate, setDueDate] = useState(draft?.dueDate ?? '')
+  const [category, setCategory] = useState<string>(draft?.category ?? '')
+  const [categoryOther, setCategoryOther] = useState<string>(draft?.categoryOther ?? '')
+  const [location, setLocation] = useState<string>(draft?.location ?? '')
+  const [locationOther, setLocationOther] = useState<string>(draft?.locationOther ?? '')
+  const [isRecurring, setIsRecurring] = useState(draft?.isRecurring ?? false)
+  const [photoUrls, setPhotoUrls] = useState<string[]>(draft?.photoUrls ?? [])
   const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    if (draft && (draft.title || draft.description || draft.photoUrls.length > 0)) {
+      toast.info(lang === 'th' ? 'กู้คืนแบบร่างที่ยังไม่ได้บันทึกไว้ให้แล้ว' : 'Restored your unsaved draft')
+    }
+    // Only meant to run once, on mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    const hasContent = title || description || category || location || photoUrls.length > 0
+    if (!hasContent) return
+    const d: CaseDraft = {
+      caseNumber, title, description, priority, department, dueDate,
+      category, categoryOther, location, locationOther, isRecurring, photoUrls,
+    }
+    try { sessionStorage.setItem(DRAFT_KEY, JSON.stringify(d)) } catch { /* storage full/unavailable */ }
+  }, [caseNumber, title, description, priority, department, dueDate, category, categoryOther, location, locationOther, isRecurring, photoUrls])
 
   // Load company's custom categories + locations from settings
   const [customCategories, setCustomCategories] = useState<{ slug: string; label: string }[]>(
@@ -232,6 +286,7 @@ export function CreateCasePage() {
         if (adminNotifErr) console.error('admin notification insert failed', adminNotifErr)
       }
 
+      clearDraft()
       toast.success(t.createCase.created(caseNumber))
       navigate(`/cases/${newCase.id}`)
     } catch (err) {
@@ -263,7 +318,7 @@ export function CreateCasePage() {
   return (
     <div className="p-4 md:p-6 max-w-2xl mx-auto animate-fade-in">
       <div className="flex items-center gap-3 mb-6">
-        <Button variant="ghost" size="icon-sm" onClick={() => navigate(-1)}>
+        <Button variant="ghost" size="icon-sm" onClick={() => { clearDraft(); navigate(-1) }}>
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <div>
@@ -455,9 +510,25 @@ export function CreateCasePage() {
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6 space-y-3">
           <h2 className="font-semibold text-gray-900 border-b border-gray-100 pb-3">{t.createCase.photoEvidence}</h2>
           <p className="text-sm text-gray-500">{t.createCase.photoSubtitle}</p>
+          {photoUrls.length > 0 && (
+            <div className="grid grid-cols-3 gap-2">
+              {photoUrls.map((url, i) => (
+                <div key={url} className="relative aspect-square rounded-lg overflow-hidden bg-gray-100">
+                  <img src={url} alt="" className="w-full h-full object-cover" />
+                  <button
+                    type="button"
+                    onClick={() => setPhotoUrls((prev) => prev.filter((_, idx) => idx !== i))}
+                    className="absolute top-1 right-1 bg-red-600 text-white rounded-full p-0.5 shadow-sm"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
           <PhotoUpload
             onUpload={(urls) => setPhotoUrls((prev) => [...prev, ...urls])}
-            maxFiles={5}
+            maxFiles={Math.max(0, 5 - photoUrls.length)}
             label={t.createCase.addPhotos}
             caseNumber={caseNumber}
             department={department}
@@ -466,7 +537,7 @@ export function CreateCasePage() {
         </div>
 
         <div className="flex gap-3">
-          <Button type="button" variant="outline" onClick={() => navigate(-1)} className="flex-1">
+          <Button type="button" variant="outline" onClick={() => { clearDraft(); navigate(-1) }} className="flex-1">
             {t.createCase.cancel}
           </Button>
           <Button type="submit" className="flex-1" disabled={loading}>

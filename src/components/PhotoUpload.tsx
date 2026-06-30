@@ -128,8 +128,6 @@ export function PhotoUpload({ onUpload, maxFiles = 3, label = 'Add Photos', buck
 
     setPreviews((prev) => [...prev, ...items])
 
-    const uploadedUrls: string[] = []
-
     for (const item of items) {
       const compressed = await compressImage(item.file)
       if (!compressed) {
@@ -151,18 +149,18 @@ export function PhotoUpload({ onUpload, maxFiles = 3, label = 'Add Photos', buck
       if (!error && data) {
         const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(data.path)
         const url = urlData.publicUrl
-        uploadedUrls.push(url)
         setPreviews((prev) =>
           prev.map((p) => (p.preview === item.preview ? { ...p, uploading: false, url } : p))
         )
+        // Report each photo as soon as it's uploaded rather than batching at the end of
+        // the loop — on Android, backgrounding the tab to open the camera can get the
+        // page killed and reloaded by the OS before the loop finishes, which used to lose
+        // every already-uploaded photo because onUpload() never got called for them.
+        onUpload([url])
       } else {
         setPreviews((prev) => prev.filter((p) => p.preview !== item.preview))
         toast.error((lang === 'th' ? 'อัปโหลดรูปไม่สำเร็จ: ' : 'Photo upload failed: ') + (error?.message ?? 'unknown error'))
       }
-    }
-
-    if (uploadedUrls.length > 0) {
-      onUpload(uploadedUrls)
     }
   }
 
