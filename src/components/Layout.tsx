@@ -8,9 +8,10 @@ import { FeedbackWidget } from './FeedbackWidget'
 import { useAuth } from '@/contexts/AuthContext'
 import { useViewMode } from '@/contexts/ViewModeContext'
 import { useLanguage } from '@/contexts/LanguageContext'
+import { Button } from '@/components/ui/button'
 
 export function Layout() {
-  const { user, profile, loading } = useAuth()
+  const { user, profile, loading, profileError, signOut, refreshProfile } = useAuth()
   const { showSidebar, showBottomNav } = useViewMode()
   const { lang } = useLanguage()
   const location = useLocation()
@@ -44,8 +45,33 @@ export function Layout() {
     )
   }
 
-  if (!user || !profile) {
+  if (!user) {
     return <Navigate to="/login" replace />
+  }
+
+  // The profile fetch failed even after AuthContext's built-in retry (flaky network,
+  // brief Supabase hiccup) — show a retry screen instead of redirecting to /login,
+  // which would just bounce straight back here since `user` is still set, looping
+  // forever and leaving the page blank.
+  if (!profile) {
+    if (profileError) {
+      return (
+        <div className="flex items-center justify-center bg-gray-50" style={{ height: '100dvh' }}>
+          <div className="flex flex-col items-center gap-4 text-center px-6 max-w-xs">
+            <p className="text-sm text-gray-600">
+              {lang === 'th'
+                ? 'โหลดโปรไฟล์ไม่สำเร็จ — ตรวจสอบการเชื่อมต่ออินเทอร์เน็ตแล้วลองอีกครั้ง'
+                : "Couldn't load your profile. Check your connection and try again."}
+            </p>
+            <div className="flex gap-2">
+              <Button onClick={() => refreshProfile()}>{lang === 'th' ? 'ลองอีกครั้ง' : 'Retry'}</Button>
+              <Button variant="outline" onClick={() => signOut()}>{lang === 'th' ? 'ออกจากระบบ' : 'Sign out'}</Button>
+            </div>
+          </div>
+        </div>
+      )
+    }
+    return null
   }
 
   // Force a password change before allowing access to any app route

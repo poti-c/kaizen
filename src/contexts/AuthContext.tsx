@@ -15,6 +15,7 @@ interface AuthContextValue {
   user: User | null
   profile: KaizenProfile | null
   loading: boolean
+  profileError: boolean
   signInManager: (email: string, password: string) => Promise<void>
   signInStaff: (username: string, password: string, companyCode: string) => Promise<void>
   signInAdmin: (email: string, password: string) => Promise<void>
@@ -43,12 +44,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [profile, setProfile] = useState<KaizenProfile | null>(null)
   const [loading, setLoading] = useState(true)
+  const [profileError, setProfileError] = useState(false)
   const lastBeatRef = useRef(0)
   const companyRef = useRef<string | null>(null)
   const signingInRef = useRef(false)
   const initialFetchRef = useRef(false)
 
-  const fetchProfile = useCallback(async (userId: string) => {
+  // A transient failure here (flaky mobile network, brief Supabase hiccup) used to leave
+  // `profile` null forever with `loading` false — Layout would then redirect to /login,
+  // which immediately redirects back to / since `user` is still set, bouncing forever
+  // and showing a blank page. Retry once before surfacing profileError so Layout can
+  // show a retry screen instead of looping.
+  const fetchProfile = useCallback(async (userId: string, attempt = 0): Promise<void> => {
     const { data, error } = await supabase
       .from('kaizen_profiles')
       .select('*')
@@ -62,11 +69,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!p.is_active) {
         await supabase.auth.signOut()
         setProfile(null)
+        setProfileError(false)
         return
       }
       companyRef.current = p.company_id
       setProfile(p)
+      setProfileError(false)
+      return
     }
+    if (attempt < 1) {
+      await new Promise((resolve) => setTimeout(resolve, 1200))
+      return fetchProfile(userId, attempt + 1)
+    }
+    setProfileError(true)
   }, [])
 
   const refreshProfile = useCallback(async () => {
@@ -97,6 +112,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       } else {
         setProfile(null)
+        setProfileError(false)
       }
     })
 
@@ -222,7 +238,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, profile, loading, signInAdmin, signInManager, signInStaff, signOut, refreshProfile }}>
+    <AuthContext.Provider value={{ user, profile, loading, profileError, signInAdmin, signInManager, signInStaff, signOut, refreshProfile }}>
       {children}
     </AuthContext.Provider>
   )
