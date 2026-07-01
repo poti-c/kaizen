@@ -1070,6 +1070,11 @@ export function CaseDetailPage() {
   const canAdminApprove   = profile?.role === 'super_admin' && kcase.status === 'pending_admin_approval'
   const canReopen         = profile?.role === 'super_admin' && kcase.status === 'closed'
   const canDelete         = profile?.role === 'super_admin'
+  const canEditCase       = !isHRManager && (
+    profile?.role === 'super_admin' ||
+    (profile?.role === 'manager' && profile?.department === kcase.department) ||
+    (!!profile?.id && profile.id === kcase.created_by)
+  )
 
   // Auto-prompt: an unassigned, auto-created PM case → ask the dept manager /
   // Top Management to pick a PIC (+ optional due date) before proceeding.
@@ -1134,7 +1139,7 @@ export function CaseDetailPage() {
                 <Printer className="h-4 w-4 text-gray-500" />
               </Button>
             )}
-            {canDelete && (
+            {canEditCase && (
               <Button variant="ghost" size="icon-sm" onClick={openEditCase} disabled={submitting} className="text-[var(--brand-primary)]">
                 <Pencil className="h-4 w-4" />
               </Button>
