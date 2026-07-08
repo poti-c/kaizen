@@ -593,11 +593,9 @@ export function CaseDetailPage() {
       //    straight to Top Management.
       const resolverManagerial = profile?.role === 'manager' || profile?.role === 'super_admin'
       const picDepts = picProfiles.map(p => p.department).filter(Boolean) as string[]
-      // HR managers can never approve cases (mirrors canManagerApprove's isHRManager
-      // bar), so an HR-only department must route straight to Top Management — never
-      // count an HR manager toward hasDeptManager or the case strands forever.
+      // HR managers can now approve cases, so human_resource is no longer excluded:
+      // an HR-department resolution routes to the HR manager for approval.
       const approverDepts = ((picDepts.length ? picDepts : [kcase?.department].filter(Boolean)) as string[])
-        .filter(d => d !== 'human_resource')
       let hasDeptManager = false
       if (!resolverManagerial && approverDepts.length) {
         const { data: mgrs } = await supabase.from('kaizen_profiles')
@@ -1032,21 +1030,22 @@ export function CaseDetailPage() {
   const problemPhotos = photos.filter((p) => p.photo_type === 'problem')
   const resolutionPhotosList = photos.filter((p) => p.photo_type === 'resolution')
 
-  // HR Manager is read-only across all cases
+  // HR Manager has org-wide oversight AND full manager rights on every case,
+  // regardless of department (they can see all cases and act as the acting
+  // department manager on any of them). isHRManager is kept so the resolve
+  // routing can find HR approvers for HR-department cases.
   const isHRManager = profile?.role === 'manager' && profile?.department === 'human_resource'
+  // A manager acts on a case when it belongs to their department — or, for an
+  // HR manager, on any department's case.
+  const isActingDeptManager = profile?.role === 'manager' &&
+    (isHRManager || profile?.department === kcase.department)
 
-  const canManagerAssign  = !isHRManager && (
-    profile?.role === 'super_admin' ||
-    (profile?.role === 'manager' && profile?.department === kcase.department)
-  )
-  const canEditPic = kcase.status !== 'closed' && !isHRManager && (
-    profile?.role === 'super_admin' ||
-    (profile?.role === 'manager' && profile?.department === kcase.department) ||
-    profile?.role === 'staff'
+  const canManagerAssign  = profile?.role === 'super_admin' || isActingDeptManager
+  const canEditPic = kcase.status !== 'closed' && (
+    profile?.role === 'super_admin' || isActingDeptManager || profile?.role === 'staff'
   )
   const canEditDueDate    = kcase.status !== 'closed' && (
-    profile?.role === 'super_admin' ||
-    (profile?.role === 'manager' && !isHRManager && profile?.department === kcase.department)
+    profile?.role === 'super_admin' || isActingDeptManager
   )
   // Anyone explicitly named In Charge (PIC) can resolve the case — even if the
   // case belongs to a different department, and even Top Management / managers
@@ -1058,11 +1057,11 @@ export function CaseDetailPage() {
   const isInCharge = !!profile?.id && picIdsForResolve.includes(profile.id)
   // Department(s) of the people in charge — their department manager may act.
   const picDepartments = new Set(picProfiles.map(p => p.department).filter(Boolean) as string[])
-  const isPicDeptManager = profile?.role === 'manager' && !isHRManager &&
-    (picDepartments.has(profile.department as string) || (picDepartments.size === 0 && profile.department === kcase.department))
+  const isPicDeptManager = profile?.role === 'manager' &&
+    (isHRManager || picDepartments.has(profile.department as string) || (picDepartments.size === 0 && profile.department === kcase.department))
   // Solve + propose resolution photos: Super Admin, the Person in Charge, or the
-  // PIC's department manager — NOT every staff member.
-  const canStaffResolve   = !isHRManager &&
+  // PIC's department manager (incl. HR manager) — NOT every staff member.
+  const canStaffResolve   =
     (profile?.role === 'super_admin' || isInCharge || isPicDeptManager) &&
     ['open', 'in_progress', 'assigned', 'reopened'].includes(kcase.status)
   const canManagerApprove = (profile?.role === 'super_admin' || isPicDeptManager) &&
@@ -1070,9 +1069,9 @@ export function CaseDetailPage() {
   const canAdminApprove   = profile?.role === 'super_admin' && kcase.status === 'pending_admin_approval'
   const canReopen         = profile?.role === 'super_admin' && kcase.status === 'closed'
   const canDelete         = profile?.role === 'super_admin'
-  const canEditCase       = !isHRManager && (
+  const canEditCase       = (
     profile?.role === 'super_admin' ||
-    (profile?.role === 'manager' && profile?.department === kcase.department) ||
+    isActingDeptManager ||
     (!!profile?.id && profile.id === kcase.created_by)
   )
 
