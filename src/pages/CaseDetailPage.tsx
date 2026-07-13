@@ -963,8 +963,48 @@ export function CaseDetailPage() {
   async function handleDelete() {
     if (!confirm(lang === 'th' ? `คุณแน่ใจหรือไม่ว่าต้องการลบเคส ${kcase?.case_number} อย่างถาวร? การกระทำนี้ไม่สามารถยกเลิกได้` : `Are you sure you want to permanently delete case ${kcase?.case_number}? This cannot be undone.`)) return
     setSubmitting(true)
+    // Capture before the row (and its FK-linked notifications) are gone.
+    const caseNo = kcase?.case_number ?? ''
+    const companyId = kcase?.company_id
     try {
-      await supabase.from('kaizen_cases').delete().eq('id', id!)
+      // .select() returns the deleted rows. RLS silently deletes 0 rows when the
+      // caller isn't permitted (no error is raised), so we confirm a row was
+      // actually removed before claiming success or notifying anyone.
+      const { data: deleted, error } = await supabase.from('kaizen_cases').delete().eq('id', id!).select('id')
+      if (error) throw error
+      if (!deleted || deleted.length === 0) {
+        toast.error(lang === 'th' ? 'คุณไม่มีสิทธิ์ลบเคสนี้' : 'You do not have permission to delete this case.')
+        return
+      }
+
+      // Notify Top Management (super admins) that a case was deleted. The case
+      // no longer exists, so this is a standalone notification (case_id null)
+      // that carries the case number in its text/params rather than an FK.
+      if (companyId) {
+        const { data: admins } = await supabase
+          .from('kaizen_profiles')
+          .select('id')
+          .eq('company_id', companyId)
+          .eq('role', 'super_admin')
+          .eq('is_active', true)
+          .is('deleted_at', null)
+        const recipients = (admins || []).filter((a: { id: string }) => a.id !== profile?.id)
+        if (recipients.length > 0) {
+          const { error: notifErr } = await supabase.from('kaizen_notifications').insert(
+            recipients.map((a: { id: string }) => ({
+              user_id: a.id,
+              case_id: null,
+              title: 'Case Deleted',
+              message: `${profile?.full_name ?? 'A manager'} deleted case ${caseNo}.`,
+              notification_type: 'case_update',
+              title_key: 'case_deleted',
+              body_params: { caseNo, actor: profile?.full_name ?? '' },
+            })),
+          )
+          if (notifErr) console.error('[handleDelete:notify]', notifErr.message)
+        }
+      }
+
       toast.success(lang === 'th' ? 'ลบเคสแล้ว' : 'Case deleted.')
       navigate('/cases')
     } catch {
@@ -1068,7 +1108,22 @@ export function CaseDetailPage() {
     kcase.status === 'pending_manager_approval'
   const canAdminApprove   = profile?.role === 'super_admin' && kcase.status === 'pending_admin_approval'
   const canReopen         = profile?.role === 'super_admin' && kcase.status === 'closed'
-  const canDelete         = profile?.role === 'super_admin'
+  // Case deletion (enforced by the kzn_cases_delete RLS policy):
+  //  • Super Admin (Top Management) — any case in the company.
+  //  • HR manager — company-wide (retains cross-department oversight).
+  //  • Other managers — only cases they created, cases in their own department,
+  //    cases assigned to their department, or cases raised by someone in their
+  //    department.
+  const myDept = profile?.department
+  const canDelete =
+    profile?.role === 'super_admin' ||
+    (profile?.role === 'manager' && (
+      myDept === 'human_resource' ||
+      kcase.created_by === profile?.id ||
+      kcase.department === myDept ||
+      (!!myDept && (kcase.assigned_departments?.includes(myDept as Department) ?? false)) ||
+      (!!myDept && kcase.creator?.department === myDept)
+    ))
   const canEditCase       = (
     profile?.role === 'super_admin' ||
     isActingDeptManager ||

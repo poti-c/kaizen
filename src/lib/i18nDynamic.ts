@@ -108,6 +108,10 @@ export const NOTIF_TEMPLATES: Record<string, NotifTemplate> = {
         : `${p.count} open case${Number(p.count) > 1 ? 's' : ''} have a ${kind} that was removed: ${p.items}. Please update the affected cases.`
     },
   },
+  case_deleted: {
+    title: (_p, l) => th(l) ? 'ลบเคสแล้ว' : 'Case Deleted',
+    body: (p, l) => th(l) ? `${p.actor} ลบเคส ${p.caseNo}` : `${p.actor} deleted case ${p.caseNo}.`,
+  },
   case_auto_pic: {
     title: (_p, l) => th(l) ? 'ได้รับมอบหมายผู้รับผิดชอบโดยอัตโนมัติ' : 'Auto-assigned as In Charge',
     body: (p, l) => th(l) ? `สมาชิกที่ถูกลบทำให้เคส ${p.caseNo} ไม่มีผู้รับผิดชอบ คุณจึงได้รับมอบหมาย สามารถมอบหมายใหม่ได้ทุกเมื่อ` : `A removed team member left case ${p.caseNo} without an owner — you have been assigned as In Charge. You can reassign it anytime.`,
