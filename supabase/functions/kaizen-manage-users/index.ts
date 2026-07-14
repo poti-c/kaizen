@@ -211,12 +211,17 @@ serve(async (req) => {
       // it so the username can be reused for a new hire. We keep the old row's
       // full_name (so historical cases still show who it was) but rename its
       // username + auth email to a tombstone, freeing the slot.
+      // MU-CLASH-01: usernames are stored RAW-trimmed (not normalized), so we must
+      // NOT pre-filter the query by normUser(username) — that would exclude any
+      // soft-deleted row whose username has uppercase/spaces (e.g. "John Smith"),
+      // leaving its login-email slot occupied and producing a misleading
+      // "already taken by an active account" error. Fetch all soft-deleted staff
+      // for the company and compare in JS on the normalized form instead.
       const { data: removedStaff } = await supabaseAdmin
         .from("kaizen_profiles")
         .select("id, username, company_id")
         .eq("company_id", targetCompany)
         .eq("role", "staff")
-        .eq("username", normUser(username))
         .not("deleted_at", "is", null);
       const clash = (removedStaff ?? []).find(
         (r: any) => normUser(r.username ?? "") === normUser(username)

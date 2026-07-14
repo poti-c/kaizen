@@ -474,13 +474,10 @@ function PlaceOrderModal({ template: tp, companyId, profile, today, tomorrow, ro
     setBusy(true)
     const nowIso = new Date().toISOString()
     const due_at = new Date(`${order_date}T${time || '12:00'}+07:00`).toISOString()
-    // A previously-cancelled order still occupies the UNIQUE(template_id, order_date)
-    // slot. The menu treats cancelled as "not ordered" and invites a re-order, so clear
-    // the stale cancelled row first — otherwise the insert below collides and shows the
-    // misleading "already ordered for that day" toast.
-    await supabase.from('kaizen_rr_orders').delete()
-      .eq('company_id', companyId).eq('template_id', tp.id)
-      .eq('order_date', order_date).eq('status', 'cancelled')
+    // RR-CANCEL-DELETE: the partial unique index is defined WHERE status <> 'cancelled',
+    // so a previously-cancelled order never participates in it and cannot collide with
+    // this insert. We therefore do NOT delete the cancelled row — doing so would silently
+    // destroy its kaizen_rr_events audit trail on every re-order.
     const { data: inserted, error } = await supabase.from('kaizen_rr_orders').insert({
       company_id: companyId, template_id: tp.id, order_date,
       title: tp.name, request_department: tp.request_department, fulfill_department: tp.fulfill_department,
@@ -500,7 +497,14 @@ function PlaceOrderModal({ template: tp, companyId, profile, today, tomorrow, ro
           order_id: inserted.id, company_id: companyId, room_no: room,
           item_label, variant: hasVariants ? (grid[room] || null) : null,
         })))
-      if (ins.error) { setBusy(false); toast.error(ins.error.message); return }
+      if (ins.error) {
+        // RR-PLACE-ORPHAN: the order row was already inserted as 'sent'. If the
+        // per-room items fail, roll it back — otherwise it lingers as a 'sent'
+        // order with zero items that can never be delivered, and it occupies the
+        // unique (template_id, order_date) slot, blocking any re-order.
+        await supabase.from('kaizen_rr_orders').delete().eq('id', inserted.id)
+        setBusy(false); toast.error(ins.error.message); return
+      }
     }
     const roomsWord = lang === 'th' ? 'ห้อง' : 'rooms'
     const qtyLabel = isBulk ? unitOf(quantity)

@@ -164,8 +164,10 @@ export function DashboardPage() {
   const monthlyData = useMemo(() => {
     const bkk = bangkokDate()
     const [bY, bMM] = bkk.split('-').map(Number)
+    // Trailing 9 months ending at the current month (i === 8), so the chart shows
+    // real history rather than 4 always-empty future months.
     const months = Array.from({ length: 9 }, (_, i) => {
-      let mY = bY; let mM = bMM - 4 + i
+      let mY = bY; let mM = bMM - 8 + i
       while (mM < 1) { mM += 12; mY-- }
       while (mM > 12) { mM -= 12; mY++ }
       const bkkMonth = mM - 1  // 0-indexed
@@ -200,15 +202,27 @@ export function DashboardPage() {
   const categoryData = useMemo(() => {
     const catMap: Record<string, number> = {}
     effectiveCats.forEach(c => { catMap[c.slug] = 0 })
+    // Cases whose stored slug is not in the company's current category list
+    // (e.g. built-in slugs left over after a company defined custom categories)
+    // go into an explicit "Other" bucket so they are not silently dropped and
+    // the donut total reconciles with the actual case count.
+    let other = 0
     catFilteredCases.forEach(c => {
       const slug = (c.category || '').toLowerCase().replace(/ /g, '_')
       if (slug in catMap) catMap[slug]++
+      else other++
     })
+    catMap.__other__ = other
     return catMap
   }, [catFilteredCases, effectiveCats])
 
   useEffect(() => {
-    if (!profile || !activeCompany) return
+    if (!profile || !activeCompany) {
+      // Without a profile/active company fetchAll never runs; resolve the
+      // loading state so the page shows an empty state instead of spinning forever.
+      setLoading(false)
+      return
+    }
     fetchAll()
   }, [profile, activeCompany])
 
@@ -279,6 +293,16 @@ export function DashboardPage() {
     color:    CATEGORY_PIE_COLORS[c.slug] || CAT_FALLBACK[i % CAT_FALLBACK.length],
     category: c.slug,
   }))
+  // Surface cases whose category no longer exists in the taxonomy as "Other"
+  // rather than dropping them from the chart (see categoryData.__other__).
+  if ((categoryData.__other__ ?? 0) > 0) {
+    catPieData.push({
+      name:     t.categories?.other ?? 'Other',
+      value:    categoryData.__other__,
+      color:    CAT_FALLBACK[effectiveCats.length % CAT_FALLBACK.length],
+      category: 'other',
+    })
+  }
   const catTotal = catPieData.reduce((s, d) => s + d.value, 0)
   const catPieSlices = catPieData.filter(d => d.value > 0)
   const emptyPie = stats.total === 0
@@ -567,7 +591,7 @@ export function DashboardPage() {
                 <Tooltip cursor={{ fill: 'rgba(0,0,0,0.04)' }} formatter={(v: number) => [v, t.dashboard.casesShort]} />
                 <Bar dataKey="count" radius={[4, 4, 0, 0]} maxBarSize={48}>
                   {monthlyData.map((entry, i) => (
-                    <Cell key={i} fill="var(--brand-primary)" fillOpacity={i === 4 ? 1 : 0.45} />
+                    <Cell key={i} fill="var(--brand-primary)" fillOpacity={i === monthlyData.length - 1 ? 1 : 0.45} />
                   ))}
                 </Bar>
               </BarChart>

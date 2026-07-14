@@ -91,6 +91,15 @@ export function UsersPage() {
       setDeptFilter('all')
     }
   }, [users, deptFilter])
+  // Mirror the reset for the per-staff-group sub-filter: a stale staffDeptFilter
+  // (after changing deptFilter or switching company) can filter the staff group
+  // to zero rows, which hides the whole staff card — including this dropdown —
+  // leaving no way to clear it.
+  useEffect(() => {
+    if (staffDeptFilter !== 'all' && !users.some(u => u.role === 'staff' && u.department === staffDeptFilter)) {
+      setStaffDeptFilter('all')
+    }
+  }, [users, staffDeptFilter])
 
   // Staff have no access (returned after hooks so hook order stays stable)
   if (isStaffViewer) return <Navigate to="/dashboard" replace />
@@ -326,11 +335,14 @@ export function UsersPage() {
     finally { setActioning(null) }
   }
 
-  const activeDepts = allDepts.filter(d => users.some(u => u.department === d.value))
   const MD_EMAIL = 'poti@nanirand.com'
-  const visibleUsers = (deptFilter === 'all' ? users : users.filter(u => u.department === deptFilter))
-    .filter(u => u.email !== MD_EMAIL || profile?.email === MD_EMAIL)
-  const staffDepts = allDepts.filter(d => users.some(u => u.role === 'staff' && u.department === d.value))
+  // Everyone the current viewer is actually allowed to see (the MD account is
+  // hidden from non-MD viewers). Base all counts on this so the dropdown numbers
+  // match the rendered rows instead of over-counting by including the hidden MD.
+  const countableUsers = users.filter(u => u.email !== MD_EMAIL || profile?.email === MD_EMAIL)
+  const activeDepts = allDepts.filter(d => countableUsers.some(u => u.department === d.value))
+  const visibleUsers = deptFilter === 'all' ? countableUsers : countableUsers.filter(u => u.department === deptFilter)
+  const staffDepts = allDepts.filter(d => countableUsers.some(u => u.role === 'staff' && u.department === d.value))
 
   const roleGroups = {
     super_admin: visibleUsers.filter(u => u.role === 'super_admin'),
@@ -410,8 +422,8 @@ export function UsersPage() {
           <Select value={deptFilter} onValueChange={setDeptFilter}>
             <SelectTrigger className="h-9 w-full text-sm"><SelectValue /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">{t.calendar.allDepts} ({users.length})</SelectItem>
-              {activeDepts.map(d => <SelectItem key={d.value} value={d.value}>{d.label} ({users.filter(u => u.department === d.value).length})</SelectItem>)}
+              <SelectItem value="all">{t.calendar.allDepts} ({countableUsers.length})</SelectItem>
+              {activeDepts.map(d => <SelectItem key={d.value} value={d.value}>{d.label} ({countableUsers.filter(u => u.department === d.value).length})</SelectItem>)}
             </SelectContent>
           </Select>
         </div>
@@ -441,8 +453,8 @@ export function UsersPage() {
                       <Select value={staffDeptFilter} onValueChange={setStaffDeptFilter}>
                         <SelectTrigger className="h-7 text-xs border-gray-200 bg-white px-2 w-auto min-w-[110px]"><SelectValue /></SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="all">{lang === 'th' ? 'ทุกแผนก' : 'All Depts'} ({users.filter(u => u.role === 'staff').length})</SelectItem>
-                          {staffDepts.map(d => <SelectItem key={d.value} value={d.value}>{d.label} ({users.filter(u => u.role === 'staff' && u.department === d.value).length})</SelectItem>)}
+                          <SelectItem value="all">{lang === 'th' ? 'ทุกแผนก' : 'All Depts'} ({countableUsers.filter(u => u.role === 'staff').length})</SelectItem>
+                          {staffDepts.map(d => <SelectItem key={d.value} value={d.value}>{d.label} ({countableUsers.filter(u => u.role === 'staff' && u.department === d.value).length})</SelectItem>)}
                         </SelectContent>
                       </Select>
                     </div>

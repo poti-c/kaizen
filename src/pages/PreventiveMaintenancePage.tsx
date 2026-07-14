@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase'
 import { useCompany } from '@/contexts/CompanyContext'
 import { useAuth } from '@/contexts/AuthContext'
 import { useLanguage } from '@/contexts/LanguageContext'
-import { DEPARTMENT_LABELS, type Department } from '@/types'
+import { DEPARTMENT_LABELS, getEffectiveDepts, type Department } from '@/types'
 import { useDepartments } from '@/hooks/useDepartments'
 import { FREQUENCIES, freqLabel, addInterval, assetStatus, STATUS_META, type FreqUnit, type AssetStatus } from '@/lib/pm'
 import { LOCATIONS, bangkokDate } from '@/lib/utils'
@@ -142,7 +142,14 @@ export function PreventiveMaintenancePage() {
   const monthPrefix = todayKey.slice(0, 7)
   const taskMatch = (tk: PMTask) => !q || `${tk.asset?.name ?? ''} ${tk.asset?.location ?? ''} ${tk.asset?.type?.name ?? ''}`.toLowerCase().includes(q.toLowerCase())
   const dueThisWeekTasks = pmTasks.filter(tk => (tk.status === 'scheduled' || tk.status === 'in_progress') && tk.due_date >= todayKey && tk.due_date <= weekKey && taskMatch(tk))
-  const awaitingTasks = pmTasks.filter(tk => tk.status === 'pending_approval' && taskMatch(tk))
+  // PM-AWAIT-MGR-DISCREPANCY: a manager may only approve tasks in the departments
+  // they cover, so the "Awaiting approval" backlog must be department-scoped here
+  // exactly as it is in PMSummaryCard — otherwise the page over-counts (and exposes
+  // approvals the manager has no authority over) versus the dashboard card.
+  const mgrDeptSet = profile?.role === 'manager' ? new Set<string>(getEffectiveDepts(profile) as string[]) : null
+  const awaitingTasks = pmTasks.filter(tk =>
+    tk.status === 'pending_approval' && taskMatch(tk) &&
+    (!mgrDeptSet || (tk.asset?.department != null && mgrDeptSet.has(tk.asset.department))))
   const doneThisMonthTasks = pmDoneTasks.filter(tk => tk.performed_at && bangkokDate(new Date(tk.performed_at)).slice(0, 7) === monthPrefix && taskMatch(tk))
 
   // Distinct option lists for the filter dropdowns.

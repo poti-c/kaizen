@@ -175,6 +175,9 @@ export function CaseDetailPage() {
     if (fixErr) { toast.error(lang === 'th' ? 'อัปเดตข้อมูลเคสไม่สำเร็จ' : 'Failed to update case information.'); setSavingFix(false); return }
     await addTimeline('info_corrected', `Registration info updated: ${changes.join(', ')}`)
     toast.success(lang === 'th' ? 'อัปเดตข้อมูลเคสแล้ว' : 'Case information updated.')
+    setFixDept('')
+    setFixLocation('')
+    setFixCategory('')
     setSavingFix(false)
     fetchCase()
   }
@@ -331,6 +334,14 @@ export function CaseDetailPage() {
     setNewComment('')
     setRecurringOpen(false)
     setSelectedPriority('')
+    // Reset per-case inline editors so a value chosen on case A can never be
+    // saved onto case B (this route component is not remounted on :id change).
+    setFixDept('')
+    setFixLocation('')
+    setFixCategory('')
+    setNewDueDate('')
+    setShowDueDateEditor(false)
+    setNotifyDepts([])
     fetchCase()
   }, [id])
 
@@ -507,9 +518,11 @@ export function CaseDetailPage() {
 
   function insertMention(user: KaizenProfile) {
     const lastAt = newComment.lastIndexOf('@')
+    // Replace the whole query (from '@' to end, including any spaces typed to
+    // narrow a multi-token name) — not just the first non-space token, which
+    // would leave the tail duplicated after the inserted name (e.g. "@John Smith  Sm").
     const before = newComment.slice(0, lastAt)
-    const after = newComment.slice(lastAt).replace(/@\S*/, `@${user.full_name} `)
-    setNewComment(before + after)
+    setNewComment(before + `@${user.full_name} `)
     setShowMentions(false)
     commentRef.current?.focus()
   }
@@ -517,8 +530,7 @@ export function CaseDetailPage() {
   function insertAllMention() {
     const lastAt = newComment.lastIndexOf('@')
     const before = newComment.slice(0, lastAt)
-    const after = newComment.slice(lastAt).replace(/@\S*/, '@all ')
-    setNewComment(before + after)
+    setNewComment(before + '@all ')
     setShowMentions(false)
     commentRef.current?.focus()
   }
@@ -948,6 +960,20 @@ export function CaseDetailPage() {
       if (editErr) throw editErr
 
       await addTimeline('case_edited', `Case edited by ${profile?.full_name}${changes.length ? ': ' + changes.join('; ') : ''}`)
+
+      // CDP-A4: closing a case via the edit modal must behave like the normal
+      // closure path — log a 'closed' action and notify stakeholders, otherwise
+      // the case closes silently with an inconsistent timeline.
+      if (movingToClosed) {
+        await addTimeline('closed', `Case closed via edit by ${profile?.full_name}.`)
+        const picIds = kcase?.pic_ids || (kcase?.person_in_charge ? [kcase.person_in_charge] : [])
+        await notifyByDeptRole(
+          { extraIds: [kcase?.created_by, kcase?.resolved_by, ...picIds] },
+          'Case Closed',
+          `Case ${kcase?.case_number} has been reviewed and officially closed by Top Management.`,
+          { key: 'case_closed', params: { caseNo: kcase?.case_number ?? '' } },
+        )
+      }
 
       toast.success(lang === 'th' ? 'อัปเดตเคสสำเร็จแล้ว' : 'Case updated successfully.')
       setShowEditCase(false)
@@ -1775,7 +1801,8 @@ export function CaseDetailPage() {
             const openFor = formatDuration(kcase.created_at, kcase.closed_at || undefined)
             const dueDateObj = kcase.due_date ? new Date(kcase.due_date) : null
             let daysLeftLabel: React.ReactNode = null
-            if (dueDateObj) {
+            // Closed cases are never "overdue"/"due" — mirror the header rendering.
+            if (dueDateObj && kcase.status !== 'closed') {
               const todayStr = bangkokDate()
               const dueStr = bangkokDate(dueDateObj)
               const diffDays = Math.round((new Date(dueStr).getTime() - new Date(todayStr).getTime()) / 86400000)

@@ -41,7 +41,7 @@ export function NotificationsPage() {
     if (!profile) return
     const channel = supabase
       .channel(`notifications_page_${profile.id}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'kaizen_notifications', filter: `user_id=eq.${profile.id}` }, async () => {
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'kaizen_notifications', filter: `user_id=eq.${profile.id}` }, async (payload) => {
         // Merge-refresh: fetch the newest page and upsert into existing list so
         // Load-More pages are not discarded when a realtime event fires.
         const { data } = await supabase
@@ -55,7 +55,19 @@ export function NotificationsPage() {
           setNotifications(prev => {
             const fresh = data as KaizenNotification[]
             const freshIds = new Set(fresh.map(n => n.id))
-            return [...fresh, ...prev.filter(n => !freshIds.has(n.id))]
+            let merged = [...fresh, ...prev.filter(n => !freshIds.has(n.id))]
+            // NP-RT-STALE: the newest page only covers PAGE_SIZE rows, so an
+            // event on a row that lives on a Load-More page must be reconciled
+            // from the payload — otherwise a read/deleted older row keeps its
+            // stale unread styling (or stays visible) while the count changes.
+            const changedId = (payload.new as { id?: string } | null)?.id
+              ?? (payload.old as { id?: string } | null)?.id
+            if (payload.eventType === 'DELETE' && changedId) {
+              merged = merged.filter(n => n.id !== changedId)
+            } else if (payload.eventType === 'UPDATE' && changedId && !freshIds.has(changedId)) {
+              merged = merged.map(n => n.id === changedId ? { ...n, ...(payload.new as Partial<KaizenNotification>) } : n)
+            }
+            return merged
           })
         }
         refreshUnread()

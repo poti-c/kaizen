@@ -203,9 +203,16 @@ export function SettingsPage() {
   // SP-001: check and throw on Supabase write errors so callers can surface failures
   async function saveList(key: string, list: string[]) {
     if (!companyId) return
+    // SP-PM-PERSIST-02: "Preventive Maintenance" is a VIRTUAL category re-injected
+    // into catList on every load for PMS companies — it must never be persisted,
+    // otherwise it becomes a normal (removable) DB category once PMS is disabled.
+    let toSave = list
+    if (key === 'custom_categories' && companyHasAddon(activeCompany, 'pms')) {
+      toSave = list.filter(x => x.toLowerCase() !== 'preventive maintenance')
+    }
     const { error } = await supabase
       .from('kaizen_settings')
-      .upsert({ key, value: list, company_id: companyId, updated_by: profile?.id ?? null }, { onConflict: 'key,company_id' })
+      .upsert({ key, value: toSave, company_id: companyId, updated_by: profile?.id ?? null }, { onConflict: 'key,company_id' })
     if (error) throw error
   }
 
@@ -281,9 +288,35 @@ export function SettingsPage() {
       toast.error(lang === 'th' ? 'มีรายการนี้อยู่แล้ว' : 'Item already exists.')
       return
     }
+    const oldLabel = list[editingItem.index]
     const updated = list.map((item, i) => i === editingItem.index ? trimmed : item)
     try {
       await saveList(key, updated)
+      // SP-EDIT-ORPHAN-01: cases store the taxonomy value by content (category
+      // slug / raw location / dept label→value), so a rename would orphan every
+      // existing case still referencing the old value. Migrate them in the same
+      // operation so no case is left pointing at a value that no longer exists.
+      if (companyId && oldLabel && oldLabel !== trimmed) {
+        if (key === 'custom_categories') {
+          const oldSlug = oldLabel.toLowerCase().replace(/ /g, '_')
+          const newSlug = trimmed.toLowerCase().replace(/ /g, '_')
+          if (oldSlug !== newSlug) {
+            await supabase.from('kaizen_cases').update({ category: newSlug })
+              .eq('company_id', companyId).eq('category', oldSlug)
+          }
+        } else if (key === 'custom_locations') {
+          await supabase.from('kaizen_cases').update({ location: trimmed })
+            .eq('company_id', companyId).eq('location', oldLabel)
+        } else if (key === 'custom_departments') {
+          // Built-in depts store a slug; custom depts store the label as the value.
+          const oldVal = DEPARTMENTS.find(d => d.label === oldLabel)?.value ?? oldLabel
+          const newVal = DEPARTMENTS.find(d => d.label === trimmed)?.value ?? trimmed
+          if (oldVal !== newVal) {
+            await supabase.from('kaizen_cases').update({ department: newVal })
+              .eq('company_id', companyId).eq('department', oldVal)
+          }
+        }
+      }
       setList(updated)
       setEditingItem(null)
       toast.success(lang === 'th' ? 'อัปเดตแล้ว' : 'Updated.')

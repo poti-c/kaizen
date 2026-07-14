@@ -646,8 +646,16 @@ export function CasesPage() {
   const showActive = advancedSearchEnabled || statusFilter !== 'closed'
   const showClosed = advancedSearchEnabled || statusFilter === 'all' || statusFilter === 'closed'
 
-  // Tab state
-  const [activeTab, setActiveTab] = useState<'active' | 'pms' | 'pending' | 'closed'>('active')
+  // Tab state — select the matching tab for deep-links (e.g. Dashboard's
+  // "Waiting Approval" card => ?group=pending), otherwise the pending/closed
+  // cases land on the default Active tab and render an empty "no cases" state.
+  const [activeTab, setActiveTab] = useState<'active' | 'pms' | 'pending' | 'closed'>(() => {
+    const group = searchParams.get('group')
+    const status = searchParams.get('status')
+    if (group === 'pending') return 'pending'
+    if (group === 'resolved' || status === 'closed') return 'closed'
+    return 'active'
+  })
   const pendingTotal = pendingMgrCases.length + pendingAdminCases.length
 
   // ── PMS tab: preventive-maintenance tasks (active + overdue) ───────────────
