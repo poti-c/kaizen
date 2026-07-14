@@ -156,8 +156,16 @@ Deno.serve(async (req) => {
   // downstream step (product lookup, company update, invoice) fails after the insert.
   let sub: { id: string } | null = null;
   if (reuseId) {
-    const { error: resetErr } = await admin.from("kaizen_payment_submissions").update({ status: "pending" }).eq("id", reuseId);
+    // KP-DBLEXT-01: claim the activation_failed row atomically (compare-and-set on status)
+    // so two concurrent retries of the same slip cannot both proceed to activation and
+    // stack a second paid term. Whoever flips activation_failed->pending wins; a retry that
+    // claims 0 rows short-circuits to the duplicate response instead of re-activating.
+    const { data: claimed, error: resetErr } = await admin.from("kaizen_payment_submissions")
+      .update({ status: "pending" }).eq("id", reuseId).eq("status", "activation_failed").select("id");
     if (resetErr) return json({ error: "Could not retry activation — please contact support." }, 500);
+    if (!claimed || claimed.length === 0) {
+      return json({ success: true, id: reuseId, status: "pending", verified: false, duplicate: true });
+    }
     sub = { id: reuseId };
   } else {
     const { data: inserted, error } = await admin.from("kaizen_payment_submissions").insert({
@@ -233,13 +241,19 @@ Deno.serve(async (req) => {
           const fromPlan = act.from_plan ?? null;
           const end = act.new_end as string;
           if (fromPlan !== target) {
-            await admin.from("kaizen_plan_changes").insert({ company_id, from_plan: fromPlan, to_plan: target, source: "payment" });
+            const { error: pcErr } = await admin.from("kaizen_plan_changes").insert({ company_id, from_plan: fromPlan, to_plan: target, source: "payment" });
+            if (pcErr) console.error("[kaizen-pay] plan_changes insert failed", sub.id, company_id, pcErr.message);
           }
-          await admin.from("kaizen_invoices").insert({
+          // KP-INVCHK-02: the subscription is ALREADY activated (row-locked RPC); re-running
+          // it on a retry would double-extend (KP-DBLEXT-01), so we must NOT mark this
+          // activation_failed on an invoice error. Instead log loudly with the identifiers
+          // needed to reconcile the missing invoice manually.
+          const { error: invErr } = await admin.from("kaizen_invoices").insert({
             company_id, payee: target_label ?? target, amount: storedAmount, currency,
             payment_date: bangkokDate(), period_start: periodStart, period_end: end,
             notes: "Auto-verified PromptPay payment (SlipOK)",
           });
+          if (invErr) console.error("[kaizen-pay] ACCOUNTING GAP: subscription invoice insert failed after activation", sub.id, company_id, target, storedAmount, invErr.message);
         }
       }
     } else {
@@ -251,11 +265,14 @@ Deno.serve(async (req) => {
       } else {
         const addonDays = priceRow?.duration_days ? Number(priceRow.duration_days) : null;
         const addonEnd = addonDays ? bangkokDate(new Date(Date.now() + addonDays * 86400000)) : '2099-12-31';
-        await admin.from("kaizen_invoices").insert({
+        const { error: invErr } = await admin.from("kaizen_invoices").insert({
           company_id, payee: target_label ?? target, amount: storedAmount, currency,
           payment_date: bangkokDate(), period_start: bangkokDate(), period_end: addonEnd,
           notes: "Auto-verified PromptPay payment (SlipOK) — addon",
         });
+        // KP-INVCHK-02: kaizen_merge_company_addon is an idempotent JSONB merge, so a retry
+        // is safe — surface the missing invoice so it doesn't become a silent accounting gap.
+        if (invErr) console.error("[kaizen-pay] ACCOUNTING GAP: addon invoice insert failed after activation", sub.id, company_id, target, storedAmount, invErr.message);
       }
     }
 

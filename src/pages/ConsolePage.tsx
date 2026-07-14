@@ -115,7 +115,7 @@ function fmtDate(d: string | null) {
 }
 function money(amount: number | null, currency: string) {
   if (amount == null) return '—'
-  return `${currency} ${amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}`
+  return `${currency} ${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
 // Compress an image file to a JPEG data-URL for upload

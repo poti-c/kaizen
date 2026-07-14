@@ -10,6 +10,9 @@ export type FormType = 'quotation' | 'invoice' | 'tax_invoice_receipt' | 'receip
 export type DocLang = 'en' | 'th'
 
 interface LineItem { description: string; qty: number; unit_price: number }
+// Editor-only variant: qty/unit_price held as raw strings so decimals can be typed
+// (see FG-1). Converted to LineItem (numbers) when building the document payload.
+interface EditItem { description: string; qty: string; unit_price: string }
 // Structured (bilingual) buyer address snapshotted on the form so the document
 // can be printed in either language regardless of later edits.
 interface ClientBilling extends ThaiAddress { office_type?: string; branch_code?: string }
@@ -424,7 +427,10 @@ function FormEditor({ formType, companies, products, promos, existingForms, rese
   const [dueDate, setDueDate] = useState('')
   const [currency, setCurrency] = useState('THB')
   const [vatRate, setVatRate] = useState('7')
-  const [items, setItems] = useState<LineItem[]>([{ description: '', qty: 1, unit_price: 0 }])
+  // FG-1: line-item price/qty are kept as raw strings while editing so a typed decimal
+  // point survives re-render (round-tripping through Number() strips '.', corrupting the
+  // amount — e.g. "100.5" became 1005). They are coerced to numbers only at compute/save.
+  const [items, setItems] = useState<EditItem[]>([{ description: '', qty: '1', unit_price: '' }])
   const [promoId, setPromoId] = useState('')
   const [discountMode, setDiscountMode] = useState<'promo' | 'percent' | 'value'>('promo')
   const [discountPctInput, setDiscountPctInput] = useState('')
@@ -446,7 +452,7 @@ function FormEditor({ formType, companies, products, promos, existingForms, rese
       // Drop blank rows (the starter row defaults qty:1, so ignore qty here)
       // so the product fills in cleanly instead of leaving an empty line behind.
       const base = its.filter(it => it.description.trim() || it.unit_price)
-      return [...base, { description: p.name, qty: 1, unit_price: p.price }]
+      return [...base, { description: p.name, qty: '1', unit_price: String(p.price) }]
     })
   }
 
@@ -467,7 +473,7 @@ function FormEditor({ formType, companies, products, promos, existingForms, rese
       setClient({ name: '', address: '', tax_id: '', contact: '', phone: '', email: '' })
     }
   }
-  function setItem(i: number, patch: Partial<LineItem>) {
+  function setItem(i: number, patch: Partial<EditItem>) {
     setItems(items.map((it, idx) => idx === i ? { ...it, ...patch } : it))
   }
 
@@ -480,7 +486,7 @@ function FormEditor({ formType, companies, products, promos, existingForms, rese
     if (initialCompanyId && !companies.length) return
     prefilled.current = true
     if (initialCompanyId) pickCompany(initialCompanyId)
-    if (initialItems && initialItems.length) setItems(initialItems)
+    if (initialItems && initialItems.length) setItems(initialItems.map(it => ({ description: it.description, qty: String(it.qty), unit_price: String(it.unit_price) })))
     // The line amount already equals what the client paid, so no VAT or
     // discount is applied on top — the receipt total must match the payment.
     setVatRate('0')
@@ -503,7 +509,7 @@ function FormEditor({ formType, companies, products, promos, existingForms, rese
   // client selected for convenience).
   useEffect(() => {
     if (resetSignal) {
-      setItems([{ description: '', qty: 1, unit_price: 0 }])
+      setItems([{ description: '', qty: '1', unit_price: '' }])
       setNotes('')
       setIssueDate(bangkokDate())
       setDueDate('')
@@ -524,7 +530,9 @@ function FormEditor({ formType, companies, products, promos, existingForms, rese
     // Require a description or a price (not qty alone) — otherwise the default starter
     // row (qty:1) or a stray qty prints a blank-description 0.00 line. Matches the
     // item-count badge predicate so the editor count and the document agree.
-    const valid = items.filter(it => it.description.trim() || it.unit_price)
+    // Coerce the editor's raw string qty/unit_price to numbers for the document.
+    const valid: LineItem[] = items.filter(it => it.description.trim() || it.unit_price)
+      .map(it => ({ description: it.description, qty: Number(it.qty) || 0, unit_price: Number(it.unit_price) || 0 }))
     if (valid.length === 0) { setError('Add at least one line item.'); return }
     if (!client.name.trim()) { setError('Select a company or enter a client name.'); return }
     const vatNum = Number(vatRate) || 0
@@ -598,7 +606,7 @@ function FormEditor({ formType, companies, products, promos, existingForms, rese
           <Field label="Due / Valid Until"><input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} className={inputCls} /></Field>
         )}
         <Field label="Currency"><input value={currency} onChange={e => setCurrency(e.target.value.toUpperCase().slice(0, 4))} className={inputCls} /></Field>
-        <Field label="VAT %"><input value={vatRate} onChange={e => { const v = e.target.value.replace(/[^0-9.]/g, '').replace(/^(\d*\.?\d*).*$/, '$1'); const n = parseFloat(v); setVatRate(isNaN(n) ? v : String(Math.min(100, n))) }} className={inputCls} inputMode="decimal" /></Field>
+        <Field label="VAT %"><input value={vatRate} onChange={e => { const v = e.target.value.replace(/[^0-9.]/g, '').replace(/^(\d*\.?\d*).*$/, '$1'); const n = parseFloat(v); setVatRate(!isNaN(n) && n > 100 ? '100' : v) }} className={inputCls} inputMode="decimal" /></Field>
       </div>
 
       {/* Line items */}
@@ -617,7 +625,7 @@ function FormEditor({ formType, companies, products, promos, existingForms, rese
                 {products.map(p => <option key={p.id} value={p.id} className="text-slate-200">{p.name} — {p.currency} {money(p.price)}</option>)}
               </select>
             )}
-            <button onClick={() => setItems([...items, { description: '', qty: 1, unit_price: 0 }])} className="flex items-center gap-1 text-[11px] text-amber-400 hover:text-amber-300"><Plus className="h-3.5 w-3.5" />Add item</button>
+            <button onClick={() => setItems([...items, { description: '', qty: '1', unit_price: '' }])} className="flex items-center gap-1 text-[11px] text-amber-400 hover:text-amber-300"><Plus className="h-3.5 w-3.5" />Add item</button>
           </div>
         </div>
         <div className="space-y-2">
@@ -635,8 +643,8 @@ function FormEditor({ formType, companies, products, promos, existingForms, rese
             <div key={i} className="grid grid-cols-[2rem_1fr_7rem_4rem_7rem_2.25rem] gap-2 items-center">
               <div className="text-center text-sm text-slate-500">{i + 1}</div>
               <input value={it.description} onChange={e => setItem(i, { description: e.target.value })} className={inputCls} placeholder="Description" />
-              <input value={it.unit_price || ''} onChange={e => setItem(i, { unit_price: Number(e.target.value.replace(/[^0-9.]/g, '')) || 0 })} className={inputCls + ' text-right'} placeholder="Price" inputMode="decimal" />
-              <input value={it.qty || ''} onChange={e => setItem(i, { qty: Number(e.target.value.replace(/[^0-9.]/g, '')) || 0 })} className={inputCls + ' text-right'} placeholder="Qty" inputMode="decimal" />
+              <input value={it.unit_price} onChange={e => setItem(i, { unit_price: e.target.value.replace(/[^0-9.]/g, '').replace(/^(\d*\.?\d*).*$/, '$1') })} className={inputCls + ' text-right'} placeholder="Price" inputMode="decimal" />
+              <input value={it.qty} onChange={e => setItem(i, { qty: e.target.value.replace(/[^0-9.]/g, '').replace(/^(\d*\.?\d*).*$/, '$1') })} className={inputCls + ' text-right'} placeholder="Qty" inputMode="decimal" />
               <div className="text-right text-sm text-slate-300 px-1 truncate">{money((Number(it.qty) || 0) * (Number(it.unit_price) || 0))}</div>
               <button onClick={() => setItems(items.length > 1 ? items.filter((_, idx) => idx !== i) : items)} className="h-9 w-9 flex items-center justify-center rounded-lg text-slate-400 hover:text-red-400 hover:bg-red-500/10"><X className="h-4 w-4" /></button>
             </div>

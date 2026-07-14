@@ -279,7 +279,9 @@ function EventDetail({ event, companies, onClose, onOpenForm, onEdit }: {
 }
 
 function AppointmentDetail({ appt, companies, onEdit }: { appt: ApptRow; companies: CalCompany[]; onEdit: () => void }) {
-  const meta = KIND_META[appt.kind]
+  // cal-1: fall back to 'other' for an unknown kind (e.g. a new DB enum value not yet in
+  // KIND_META), mirroring the events builder — a bare lookup would throw and white-screen.
+  const meta = KIND_META[appt.kind] ?? KIND_META['other']
   const Icon = meta.icon
   const start = new Date(appt.start_at)
   const end = appt.end_at ? new Date(appt.end_at) : null

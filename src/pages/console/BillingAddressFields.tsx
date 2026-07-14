@@ -75,11 +75,13 @@ export function BillingAddressFields({ officeType, branchCode, address, onChange
   const [geoError, setGeoError] = useState(false)
   useEffect(() => { if (!geo) loadGeo().then(setGeo).catch(() => setGeoError(true)) }, [geo])
 
-  // Resolve the current selection against the dataset, matching by English OR
-  // Thai name (so records saved before the bilingual upgrade still display).
-  const prov = useMemo(() => geo?.find((p) => p.en === a.province_en || p.th === a.province) ?? null, [geo, a.province_en, a.province])
-  const dist = useMemo(() => prov?.d.find((d) => d.en === a.district_en || d.th === a.district) ?? null, [prov, a.district_en, a.district])
-  const sub = useMemo(() => dist?.s.find((s) => s.en === a.subdistrict_en || s.th === a.subdistrict) ?? null, [dist, a.subdistrict_en, a.subdistrict])
+  // Resolve the current selection against the dataset. BA-1: match the THAI name first
+  // (it is the unique key — English romanizations collide, e.g. two "Mueang" districts,
+  // which is exactly why the option values below are Thai). Fall back to English only for
+  // legacy records saved before the bilingual upgrade that lack the Thai field.
+  const prov = useMemo(() => geo?.find((p) => (a.province && p.th === a.province) || (a.province_en && p.en === a.province_en)) ?? null, [geo, a.province_en, a.province])
+  const dist = useMemo(() => prov?.d.find((d) => (a.district && d.th === a.district) || (a.district_en && d.en === a.district_en)) ?? null, [prov, a.district_en, a.district])
+  const sub = useMemo(() => dist?.s.find((s) => (a.subdistrict && s.th === a.subdistrict) || (a.subdistrict_en && s.en === a.subdistrict_en)) ?? null, [dist, a.subdistrict_en, a.subdistrict])
 
   const provinceOpts = useMemo(() => (geo ? geo.map((p) => ({ v: p.en, label: p.en })) : []), [geo])
   // Use Thai names as option values (unique within province/district) to prevent

@@ -59,6 +59,11 @@ const TEMPLATES: Record<string, { title: (p: P, l: Lang) => string; body: (p: P,
     title: (_p, l) => th(l) ? "เปิดเคสอีกครั้ง" : "Case Reopened",
     body: (p, l) => th(l) ? `เคส ${p.caseNo} ถูกเปิดอีกครั้งโดย ${p.actor} และต้องดำเนินการเพิ่มเติม` : `Case ${p.caseNo} has been reopened by ${p.actor} and requires further action.`,
   },
+  // Kept in sync with i18nDynamic.ts NOTIF_TEMPLATES.case_deleted.
+  case_deleted: {
+    title: (_p, l) => th(l) ? "ลบเคสแล้ว" : "Case Deleted",
+    body: (p, l) => th(l) ? `${p.actor} ลบเคส ${p.caseNo}` : `${p.actor} deleted case ${p.caseNo}.`,
+  },
   case_mentioned: {
     title: (p, l) => th(l) ? `${p.actor} กล่าวถึงคุณใน ${p.caseNo}` : `${p.actor} mentioned you in ${p.caseNo}`,
     body: (p) => `${p.text}`,
@@ -119,15 +124,15 @@ Deno.serve(async (req) => {
   webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
 
   // The push trigger (kaizen_trigger_push_notification) calls this function from inside
-  // PostgreSQL via pg_net and cannot pass a runtime secret. The check below was designed
-  // for a PUSH_SECRET header flow that the trigger never implemented, meaning any non-null
-  // PUSH_SECRET silently breaks all DB-triggered push notifications with a 401.
-  // Security is provided by: (a) the function URL is not publicly advertised, (b) the
-  // payload only references user_id + notification_id already stored in the DB, so a
-  // rogue call cannot inject arbitrary notification content.
+  // PostgreSQL via pg_net (to_jsonb(NEW)) and cannot pass a runtime secret, so there is
+  // no auth gate. To prevent a rogue caller from injecting arbitrary push content, we do
+  // NOT trust the request body's title/message/params — we take only the notification id
+  // + user_id from it and RE-FETCH the real content from kaizen_notifications by id,
+  // scoped to the recipient. A fabricated call with no matching stored row sends nothing.
   const row = await req.json().catch(() => null);
   const userId = row?.user_id;
-  if (!userId) return json({ error: "missing user_id" }, 400);
+  const notifId = row?.id;
+  if (!userId || !notifId) return json({ error: "missing user_id or id" }, 400);
 
   const admin = createClient(
     Deno.env.get("SUPABASE_URL")!,
@@ -135,23 +140,27 @@ Deno.serve(async (req) => {
     { auth: { autoRefreshToken: false, persistSession: false } },
   );
 
-  // Recipient language (persisted from the app); count their unread for the badge.
-  const [{ data: prof }, { count: unread }, { data: subs, error: subsErr }] = await Promise.all([
+  // Recipient language (persisted from the app); count their unread for the badge;
+  // authoritative notification content re-fetched from the DB (never the request body).
+  const [{ data: prof }, { count: unread }, { data: subs, error: subsErr }, { data: notif }] = await Promise.all([
     admin.from("kaizen_profiles").select("preferred_lang").eq("id", userId).maybeSingle(),
     admin.from("kaizen_notifications").select("id", { count: "exact", head: true }).eq("user_id", userId).eq("is_read", false),
     admin.from("kaizen_push_subscriptions").select("id, endpoint, p256dh, auth").eq("user_id", userId),
+    admin.from("kaizen_notifications").select("title, message, title_key, body_params, case_id, user_id").eq("id", notifId).maybeSingle(),
   ]);
   if (subsErr) { console.error("[kaizen-push] subscriptions query failed:", subsErr.message); return json({ error: "Failed to fetch subscriptions" }, 500); }
+  // The stored row must exist AND belong to the claimed recipient, or we refuse to push.
+  if (!notif || notif.user_id !== userId) return json({ error: "notification not found" }, 404);
   const lang: Lang = (prof?.preferred_lang === "th") ? "th" : "en";
   const subscriptions = subs ?? [];
   if (subscriptions.length === 0) return json({ sent: 0, reason: "no_subscriptions" });
 
-  const { title, body } = localize(row, lang);
+  const { title, body } = localize(notif, lang);
   const payload = JSON.stringify({
     title,
     body,
-    url: row.case_id ? `/cases/${row.case_id}` : "/notifications",
-    caseId: row.case_id ?? undefined,
+    url: notif.case_id ? `/cases/${notif.case_id}` : "/notifications",
+    caseId: notif.case_id ?? undefined,
     unreadCount: unread ?? 0,
   });
 

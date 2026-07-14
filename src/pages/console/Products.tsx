@@ -355,7 +355,7 @@ function PromoRow({ promo, call, onSaved, onDeleted, isNew }: { promo: Promo; ca
     <div className={`rounded-lg border p-3 ${d.is_active ? 'bg-slate-800/40 border-slate-700' : 'bg-slate-800/20 border-slate-800'}`}>
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 items-end">
         <L label="Code"><input value={d.code} onChange={e => set({ code: e.target.value.toUpperCase() })} className={inputCls + ' font-mono'} placeholder="SAVE10" /></L>
-        <L label="Discount %"><input value={discountText} onChange={e => { const v = e.target.value.replace(/[^0-9.]/g, '').replace(/^(\d*\.?\d*).*$/, '$1'); setDiscountText(v); const n = parseFloat(v); if (!isNaN(n)) set({ discount_percent: Math.min(100, n) }) }} onBlur={() => setDiscountText(d.discount_percent === 0 ? '' : String(d.discount_percent))} className={inputCls} placeholder="10" inputMode="decimal" /></L>
+        <L label="Discount %"><input value={discountText} onChange={e => { const v = e.target.value.replace(/[^0-9.]/g, '').replace(/^(\d*\.?\d*).*$/, '$1'); const n = parseFloat(v); if (!isNaN(n) && n > 100) { setDiscountText('100'); set({ discount_percent: 100 }) } else { setDiscountText(v); if (!isNaN(n)) set({ discount_percent: n }) } }} onBlur={() => setDiscountText(d.discount_percent === 0 ? '' : String(d.discount_percent))} className={inputCls} placeholder="10" inputMode="decimal" /></L>
         <L label="Valid From"><input type="date" value={d.valid_from ?? ''} onChange={e => set({ valid_from: e.target.value || null })} className={inputCls} /></L>
         <L label="Valid To"><input type="date" value={d.valid_to ?? ''} onChange={e => set({ valid_to: e.target.value || null })} className={inputCls} /></L>
         <div className="flex items-center gap-1.5">

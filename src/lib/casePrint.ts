@@ -58,6 +58,19 @@ export function buildCasePrintHtml(
     timeline: th ? 'ไทม์ไลน์' : 'Timeline',
     printed: th ? 'พิมพ์เมื่อ' : 'Printed',
   }
+  // casePrint-01: priority/status must be localized like every other field, not left as
+  // the raw English slug. STATUS_LABELS/PRIORITY_LABELS in @/types are English-only, so use
+  // small bilingual maps mirroring LanguageContext. .toUpperCase() is a no-op on Thai text.
+  const PRIORITY_TXT: Record<string, Record<string, string>> = {
+    en: { low: 'Low', medium: 'Medium', high: 'High', critical: 'Critical' },
+    th: { low: 'ต่ำ', medium: 'ปานกลาง', high: 'สูง', critical: 'วิกฤต' },
+  }
+  const STATUS_TXT: Record<string, Record<string, string>> = {
+    en: { open: 'Open', assigned: 'Assigned', in_progress: 'In Progress', pending_manager_approval: 'Pending Approval', pending_admin_approval: 'Pending Approval', closed: 'Closed', reopened: 'Reopened' },
+    th: { open: 'เปิด', assigned: 'มอบหมายแล้ว', in_progress: 'กำลังดำเนินการ', pending_manager_approval: 'รออนุมัติ', pending_admin_approval: 'รออนุมัติ', closed: 'ปิด', reopened: 'เปิดใหม่' },
+  }
+  const priorityText = kcase.priority ? (PRIORITY_TXT[lang][kcase.priority] ?? kcase.priority) : ''
+  const statusText = kcase.status ? (STATUS_TXT[lang][kcase.status] ?? kcase.status.replace(/_/g, ' ')) : ''
   const catLabel = kcase.category
     ? (kcase.category === 'other' && (kcase as any).category_other ? (kcase as any).category_other : categoryLabel(kcase.category, lang))
     : ''
@@ -97,8 +110,8 @@ export function buildCasePrintHtml(
         <h1>${esc(kcase.title)}</h1>
         <div>
           <span class="badge">${esc(kcase.case_number)}</span>
-          <span class="badge">${esc((kcase.priority ?? '').toUpperCase())}</span>
-          <span class="badge">${esc((kcase.status ?? '').replace(/_/g, ' ').toUpperCase())}</span>
+          <span class="badge">${esc(priorityText.toUpperCase())}</span>
+          <span class="badge">${esc(statusText.toUpperCase())}</span>
           ${catLabel ? `<span class="badge">${esc(catLabel)}</span>` : ''}
           ${kcase.is_recurring ? `<span class="badge">${L.recurring}</span>` : ''}
         </div>
