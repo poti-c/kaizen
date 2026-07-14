@@ -151,6 +151,13 @@ function computeSubscription(plan, created_at, latestPaymentEnd, trialDays) {
   }
   return { is_trial: false, has_payment: false, start: null, end: null, period_end: null, days_remaining: null, overdue: false };
 }
+// CONS-EF-001: add-on invoices carry a meaningless far-future period_end (e.g.
+// 2099-12-31) that must NOT participate in any MAX(period_end) subscription-term
+// aggregation — otherwise buying an add-on makes a company look subscribed until 2099.
+// Both kaizen-console and kaizen-pay tag add-on invoices with "addon" in notes.
+function isAddonInvoice(r) {
+  return typeof r?.notes === "string" && /addon/i.test(r.notes);
+}
 // Send a receipt email via Resend (RESEND_API_KEY secret). Returns {ok,error}.
 async function sendReceiptEmail(to, inv, co, settings) {
   const key = Deno.env.get("RESEND_API_KEY");
@@ -405,7 +412,7 @@ Deno.serve(async (req) => {
       admin.from("kaizen_companies").select("*").order("name"),
       admin.from("kaizen_super_admin_companies").select("super_admin_id, company_id"),
       admin.from("kaizen_profiles").select("company_id, role").eq("is_active", true).is("deleted_at", null),
-      admin.from("kaizen_invoices").select("company_id, period_end, amount"),
+      admin.from("kaizen_invoices").select("company_id, period_end, amount, notes"),
       admin.from("kaizen_generated_forms").select("company_id, form_type, status, total"),
     ]);
     const owners = ownersRes.data ?? [];
@@ -431,6 +438,7 @@ Deno.serve(async (req) => {
     }
     const latestEnd = {};
     for (const r of invoices) {
+      if (isAddonInvoice(r) || !r.period_end) continue;  // add-ons don't carry a subscription term
       if (!latestEnd[r.company_id] || r.period_end > latestEnd[r.company_id]) latestEnd[r.company_id] = r.period_end;
     }
     const durations = await planDurations();
@@ -592,10 +600,17 @@ Deno.serve(async (req) => {
         return json({ requires_confirmation: true, existing_name: existing.full_name, existing_company }, 200);
       }
       for (const cid of company_ids) {
+        // CONS-EF-002: re-linking an owner who is ALREADY on this company consumes no new
+        // seat (the upsert below ignores duplicates), so exclude their own existing
+        // membership from the cap count — otherwise a valid re-link is falsely rejected.
+        const { data: alreadyLinked } = await admin.from("kaizen_super_admin_companies")
+          .select("super_admin_id").eq("super_admin_id", existing.id).eq("company_id", cid).maybeSingle();
+        if (alreadyLinked) continue;
         const { data: limCo } = await admin.from("kaizen_companies").select("max_super_admins").eq("id", cid).maybeSingle();
         if (limCo?.max_super_admins !== null && limCo?.max_super_admins !== undefined) {
           const { count } = await admin.from("kaizen_profiles").select("id", { count: "exact", head: true })
-            .eq("company_id", cid).eq("role", "super_admin").eq("is_active", true).is("deleted_at", null);
+            .eq("company_id", cid).eq("role", "super_admin").eq("is_active", true).is("deleted_at", null)
+            .neq("id", existing.id);
           if ((count ?? 0) >= limCo.max_super_admins) {
             if (newCompanyId) await admin.from("kaizen_companies").delete().eq("id", newCompanyId);
             return json({ error: `This plan allows up to ${limCo.max_super_admins} Top Management account(s). Upgrade the package to add more.` }, 400);
@@ -849,7 +864,7 @@ Deno.serve(async (req) => {
       invoices.push({ ...row, proof_url });
     }
     let period_end = null;
-    for (const r of rows) { if (!period_end || r.period_end > period_end) period_end = r.period_end; }
+    for (const r of rows) { if (isAddonInvoice(r) || !r.period_end) continue; if (!period_end || r.period_end > period_end) period_end = r.period_end; }
     const co = coRes.data;
     return json({
       invoices,
@@ -1187,10 +1202,15 @@ Deno.serve(async (req) => {
     // Recompute subscription_end from the remaining invoices so the company row stays
     // accurate — if the deleted invoice had the latest period_end, the old value would
     // linger and the app would show a valid subscription despite no payment record.
-    const { data: maxRow } = await admin.from("kaizen_invoices")
-      .select("period_end").eq("company_id", inv?.company_id ?? "").order("period_end", { ascending: false }).limit(1).maybeSingle();
+    // CONS-EF-001: exclude add-on invoices (far-future sentinel period_end) so deleting
+    // an invoice never stamps 2099-12-31 onto the company's subscription_end.
+    const { data: remaining } = await admin.from("kaizen_invoices")
+      .select("period_end, notes").eq("company_id", inv?.company_id ?? "");
+    const subEnd = (remaining ?? [])
+      .filter((r) => !isAddonInvoice(r) && r.period_end)
+      .reduce((mx, r) => (!mx || r.period_end > mx ? r.period_end : mx), null);
     if (inv?.company_id) {
-      await admin.from("kaizen_companies").update({ subscription_end: maxRow?.period_end ?? null }).eq("id", inv.company_id);
+      await admin.from("kaizen_companies").update({ subscription_end: subEnd }).eq("id", inv.company_id);
     }
     await audit("delete_invoice", { invoice_id, submission_id: removedSubmission }, ip, true);
     return json({ success: true });

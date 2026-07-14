@@ -283,7 +283,12 @@ export function PMReport({ companyName, onClose }: { companyName: string; onClos
                 <CardTitle icon={<AlertTriangle className="h-3.5 w-3.5 text-red-500" />}>{r.overdue}</CardTitle>
                 <p className="text-3xl font-bold text-red-600 leading-none">{data.overdueRows.length}</p>
                 <p className="text-xs text-gray-500">{r.overdueTasks}</p>
-                <DeltaRow invert deltas={data.deltas.map(d => ({ label: d.label, cur: data.overdueRows.length, prev: d.metric.overdue, suffix: '' }))} />
+                {/* PMRPT-OVERDUE-DELTA: compare like-for-like. The headline number above is
+                    all currently-open overdue tasks, but the trend must compare the CURRENT
+                    period-windowed overdue (data.cur.overdue) against the past-window overdue
+                    (d.metric.overdue) — otherwise a whole-set vs windowed-subset comparison
+                    is >= 0 almost always and the arrow shows "worse" even when improving. */}
+                <DeltaRow invert deltas={data.deltas.map(d => ({ label: d.label, cur: data.cur.overdue, prev: d.metric.overdue, suffix: '' }))} />
                 <div className="mt-2 space-y-1 max-h-32 overflow-y-auto print:overflow-visible print:max-h-none">
                   {data.overdueRows.length === 0 ? (
                     <p className="text-[11px] text-green-600">{r.noOverdue}</p>

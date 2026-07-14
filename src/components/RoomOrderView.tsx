@@ -1134,12 +1134,15 @@ function RoomSheet({ room, cat, items, lang, unit, initial, initialStatus, busy,
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 py-3 space-y-2">
-          {defaults.map((l) => <LineRow key={l.id} line={l} items={items} lang={lang} onPatch={patch} onRemove={remove} onToggle={(on) => patch(l.id, { active: on })} readOnly={readOnly} />)}
+          {/* UXRG-1: key by room+line so LineRow (and its ItemField free-text/dropdown
+              state) remounts on "Save & next" — recipe line ids collide across same-category
+              rooms, which otherwise preserves the previous room's input mode. */}
+          {defaults.map((l) => <LineRow key={`${room.no}:${l.id}`} line={l} items={items} lang={lang} onPatch={patch} onRemove={remove} onToggle={(on) => patch(l.id, { active: on })} readOnly={readOnly} />)}
 
           {(specials.length > 0 || !readOnly) && (
             <div className="pt-2">
               <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">{lang === 'th' ? 'คำขอพิเศษ' : 'Special requests'}</p>
-              {specials.map((l) => <LineRow key={l.id} line={l} items={items} lang={lang} onPatch={patch} onRemove={remove} onToggle={(on) => patch(l.id, { active: on })} special readOnly={readOnly} />)}
+              {specials.map((l) => <LineRow key={`${room.no}:${l.id}`} line={l} items={items} lang={lang} onPatch={patch} onRemove={remove} onToggle={(on) => patch(l.id, { active: on })} special readOnly={readOnly} />)}
               {!readOnly && (
                 <button onClick={addSpecial}
                   className="w-full flex items-center justify-center gap-1.5 h-9 rounded-lg border border-dashed border-gray-200 text-sm text-gray-400 hover:border-[var(--brand-primary)] hover:text-[var(--brand-primary)] transition-colors mt-1">
@@ -1848,7 +1851,11 @@ function RoomApprovalsView({ companyId, onChanged }: { companyId: string; onChan
   const { profile } = useAuth()
   const { lang } = useLanguage()
   const today = bangkokDate()
-  const [date, setDate] = useState(today)
+  // RO-APPROVALS-DATE-MISMATCH: orders are placed for tomorrow by default, and the
+  // Approvals badge counts pending specials across today AND tomorrow. Open on tomorrow
+  // (where the pending specials actually live) so the list matches the badge instead of
+  // showing "none awaiting approval" under a non-zero badge.
+  const [date, setDate] = useState(() => shiftDate(today, 1))
   const [cfg, setCfg] = useState<ApprovalConfig>(DEFAULT_APPROVAL)
   const [lines, setLines] = useState<SpecialLine[]>([])
   const [orderId, setOrderId] = useState<string | null>(null)
@@ -1878,12 +1885,33 @@ function RoomApprovalsView({ companyId, onChanged }: { companyId: string; onChan
   async function decide(ids: string[], status: 'approved' | 'rejected') {
     if (ids.length === 0) return
     setBusy(true)
-    const { data: updated, error } = await supabase.from('kaizen_rr_room_lines').update({ approval_status: status }).in('id', ids).eq('approval_status', 'pending').select('id')
+    const { data: updated, error } = await supabase.from('kaizen_rr_room_lines').update({ approval_status: status }).in('id', ids).eq('approval_status', 'pending').select('id, fulfill_department')
     setBusy(false)
     if (error) { toast.error(error.message); return }
+    const updatedRows = (updated ?? []) as { id: string; fulfill_department: string }[]
     if (orderId) await logRoomEvent(companyId, orderId, date, profile?.id, status, `${ids.length} special request${ids.length === 1 ? '' : 's'}`)
-    const updatedIds = new Set((updated ?? []).map((r: { id: string }) => r.id))
+    const updatedIds = new Set(updatedRows.map((r) => r.id))
     setLines((prev) => prev.map((l) => updatedIds.has(l.id) ? { ...l, approval_status: status } : l))
+    // RO-APPROVE-NO-NOTIFY: an approved special is now on the fulfilling department's
+    // board, which has no realtime subscription — alert them exactly like the auto-release
+    // path does, otherwise the work is invisible until they happen to reload.
+    if (status === 'approved' && updatedRows.length > 0) {
+      const n = updatedRows.length
+      const title = lang === 'th' ? 'ออเดอร์ห้อง — อนุมัติคำขอพิเศษ' : 'Room order — special requests approved'
+      const message = lang === 'th'
+        ? `คำขอพิเศษ ${n} รายการสำหรับวันที่ ${date} ได้รับการอนุมัติแล้ว และปรากฏบนกระดานของแผนกผู้ดำเนินการ`
+        : `${n} special request${n === 1 ? '' : 's'} for ${date} ${n === 1 ? 'has' : 'have'} been approved and now appear${n === 1 ? 's' : ''} on the fulfilling department board.`
+      const deptNotify: { user_id: string; title: string; message: string; notification_type: string }[] = []
+      const seen = new Set<string>()
+      for (const dept of [...new Set(updatedRows.map((r) => r.fulfill_department))]) {
+        for (const p of await resolveDeptRecipients(companyId, dept)) {
+          if (seen.has(p.id)) continue
+          seen.add(p.id)
+          deptNotify.push({ user_id: p.id, title, message, notification_type: 'rr' })
+        }
+      }
+      if (deptNotify.length > 0) await supabase.from('kaizen_notifications').insert(deptNotify)
+    }
     onChanged()
   }
 

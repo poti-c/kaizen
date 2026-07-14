@@ -157,6 +157,7 @@ export function PerformanceDetailPage() {
           .or(`performed_by.eq.${userId},assigned_to.eq.${userId}`)
         pmRows = (data || []) as typeof pmRows
       }
+      if (isCancelled()) return
       // Only judge tasks that have actually been completed — counting not-yet-done
       // tasks as failures would deflate the score for anyone with open work.
       const completed = pmRows.filter(r =>
@@ -200,6 +201,7 @@ export function PerformanceDetailPage() {
           .or(`sent_by.eq.${userId},accepted_by.eq.${userId},delivered_by.eq.${userId},confirmed_by.eq.${userId}`)
         rrRows = (data || []) as typeof rrRows
       }
+      if (isCancelled()) return
       // Denominator = only orders that reached a fulfilled state with a due time
       // (the population that can be judged on-time vs late). In-flight orders and
       // delivered-without-due rows can't be late, so they must not count as misses.
@@ -219,6 +221,7 @@ export function PerformanceDetailPage() {
       setRrValue(null)
     }
 
+    if (isCancelled()) return
     setLoading(false)
   }
 

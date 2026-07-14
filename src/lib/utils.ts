@@ -293,7 +293,11 @@ export function isSLABreached(kcase: KaizenCase): boolean {
   // otherwise fall back to the priority SLA measured from creation.
   if (kcase.due_date) {
     const raw = String(kcase.due_date)
-    const due = new Date(raw.length <= 10 ? `${raw}T23:59:59` : raw)
+    // AF-001: pin a date-only deadline to end-of-day Asia/Bangkok. Without the
+    // +07:00 offset, `new Date('YYYY-MMT23:59:59')` is parsed in the browser's
+    // local timezone, so the SLA deadline drifts by the viewer's UTC offset
+    // (cf. parseDateOnlyBkk, which exists for exactly this reason).
+    const due = new Date(raw.length <= 10 ? `${raw}T23:59:59+07:00` : raw)
     if (!isNaN(due.getTime())) return new Date() > due
   }
   return getSLARemaining(kcase) < 0

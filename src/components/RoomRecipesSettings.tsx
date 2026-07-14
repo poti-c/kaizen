@@ -412,6 +412,15 @@ export function ItemField({ value, options, lang, compact, onChange }: {
   const labels = options.map(itemLabel)
   const inCatalog = value === '' || labels.includes(value)
   const [custom, setCustom] = useState(!inCatalog)
+  // UXRG-1: re-derive free-text vs catalog mode when the CATALOG itself changes
+  // (e.g. a special request's department is swapped, which also clears the value).
+  // Keyed on the option signature only — so a manual "+ custom…" toggle (which does
+  // not change the catalog) is preserved rather than immediately reset.
+  const optionSig = labels.join('')
+  useEffect(() => {
+    setCustom(value !== '' && labels.length > 0 && !labels.includes(value))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [optionSig])
 
   const cls = `${compact ? 'h-7 text-xs' : 'h-8 text-sm'} flex-1 min-w-0 rounded-md border border-gray-200 px-2 focus:outline-none focus:ring-1 focus:ring-[var(--brand-primary)]/40 bg-white`
 

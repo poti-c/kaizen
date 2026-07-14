@@ -132,8 +132,10 @@ export function CreateCasePage() {
             })))
           }
           if (row.key === 'custom_locations') {
-            const customs = (row.value as string[]).filter(l => !LOCATIONS.includes(l as never))
-            setCustomLocations([...LOCATIONS, ...customs])
+            // The stored list is the company's COMPLETE, curated location set — use it as-is.
+            // Re-prepending the built-in LOCATIONS (the old behaviour) resurrected locations
+            // the admin had deliberately removed in Settings and discarded their ordering.
+            setCustomLocations(row.value as string[])
           }
         })
       })
@@ -307,6 +309,23 @@ export function CreateCasePage() {
     }
   }
 
+  // CC-PHOTO-LEAK-CANCEL: PhotoUpload uploads to storage immediately but the DB
+  // rows are only written on submit. If the reporter cancels/goes back, remove the
+  // now-orphaned objects (mirrors the submit-failure cleanup) so they don't leak.
+  function cancelAndLeave() {
+    if (photoUrls.length > 0) {
+      const paths = photoUrls.map((url) => {
+        const marker = '/kaizen-photos/'
+        const idx = url.indexOf(marker)
+        return idx !== -1 ? url.slice(idx + marker.length) : url
+      })
+      supabase.storage.from('kaizen-photos').remove(paths).catch((rmErr) =>
+        console.error('photo cleanup on cancel failed', rmErr))
+    }
+    clearDraft()
+    navigate(-1)
+  }
+
   const priorities: CasePriority[] = ['low', 'medium', 'high', 'critical']
   const priorityStyles: Record<CasePriority, { base: string; active: string }> = {
     low:      { base: 'border-gray-200 text-gray-500 hover:border-green-300',   active: 'border-green-400 bg-green-50 text-green-700' },
@@ -318,7 +337,7 @@ export function CreateCasePage() {
   return (
     <div className="p-4 md:p-6 max-w-2xl mx-auto animate-fade-in">
       <div className="flex items-center gap-3 mb-6">
-        <Button variant="ghost" size="icon-sm" onClick={() => { clearDraft(); navigate(-1) }}>
+        <Button variant="ghost" size="icon-sm" onClick={cancelAndLeave}>
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <div>
@@ -537,7 +556,7 @@ export function CreateCasePage() {
         </div>
 
         <div className="flex gap-3">
-          <Button type="button" variant="outline" onClick={() => { clearDraft(); navigate(-1) }} className="flex-1">
+          <Button type="button" variant="outline" onClick={cancelAndLeave} className="flex-1">
             {t.createCase.cancel}
           </Button>
           <Button type="submit" className="flex-1" disabled={loading}>

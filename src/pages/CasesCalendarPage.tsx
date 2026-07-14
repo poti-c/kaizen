@@ -133,6 +133,8 @@ export function CasesCalendarPage() {
     const bkkStartIso = `${viewYear}-${pad2(viewMonth + 1)}-01T00:00:00+07:00`
     const bkkEndIso = `${nextY}-${pad2(nextM + 1)}-01T00:00:00+07:00` // exclusive
     const jobs: PromiseLike<unknown>[] = []
+    // Staff are scoped to their own department across every layer of the calendar.
+    const calStaffDept = profile?.role === 'staff' ? profile.department : null
 
     // Collect results into local variables — calling setState inside .then() callbacks fires
     // them immediately on resolve, before the sequence guard below, so a slow stale fetch
@@ -181,7 +183,10 @@ export function CasesCalendarPage() {
         const { data } = await supabase.from('kaizen_pm_tasks')
           .select('*, asset:kaizen_pm_assets(name, location, notes, checklist, department, type:kaizen_pm_equipment_types(name))')
           .eq('company_id', activeCompany.id).neq('status', 'cancelled').gte('due_date', from).lte('due_date', to)
-        _pm = (data as PMTask[]) ?? []
+        // CCAL-PM-STAFF-SCOPE: mirror PM-002 — staff only see their own department's
+        // PM tasks (the asset.department is already joined above).
+        const pmRows = (data as PMTask[]) ?? []
+        _pm = calStaffDept ? pmRows.filter(tk => tk.asset?.department === calStaffDept) : pmRows
       })())
     } else { setPmTasks([]) }
 
@@ -264,8 +269,17 @@ export function CasesCalendarPage() {
   if (showCaseData) filteredDueCases.forEach(c => {
     const k = isoKey(new Date(c.due_date!)); (byDay[k] ||= []).push({ kind: 'casedue', case: c })
   })
-  if (showPmData) pmTasks.forEach(tk => { (byDay[tk.due_date] ||= []).push({ kind: 'pm', task: tk }) })
-  if (showRrData) rrOrders.forEach(o => { (byDay[o.order_date] ||= []).push({ kind: 'rr', order: o }) })
+  // CCAL-DEPTFILTER-PM-RR: the department Select must scope the PM/RR entries it sits
+  // beside, not just cases. Room orders carry no department, so they are unaffected.
+  const deptSel = deptFilter === 'all' || profile?.role === 'staff' ? null : deptFilter
+  if (showPmData) pmTasks.forEach(tk => {
+    if (deptSel && tk.asset?.department !== deptSel) return
+    ;(byDay[tk.due_date] ||= []).push({ kind: 'pm', task: tk })
+  })
+  if (showRrData) rrOrders.forEach(o => {
+    if (deptSel && o.request_department !== deptSel && o.fulfill_department !== deptSel) return
+    ;(byDay[o.order_date] ||= []).push({ kind: 'rr', order: o })
+  })
   if (showRrData) rrRoomOrders.forEach(ro => { (byDay[ro.order_date] ||= []).push({ kind: 'roomorder', ro }) })
 
   const roomNoun = unitOne(roomUnit, lang)
