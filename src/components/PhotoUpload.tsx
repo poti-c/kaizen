@@ -17,6 +17,50 @@ function rawExtOf(file: File): string {
   return (file.name.split('.').pop() ?? 'jpg').toLowerCase()
 }
 
+// Image file extensions we recognise when the browser gives us NO MIME type.
+const IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'heic', 'heif', 'bmp']
+// Extensions we can upload verbatim (raw fallback) without re-encoding.
+const RAW_OK_EXTS = ['jpg', 'jpeg', 'png', 'webp', 'gif']
+
+// Old Android browsers/WebViews very often deliver a camera/gallery File with an EMPTY
+// `type` (""), which the old `type.startsWith('image/')` guard rejected outright — the
+// #1 reason photos couldn't be uploaded on those phones. Treat an empty MIME type as an
+// image when the filename extension says so.
+function looksLikeImage(file: File): boolean {
+  if (file.type.startsWith('image/')) return true
+  if (file.type === '') return IMAGE_EXTS.includes(rawExtOf(file))
+  return false
+}
+
+// Convert a data URL (from canvas.toDataURL) into a Blob, for engines lacking canvas.toBlob.
+function dataURLToBlob(dataURL: string): Blob {
+  const comma = dataURL.indexOf(',')
+  const header = dataURL.slice(0, comma)
+  const body = dataURL.slice(comma + 1)
+  const mime = header.slice(header.indexOf(':') + 1, header.indexOf(';')) || 'image/jpeg'
+  const bin = atob(body)
+  const arr = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i)
+  return new Blob([arr], { type: mime })
+}
+
+// canvas.toBlob is missing on old Android (stock browser / old WebView). Fall back to the
+// universally-supported toDataURL so re-encode/downscale still works there instead of
+// throwing and dropping the photo.
+function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality: number): Promise<Blob | null> {
+  return new Promise((resolve) => {
+    if (typeof canvas.toBlob === 'function') {
+      canvas.toBlob(resolve, type, quality)
+      return
+    }
+    try {
+      resolve(dataURLToBlob(canvas.toDataURL(type, quality)))
+    } catch {
+      resolve(null)
+    }
+  })
+}
+
 // Resolve a promise but never hang: low-memory Android devices can stall an <img>
 // decode indefinitely (neither onload nor onerror fires), which would freeze the
 // upload loop on a spinner forever. A timeout turns that into a graceful fallback.
@@ -61,10 +105,15 @@ async function decodeImage(file: File): Promise<{ w: number; h: number; src: Can
 // isn't an uploadable type/size (e.g. an unsupported HEIC) — so the caller can tell the
 // user instead of silently dropping the photo.
 async function compressImage(file: File): Promise<{ blob: Blob; ext: string } | null> {
-  if (!file.type.startsWith('image/')) return null
+  if (!looksLikeImage(file)) return null
 
-  const rawUsable = ALLOWED_TYPES.includes(file.type) && file.size <= MAX_UPLOAD_BYTES
-  const rawFallback = () => (rawUsable ? { blob: file, ext: rawExtOf(file) } : null)
+  // The raw file is uploadable as-is when it's a known image type/extension and within the
+  // size cap. Accept empty-MIME files whose extension is a plain web image (old Android) so
+  // the raw fallback can still rescue them if re-encoding is unavailable.
+  const rawExt = rawExtOf(file)
+  const rawTypeOk = ALLOWED_TYPES.includes(file.type) || (file.type === '' && RAW_OK_EXTS.includes(rawExt))
+  const rawUsable = rawTypeOk && file.size <= MAX_UPLOAD_BYTES
+  const rawFallback = () => (rawUsable ? { blob: file, ext: rawExt } : null)
 
   let decoded: Awaited<ReturnType<typeof decodeImage>>
   try {
@@ -83,7 +132,7 @@ async function compressImage(file: File): Promise<{ blob: Blob; ext: string } | 
       const ctx = canvas.getContext('2d')
       if (!ctx) break
       ctx.drawImage(decoded.src, 0, 0, w, h)
-      const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/jpeg', quality))
+      const blob = await canvasToBlob(canvas, 'image/jpeg', quality)
       if (blob && blob.size <= MAX_UPLOAD_BYTES) return { blob, ext: 'jpg' }
     }
   } catch {

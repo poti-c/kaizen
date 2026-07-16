@@ -39,7 +39,7 @@ self.addEventListener('push', (event) => {
   let payload
   try {
     payload = event.data.json()
-  } catch {
+  } catch (e) {
     payload = { title: 'Kaizen', body: event.data.text(), url: '/' }
   }
 
@@ -75,7 +75,7 @@ self.addEventListener('notificationclick', (event) => {
 
   if (event.action === 'dismiss') return
 
-  const targetUrl = event.notification.data?.url || '/'
+  const targetUrl = (event.notification.data && event.notification.data.url) || '/'
 
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
