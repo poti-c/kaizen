@@ -7,7 +7,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useLanguage } from '@/contexts/LanguageContext'
 import { DEPARTMENT_LABELS, getEffectiveDepts, type Department } from '@/types'
 import { useDepartments } from '@/hooks/useDepartments'
-import { FREQUENCIES, freqLabel, addInterval, assetStatus, STATUS_META, type FreqUnit, type AssetStatus } from '@/lib/pm'
+import { FREQUENCIES, freqLabel, addInterval, assetStatus, assetDepartments, STATUS_META, type FreqUnit, type AssetStatus } from '@/lib/pm'
 import { LOCATIONS, bangkokDate } from '@/lib/utils'
 import { PMTaskModal, taskTone, taskStatusKey, type PMTask } from '@/components/pm/PMSchedule'
 import { PMReport } from '@/pages/pm/PMReport'
@@ -21,7 +21,7 @@ interface EqType { id: string; name: string; category: string | null; is_active:
 interface Asset {
   id: string; company_id: string; name: string; type_id: string | null
   location: string | null; serial_no: string | null; model: string | null
-  department: string | null; pic_id: string | null
+  department: string | null; departments: string[] | null; pic_id: string | null
   freq_unit: FreqUnit; freq_interval: number; checklist: string[]
   purchase_date: string | null
   last_maintenance_date: string | null; next_maintenance_date: string | null
@@ -98,7 +98,7 @@ export function PreventiveMaintenancePage() {
       // asset list, and the filter dropdowns) — mirrors PMSummaryCard so the page and
       // the dashboard card agree on what a staff user is allowed to see.
       const staffDept = profile?.role === 'staff' ? profile?.department : null
-      setAssets(staffDept ? rawAssets.filter(r => r.department === staffDept) : rawAssets)
+      setAssets(staffDept ? rawAssets.filter(r => assetDepartments(r).includes(staffDept)) : rawAssets)
     }
     if (t.error) toast.error(t.error.message)
     else setTypes((t.data as EqType[]) ?? [])
@@ -112,13 +112,13 @@ export function PreventiveMaintenancePage() {
       const rawTasks = (openT.data as unknown as PMTask[]) ?? []
       // PM-002: staff see only their own department's tasks
       const staffDept = profile?.role === 'staff' ? profile?.department : null
-      setPmTasks(staffDept ? rawTasks.filter(tk => (tk as any).asset?.department === staffDept) : rawTasks)
+      setPmTasks(staffDept ? rawTasks.filter(tk => assetDepartments((tk as any).asset).includes(staffDept)) : rawTasks)
     }
     if (doneT.error) toast.error(doneT.error.message)
     else {
       const rawDone = (doneT.data as unknown as PMTask[]) ?? []
       const staffDept = profile?.role === 'staff' ? profile?.department : null
-      setPmDoneTasks(staffDept ? rawDone.filter(tk => (tk as any).asset?.department === staffDept) : rawDone)
+      setPmDoneTasks(staffDept ? rawDone.filter(tk => assetDepartments((tk as any).asset).includes(staffDept)) : rawDone)
     }
     if (!loc.error) {
       const locList = loc.data?.value as string[] | undefined
@@ -149,13 +149,13 @@ export function PreventiveMaintenancePage() {
   const mgrDeptSet = profile?.role === 'manager' ? new Set<string>(getEffectiveDepts(profile) as string[]) : null
   const awaitingTasks = pmTasks.filter(tk =>
     tk.status === 'pending_approval' && taskMatch(tk) &&
-    (!mgrDeptSet || (tk.asset?.department != null && mgrDeptSet.has(tk.asset.department))))
+    (!mgrDeptSet || assetDepartments(tk.asset).some(d => mgrDeptSet.has(d))))
   const doneThisMonthTasks = pmDoneTasks.filter(tk => tk.performed_at && bangkokDate(new Date(tk.performed_at)).slice(0, 7) === monthPrefix && taskMatch(tk))
 
   // Distinct option lists for the filter dropdowns.
   const typeOptions = Array.from(new Set(assets.map(a => a.type?.name).filter(Boolean) as string[])).sort()
   const locOptions = Array.from(new Set(assets.map(a => a.location).filter(Boolean) as string[])).sort()
-  const deptOptions = Array.from(new Set(assets.map(a => a.department).filter(Boolean) as string[])).sort()
+  const deptOptions = Array.from(new Set(assets.flatMap(a => assetDepartments(a)))).sort()
 
   const filtered = assets.filter((a) => {
     if (!inactiveOnly && !a.is_active) return false
@@ -163,9 +163,10 @@ export function PreventiveMaintenancePage() {
     if (inactiveOnly && a.is_active) return false
     if (typeFilter !== 'all' && a.type?.name !== typeFilter) return false
     if (locFilter !== 'all' && a.location !== locFilter) return false
-    if (deptFilter !== 'all' && a.department !== deptFilter) return false
+    if (deptFilter !== 'all' && !assetDepartments(a).includes(deptFilter)) return false
     if (q) {
-      const hay = `${a.name} ${a.serial_no ?? ''} ${a.model ?? ''} ${a.notes ?? ''} ${a.location ?? ''} ${a.type?.name ?? ''} ${DEPARTMENT_LABELS[a.department as Department] ?? a.department ?? ''}`.toLowerCase()
+      const deptText = assetDepartments(a).map(d => DEPARTMENT_LABELS[d as Department] ?? d).join(' ')
+      const hay = `${a.name} ${a.serial_no ?? ''} ${a.model ?? ''} ${a.notes ?? ''} ${a.location ?? ''} ${a.type?.name ?? ''} ${deptText}`.toLowerCase()
       if (!hay.includes(q.toLowerCase())) return false
     }
     return true
@@ -475,7 +476,7 @@ function AssetDetailModal({ asset, dueSoonDays, canManage, onClose, onEdit }: {
           <div className="grid grid-cols-2 gap-2 text-xs text-gray-600">
             <p><span className="font-medium text-gray-500">{tr.pm.lastMaint}:</span><br />{fmt(asset.last_maintenance_date)}</p>
             <p><span className="font-medium text-gray-500">{tr.pm.nextMaint}:</span><br />{fmt(asset.next_maintenance_date)}</p>
-            {asset.department && <p><span className="font-medium text-gray-500">{tr.pm.responsibleDept}:</span><br />{DEPARTMENT_LABELS[asset.department as Department] ?? asset.department}</p>}
+            {assetDepartments(asset).length > 0 && <p><span className="font-medium text-gray-500">{tr.pm.responsibleDept}:</span><br />{assetDepartments(asset).map(d => DEPARTMENT_LABELS[d as Department] ?? d).join(', ')}</p>}
             {asset.serial_no && <p><span className="font-medium text-gray-500">{tr.pm.serialNo}:</span><br />{asset.serial_no}</p>}
             {asset.model && <p><span className="font-medium text-gray-500">{tr.pm.model}:</span><br />{asset.model}</p>}
           </div>
@@ -516,7 +517,8 @@ function AssetEditor({ companyId, types, locations, asset, onClose, onSaved, all
   const freqIdx0 = asset ? FREQUENCIES.findIndex((f) => f.unit === asset.freq_unit && f.interval === asset.freq_interval) : 3
   const [f, setF] = useState({
     name: asset?.name ?? '', type_id: asset?.type_id ?? '', location: asset?.location ?? '',
-    serial_no: asset?.serial_no ?? '', model: asset?.model ?? '', department: asset?.department ?? '',
+    serial_no: asset?.serial_no ?? '', model: asset?.model ?? '',
+    departments: assetDepartments(asset) as string[],
     freqMode: (freqIdx0 >= 0 ? String(freqIdx0) : 'custom') as string,
     customDays: freqIdx0 < 0 && asset ? asset.freq_interval : 30,
     customUnit: (freqIdx0 < 0 && asset ? asset.freq_unit : 'day') as FreqUnit,
@@ -552,7 +554,10 @@ function AssetEditor({ companyId, types, locations, asset, onClose, onSaved, all
     const row = {
       company_id: companyId, name: f.name.trim(), type_id: f.type_id || null,
       location: f.location.trim() || null, serial_no: f.serial_no.trim() || null, model: f.model.trim() || null,
-      department: f.department || null, freq_unit: unit, freq_interval: interval,
+      // Keep the legacy single column as the PRIMARY (first) department for
+      // backward-compatible reads; `departments` holds the full set.
+      department: f.departments[0] || null, departments: f.departments.length ? f.departments : null,
+      freq_unit: unit, freq_interval: interval,
       checklist: f.checklist.split('\n').map((s) => s.trim()).filter(Boolean),
       purchase_date: f.purchase_date || null,
       last_maintenance_date: effLast,
@@ -612,10 +617,22 @@ function AssetEditor({ companyId, types, locations, asset, onClose, onSaved, all
           </div>
           <Field label={tr.pm.purchaseDate}><input type="date" value={f.purchase_date} onChange={(e) => { set({ purchase_date: e.target.value }); if (!f.last_maintenance_date) recalcNext(e.target.value, f.freqMode, f.customDays) }} className={inputCls} /></Field>
           <Field label={tr.pm.responsibleDept}>
-            <select value={f.department} onChange={(e) => set({ department: e.target.value })} className={inputCls}>
-              <option value="">{tr.pm.none}</option>
-              {allDepts.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
-            </select>
+            {/* Multiple responsible departments allowed (e.g. Front Office + Engineering).
+                Everyone in any checked department can see, act on and be notified about the asset. */}
+            <div className="rounded-lg border border-gray-300 p-2 max-h-36 overflow-y-auto space-y-0.5">
+              {allDepts.map((d) => {
+                const checked = f.departments.includes(d.value)
+                return (
+                  <label key={d.value} className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer px-1 py-0.5 rounded hover:bg-gray-50">
+                    <input type="checkbox" checked={checked}
+                      onChange={(e) => set({ departments: e.target.checked ? [...f.departments, d.value] : f.departments.filter((x) => x !== d.value) })}
+                      className="accent-[var(--brand-primary)]" />
+                    {d.label}
+                  </label>
+                )
+              })}
+            </div>
+            {f.departments.length === 0 && <p className="mt-1 text-[11px] text-gray-400">{tr.pm.none}</p>}
           </Field>
           <div className="grid grid-cols-2 gap-2.5">
             <Field label={tr.pm.frequency}>

@@ -360,7 +360,12 @@ export function CasesPage() {
     // RLS already scopes results to the company so the full fetch is safe.
     if (profile.role === 'staff') {
       const dept = profile.department ?? ''
-      setCases(((data || []) as KaizenCase[]).filter(c => c.department === dept || (c.pic_ids ?? []).includes(profile.id)))
+      // Staff see cases in their own department, cases where their department is
+      // tagged as involved (assigned_departments), or cases they are PIC of.
+      setCases(((data || []) as KaizenCase[]).filter(c =>
+        c.department === dept ||
+        (!!dept && (c.assigned_departments ?? []).includes(dept as Department)) ||
+        (c.pic_ids ?? []).includes(profile.id)))
     } else {
       setCases((data || []) as KaizenCase[])
     }

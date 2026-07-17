@@ -233,12 +233,19 @@ export function DashboardPage() {
     setLoading(true)
     let query = supabase.from('kaizen_cases').select('*, creator:kaizen_profiles!kaizen_cases_created_by_fkey(full_name, department)')
     if (activeCompany) query = query.eq('company_id', activeCompany.id)
-    if (profile.role === 'staff') query = query.eq('department', profile.department)
     // DASH-002: surface query errors instead of silently showing empty dashboard
     const { data, error } = await query.order('created_at', { ascending: false })
     if (seq !== fetchSeq.current) return
     if (error) { setAllCases([]); setCatList([]); setLoading(false); console.error('[Dashboard] fetch error', error.message); return }
-    setAllCases((data || []) as KaizenCase[])
+    // Staff scope: own department, any department tagged as involved, or cases they
+    // are PIC of. Filtered client-side (not a server .eq) so involved-department
+    // cases are included; a raw PostgREST .or() would break on custom dept labels
+    // that contain commas/parens (BUG-002).
+    const rows = (data || []) as KaizenCase[]
+    const staffDept = profile.department ?? ''
+    setAllCases(profile.role === 'staff'
+      ? rows.filter(c => c.department === staffDept || (!!staffDept && (c.assigned_departments ?? []).includes(staffDept as Department)) || (c.pic_ids ?? []).includes(profile.id))
+      : rows)
     if (seq !== fetchSeq.current) return
     if (activeCompany) {
       const { data: catRow } = await supabase.from('kaizen_settings').select('value')

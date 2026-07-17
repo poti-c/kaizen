@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { ChevronLeft, ChevronRight, Wrench, ClipboardList, DoorOpen, Flag } from 'lucide-react'
 import { unitOne, DEFAULT_UNIT, type UnitNoun } from '@/lib/roomUnit'
+import { assetDepartments } from '@/lib/pm'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useCompany } from '@/contexts/CompanyContext'
@@ -155,7 +156,7 @@ export function CasesCalendarPage() {
       const staffId = profile?.id
       const staffDept = profile?.role === 'staff' ? profile.department : null
       const staffFilter = staffDept
-        ? (c: KaizenCase) => c.department === staffDept || (c.pic_ids ?? []).includes(staffId!)
+        ? (c: KaizenCase) => c.department === staffDept || (c.assigned_departments ?? []).includes(staffDept as Department) || (c.pic_ids ?? []).includes(staffId!)
         : null
       const q = supabase.from('kaizen_cases').select('*').eq('company_id', activeCompany.id)
         .gte('created_at', bkkStartIso).lt('created_at', bkkEndIso)
@@ -181,12 +182,12 @@ export function CasesCalendarPage() {
         const from = isoKey(new Date(Date.UTC(viewYear, viewMonth - 1, 21)))
         const to = isoKey(new Date(Date.UTC(viewYear, viewMonth + 1, 14)))
         const { data } = await supabase.from('kaizen_pm_tasks')
-          .select('*, asset:kaizen_pm_assets(name, location, notes, checklist, department, type:kaizen_pm_equipment_types(name))')
+          .select('*, asset:kaizen_pm_assets(name, location, notes, checklist, department, departments, type:kaizen_pm_equipment_types(name))')
           .eq('company_id', activeCompany.id).neq('status', 'cancelled').gte('due_date', from).lte('due_date', to)
-        // CCAL-PM-STAFF-SCOPE: mirror PM-002 — staff only see their own department's
-        // PM tasks (the asset.department is already joined above).
+        // CCAL-PM-STAFF-SCOPE: mirror PM-002 — staff only see PM tasks for an asset
+        // that lists their department among its responsible departments.
         const pmRows = (data as PMTask[]) ?? []
-        _pm = calStaffDept ? pmRows.filter(tk => tk.asset?.department === calStaffDept) : pmRows
+        _pm = calStaffDept ? pmRows.filter(tk => assetDepartments(tk.asset).includes(calStaffDept)) : pmRows
       })())
     } else { setPmTasks([]) }
 
@@ -273,7 +274,7 @@ export function CasesCalendarPage() {
   // beside, not just cases. Room orders carry no department, so they are unaffected.
   const deptSel = deptFilter === 'all' || profile?.role === 'staff' ? null : deptFilter
   if (showPmData) pmTasks.forEach(tk => {
-    if (deptSel && tk.asset?.department !== deptSel) return
+    if (deptSel && !assetDepartments(tk.asset).includes(deptSel)) return
     ;(byDay[tk.due_date] ||= []).push({ kind: 'pm', task: tk })
   })
   if (showRrData) rrOrders.forEach(o => {

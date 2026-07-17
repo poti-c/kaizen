@@ -5,20 +5,26 @@ import { useCompany } from '@/contexts/CompanyContext'
 import { useAuth } from '@/contexts/AuthContext'
 import { useLanguage } from '@/contexts/LanguageContext'
 import { toast } from 'sonner'
-import { type Department, getEffectiveDepts } from '@/types'
+import { getEffectiveDepts } from '@/types'
 import { bangkokDate, bangkokDayOfWeek, parseDateOnlyBkk } from '@/lib/utils'
+import { assetDepartments } from '@/lib/pm'
 
 export interface PMTask {
   id: string; company_id: string; asset_id: string; due_date: string; status: string
-  performed_at: string | null; checklist_results: { item: string; result: string }[]
+  created_at?: string | null
+  started_at?: string | null; started_by?: string | null
+  performed_at: string | null; performed_by?: string | null
+  approved_at?: string | null; approver_id?: string | null
+  checklist_results: { item: string; result: string }[]
   findings: string | null; readings: string | null; parts_used: string | null; notes: string | null
-  asset?: { name: string; location: string | null; notes: string | null; checklist: string[]; department: string | null; type?: { name: string } | null } | null
+  asset?: { name: string; location: string | null; notes: string | null; checklist: string[]; department: string | null; departments?: string[] | null; type?: { name: string } | null } | null
 }
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const WEEKDAYS_TH = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส']
 function dayKey(d: Date) { return bangkokDate(d) }
 function fmt(d: string) { return new Date(d + 'T00:00:00+07:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Bangkok' }) }
+function fmtTs(ts: string, lang: string) { return new Date(ts).toLocaleString(lang === 'th' ? 'th-TH' : 'en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bangkok' }) }
 
 export function taskTone(t: PMTask): { chip: string; dot: string; label: string } {
   if (t.status === 'done' || t.status === 'approved') return { chip: 'bg-green-100 text-green-700 border-green-200', dot: 'bg-green-500', label: 'Done' }
@@ -142,10 +148,14 @@ export function PMTaskModal({ task, onClose, onDone }: { task: PMTask; onClose: 
   const pending = task.status === 'pending_approval'
   const finished = task.status === 'done' || task.status === 'approved'
   const recorded = finished || pending // execution already captured
+  const [justStarted, setJustStarted] = useState(false)
+  const started = task.status === 'in_progress' || justStarted // checklist/inputs unlock only after Start
   // Approver = Top Management, or the responsible department's manager.
-  const isApprover = profile?.role === 'super_admin' || (profile?.role === 'manager' && !!profile && getEffectiveDepts(profile).includes(task.asset?.department as Department))
+  const assetDepts = assetDepartments(task.asset)
+  const inResponsibleDept = !!profile && getEffectiveDepts(profile).some((d) => assetDepts.includes(d as string))
+  const isApprover = profile?.role === 'super_admin' || (profile?.role === 'manager' && inResponsibleDept)
   const canExecute = profile?.role === 'super_admin' || profile?.role === 'manager' ||
-    (profile?.role === 'staff' && !!profile && getEffectiveDepts(profile).includes(task.asset?.department as Department))
+    (profile?.role === 'staff' && inResponsibleDept)
   const [results, setResults] = useState<Record<string, string>>(() => {
     const init: Record<string, string> = {}
     if (recorded) for (const r of task.checklist_results ?? []) init[r.item] = r.result
@@ -155,6 +165,23 @@ export function PMTaskModal({ task, onClose, onDone }: { task: PMTask; onClose: 
   const [readings, setReadings] = useState(task.readings ?? '')
   const [parts, setParts] = useState(task.parts_used ?? '')
   const [busy, setBusy] = useState(false)
+  const [confirmingComplete, setConfirmingComplete] = useState(false)
+  // Resolve actor ids → names for the audit timeline (started / performed / approved by).
+  const [actors, setActors] = useState<Record<string, string>>({})
+  useEffect(() => {
+    const ids = [...new Set([task.started_by, task.performed_by, task.approver_id].filter(Boolean) as string[])]
+    if (!ids.length) return
+    let stale = false
+    supabase.from('kaizen_profiles').select('id, full_name').in('id', ids).then(({ data }) => {
+      if (stale) return
+      const m: Record<string, string> = {}
+      ;((data as { id: string; full_name: string }[]) ?? []).forEach((p) => { m[p.id] = p.full_name })
+      setActors((prev) => ({ ...prev, ...m }))
+    })
+    return () => { stale = true }
+  }, [task.id, task.started_by, task.performed_by, task.approver_id])
+  // Readings and parts are mandatory; findings stay optional.
+  const completeReady = readings.trim().length > 0 && parts.trim().length > 0
 
   async function approve() {
     setBusy(true)
@@ -172,11 +199,18 @@ export function PMTaskModal({ task, onClose, onDone }: { task: PMTask; onClose: 
 
   async function start() {
     setBusy(true)
-    const { error } = await supabase.from('kaizen_pm_tasks').update({ status: 'in_progress', updated_at: new Date().toISOString() }).eq('id', task.id)
+    const nowIso = new Date().toISOString()
+    const { error } = await supabase.from('kaizen_pm_tasks')
+      .update({ status: 'in_progress', started_at: nowIso, started_by: profile?.id ?? null, updated_at: nowIso }).eq('id', task.id)
     setBusy(false)
-    if (error) toast.error(error.message); else onDone()
+    // Unlock the checklist/inputs in place rather than closing — the user starts, then records.
+    if (error) { toast.error(error.message); return }
+    task.started_at = nowIso; task.started_by = profile?.id ?? null // reflect immediately in the timeline
+    if (profile?.id && profile.full_name) setActors((p) => ({ ...p, [profile.id]: profile.full_name }))
+    setJustStarted(true)
   }
   async function complete() {
+    if (!completeReady) { toast.error(tr.pm.readingsPartsRequired); setConfirmingComplete(false); return }
     setBusy(true)
     const checklist = items.map((it) => ({ item: it, result: results[it] ?? 'na' }))
     const { error } = await supabase.rpc('kaizen_pm_complete_task', {
@@ -188,13 +222,16 @@ export function PMTaskModal({ task, onClose, onDone }: { task: PMTask; onClose: 
   }
 
   const tone = taskTone(task)
+  // If the task was started in this session, closing should refresh the parent so
+  // the calendar reflects the new "in progress" state.
+  const closeModal = () => { if (busy) return; justStarted ? onDone() : onClose() }
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/40" onClick={closeModal} />
       <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] flex flex-col">
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
           <div className="flex items-center gap-2"><Wrench className="h-5 w-5 text-[var(--brand-primary)]" /><h3 className="font-semibold text-gray-900">{task.asset?.name ?? 'Maintenance'}</h3></div>
-          <button onClick={onClose} className="p-1 rounded text-gray-400 hover:bg-gray-100"><X className="h-4 w-4" /></button>
+          <button onClick={closeModal} className="p-1 rounded text-gray-400 hover:bg-gray-100"><X className="h-4 w-4" /></button>
         </div>
         <div className="px-5 py-4 space-y-3 overflow-y-auto text-sm">
           <div className="flex items-center gap-2 flex-wrap text-xs text-gray-500">
@@ -217,8 +254,8 @@ export function PMTaskModal({ task, onClose, onDone }: { task: PMTask; onClose: 
                     ) : (
                       <div className="flex gap-1">
                         {(['pass', 'fail', 'na'] as const).map((r) => (
-                          <button key={r} onClick={() => setResults((p) => ({ ...p, [it]: r }))}
-                            className={`text-[10px] px-1.5 py-0.5 rounded border ${results[it] === r ? (r === 'pass' ? 'bg-green-500 text-white border-green-500' : r === 'fail' ? 'bg-red-500 text-white border-red-500' : 'bg-gray-400 text-white border-gray-400') : 'border-gray-300 text-gray-500'}`}>{tr.pm[r]}</button>
+                          <button key={r} disabled={!started} onClick={() => setResults((p) => ({ ...p, [it]: r }))}
+                            className={`text-[10px] px-1.5 py-0.5 rounded border ${!started ? 'border-gray-200 text-gray-300 cursor-not-allowed' : results[it] === r ? (r === 'pass' ? 'bg-green-500 text-white border-green-500' : r === 'fail' ? 'bg-red-500 text-white border-red-500' : 'bg-gray-400 text-white border-gray-400') : 'border-gray-300 text-gray-500'}`}>{tr.pm[r]}</button>
                         ))}
                       </div>
                     )}
@@ -229,18 +266,44 @@ export function PMTaskModal({ task, onClose, onDone }: { task: PMTask; onClose: 
           )}
 
           {recorded ? (
-            <div className="space-y-1.5 text-xs text-gray-600">
-              {task.readings && <p><span className="font-medium">{tr.pm.readings}:</span> {task.readings}</p>}
-              {task.parts_used && <p><span className="font-medium">{tr.pm.parts}:</span> {task.parts_used}</p>}
-              {task.findings && <p><span className="font-medium">{tr.pm.findings}:</span> {task.findings}</p>}
-              {task.performed_at && <p className="text-gray-400">{tr.pm.performed} {new Date(task.performed_at).toLocaleString(lang === 'th' ? 'th-TH' : 'en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bangkok' })}</p>}
-              {pending && <p className="text-violet-600 font-medium">{tr.pm.awaitingNote}{!isApprover ? ` ${tr.pm.awaitingBy}` : ''}.</p>}
+            <div className="space-y-3">
+              <div className="space-y-1.5 text-xs text-gray-600">
+                {task.readings && <p><span className="font-medium">{tr.pm.readings}:</span> {task.readings}</p>}
+                {task.parts_used && <p><span className="font-medium">{tr.pm.parts}:</span> {task.parts_used}</p>}
+                {task.findings && <p><span className="font-medium">{tr.pm.findings}:</span> {task.findings}</p>}
+              </div>
+              {/* Audit timeline: Scheduled → Started → Completed → (Awaiting) → Approved */}
+              <div>
+                <p className="text-xs font-semibold text-gray-500 mb-2">{tr.pm.timeline}</p>
+                <ol className="space-y-3">
+                  {([
+                    task.created_at ? { key: 'sch', color: 'bg-sky-500', label: tr.pm.tlScheduled, who: null as string | null, at: task.created_at as string | null } : null,
+                    task.started_at ? { key: 'start', color: 'bg-amber-500', label: tr.pm.tlStarted, who: task.started_by ?? null, at: task.started_at } : null,
+                    task.performed_at ? { key: 'done', color: 'bg-green-500', label: tr.pm.tlCompleted, who: task.performed_by ?? null, at: task.performed_at } : null,
+                    pending ? { key: 'await', color: 'bg-violet-500', label: tr.pm.awaitingNote, who: null, at: null } : null,
+                    task.approved_at ? { key: 'appr', color: 'bg-green-600', label: tr.pm.tlApproved, who: task.approver_id ?? null, at: task.approved_at } : null,
+                  ].filter(Boolean) as { key: string; color: string; label: string; who: string | null; at: string | null }[]).map((ev, i, arr) => (
+                    <li key={ev.key} className="flex gap-3">
+                      <div className="flex flex-col items-center">
+                        <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ring-2 ring-white ${ev.color}`} />
+                        {i < arr.length - 1 && <span className="w-px flex-1 bg-gray-200 mt-0.5" />}
+                      </div>
+                      <div className="flex-1 -mt-0.5 pb-0.5">
+                        <p className="text-xs font-medium text-gray-800">{ev.label}{ev.who && actors[ev.who] ? ` · ${actors[ev.who]}` : ''}</p>
+                        {ev.at && <p className="text-[11px] text-gray-400">{fmtTs(ev.at, lang)}</p>}
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+                {pending && !isApprover && <p className="mt-2 text-[11px] text-violet-600">{tr.pm.awaitingNote} {tr.pm.awaitingBy}.</p>}
+              </div>
             </div>
           ) : (
             <>
-              <Field label={tr.pm.readingsLabel}><input value={readings} onChange={(e) => setReadings(e.target.value)} className={inp} placeholder={tr.pm.readingsPh} /></Field>
-              <Field label={tr.pm.partsLabel}><input value={parts} onChange={(e) => setParts(e.target.value)} className={inp} /></Field>
-              <Field label={tr.pm.findingsLabel}><textarea value={findings} onChange={(e) => setFindings(e.target.value)} rows={2} className={inp + ' h-auto py-2 resize-none'} /></Field>
+              {!started && <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">{tr.pm.startFirst}</p>}
+              <Field label={`${tr.pm.readingsLabel} *`}><input value={readings} disabled={!started} onChange={(e) => setReadings(e.target.value)} className={inp + (started ? '' : ' bg-gray-50 text-gray-400 cursor-not-allowed')} placeholder={tr.pm.readingsPh} /></Field>
+              <Field label={`${tr.pm.partsLabel} *`}><input value={parts} disabled={!started} onChange={(e) => setParts(e.target.value)} className={inp + (started ? '' : ' bg-gray-50 text-gray-400 cursor-not-allowed')} /></Field>
+              <Field label={tr.pm.findingsLabel}><textarea value={findings} disabled={!started} onChange={(e) => setFindings(e.target.value)} rows={2} className={inp + ' h-auto py-2 resize-none' + (started ? '' : ' bg-gray-50 text-gray-400 cursor-not-allowed')} /></Field>
             </>
           )}
         </div>
@@ -253,12 +316,31 @@ export function PMTaskModal({ task, onClose, onDone }: { task: PMTask; onClose: 
           </div>
         ) : !recorded && canExecute ? (
           <div className="flex items-center gap-2 px-5 py-4 border-t border-gray-200">
-            {task.status === 'scheduled' && <button onClick={start} disabled={busy} className="flex items-center gap-1.5 px-3 h-9 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium"><Play className="h-4 w-4" />{tr.pm.start}</button>}
-            <button onClick={complete} disabled={busy} className="ml-auto flex items-center gap-1.5 px-4 h-9 rounded-lg bg-[var(--brand-primary)] text-white text-sm font-semibold disabled:opacity-50">
-              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}{tr.pm.complete}
-            </button>
+            {!started ? (
+              <button onClick={start} disabled={busy} className="ml-auto flex items-center gap-1.5 px-4 h-9 rounded-lg bg-[var(--brand-primary)] text-white text-sm font-semibold disabled:opacity-50"><Play className="h-4 w-4" />{tr.pm.start}</button>
+            ) : (
+              <button onClick={() => setConfirmingComplete(true)} disabled={busy || !completeReady} title={!completeReady ? tr.pm.readingsPartsRequired : undefined} className="ml-auto flex items-center gap-1.5 px-4 h-9 rounded-lg bg-[var(--brand-primary)] text-white text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed">
+                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}{tr.pm.complete}
+              </button>
+            )}
           </div>
         ) : null}
+
+        {/* Confirmation before recording the maintenance. */}
+        {confirmingComplete && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center p-4 rounded-2xl bg-black/30" onClick={() => !busy && setConfirmingComplete(false)}>
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-xs p-5 space-y-3" onClick={(e) => e.stopPropagation()}>
+              <h4 className="font-semibold text-gray-900 text-sm">{tr.pm.confirmCompleteTitle}</h4>
+              <p className="text-xs text-gray-500">{tr.pm.confirmCompleteMsg}</p>
+              <div className="flex items-center gap-2 pt-1">
+                <button onClick={() => setConfirmingComplete(false)} disabled={busy} className="flex-1 h-9 rounded-lg border border-gray-300 text-gray-700 text-sm font-medium hover:bg-gray-50 disabled:opacity-50">{tr.pm.confirmCancel}</button>
+                <button onClick={complete} disabled={busy} className="flex-1 flex items-center justify-center gap-1.5 h-9 rounded-lg bg-[var(--brand-primary)] text-white text-sm font-semibold disabled:opacity-50">
+                  {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}{tr.pm.confirmComplete}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )

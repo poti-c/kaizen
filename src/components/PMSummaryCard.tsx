@@ -5,12 +5,12 @@ import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useCompany } from '@/contexts/CompanyContext'
 import { useLanguage } from '@/contexts/LanguageContext'
-import { assetStatus } from '@/lib/pm'
+import { assetStatus, assetDepartments } from '@/lib/pm'
 import { bangkokDate } from '@/lib/utils'
 import { getEffectiveDepts } from '@/types'
 
-interface AssetRow { next_maintenance_date: string | null; is_active: boolean; department: string | null }
-interface TaskRow { due_date: string; status: string; performed_at: string | null; asset?: { department: string | null } | null }
+interface AssetRow { next_maintenance_date: string | null; is_active: boolean; department: string | null; departments?: string[] | null }
+interface TaskRow { due_date: string; status: string; performed_at: string | null; asset?: { department: string | null; departments?: string[] | null } | null }
 
 export function PMSummaryCard() {
   const { profile } = useAuth()
@@ -49,10 +49,10 @@ export function PMSummaryCard() {
       // Start of the current month in Bangkok time, as a timestamptz instant.
       const monthStart = `${bangkokDate(new Date()).slice(0, 7)}-01T00:00:00+07:00`
       const [a, tk, mt, pa] = await Promise.all([
-        supabase.from('kaizen_pm_assets').select('next_maintenance_date, is_active, department').eq('company_id', companyId),
-        supabase.from('kaizen_pm_tasks').select('due_date, status, performed_at, asset:kaizen_pm_assets(department)').eq('company_id', companyId).gte('due_date', from).lte('due_date', to),
-        supabase.from('kaizen_pm_tasks').select('due_date, status, performed_at, asset:kaizen_pm_assets(department)').eq('company_id', companyId).in('status', ['done', 'approved']).gte('performed_at', monthStart),
-        supabase.from('kaizen_pm_tasks').select('due_date, status, performed_at, asset:kaizen_pm_assets(department)').eq('company_id', companyId).eq('status', 'pending_approval'),
+        supabase.from('kaizen_pm_assets').select('next_maintenance_date, is_active, department, departments').eq('company_id', companyId),
+        supabase.from('kaizen_pm_tasks').select('due_date, status, performed_at, asset:kaizen_pm_assets(department, departments)').eq('company_id', companyId).gte('due_date', from).lte('due_date', to),
+        supabase.from('kaizen_pm_tasks').select('due_date, status, performed_at, asset:kaizen_pm_assets(department, departments)').eq('company_id', companyId).in('status', ['done', 'approved']).gte('performed_at', monthStart),
+        supabase.from('kaizen_pm_tasks').select('due_date, status, performed_at, asset:kaizen_pm_assets(department, departments)').eq('company_id', companyId).eq('status', 'pending_approval'),
       ])
       if (cancelled) return
       let aRows = (a.data as AssetRow[]) ?? []
@@ -61,17 +61,18 @@ export function PMSummaryCard() {
       let pRows = (pa.data as unknown as TaskRow[]) ?? []
       // Staff see only their department's slice.
       if (isStaff && profile?.department) {
-        aRows = aRows.filter(r => r.department === profile.department)
-        tRows = tRows.filter(r => r.asset?.department === profile.department)
-        mRows = mRows.filter(r => r.asset?.department === profile.department)
-        pRows = pRows.filter(r => r.asset?.department === profile.department)
+        const sd = profile.department
+        aRows = aRows.filter(r => assetDepartments(r).includes(sd))
+        tRows = tRows.filter(r => assetDepartments(r.asset).includes(sd))
+        mRows = mRows.filter(r => assetDepartments(r.asset).includes(sd))
+        pRows = pRows.filter(r => assetDepartments(r.asset).includes(sd))
       }
       // PMRPT-003: a manager can only approve tasks in departments they cover (primary +
       // managed), so the "Awaiting approval" backlog must not include departments they have
       // no authority over. Super admins approve everything, so they keep the company count.
       if (!isStaff && profile?.role === 'manager') {
         const deptSet = new Set<string>(getEffectiveDepts(profile) as string[])
-        pRows = pRows.filter(r => r.asset?.department != null && deptSet.has(r.asset.department))
+        pRows = pRows.filter(r => assetDepartments(r.asset).some(d => deptSet.has(d)))
       }
       setAssets(aRows); setTasks(tRows); setMonthTasks(mRows); setPendingTasks(pRows)
       setLoading(false)

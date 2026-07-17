@@ -16,6 +16,17 @@ export const FREQUENCIES: { label: string; label_th: string; unit: FreqUnit; int
 
 const UNIT_TH: Record<FreqUnit, string> = { day: 'วัน', week: 'สัปดาห์', month: 'เดือน', year: 'ปี' }
 
+// An asset's full set of responsible departments. Assets may have more than one
+// (e.g. Front Office + Engineering). Falls back to the legacy single `department`
+// column when the array is empty/unset, so old data keeps working.
+export function assetDepartments(
+  a: { departments?: string[] | null; department?: string | null } | null | undefined,
+): string[] {
+  if (!a) return []
+  if (a.departments && a.departments.length) return a.departments.filter(Boolean)
+  return a.department ? [a.department] : []
+}
+
 /** Frequency label in the given UI language (handles custom intervals too). */
 export function freqLabel(unit: FreqUnit, interval: number, lang?: string): string {
   const match = FREQUENCIES.find((f) => f.unit === unit && f.interval === interval)
