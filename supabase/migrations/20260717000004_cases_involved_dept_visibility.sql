@@ -21,6 +21,9 @@ CREATE POLICY "kzn_cases_select" ON kaizen_cases FOR SELECT USING (
   OR auth.uid() = person_in_charge
 );
 
+-- NOTE: preserve the `created_by` carve-out added in 20260701000000 (a case opener
+-- may edit their own case after it is reassigned) — this policy must keep every
+-- prior branch and only ADD the involved-department branch.
 DROP POLICY IF EXISTS "kzn_cases_update" ON kaizen_cases;
 CREATE POLICY "kzn_cases_update" ON kaizen_cases FOR UPDATE USING (
   kaizen_current_role() IN ('super_admin','manager')
@@ -28,4 +31,5 @@ CREATE POLICY "kzn_cases_update" ON kaizen_cases FOR UPDATE USING (
   OR (kaizen_current_role() = 'staff' AND kaizen_current_dept() = ANY(COALESCE(assigned_departments, '{}'::text[])))
   OR auth.uid() = ANY(COALESCE(pic_ids, '{}'::uuid[]))
   OR auth.uid() = person_in_charge
+  OR auth.uid() = created_by
 );

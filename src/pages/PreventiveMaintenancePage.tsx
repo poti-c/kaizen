@@ -80,7 +80,7 @@ export function PreventiveMaintenancePage() {
     if (!companyId) return
     setLoading(true)
     try { await supabase.rpc('kaizen_pm_sync') } catch { /* materialize tasks; ignore if it fails */ }
-    const taskSel = '*, asset:kaizen_pm_assets(name, location, notes, checklist, department, type:kaizen_pm_equipment_types(name))'
+    const taskSel = '*, asset:kaizen_pm_assets(name, location, notes, checklist, department, departments, type:kaizen_pm_equipment_types(name))'
     // First day of the current Asia/Bangkok month (not UTC — local-midnight-of-the-1st
     // toISOString() resolves back to the last day of the previous month at UTC+7).
     const monthStartKey = bangkokDate().slice(0, 7) + '-01T00:00:00+07:00'

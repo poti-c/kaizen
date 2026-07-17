@@ -69,7 +69,7 @@ export function PMSchedule() {
     const from = dayKey(cells[0]); const to = dayKey(cells[cells.length - 1])
     const { data, error } = await supabase
       .from('kaizen_pm_tasks')
-      .select('*, asset:kaizen_pm_assets(name, location, notes, checklist, department, type:kaizen_pm_equipment_types(name))')
+      .select('*, asset:kaizen_pm_assets(name, location, notes, checklist, department, departments, type:kaizen_pm_equipment_types(name))')
       .eq('company_id', companyId).neq('status', 'cancelled')
       .gte('due_date', from).lte('due_date', to)
     if (error) toast.error(error.message)
