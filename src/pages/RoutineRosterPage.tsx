@@ -453,8 +453,12 @@ export function RoutineRosterPage() {
             ) : (
               <div className="grid grid-cols-2 gap-2">
                 {menuTemplates.map((tp) => {
-                  // "Ordered" once an active order exists for this routine today or tomorrow (the board's window).
-                  const ordered = orders.some((o) => o.template_id === tp.id && o.status !== 'cancelled')
+                  // "Ordered" once an active order exists for this routine today or tomorrow.
+                  // RR-BUG-03: `orders` now holds everything from today onward (the board
+                  // no longer stops at tomorrow), so this used to tick a routine as
+                  // "already ordered" because of a booking placed weeks out — even though
+                  // nothing had been ordered for the near term the tick is meant to describe.
+                  const ordered = orders.some((o) => o.template_id === tp.id && o.status !== 'cancelled' && (o.order_date === today || o.order_date === tomorrow))
                   const name = lang === 'th' && tp.name_th ? tp.name_th : tp.name
                   return (
                     <button key={tp.id} onClick={() => setPlaceTpl(tp)}
@@ -569,6 +573,17 @@ function PlaceOrderModal({ template: tp, companyId, profile, today, tomorrow, ro
 
   async function place() {
     const order_date = serviceDate
+    // RR-BUG-01: `min={today}` on the date <input> is a constraint-validation
+    // hint enforced only on form submit — this input isn't inside a <form>,
+    // and keyboard entry can bypass it in some browsers/locales regardless. A
+    // past order_date used to reach place() verbatim: the row inserted fine,
+    // but the board's `.gte('order_date', today)` filter excludes it, so the
+    // user got a success toast and then an empty slot — the exact "saved then
+    // vanished" failure the today-onwards board change exists to prevent.
+    if (order_date < today) {
+      toast.error(lang === 'th' ? 'ไม่สามารถสั่งย้อนหลังได้' : 'Cannot place an order for a past date.')
+      return
+    }
     const item_label = itemFor(tp, order_date)
     let quantity: number
     let picked: string[] = []
@@ -691,9 +706,11 @@ function PlaceOrderModal({ template: tp, companyId, profile, today, tomorrow, ro
               ))}
               {/* Any later date. Today/Tomorrow stay as one-tap shortcuts for the
                   common cases; this covers day-after-tomorrow and beyond.
-                  `min` blocks past dates — a routine cannot be ordered backwards. */}
+                  `min` alone is enforced only on form submit and this input
+                  isn't inside a <form> — clamp on every change too; place()
+                  below has the real guard regardless. */}
               <input type="date" value={serviceDate} min={today}
-                onChange={(e) => { if (e.target.value) setServiceDate(e.target.value) }}
+                onChange={(e) => { if (e.target.value) setServiceDate(e.target.value < today ? today : e.target.value) }}
                 className={`h-8 rounded-lg border px-2 text-xs focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/40 ${
                   serviceDate !== today && serviceDate !== tomorrow
                     ? 'border-[var(--brand-primary)] text-[var(--brand-primary)]'
@@ -764,8 +781,25 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
   // Three-stage orders route the last hop through a separate delivery department.
   const hasDelivery = !!o.deliver_department
   const onRequest = onRequestSide
-  const onFulfill = canManage || profile?.department === o.fulfill_department
-  const onDeliver = hasDelivery && (canManage || profile?.department === o.deliver_department)
+  // RR-BUG-02: these used to be a plain department comparison with no stagePic
+  // check — unlike the page-level onStage(), which every "needs my action"
+  // computation goes through and correctly restricts a 'users'-mode stage to
+  // its named PIC list. The gap meant that on a template whose fulfil (or the
+  // delivery stage added today) is configured as "specific people", every
+  // staff member in that department still saw and could press Accept / Hand
+  // over / Mark delivered / tick rooms — the manager's PIC restriction was
+  // purely advisory in the UI, even though the order correctly stayed off
+  // that person's "Other orders" list (which does go through onStage).
+  const fulfillPic = stagePic(tpl, 'fulfill')
+  const onFulfill = canManage || (
+    profile?.department === o.fulfill_department &&
+    (fulfillPic.mode !== 'users' || (!!profile?.id && fulfillPic.ids.includes(profile.id)))
+  )
+  const deliverPic = stagePic(tpl, 'deliver')
+  const onDeliver = hasDelivery && (canManage || (
+    profile?.department === o.deliver_department &&
+    (deliverPic.mode !== 'users' || (!!profile?.id && deliverPic.ids.includes(profile.id)))
+  ))
   const items = (o.items ?? []).slice().sort((a, b) => a.room_no.localeCompare(b.room_no, undefined, { numeric: true }))
   const deliveredCount = items.filter((i) => i.delivered).length
   const deptArrow = [o.request_department, o.fulfill_department, o.deliver_department]
@@ -1588,7 +1622,10 @@ function RoutineMonitorBoard({ companyId, orders, today, tomorrow, loading, onRe
 
       {total === 0 ? (
         <div className="text-center py-16 bg-white rounded-xl border border-gray-200 text-sm text-gray-400">
-          {lang === 'th' ? 'ยังไม่มีออเดอร์สำหรับวันนี้และพรุ่งนี้' : 'No orders placed for today or tomorrow.'}
+          {/* RR-BUG-03: text still described the old today+tomorrow window
+              after the board was changed today to load everything from today
+              onward. */}
+          {lang === 'th' ? 'ยังไม่มีออเดอร์ตั้งแต่วันนี้เป็นต้นไป' : 'No orders placed from today onwards.'}
         </div>
       ) : (
         <>

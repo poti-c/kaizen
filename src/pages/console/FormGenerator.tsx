@@ -221,7 +221,18 @@ export function FormGeneratorView({ call, onBack, initialPreviewId, onPreviewCon
   // Close the preview without recording — returns to the editor with data intact.
   // Also release any pending receipt link, otherwise the NEXT unrelated document that
   // gets confirmed would be silently linked to this stale invoice id.
-  function discardDraft() { setDraftPayload(null); setPreview(null); setLinkInvoiceId(null) }
+  // FG-BUG-02: this used to also clear linkInvoiceId, but its one caller (the
+  // preview toolbar's X, labelled "Discard — back to editing") is the ordinary
+  // way to fix a typo before confirming, not an abandon action. linkInvoiceId
+  // is the ONLY record of which payment this document was opened for
+  // (initialDraft is already consumed by the time this runs, so re-mounting
+  // is the sole way to recover it), so the common Issue → preview → notice a
+  // mistake → X → correct → View → Confirm loop recorded the receipt with no
+  // invoice link — link_receipt_form never ran, and the payment kept showing
+  // an "Issue" button forever even though a valid receipt existed. It is
+  // still correctly cleared on a successful confirm and on switching form-type
+  // tabs, which really do invalidate it.
+  function discardDraft() { setDraftPayload(null); setPreview(null) }
 
   const load = useCallback(async () => {
     setLoading(true)

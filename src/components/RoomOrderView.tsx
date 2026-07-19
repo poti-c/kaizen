@@ -491,6 +491,17 @@ function RoomOrderBuild({ companyId, unit, requireApproval, date: controlledDate
     setRooms((cfg?.rooms ?? []).slice().sort((a, b) => roomSort(a.no, b.no)))
     setRecipes((recipesRes.data?.value as RoomRecipes) ?? {})
 
+    // RO-BUG-01: this read was never checked. supabase-js resolves { data: null,
+    // error } on failure — indistinguishable from "no order exists for this
+    // date" — so a transient failure here used to silently present an existing
+    // SUBMITTED order as brand new. performSubmit then treats every room as
+    // untouched and inserts a full duplicate set of default lines into the
+    // already-submitted order, and re-notifies every fulfilling department.
+    if (orderRes.error) {
+      toast.error(orderRes.error.message)
+      setLoading(false)
+      return
+    }
     const order = orderRes.data as { id: string; status: 'draft' | 'submitted'; submitted_at: string | null; submitted_by: string | null; room_statuses?: Record<string, RoomStatus> } | null
     setOrderId(order?.id ?? null)
     setOrderStatus(order?.status ?? null)
@@ -507,15 +518,46 @@ function RoomOrderBuild({ companyId, unit, requireApproval, date: controlledDate
     }
 
     if (order) {
-      const { data: lines } = await supabase.from('kaizen_rr_room_lines').select('*').eq('room_order_id', order.id)
+      const { data: lines, error: linesErr } = await supabase.from('kaizen_rr_room_lines').select('*').eq('room_order_id', order.id)
+      // RO-BUG-01: same failure mode as the order read above — an unchecked
+      // error here fell through to setSavedRooms({}) with orderId/orderStatus
+      // still populated, so the UI showed a normal "Submitted" order that
+      // performSubmit believed had zero saved rooms.
+      if (linesErr) {
+        toast.error(linesErr.message)
+        setLoading(false)
+        return
+      }
+      // RO-BUG-02: `recipeSeedOff({ slot })` with no other fields falls back to a
+      // regex heuristic on the slot text, discarding the recipe line's actual
+      // explicit `default_off` flag. That heuristic is only a fallback for when
+      // the real recipe line can't be found — using it unconditionally here
+      // meant every DB-hydrated line's seed preference was a guess, not the
+      // saved truth: a line correctly flagged default_off but with a
+      // non-matching slot name silently re-activates itself (and gets sent to
+      // the fulfilling department) the moment the requester touches the
+      // Check-in/Occupied toggle, and the inverse force-deactivates a line
+      // that should stay on. `rooms`/`types`/`recipes` React state is still the
+      // PREVIOUS render's value inside this same load() call, so the lookup
+      // uses the just-fetched `cfg`/`recipesRes` locals instead.
+      const roomsList = (cfg?.rooms ?? [])
+      const typesList = cfg?.types ?? []
+      const recipesVal = (recipesRes.data?.value as RoomRecipes) ?? {}
+      const recipeLineFor = (roomNo: string, slot: string): RecipeLine | undefined => {
+        const room = roomsList.find((r) => r.no === roomNo)
+        const type = room ? typesList.find((t) => t.code === room.type) : undefined
+        const recipe = type ? (recipesVal[type.category] ?? []) : []
+        return recipe.find((rl) => rl.slot === slot)
+      }
       const byRoom: Record<string, SheetLine[]> = {}
       for (const l of (lines as DbLine[]) ?? []) {
+        const slot = l.slot ?? '';
         (byRoom[l.room_no] ||= []).push({
-          id: l.id, slot: l.slot ?? '', item: l.item ?? '', fulfill_department: l.fulfill_department as Department,
+          id: l.id, slot, item: l.item ?? '', fulfill_department: l.fulfill_department as Department,
           prepare_department: (l.prepare_department as Department | null) ?? null,
           serving_at: l.serving_at ?? '', line_type: (l.line_type as LineType) ?? 'delivery',
           source: (l.source as 'default' | 'special') ?? 'default', note: l.note ?? '', active: l.active ?? true,
-          default_off: recipeSeedOff({ slot: l.slot ?? '' }),
+          default_off: recipeSeedOff(recipeLineFor(l.room_no, slot) ?? { slot }),
         })
       }
       setSavedRooms(byRoom)
@@ -596,6 +638,19 @@ function RoomOrderBuild({ companyId, unit, requireApproval, date: controlledDate
       serving_at: l.serving_at || null, line_type: l.line_type, source: l.source,
       note: l.note || null, active: l.active,
       approval_status: l.source === 'special' && requireApproval ? 'pending' : 'approved',
+      // RO-BUG-03: performSubmit's re-submit notification filter compares a
+      // client-clock `submitted_at` (written below with new Date()) against
+      // each line's `created_at`, which otherwise takes the table's `now()`
+      // DEFAULT — the DATABASE server's clock. Those are two unrelated clocks;
+      // if the requester's device runs even a few minutes ahead of the DB (a
+      // badly-synced tablet), every line added since the last submit gets
+      // created_at < submitted_at and notifyFulfillers' `.gt('created_at',
+      // sinceTs)` silently excludes all of them — added items never reach the
+      // fulfilling department, and the requester sees a normal "submitted"
+      // success with no indication anything was skipped. Stamping created_at
+      // explicitly from the SAME clock used for submitted_at keeps every
+      // comparison on one clock, regardless of DB/device drift.
+      created_at: new Date().toISOString(),
     }
   }
 
@@ -692,12 +747,18 @@ function RoomOrderBuild({ companyId, unit, requireApproval, date: controlledDate
     // Re-read this room's rows so local state carries the real DB ids (prevents a second
     // edit from re-inserting the just-added lines as duplicates).
     const { data: fresh } = await supabase.from('kaizen_rr_room_lines').select('*').eq('room_order_id', oid).eq('room_no', roomNo)
+    // RO-BUG-02: see the matching fix in load() — recipeSeedOff({slot}) alone
+    // is a heuristic fallback, not the recipe's real default_off. This handler
+    // runs from a normal user action (not inside load()'s stale-state window),
+    // so `rooms`/`recipeForRoom` React state is safe to read directly here.
+    const savedRoom = rooms.find((r) => r.no === roomNo)
+    const savedRecipe = savedRoom ? recipeForRoom(savedRoom) : []
     const freshLines: SheetLine[] = ((fresh as DbLine[]) ?? []).map((l) => ({
       id: l.id, slot: l.slot ?? '', item: l.item ?? '', fulfill_department: l.fulfill_department as Department,
       prepare_department: (l.prepare_department as Department | null) ?? null,
       serving_at: l.serving_at ?? '', line_type: (l.line_type as LineType) ?? 'delivery',
       source: (l.source as 'default' | 'special') ?? 'default', note: l.note ?? '', active: l.active ?? true,
-      default_off: recipeSeedOff({ slot: l.slot ?? '' }),
+      default_off: recipeSeedOff(savedRecipe.find((rl) => rl.slot === (l.slot ?? '')) ?? { slot: l.slot ?? '' }),
     }))
     setSavedRooms((prev) => ({ ...prev, [roomNo]: freshLines }))
     setRoomStatuses(nextStatuses)
@@ -757,8 +818,18 @@ function RoomOrderBuild({ companyId, unit, requireApproval, date: controlledDate
     // and setBusy(false) is not synchronous, so reading it here returns a stale true.
     setBusy(true)
     const orderResult = await ensureOrder(); if (!orderResult) { setBusy(false); return } const oid = orderResult.id
+    // RO-BUG-01 backstop: `savedRooms` is client-side state that can go stale
+    // for reasons other than the load() error above (a second tab, a slow
+    // load()/submit race) — trust the database over it. Re-query which rooms
+    // already have rows for THIS order right before deciding what to insert, so
+    // a room can never receive a second, duplicate default set no matter why
+    // savedRooms was wrong.
+    const { data: existingLineRooms, error: existErr } = await supabase
+      .from('kaizen_rr_room_lines').select('room_no').eq('room_order_id', oid)
+    if (existErr) { setBusy(false); toast.error(existErr.message); return }
+    const roomsWithLines = new Set((existingLineRooms ?? []).map((r) => r.room_no as string))
     // Materialize defaults for any room not explicitly saved or statused.
-    const untouched = rooms.filter((r) => !savedRooms[r.no] && !statuses[r.no])
+    const untouched = rooms.filter((r) => !savedRooms[r.no] && !statuses[r.no] && !roomsWithLines.has(r.no))
     const rows = untouched.flatMap((r) => seedLines(recipeForRoom(r), date).filter((l) => l.item.trim() || l.slot.trim()).map((l) => lineRow(oid, r.no, r, l)))
     if (rows.length > 0) {
       const { error } = await supabase.from('kaizen_rr_room_lines').insert(rows)
@@ -1785,7 +1856,16 @@ function RoomMonitorBoard({ companyId, unit, initialDate, date: controlledDate, 
             </div>
           </div>
 
-          {groups.size === 0 ? (
+          {/* RO-BUG-04: groups.size === 0 also covers a submitted order with
+              zero visible (approved) lines — total === 0 — which used to say
+              "Everything delivered 🎉" identically to the genuine all-done
+              state. A brand-new, empty-of-approved-items order is not a
+              celebration; distinguish the two. */}
+          {total === 0 ? (
+            <div className="text-center py-12 bg-white rounded-xl border border-gray-200 text-sm text-gray-400">
+              {lang === 'th' ? 'ยังไม่มีรายการที่อนุมัติในออเดอร์นี้' : 'No approved items on this order yet.'}
+            </div>
+          ) : groups.size === 0 ? (
             <div className="text-center py-12 bg-white rounded-xl border border-gray-200 text-sm text-gray-400">
               {lang === 'th' ? 'ส่งครบทุกรายการแล้ว 🎉' : 'Everything delivered 🎉'}
             </div>

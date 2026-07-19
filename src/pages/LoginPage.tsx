@@ -10,6 +10,38 @@ import { supabase } from '@/lib/supabase'
 
 type LoginRole = 'super_admin' | 'manager' | 'staff'
 
+// LP-BUG-01: every sign-in failure ends up here as `err.message`, displayed
+// verbatim — but every throw site (AuthContext's completeSignIn/signInAdmin/
+// signInManager/signInStaff, plus Supabase's own signInWithPassword errors)
+// is hardcoded English prose. A Thai user always saw English, regardless of
+// the language switcher at the top of this page. The real fix is having the
+// auth helpers throw stable codes and translating those — a larger change
+// across every throw site in AuthContext.tsx, which already changed twice
+// today for the session-leak fix above. This is the narrower, lower-risk
+// version explicitly allowed as a floor: map the known, exact message
+// strings this app actually throws (plus Supabase's own two most common
+// ones) to translated text; anything unrecognised still falls back to the
+// original English rather than showing nothing.
+const AUTH_ERROR_TH: Record<string, string> = {
+  'Profile not found.': 'ไม่พบข้อมูลผู้ใช้',
+  'Access denied. Not a Super Admin account.': 'ปฏิเสธการเข้าถึง — บัญชีนี้ไม่ใช่ผู้ดูแลระบบสูงสุด',
+  'Access denied. Not a Manager account.': 'ปฏิเสธการเข้าถึง — บัญชีนี้ไม่ใช่ผู้จัดการ',
+  'This is not a staff account.': 'บัญชีนี้ไม่ใช่บัญชีพนักงาน',
+  'This account has been suspended. Please contact the system administrator.': 'บัญชีนี้ถูกระงับการใช้งาน กรุณาติดต่อผู้ดูแลระบบ',
+  'This account has been suspended. Please contact your manager or HR.': 'บัญชีนี้ถูกระงับการใช้งาน กรุณาติดต่อผู้จัดการหรือฝ่ายบุคคล',
+  'Invalid company code, username, or password.': 'รหัสบริษัท ชื่อผู้ใช้ หรือรหัสผ่านไม่ถูกต้อง',
+  'No staff account found for this company and username.': 'ไม่พบบัญชีพนักงานสำหรับบริษัทและชื่อผู้ใช้นี้',
+  'Your company’s access has been suspended. Please contact your administrator.': 'การเข้าถึงของบริษัทนี้ถูกระงับ กรุณาติดต่อผู้ดูแลระบบ',
+  // Supabase's own auth errors — message text is stable across supabase-js versions.
+  'Invalid login credentials': 'อีเมลหรือรหัสผ่านไม่ถูกต้อง',
+  'Email not confirmed': 'อีเมลยังไม่ได้รับการยืนยัน',
+  'Email rate limit exceeded': 'ส่งคำขอบ่อยเกินไป กรุณาลองใหม่อีกครั้งภายหลัง',
+}
+function localizeAuthError(message: string, lang: string): string {
+  if (lang !== 'th') return message
+  return AUTH_ERROR_TH[message] ?? message
+}
+
 export function LoginPage() {
   const navigate = useNavigate()
   const { signInAdmin, signInManager, signInStaff, user, profile, loading: authLoading } = useAuth()
@@ -46,7 +78,8 @@ export function LoginPage() {
       if (error) throw error
       setResetSent(true)
     } catch (err: unknown) {
-      setResetError(err instanceof Error ? err.message : (lang === 'th' ? 'ส่งอีเมลรีเซ็ตไม่สำเร็จ' : 'Failed to send reset email.'))
+      const raw = err instanceof Error ? err.message : (lang === 'th' ? 'ส่งอีเมลรีเซ็ตไม่สำเร็จ' : 'Failed to send reset email.')
+      setResetError(localizeAuthError(raw, lang))
     } finally {
       setResetLoading(false)
     }
@@ -81,7 +114,8 @@ export function LoginPage() {
       // (staff → /cases, others → /dashboard) and honours must_change_password.
       navigate('/')
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : (lang === 'th' ? 'เข้าสู่ระบบไม่สำเร็จ กรุณาลองอีกครั้ง' : 'Login failed. Please try again.'))
+      const raw = err instanceof Error ? err.message : (lang === 'th' ? 'เข้าสู่ระบบไม่สำเร็จ กรุณาลองอีกครั้ง' : 'Login failed. Please try again.')
+      setError(localizeAuthError(raw, lang))
     } finally {
       setLoading(false)
     }

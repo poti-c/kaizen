@@ -54,6 +54,11 @@ function money(n: number) { return n.toLocaleString(undefined, { minimumFraction
 // ── Main ─────────────────────────────────────────────────────────────────────
 export function CalendarView({ call, onOpenForm }: { call: Call; onOpenForm: (formId: string) => void }) {
   const [loading, setLoading] = useState(true)
+  // CAL-BUG-02: a failed load only ever logged to the console — the grid
+  // still rendered with whatever forms/appts/companies state happened to be
+  // there (empty on first load), indistinguishable from a genuinely quiet
+  // month.
+  const [loadError, setLoadError] = useState(false)
   const [forms, setForms] = useState<FormRow[]>([])
   const [appts, setAppts] = useState<ApptRow[]>([])
   const [companies, setCompanies] = useState<CalCompany[]>([])
@@ -75,7 +80,11 @@ export function CalendarView({ call, onOpenForm }: { call: Call; onOpenForm: (fo
       setForms(f.forms ?? [])
       setAppts(a.appointments ?? [])
       setCompanies(a.companies ?? [])
-    } catch (e) { console.error('Calendar load failed:', e) } finally { if (seq === loadSeq.current) setLoading(false) }
+      setLoadError(false)
+    } catch (e) {
+      console.error('Calendar load failed:', e)
+      if (seq === loadSeq.current) setLoadError(true)
+    } finally { if (seq === loadSeq.current) setLoading(false) }
   }, [call])
   useEffect(() => { load() }, [load])
 
@@ -197,6 +206,11 @@ export function CalendarView({ call, onOpenForm }: { call: Call; onOpenForm: (fo
 
       {loading ? (
         <div className="flex justify-center py-20"><Loader2 className="h-6 w-6 animate-spin text-slate-300" /></div>
+      ) : loadError ? (
+        <div className="flex flex-col items-center gap-3 py-20 text-center">
+          <p className="text-sm text-slate-400">Failed to load the calendar.</p>
+          <button onClick={load} className="px-3 h-8 rounded-lg bg-slate-800 text-slate-200 text-xs font-medium hover:bg-slate-700">Retry</button>
+        </div>
       ) : (
         <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
           <div className="grid grid-cols-7 border-b border-slate-800">
@@ -364,10 +378,19 @@ function AppointmentEditor({ call, companies, appt, onClose, onSaved }: {
         : new Date(`${f.date}T${f.start || '00:00'}:00+07:00`).toISOString()
       const end_at = !f.all_day && f.end ? new Date(`${f.date}T${f.end}:00+07:00`).toISOString() : null
       const client = companies.find(c => c.id === f.company_id)
+      // CAL-BUG-01: client_name has no input of its own — it's derived purely
+      // from the selected company, so this used to write `null` whenever
+      // f.company_id is empty ('— none —', also the state for any appointment
+      // stored with company_id = null from the start). That silently
+      // destroyed a free-text client name — a shape the type explicitly
+      // allows independent of company_id — on any save that touched nothing
+      // but the status or notes. Preserve the existing value when no company
+      // is (or was ever) linked.
+      const client_name = client?.name ?? appt?.client_name ?? null
       await call('upsert_appointment', {
         appointment: {
           id: appt?.id, kind: f.kind, title: f.title.trim(), company_id: f.company_id || null,
-          client_name: client?.name ?? null, start_at, end_at, all_day: f.all_day, mode: f.mode,
+          client_name, start_at, end_at, all_day: f.all_day, mode: f.mode,
           status: f.status, location: f.location, assignee: f.assignee, contact_name: f.contact_name,
           contact_phone: f.contact_phone, notes: f.notes,
         },

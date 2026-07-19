@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { X, Printer, Loader2, FileBarChart, ArrowUp, ArrowDown, Minus, AlertTriangle, CheckCircle2, TrendingUp, Users, CalendarClock, ClipboardList } from 'lucide-react'
+import { toast } from 'sonner'
 import { supabase } from '@/lib/supabase'
 import { useCompany } from '@/contexts/CompanyContext'
 import { useLanguage } from '@/contexts/LanguageContext'
@@ -33,12 +34,24 @@ function diffDays(a: string, b: string) {
   return Math.round((parseDateOnlyBkk(a).getTime() - parseDateOnlyBkk(b).getTime()) / 86400000)
 }
 const FINISHED = new Set(['done', 'approved'])
-// PMRPT-001/002: a task counts as still-open (overdue or upcoming) only if it has NOT
-// been performed yet and isn't cancelled. 'pending_approval' carries a performed_at
-// (work is done, awaiting sign-off), so it must not be flagged overdue or counted as
-// upcoming — the previous status-only set wrongly included it.
+// PMRPT-001/002/PMRPT-REJECT-01: a task counts as still-open (overdue or
+// upcoming) exactly when its status is 'scheduled' or 'in_progress'.
+// 'pending_approval' carries a performed_at (work is done, awaiting sign-off)
+// and must not be flagged overdue or upcoming; 'done'/'approved'/'cancelled'
+// are closed.
+//
+// This used to be `status !== 'cancelled' && !performed_at` — a check on the
+// PRESENCE of performed_at rather than the actual status. kaizen_pm_reject_task
+// (20260717000003_pm_multi_department.sql) sends a task back to 'in_progress'
+// for rework but deliberately does NOT clear performed_at (it is the timestamp
+// of the rejected attempt, kept for history). A rejected task therefore still
+// had performed_at set, so the old check classified it as closed — excluded
+// from overdueRows, cur.overdue, dueThisWeek and forecast30 — even though the
+// technician still has unfinished work due. PMSummaryCard's own open-ness check
+// (`s === 'scheduled' || s === 'in_progress'`) correctly kept counting the same
+// task, so the two views of the same data disagreed.
 function isStillOpen(t: { status: string; performed_at: string | null }) {
-  return t.status !== 'cancelled' && !t.performed_at
+  return t.status === 'scheduled' || t.status === 'in_progress'
 }
 
 function isFail(r: string) { const v = String(r).toLowerCase(); return v === 'fail' || v === 'failed' || v === 'false' }
@@ -53,7 +66,23 @@ function computeMetric(tasks: RTask[], windowStartKey: string, anchorKey: string
     if (dueInWindow) {
       due++
       if (FINISHED.has(t.status) && t.performed_at && perfKey(t.performed_at) <= t.due_date) onTime++
-      if (isStillOpen(t) && t.due_date < anchorKey) overdue++
+      // PMRPT-OVERDUE-DELTA: isStillOpen(t) reflects the task's status RIGHT NOW,
+      // not at anchorKey, so a task overdue three months ago that has since been
+      // performed always contributed 0 to the historical anchor — the vs-1M/3M/6M
+      // deltas were comparing a live, populated "overdue today" count against a
+      // near-empty "still open right now, AND was due before an old anchor" set,
+      // so the delta was positive (and painted red as "getting worse") almost
+      // regardless of whether overdue work actually improved or worsened.
+      // Reconstruct from the two immutable facts available instead: a task was
+      // overdue AT the anchor if it was already due, and — at that point in time
+      // — either never yet performed or not performed until after the anchor.
+      // (This can't perfectly account for a later rejection sending a
+      // once-"done" task back to rework, since performed_at isn't versioned; a
+      // straight status-based read has no chance of that either.)
+      const overdueAtAnchor = t.due_date < anchorKey &&
+        (!t.performed_at || perfKey(t.performed_at) > anchorKey) &&
+        t.status !== 'cancelled'
+      if (overdueAtAnchor) overdue++
     }
     // checklist fails for tasks performed within the window
     if (t.performed_at && perfKey(t.performed_at) >= windowStartKey && perfKey(t.performed_at) <= anchorKey) {
@@ -72,6 +101,7 @@ export function PMReport({ companyName, onClose }: { companyName: string; onClos
   const companyId = activeCompany?.id ?? null
   const [period, setPeriod] = useState<Period>(90)
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
   const [tasks, setTasks] = useState<RTask[]>([])
   const [assets, setAssets] = useState<RAsset[]>([])
   const [techNames, setTechNames] = useState<Record<string, string>>({})
@@ -89,6 +119,22 @@ export function PMReport({ companyName, onClose }: { companyName: string; onClos
         .eq('company_id', companyId),
       supabase.from('kaizen_profiles').select('id, full_name').eq('company_id', companyId),
     ])
+    // PMRPT-004: none of these three results were ever checked. supabase-js
+    // resolves { data: null, error } rather than rejecting, so an RLS denial,
+    // network blip, or schema error fell through the `?? []` fallbacks and
+    // rendered a fully-formed, authoritative-looking A4 report: a 0% compliance
+    // ring, a green "no overdue maintenance" message, empty breakdowns, zero on
+    // every stat tile. This is printed for management meetings — a failed fetch
+    // and a genuinely healthy company were indistinguishable. Surface the error
+    // and refuse to render the report body rather than a false all-clear.
+    const err = tRes.error || aRes.error || pRes.error
+    if (err) {
+      toast.error(err.message)
+      setLoadError(true)
+      setLoading(false)
+      return
+    }
+    setLoadError(false)
     setTasks((tRes.data as unknown as RTask[]) ?? [])
     setAssets((aRes.data as unknown as RAsset[]) ?? [])
     const names: Record<string, string> = {}
@@ -139,7 +185,16 @@ export function PMReport({ companyName, onClose }: { companyName: string; onClos
     }).sort((a, b) => b.days - a.days)
 
     // Checklist fail tasks (within period, performed)
-    const periodPerformed = tasks.filter(t => t.performed_at && perfKey(t.performed_at) >= periodStartKey && perfKey(t.performed_at) <= todayKey)
+    // PMRPT-REJECT-01: a rejected task keeps its performed_at from the rejected
+    // attempt (see isStillOpen above) but is NOT finished work — it is back in
+    // 'in_progress' for rework. Filtering on performed_at alone credited the
+    // technician with a "completion" that the on-time metric (which correctly
+    // gates on FINISHED.has(t.status)) simultaneously excluded, so totalPerformed,
+    // the per-technician bars, the pass/fail donut and avgDaysLate never
+    // reconciled with the rest of the report.
+    const periodPerformed = tasks.filter(t =>
+      t.performed_at && perfKey(t.performed_at) >= periodStartKey && perfKey(t.performed_at) <= todayKey &&
+      (FINISHED.has(t.status) || t.status === 'pending_approval'))
     let passItems = 0, failItems = 0, naItems = 0, tasksWithFail = 0
     for (const t of periodPerformed) {
       let hasFail = false
@@ -252,6 +307,18 @@ export function PMReport({ companyName, onClose }: { companyName: string; onClos
 
       {loading ? (
         <div className="flex justify-center py-24"><Loader2 className="h-7 w-7 animate-spin text-gray-400" /></div>
+      ) : loadError ? (
+        <div className="flex flex-col items-center gap-3 py-24 text-center px-6">
+          <AlertTriangle className="h-8 w-8 text-red-400" />
+          <p className="text-sm text-gray-600 max-w-sm">
+            {lang === 'th'
+              ? 'โหลดข้อมูลรายงานไม่สำเร็จ รายงานนี้อาจไม่สมบูรณ์ กรุณาลองใหม่ก่อนพิมพ์หรือแชร์'
+              : 'Could not load report data. This report would be incomplete — please retry before printing or sharing it.'}
+          </p>
+          <button onClick={load} className="px-4 h-9 rounded-lg bg-[var(--brand-primary)] text-white text-sm font-medium">
+            {lang === 'th' ? 'ลองใหม่' : 'Retry'}
+          </button>
+        </div>
       ) : (
         <div className="flex justify-center py-6 print:py-0">
           <div className="pm-report bg-white w-[210mm] max-w-full p-6 sm:p-8 shadow-2xl print:shadow-none">

@@ -190,9 +190,17 @@ Deno.serve(async (req) => {
         // Rate-limited by push service — log for alerting; retry not implemented.
         console.error("[kaizen-push] rate-limited by push service for user", userId, err?.body ?? err?.message);
       } else if (!code || err instanceof TypeError) {
-        // Pre-HTTP failure (malformed endpoint or key format) — permanent, prune the subscription.
-        console.error("[kaizen-push] non-HTTP error (malformed subscription?), pruning", err?.message);
-        dead.push(s.id);
+        // I18N-PUSH-BUG-01: this used to prune here on the theory that a missing
+        // statusCode meant a malformed subscription. But web-push throws exactly
+        // this shape — no statusCode, or a bare TypeError — for DNS failures, TCP/TLS
+        // errors, request timeouts, and fetch aborts too: ordinary transient outages
+        // of FCM/APNs/Mozilla autopush, indistinguishable here from a truly dead
+        // endpoint. Since all of a user's devices are notified concurrently through
+        // the same push service, one blip pruned every subscription they had at
+        // once, silently, with re-subscription only happening if they later reopen
+        // the PWA. Only the genuine dead/invalid-subscription HTTP responses above
+        // (404/410/400) are safe to prune; a pre-HTTP failure is logged, not deleted.
+        console.error("[kaizen-push] pre-HTTP send failure (transient? leaving subscription in place)", err?.message);
       } else {
         console.error("[kaizen-push] send failed", code, err?.body ?? err?.message);
       }

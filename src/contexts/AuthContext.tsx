@@ -178,7 +178,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const { data, error } = await supabase.auth.signInWithPassword({ email, password })
       if (error) throw error
       const { data: prof, error: profError } = await supabase.from('kaizen_profiles').select('*').eq('id', data.user.id).single()
-      if (profError || !prof) throw new Error('Profile not found.')
+      // AU-BUG-02: unlike signInStaff below, this used to throw without signing
+      // out. signInWithPassword had already created a valid Supabase session, so
+      // a transient network blip on the profile read (common on hotel mobile
+      // networks) left `user` set with `profile` stuck null and no profileError
+      // — LoginPage then navigates away on `user` alone, and Layout renders
+      // nothing for that state. The result was a blank white screen with no
+      // error and no way back except clearing site data.
+      if (profError || !prof) {
+        await supabase.auth.signOut().catch(() => { setUser(null); setProfile(null) })
+        throw new Error('Profile not found.')
+      }
       await completeSignIn(
         prof as KaizenProfile,
         'super_admin',
@@ -196,7 +206,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const { data, error } = await supabase.auth.signInWithPassword({ email, password })
       if (error) throw error
       const { data: prof, error: profError } = await supabase.from('kaizen_profiles').select('*').eq('id', data.user.id).single()
-      if (profError || !prof) throw new Error('Profile not found.')
+      // AU-BUG-02: see the matching comment in signInAdmin above.
+      if (profError || !prof) {
+        await supabase.auth.signOut().catch(() => { setUser(null); setProfile(null) })
+        throw new Error('Profile not found.')
+      }
       await completeSignIn(
         prof as KaizenProfile,
         'manager',

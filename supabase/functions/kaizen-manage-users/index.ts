@@ -454,6 +454,19 @@ serve(async (req) => {
         .upsert({ super_admin_id: userId, company_id: target.company_id }, { onConflict: "super_admin_id,company_id", ignoreDuplicates: true });
       if (grantErr) console.error("[kaizen-manage-users] super_admin grant upsert failed", userId, target.company_id, grantErr.message);
     }
+    // MU-DEMOTE-01: the promotion path above has always maintained the grant row,
+    // but nothing ever removed it on the way back down. kaizen_user_company_ids()
+    // (20260604000002_tenant_isolation_rls.sql) unions the caller's own company_id
+    // with every row in kaizen_super_admin_companies for their auth.uid(), with NO
+    // role check — so a demoted super_admin kept every RLS policy in the app
+    // treating them as still having cross-company access to every company they
+    // were ever granted, indefinitely, via the browser. Demoting (or soft-deleting,
+    // below) must revoke every grant row, not just change the profile's role.
+    if (target.role === "super_admin" && allowed.role !== undefined && allowed.role !== "super_admin") {
+      const { error: revokeErr } = await supabaseAdmin.from("kaizen_super_admin_companies")
+        .delete().eq("super_admin_id", userId);
+      if (revokeErr) console.error("[kaizen-manage-users] super_admin grant revoke failed", userId, revokeErr.message);
+    }
 
     return json({ success: true });
   }
@@ -480,6 +493,17 @@ serve(async (req) => {
 
     // 2) Ban the auth user so they can't obtain a session either (best-effort).
     try { await supabaseAdmin.auth.admin.updateUserById(userId, { ban_duration: "876000h" }); } catch (_) { /* non-fatal */ }
+
+    // MU-DEMOTE-01: banning blocks future SIGN-INS but does not revoke an
+    // already-issued JWT, and the ban call above is itself best-effort. Grant
+    // rows are the actual authority kaizen_user_company_ids() checks for
+    // cross-company access, independent of is_active/ban, so they must be
+    // revoked explicitly rather than relying on the ban as the only backstop.
+    if (check.target.role === "super_admin") {
+      const { error: revokeErr } = await supabaseAdmin.from("kaizen_super_admin_companies")
+        .delete().eq("super_admin_id", userId);
+      if (revokeErr) console.error("[kaizen-manage-users] super_admin grant revoke failed on delete", userId, revokeErr.message);
+    }
 
     // 3) Remove them from In Charge on every case; fall back to the case's department manager.
     const { data: picCases } = await supabaseAdmin

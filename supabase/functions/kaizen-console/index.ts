@@ -120,6 +120,33 @@ async function audit(action, detail, ip, success) {
   } catch { /* never block on audit */ }
 }
 
+// CE-BUG-03: the max_super_admins seat check counted only kaizen_profiles rows
+// HOMED at the company (company_id = cid). But an owner can also be attached
+// to a company purely via a kaizen_super_admin_companies cross-link — exactly
+// the union the CONS-001 comment on the `list` action already accounts for
+// when reporting an owner's companies. Linking an existing owner to a company
+// writes only that link row, never profiles.company_id, so cross-linked
+// owners were invisible to the cap and a 1-seat company could be linked to an
+// unlimited number of super_admins — each one passed the check because the
+// count reflected only owners homed there. Used by both the create/link-owner
+// seat check and link_owner_company below, which previously had no seat check
+// at all.
+async function activeSuperAdminIdsForCompany(cid, excludeId) {
+  const [{ data: homeRows }, { data: linkRows }] = await Promise.all([
+    admin.from("kaizen_profiles").select("id").eq("company_id", cid).eq("role", "super_admin").eq("is_active", true).is("deleted_at", null),
+    admin.from("kaizen_super_admin_companies").select("super_admin_id").eq("company_id", cid),
+  ]);
+  const ids = new Set((homeRows ?? []).map((r) => r.id));
+  const linkIds = [...new Set((linkRows ?? []).map((r) => r.super_admin_id))].filter((id) => !ids.has(id));
+  if (linkIds.length > 0) {
+    const { data: linkedProfiles } = await admin.from("kaizen_profiles").select("id")
+      .in("id", linkIds).eq("role", "super_admin").eq("is_active", true).is("deleted_at", null);
+    (linkedProfiles ?? []).forEach((r) => ids.add(r.id));
+  }
+  if (excludeId) ids.delete(excludeId);
+  return ids;
+}
+
 // ── Error grouping ───────────────────────────────────────────────────────────
 // Identical faults differ only in the volatile parts of their message (record
 // ids, line numbers, counts). Blanking those yields a stable signature, so the
@@ -226,7 +253,15 @@ function computeSubscription(plan, created_at, latestPaymentEnd, trialDays) {
     return { is_trial: false, has_payment: true, start: null, end: latestPaymentEnd, period_end: latestPaymentEnd, days_remaining: days, overdue: days < 0 };
   }
   if (plan === "trial" && created_at) {
-    const start = String(created_at).slice(0, 10);
+    // CE-BUG-02: slicing the UTC ISO string took the UTC calendar date, not
+    // the Bangkok one. A company created 2026-07-20T01:30 ICT has created_at
+    // = 2026-07-19T18:30Z, so the trial start (and every downstream value —
+    // end, period_end, days_remaining, overdue) landed a full day early for
+    // every company created in the 00:00–07:00 ICT window — the trial expired
+    // a day early in both the console and the client app's banner. Format
+    // through the same Bangkok formatter the rest of this function already
+    // uses on line 231, instead of slicing raw UTC digits.
+    const start = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(created_at));
     const endD = new Date(start + "T00:00:00+07:00"); endD.setUTCDate(endD.getUTCDate() + (trialDays || 30));
     const end = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok', year: 'numeric', month: '2-digit', day: '2-digit' }).format(endD);
     const days = daysUntil(end);
@@ -314,7 +349,18 @@ Deno.serve(async (req) => {
       ok = uOk && pOk;
     }
     if (!ok) {
-      const attempts = (rl?.attempts ?? 0) + 1;
+      // CE-BUG-01: the counter was only ever cleared on a SUCCESSFUL login. Once
+      // a lockout window expired, the row still held attempts = MAX_ATTEMPTS, so
+      // the very next failed attempt computed MAX_ATTEMPTS + 1 — immediately
+      // over the limit again — and pushed locked_until out another LOCKOUT_MIN,
+      // forever. The expiry check above only gated the CURRENT window; it never
+      // reset the stale counter behind it. One IP that ever hit the limit
+      // needed a perfect first attempt for the rest of the deployment's life.
+      // A lockout that has actually expired resets the counter before counting
+      // this attempt.
+      const lockoutExpired = rl?.locked_until && new Date(rl.locked_until) <= new Date();
+      const priorAttempts = lockoutExpired ? 0 : (rl?.attempts ?? 0);
+      const attempts = priorAttempts + 1;
       const locked = attempts >= MAX_ATTEMPTS;
       await admin.from("kaizen_console_login_attempts").upsert({
         ip, attempts: locked ? MAX_ATTEMPTS : attempts,
@@ -712,10 +758,8 @@ Deno.serve(async (req) => {
         if (alreadyLinked) continue;
         const { data: limCo } = await admin.from("kaizen_companies").select("max_super_admins").eq("id", cid).maybeSingle();
         if (limCo?.max_super_admins !== null && limCo?.max_super_admins !== undefined) {
-          const { count } = await admin.from("kaizen_profiles").select("id", { count: "exact", head: true })
-            .eq("company_id", cid).eq("role", "super_admin").eq("is_active", true).is("deleted_at", null)
-            .neq("id", existing.id);
-          if ((count ?? 0) >= limCo.max_super_admins) {
+          const count = (await activeSuperAdminIdsForCompany(cid, existing.id)).size;
+          if (count >= limCo.max_super_admins) {
             if (newCompanyId) await admin.from("kaizen_companies").delete().eq("id", newCompanyId);
             return json({ error: `This plan allows up to ${limCo.max_super_admins} Top Management account(s). Upgrade the package to add more.` }, 400);
           }
@@ -733,9 +777,8 @@ Deno.serve(async (req) => {
     const homeCompany = company_ids[0];
     const { data: limCo } = await admin.from("kaizen_companies").select("max_super_admins").eq("id", homeCompany).maybeSingle();
     if (limCo?.max_super_admins !== null && limCo?.max_super_admins !== undefined) {
-      const { count } = await admin.from("kaizen_profiles").select("id", { count: "exact", head: true })
-        .eq("company_id", homeCompany).eq("role", "super_admin").eq("is_active", true).is("deleted_at", null);
-      if ((count ?? 0) >= limCo.max_super_admins) {
+      const count = (await activeSuperAdminIdsForCompany(homeCompany)).size;
+      if (count >= limCo.max_super_admins) {
         if (newCompanyId) await admin.from("kaizen_companies").delete().eq("id", newCompanyId);
         return json({ error: `This plan allows up to ${limCo.max_super_admins} Top Management account(s). Upgrade the package to add more.` }, 400);
       }
@@ -808,6 +851,21 @@ Deno.serve(async (req) => {
       const { data: homeCo } = await admin.from("kaizen_companies").select("multi_company, name, plan").eq("id", prof.company_id).maybeSingle();
       if (homeCo && homeCo.multi_company !== true) {
         return json({ error: `The ${homeCo.plan ?? "current"} package on ${homeCo.name ?? "this owner's home company"} does not include the multi-company feature. Upgrade to a package with multi-company to grant access to more companies.` }, 400);
+      }
+    }
+    // CE-BUG-03: this action performed NO seat check at all — the exact
+    // bypass the fix above closes for the create/link-existing-owner path. A
+    // company on a 1-seat package could be linked to an unlimited number of
+    // super_admins through here in one call each.
+    const { data: alreadyLinked } = await admin.from("kaizen_super_admin_companies")
+      .select("super_admin_id").eq("super_admin_id", owner_id).eq("company_id", company_id).maybeSingle();
+    if (!alreadyLinked) {
+      const { data: limCo } = await admin.from("kaizen_companies").select("max_super_admins").eq("id", company_id).maybeSingle();
+      if (limCo?.max_super_admins !== null && limCo?.max_super_admins !== undefined) {
+        const count = (await activeSuperAdminIdsForCompany(company_id, owner_id)).size;
+        if (count >= limCo.max_super_admins) {
+          return json({ error: `This plan allows up to ${limCo.max_super_admins} Top Management account(s). Upgrade the package to add more.` }, 400);
+        }
       }
     }
     const { error } = await admin.from("kaizen_super_admin_companies").upsert({ super_admin_id: owner_id, company_id }, { onConflict: "super_admin_id,company_id", ignoreDuplicates: true });
@@ -1322,6 +1380,19 @@ Deno.serve(async (req) => {
 
   // ── Form Generator (Quotation / Invoice / Tax Invoice-Receipt / Receipt) ──────
   const FORM_PREFIX = { quotation: "QUO", invoice: "INV", tax_invoice_receipt: "TAX", receipt: "REC" };
+  // FG-BUG-01: this used to be declared only inside update_form_status, as
+  // ["draft","submitted","approved","rejected","voided","sent","followup","paid","issued"]
+  // — a list that had drifted from the client's actual STATUSES map
+  // (src/pages/console/FormGenerator.tsx) and never validated create_form's
+  // initial status at all. 'submitted'/'approved'/'rejected'/'voided' are set
+  // nowhere in the app; 'accepted'/'expired'/'cancelled'/'overdue' are options
+  // the StatusPicker offers but every one of them 400'd here. Because a
+  // quotation can never reach 'accepted'/'expired'/'cancelled', it stays in
+  // list's opportunity_value sum (sent/followup) forever — a won or lost deal
+  // never leaves the pipeline number shown on the Clients list and Dashboard.
+  // One source of truth for both create and update, matching the client map
+  // exactly (the union of every form_type's allowed statuses).
+  const VALID_FORM_STATUSES = ["draft", "sent", "accepted", "expired", "followup", "cancelled", "paid", "overdue", "issued"];
 
   if (action === "list_forms") {
     const [formsRes, companiesRes, settingsRes, productsRes, promosRes] = await Promise.all([
@@ -1484,6 +1555,12 @@ Deno.serve(async (req) => {
       }))
       .filter((it) => it.description || it.unit_price); // qty alone (e.g. starter row) is not a real line
     if (cleanItems.length === 0) return json({ error: "Add at least one line item." }, 400);
+    // FG-BUG-01: create_form never validated status at all, so the Initial
+    // Status dropdown could insert a value (e.g. 'cancelled') that
+    // update_form_status could then never accept back — a form could be
+    // created in a state the picker could never change it out of, or into.
+    const initialStatus = cleanStr(body.status) ?? "draft";
+    if (!VALID_FORM_STATUSES.includes(initialStatus)) return json({ error: "Invalid status value." }, 400);
 
     const vat_rate = (body.vat_rate !== undefined && body.vat_rate !== null && body.vat_rate !== "") ? Number(body.vat_rate) : 7;
     const non_vat_amount = Number(body.non_vat_amount) || 0;
@@ -1543,7 +1620,7 @@ Deno.serve(async (req) => {
       non_vat_amount, subtotal, vat_rate, vat_amount, total,
       discount_code, discount_percent, discount_amount,
       notes: cleanStr(body.notes),
-      status: cleanStr(body.status) ?? "draft",
+      status: initialStatus,
     };
     // Retry on a unique-violation (23505) so two near-simultaneous create_form
     // requests converge on distinct numbers instead of issuing a duplicate.
@@ -1565,7 +1642,6 @@ Deno.serve(async (req) => {
     const form_id = String(body.form_id ?? "");
     const status = cleanStr(body.status);
     if (!form_id || !status) return json({ error: "form_id and status required" }, 400);
-    const VALID_FORM_STATUSES = ["draft", "submitted", "approved", "rejected", "voided", "sent", "followup", "paid", "issued"];
     if (!VALID_FORM_STATUSES.includes(status)) return json({ error: "Invalid status value." }, 400);
     const { error } = await admin.from("kaizen_generated_forms")
       .update({ status, updated_at: new Date().toISOString() }).eq("id", form_id);

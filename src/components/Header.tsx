@@ -89,7 +89,21 @@ export function Header() {
       supabase.from('kaizen_notifications').select('id', { count: 'exact', head: true }).eq('user_id', profile.id).eq('is_read', false),
     ])
     if (seq !== fetchSeqRef.current) return // superseded by a newer fetch
-    if (listRes.data) setNotifications(listRes.data as KaizenNotification[])
+    // HS-BUG-01: countRes.error was never checked. supabase-js resolves
+    // rather than rejects, so a transient network/RLS/PostgREST failure
+    // yields count === null, which `?? 0` coerced into a legitimate-looking
+    // "zero unread" — clearing the bell badge AND the PWA app-icon badge
+    // (syncBadge actively clears it) while the preview list below still
+    // rendered unread rows with their blue dots. Since the badge only
+    // recomputes on the next realtime event, a user could miss unread
+    // notifications indefinitely after one failed poll. Leave the count
+    // untouched on error rather than collapsing it to 0.
+    if (listRes.error) console.error('[Header] notification list fetch failed', listRes.error.message)
+    else if (listRes.data) setNotifications(listRes.data as KaizenNotification[])
+    if (countRes.error) {
+      console.error('[Header] unread count fetch failed', countRes.error.message)
+      return
+    }
     const unread = countRes.count ?? 0
     setUnreadCount(unread)
     syncBadge(unread) // app icon badge (more reliable on iOS than SW)
@@ -153,7 +167,7 @@ export function Header() {
                     <p className={`text-sm font-semibold leading-snug ${!n.is_read ? 'text-gray-900' : 'text-gray-600'}`}>{loc.title}</p>
                     <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{loc.message}</p>
                   </>) })()}
-                  <p className="text-xs text-gray-400 mt-1">{formatRelativeTime(n.created_at)}</p>
+                  <p className="text-xs text-gray-400 mt-1">{formatRelativeTime(n.created_at, lang)}</p>
                 </div>
               </div>
             </div>
