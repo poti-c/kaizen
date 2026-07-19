@@ -248,7 +248,7 @@ export function FormGeneratorView({ call, onBack, initialPreviewId, onPreviewCon
   useEffect(() => {
     if (!initialPreviewId || !forms.length) return
     const target = forms.find(f => f.id === initialPreviewId)
-    if (target) { setDraftPayload(null); setFilterType(target.form_type); setPreview(target); onPreviewConsumed?.() }
+    if (target) { setDraftPayload(null); setLinkInvoiceId(null); setFilterType(target.form_type); setPreview(target); onPreviewConsumed?.() }
   }, [initialPreviewId, forms, onPreviewConsumed])
 
   const filtered = filterType === 'all' ? forms : forms.filter(f => f.form_type === filterType)
@@ -341,7 +341,13 @@ export function FormGeneratorView({ call, onBack, initialPreviewId, onPreviewCon
                     </td>
                     <td className="px-3 py-2.5">
                       <div className="flex items-center gap-1 justify-end">
-                        <button onClick={() => setPreview(f)} title="View / Print" className="p-1.5 rounded-lg text-slate-400 hover:text-amber-400 hover:bg-slate-800"><Printer className="h-4 w-4" /></button>
+                        {/* FG-BUG-03: `f` here is an already-confirmed History row, not a
+                            draft — but this used to leave any leftover draftPayload/
+                            linkInvoiceId from a PREVIOUS unrelated draft session in place,
+                            so PrintPreview's `unconfirmed={!!draftPayload}` could show a
+                            Confirm button on a historic document and, if clicked, apply the
+                            stale draft/invoice link to it. Clear both before opening. */}
+                        <button onClick={() => { setDraftPayload(null); setLinkInvoiceId(null); setPreview(f) }} title="View / Print" className="p-1.5 rounded-lg text-slate-400 hover:text-amber-400 hover:bg-slate-800"><Printer className="h-4 w-4" /></button>
                         <DeleteFormBtn form={f} call={call} onDeleted={load} />
                       </div>
                     </td>

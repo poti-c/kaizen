@@ -6,6 +6,7 @@ import { useCompany } from '@/contexts/CompanyContext'
 import { useLanguage } from '@/contexts/LanguageContext'
 import { DEPARTMENT_LABELS, type Department } from '@/types'
 import { bangkokDate, parseDateOnlyBkk } from '@/lib/utils'
+import { LoadError } from '@/components/LoadError'
 
 // ── Types for the data we query ──────────────────────────────────────────────
 interface RTask {
@@ -308,17 +309,15 @@ export function PMReport({ companyName, onClose }: { companyName: string; onClos
       {loading ? (
         <div className="flex justify-center py-24"><Loader2 className="h-7 w-7 animate-spin text-gray-400" /></div>
       ) : loadError ? (
-        <div className="flex flex-col items-center gap-3 py-24 text-center px-6">
-          <AlertTriangle className="h-8 w-8 text-red-400" />
-          <p className="text-sm text-gray-600 max-w-sm">
-            {lang === 'th'
-              ? 'โหลดข้อมูลรายงานไม่สำเร็จ รายงานนี้อาจไม่สมบูรณ์ กรุณาลองใหม่ก่อนพิมพ์หรือแชร์'
-              : 'Could not load report data. This report would be incomplete — please retry before printing or sharing it.'}
-          </p>
-          <button onClick={load} className="px-4 h-9 rounded-lg bg-[var(--brand-primary)] text-white text-sm font-medium">
-            {lang === 'th' ? 'ลองใหม่' : 'Retry'}
-          </button>
-        </div>
+        <LoadError
+          icon={<AlertTriangle className="h-8 w-8 text-red-400" />}
+          message={lang === 'th'
+            ? 'โหลดข้อมูลรายงานไม่สำเร็จ รายงานนี้อาจไม่สมบูรณ์ กรุณาลองใหม่ก่อนพิมพ์หรือแชร์'
+            : 'Could not load report data. This report would be incomplete — please retry before printing or sharing it.'}
+          onRetry={load}
+          retryLabel={lang === 'th' ? 'ลองใหม่' : 'Retry'}
+          className="py-24 px-6"
+        />
       ) : (
         <div className="flex justify-center py-6 print:py-0">
           <div className="pm-report bg-white w-[210mm] max-w-full p-6 sm:p-8 shadow-2xl print:shadow-none">

@@ -379,6 +379,16 @@ export function parseDateOnlyBkk(s: string): Date {
   return new Date(`${s}T00:00:00+07:00`)
 }
 
+// Extract a Supabase Storage path from a public kaizen-photos URL (e.g.
+// ".../storage/v1/object/public/kaizen-photos/<path>" → "<path>"), for
+// .storage.from('kaizen-photos').remove([path]) calls. Falls back to the raw
+// URL if the marker isn't found, matching every call site's prior behavior.
+export function photoStoragePathFromUrl(url: string): string {
+  const marker = '/kaizen-photos/'
+  const idx = url.indexOf(marker)
+  return idx !== -1 ? url.slice(idx + marker.length) : url
+}
+
 // Format a Date for display in Asia/Bangkok time — always pass this instead of
 // d.toLocaleDateString(locale, opts) so the result is stable regardless of the
 // browser/server's local timezone.

@@ -270,18 +270,11 @@ export function UsersPage() {
       const resettingPassword = editNewPassword.trim().length >= 8
       // AU-BUG-01: must_change_password is Top-Management-only server-side (the
       // edge function 403s the WHOLE update_profile call, not just this field, if
-      // a non-super_admin sends it). This used to be set unconditionally on any
-      // password reset, so a MANAGER resetting a staff member's password — an
-      // action reset_password itself fully permits — could never save at all:
-      // name/position/username changes bundled into the same call were rejected
-      // right along with it. A manager's reset now just skips the flag; the
-      // password itself still changes via the separate reset_password call below.
-      if (resettingPassword && profile?.role === 'super_admin') updates.must_change_password = true
-
-      // Persist the profile update (incl. must_change_password) BEFORE changing
-      // the password. If the password reset then fails, the user simply keeps
-      // their old password — a harmless state — instead of being locked into a
-      // new password with no "must change on next login" flag.
+      // a non-super_admin sends it), so it never belonged bundled into this call —
+      // sending it unconditionally used to make a MANAGER's password reset (an
+      // action reset_password itself fully permits) reject the whole save, name/
+      // position/username changes included. The flag is now set server-side by
+      // reset_password itself, for every authorized caller, so it's never sent here.
       await callManageUsers({ action: 'update_profile', userId: editUser.id, updates })
 
       if (resettingPassword) {

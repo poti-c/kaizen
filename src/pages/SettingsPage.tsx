@@ -22,6 +22,7 @@ import { RoomMonitorAccessSettings } from '@/components/RoomMonitorAccessSetting
 import { SpecialApprovalSettings } from '@/components/SpecialApprovalSettings'
 import { RoomNotifySettings } from '@/components/RoomNotifySettings'
 import { RrFoAccessSettings } from '@/components/RrFoAccessSettings'
+import { LoadError } from '@/components/LoadError'
 import { CollapsibleCard } from '@/components/CollapsibleCard'
 import { loadPerfConfig, DEFAULT_PERF_CONFIG, type PerfConfig, type StaffWeightKey, type ManagerWeightKey } from '@/lib/perfConfig'
 import { toast } from 'sonner'
@@ -1375,7 +1376,7 @@ function MultiDeptManagersSection({ companyId }: { companyId: string | null }) {
     return <div className="flex justify-center py-4"><Loader2 className="h-4 w-4 animate-spin text-gray-400" /></div>
   }
   if (loadError) {
-    return <p className="text-sm text-red-500 py-2">Failed to load managers — please refresh.</p>
+    return <LoadError compact message="Failed to load managers — please refresh." />
   }
   if (managers.length === 0) {
     return <p className="text-sm text-gray-400 py-2">No managers found in this company.</p>

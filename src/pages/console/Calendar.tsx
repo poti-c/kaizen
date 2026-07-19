@@ -3,6 +3,7 @@ import {
   Calendar as CalIcon, ChevronLeft, ChevronRight, Plus, X, Loader2, Trash2, Check,
   FileText, Wrench, Settings2, Users, MapPin, ExternalLink, AlertTriangle,
 } from 'lucide-react'
+import { LoadError } from '@/components/LoadError'
 
 type Call = <T,>(a: string, p?: Record<string, unknown>) => Promise<T>
 
@@ -207,10 +208,7 @@ export function CalendarView({ call, onOpenForm }: { call: Call; onOpenForm: (fo
       {loading ? (
         <div className="flex justify-center py-20"><Loader2 className="h-6 w-6 animate-spin text-slate-300" /></div>
       ) : loadError ? (
-        <div className="flex flex-col items-center gap-3 py-20 text-center">
-          <p className="text-sm text-slate-400">Failed to load the calendar.</p>
-          <button onClick={load} className="px-3 h-8 rounded-lg bg-slate-800 text-slate-200 text-xs font-medium hover:bg-slate-700">Retry</button>
-        </div>
+        <LoadError dark message="Failed to load the calendar." onRetry={load} className="py-20" />
       ) : (
         <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
           <div className="grid grid-cols-7 border-b border-slate-800">
