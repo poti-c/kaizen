@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Checkbox } from '@/components/ui/checkbox'
 import { PMTaskModal, taskTone, taskStatusKey, type PMTask } from '@/components/pm/PMSchedule'
+import { toast } from 'sonner'
 import { formatRelativeTime, formatDuration, isSLABreached, CATEGORIES, LOCATIONS, companyHasAddon, bangkokDate, parseDateOnlyBkk } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 import type { KaizenCase, CaseStatus, CasePriority, Department } from '@/types'
@@ -100,46 +101,63 @@ export function CasesPage() {
 
   useEffect(() => {
     if (!activeCompany) return
-    supabase.from('kaizen_settings').select('key, value')
-      .eq('company_id', activeCompany.id)
-      .in('key', ['custom_locations', 'custom_departments', 'custom_categories'])
-      .then(({ data, error }) => {
-        // CP-BUG-01: `error` was never checked, so a failed fetch was
-        // indistinguishable from "this company has no custom settings rows" —
-        // both fell through to setSettingsLoaded(true) with validDeptValues
-        // left at its built-in-only initial state. That falsely triggered the
-        // "this case's department was removed" banner for every case using a
-        // real custom department, and (see the prune effect below)
-        // settingsLoaded flipping true is what that effect waits for, so a
-        // failed fetch let stale department-filter pruning proceed against
-        // incomplete data too. On error, leave settingsLoaded false — the app
-        // keeps showing built-in departments rather than asserting customs
-        // were deleted, and the effect below correctly waits rather than
-        // pruning against wrong data.
-        if (error) { console.error('[CasesPage] settings fetch failed', error.message); return }
-        if (!data) { setSettingsLoaded(true); return }
-        const labelToSlug = Object.fromEntries(DEPARTMENTS.map((d) => [d.label, d.value]))
-        data.forEach((row: { key: string; value: unknown }) => {
-          // BUG-003: custom_departments must reset to built-ins when empty (empty array IS meaningful)
-          if (row.key === 'custom_departments') {
-            const vals = Array.isArray(row.value)
-              ? (row.value as string[]).map(label => labelToSlug[label] ?? label)
-              : []
-            setValidDeptValues(vals.length > 0 ? vals : DEPARTMENTS.map(d => d.value))
-            return
-          }
-          if (!Array.isArray(row.value) || row.value.length === 0) return
-          if (row.key === 'custom_locations') {
-            setCustomLocations(row.value as string[])
-          }
-          if (row.key === 'custom_categories') {
-            const slugs = (row.value as string[]).map(c => c.toLowerCase().replace(/ /g, '_'))
-            if (slugs.length > 0) setValidCategorySlugs(slugs)
-          }
-        })
-        setSettingsLoaded(true)
+    let cancelled = false
+    // CP-BUG-01: `error` was never checked, so a failed fetch was
+    // indistinguishable from "this company has no custom settings rows" —
+    // both fell through to setSettingsLoaded(true) with validDeptValues
+    // left at its built-in-only initial state. That falsely triggered the
+    // "this case's department was removed" banner for every case using a
+    // real custom department, and (see the prune effect below)
+    // settingsLoaded flipping true is what that effect waits for, so a
+    // failed fetch let stale department-filter pruning proceed against
+    // incomplete data too. On error, leave settingsLoaded false — the app
+    // keeps showing built-in departments rather than asserting customs
+    // were deleted, and the effect below correctly waits rather than
+    // pruning against wrong data.
+    //
+    // CP-BUG-05: leaving settingsLoaded false forever on error also disables
+    // the Advanced Search department filter (line ~314) for the rest of the
+    // session, with no visible error — a single transient failure silently
+    // made department filtering stop working. Retry once after a short delay
+    // before giving up and telling the user, rather than failing silently.
+    async function load(attempt: number) {
+      const { data, error } = await supabase.from('kaizen_settings').select('key, value')
+        .eq('company_id', activeCompany!.id)
+        .in('key', ['custom_locations', 'custom_departments', 'custom_categories'])
+      if (cancelled) return
+      if (error) {
+        console.error('[CasesPage] settings fetch failed', error.message)
+        if (attempt === 0) { setTimeout(() => { if (!cancelled) load(1) }, 3000); return }
+        toast.error(lang === 'th'
+          ? 'โหลดข้อมูลแผนกไม่สำเร็จ — ตัวกรองแผนกอาจใช้งานไม่ได้ กรุณารีเฟรชหน้า'
+          : 'Failed to load department settings — the department filter may not work. Please refresh.')
+        return
+      }
+      if (!data) { setSettingsLoaded(true); return }
+      const labelToSlug = Object.fromEntries(DEPARTMENTS.map((d) => [d.label, d.value]))
+      data.forEach((row: { key: string; value: unknown }) => {
+        // BUG-003: custom_departments must reset to built-ins when empty (empty array IS meaningful)
+        if (row.key === 'custom_departments') {
+          const vals = Array.isArray(row.value)
+            ? (row.value as string[]).map(label => labelToSlug[label] ?? label)
+            : []
+          setValidDeptValues(vals.length > 0 ? vals : DEPARTMENTS.map(d => d.value))
+          return
+        }
+        if (!Array.isArray(row.value) || row.value.length === 0) return
+        if (row.key === 'custom_locations') {
+          setCustomLocations(row.value as string[])
+        }
+        if (row.key === 'custom_categories') {
+          const slugs = (row.value as string[]).map(c => c.toLowerCase().replace(/ /g, '_'))
+          if (slugs.length > 0) setValidCategorySlugs(slugs)
+        }
       })
-  }, [activeCompany])
+      setSettingsLoaded(true)
+    }
+    load(0)
+    return () => { cancelled = true }
+  }, [activeCompany, lang])
 
   // Prune any saved dept filter values that no longer exist in this company's dept list.
   // Stale values would silently hide all cases (filter returns no match) with no visible error.

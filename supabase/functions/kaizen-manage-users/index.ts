@@ -584,6 +584,18 @@ serve(async (req) => {
     const { error: pwErr } = await supabaseAdmin.auth.admin.updateUserById(userId, { password });
     if (pwErr) return json({ error: pwErr.message }, 400);
 
+    // AU-BUG-01 follow-up: must_change_password used to be set by the CALLER via
+    // update_profile, which is super_admin-only server-side (MU-003-adjacent) — a
+    // manager's reset silently never forced the flag, since update_profile there
+    // only ever sends it when profile?.role === 'super_admin'. Set it here instead,
+    // unconditionally, on every successful reset through this action: assertCanManage
+    // above has already authorized the caller (manager or super_admin) to reset this
+    // specific user's password, and forcing a change on next login is the correct
+    // policy regardless of which authorized role performed the reset.
+    const { error: mcpErr } = await supabaseAdmin.from("kaizen_profiles")
+      .update({ must_change_password: true }).eq("id", userId);
+    if (mcpErr) console.error("[kaizen-manage-users] must_change_password flag update failed", userId, mcpErr.message);
+
     return json({ success: true });
   }
 

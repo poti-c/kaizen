@@ -11,7 +11,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { PhotoUpload } from '@/components/PhotoUpload'
-import { generateCaseNumber, CATEGORIES, LOCATIONS, formatDueBy, toDateTimeLocal, fromDateTimeLocal, bangkokDate } from '@/lib/utils'
+import { generateCaseNumber, CATEGORIES, LOCATIONS, formatDueBy, toDateTimeLocal, fromDateTimeLocal, bangkokDate, photoStoragePathFromUrl } from '@/lib/utils'
 import { CATEGORY_LABELS_EN, categoryLabel, deptLabel } from '@/types'
 import type { CasePriority, Department } from '@/types'
 import { toast } from 'sonner'
@@ -39,6 +39,17 @@ const DUE_PRESETS: { key: string; en: string; th: string; at: () => string }[] =
 function draftKey(profileId: string | undefined, companyId: string | undefined) {
   return `kaizen_create_case_draft:${profileId ?? 'anon'}:${companyId ?? 'none'}`
 }
+
+// CC-BUG-04 follow-up: the fixed global key this replaced. Nothing migrated a
+// draft already sitting under it at the moment the scoped key shipped, so a
+// user with an in-progress draft (e.g. a backgrounded PWA tab) at deploy time
+// would look under the new scoped key, find nothing, and see a blank form —
+// while their real, unsent draft sat orphaned under this key forever, never
+// read or cleared again. Checked as a one-time migration fallback below.
+const LEGACY_DRAFT_KEY = 'kaizen_create_case_draft'
+
+// Cap on case_number collision retries in handleSubmit below.
+const MAX_CASE_NUMBER_ATTEMPTS = 5
 
 interface CaseDraft {
   caseNumber: string
@@ -79,7 +90,14 @@ export function CreateCasePage() {
   // already requires `profile` to be resolved, so this is stable by the time
   // the page renders.
   const [dKey] = useState(() => draftKey(profile?.id, activeCompany?.id))
-  const [draft] = useState(() => loadDraft(dKey))
+  const [draft] = useState(() => {
+    const found = loadDraft(dKey)
+    if (found) return found
+    // One-time migration: adopt and clear a pre-scoping draft if one exists.
+    const legacy = loadDraft(LEGACY_DRAFT_KEY)
+    if (legacy) { clearDraft(LEGACY_DRAFT_KEY); return legacy }
+    return null
+  })
 
   // CC-BUG-02: was `const [caseNumber]` — read-only. See the retry loop in
   // handleSubmit for why it needs a setter.
@@ -193,7 +211,7 @@ export function CreateCasePage() {
       // on that very first, retryable failure.
       let usedCaseNumber = caseNumber
       let newCase: { id: string } | null = null
-      for (let attempt = 0; attempt < 5; attempt++) {
+      for (let attempt = 0; attempt < MAX_CASE_NUMBER_ATTEMPTS; attempt++) {
         const { data, error } = await supabase
           .from('kaizen_cases')
           .insert({
@@ -216,7 +234,7 @@ export function CreateCasePage() {
           .single()
         if (!error) { newCase = data; break }
         const isCaseNumberCollision = error.code === '23505' && /case_number/i.test(error.message)
-        if (!isCaseNumberCollision || attempt === 4) throw error
+        if (!isCaseNumberCollision || attempt === MAX_CASE_NUMBER_ATTEMPTS - 1) throw error
         usedCaseNumber = generateCaseNumber()
       }
       if (!newCase) throw new Error('Failed to create case after retrying a colliding case number.')
@@ -244,11 +262,7 @@ export function CreateCasePage() {
           // block's cleanup only runs when the CASE insert throws, which this swallowed
           // error never reaches. The user is told to re-add (which re-uploads), so the
           // dangling objects would otherwise never be referenced.
-          const orphanPaths = photoUrls.map((url) => {
-            const marker = '/kaizen-photos/'
-            const idx = url.indexOf(marker)
-            return idx !== -1 ? url.slice(idx + marker.length) : url
-          })
+          const orphanPaths = photoUrls.map(photoStoragePathFromUrl)
           supabase.storage.from('kaizen-photos').remove(orphanPaths).catch((rmErr) =>
             console.error('photo cleanup after failed photo-row insert failed', rmErr))
           toast.error(lang === 'th'
@@ -343,11 +357,7 @@ export function CreateCasePage() {
       navigate(`/cases/${newCase.id}`)
     } catch (err) {
       if (photoUrls.length > 0) {
-        const paths = photoUrls.map((url) => {
-          const marker = '/kaizen-photos/'
-          const idx = url.indexOf(marker)
-          return idx !== -1 ? url.slice(idx + marker.length) : url
-        })
+        const paths = photoUrls.map(photoStoragePathFromUrl)
         supabase.storage.from('kaizen-photos').remove(paths).catch((rmErr) =>
           console.error('photo cleanup after failed insert failed', rmErr)
         )
@@ -364,11 +374,7 @@ export function CreateCasePage() {
   // now-orphaned objects (mirrors the submit-failure cleanup) so they don't leak.
   function cancelAndLeave() {
     if (photoUrls.length > 0) {
-      const paths = photoUrls.map((url) => {
-        const marker = '/kaizen-photos/'
-        const idx = url.indexOf(marker)
-        return idx !== -1 ? url.slice(idx + marker.length) : url
-      })
+      const paths = photoUrls.map(photoStoragePathFromUrl)
       supabase.storage.from('kaizen-photos').remove(paths).catch((rmErr) =>
         console.error('photo cleanup on cancel failed', rmErr))
     }
@@ -599,9 +605,7 @@ export function CreateCasePage() {
                       // a reporter took and then discarded leaked in storage
                       // permanently. Delete the object itself before removing
                       // it from state.
-                      const marker = '/kaizen-photos/'
-                      const idx = url.indexOf(marker)
-                      const path = idx !== -1 ? url.slice(idx + marker.length) : url
+                      const path = photoStoragePathFromUrl(url)
                       supabase.storage.from('kaizen-photos').remove([path]).catch((rmErr) =>
                         console.error('photo cleanup on remove failed', rmErr))
                       setPhotoUrls((prev) => prev.filter((_, idx2) => idx2 !== i))
