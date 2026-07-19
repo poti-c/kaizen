@@ -11,7 +11,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { PhotoUpload } from '@/components/PhotoUpload'
-import { generateCaseNumber, CATEGORIES, LOCATIONS, companyHasAddon, formatDueBy, toDateTimeLocal, fromDateTimeLocal, bangkokDate } from '@/lib/utils'
+import { generateCaseNumber, CATEGORIES, LOCATIONS, formatDueBy, toDateTimeLocal, fromDateTimeLocal, bangkokDate } from '@/lib/utils'
 import { CATEGORY_LABELS_EN, categoryLabel, deptLabel } from '@/types'
 import type { CasePriority, Department } from '@/types'
 import { toast } from 'sonner'
@@ -398,9 +398,12 @@ export function CreateCasePage() {
                 <SelectContent>
                   {(() => {
                     let list = customCategories
-                    if (companyHasAddon(activeCompany, 'pms') && !list.some(c => c.slug === 'preventive_maintenance')) {
-                      list = [...list, { slug: 'preventive_maintenance', label: 'Preventive Maintenance' }]
-                    }
+                    // 'preventive_maintenance' is deliberately NOT offered here.
+                    // It is reserved for the PMS add-on: kaizen_pm_sync stamps it
+                    // on the cases it auto-creates, and CaseDetailPage keys the
+                    // PM-case treatment off it. Letting staff pick it by hand
+                    // produced cases that look auto-generated but are not, and it
+                    // competed with the company's own maintenance category.
                     // Always offer the free-text catch-all, even if a company removed
                     // 'Other' from its custom list — otherwise the Specify field below
                     // (gated on slug 'other') becomes unreachable.

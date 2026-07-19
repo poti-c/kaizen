@@ -190,14 +190,22 @@ export function DashboardPage() {
   const effectiveCats = useMemo(
     () => {
       const base = catList.length ? catList : CATEGORIES.map(c => ({ slug: c, label: t.categories[c as keyof typeof t.categories] || c }))
-      // PMS add-on lets cases be stored with category 'preventive_maintenance'
-      // (see CreateCasePage); include it so those cases are counted in the chart.
-      if (companyHasAddon(activeCompany, 'pms') && !base.some(c => c.slug === 'preventive_maintenance')) {
-        return [...base, { slug: 'preventive_maintenance', label: 'Preventive Maintenance' }]
+      // 'preventive_maintenance' is NOT a category anyone picks — it is written
+      // only by kaizen_pm_sync when the PMS add-on auto-creates a PM case. It is
+      // listed here purely so those cases are counted under their own name
+      // instead of falling into "Other".
+      //
+      // Gate on cases actually existing rather than on the add-on being enabled:
+      // with the add-on on and no PM cases yet, the old check left a permanent
+      // empty "Preventive Maintenance" row in the legend, competing with the
+      // company's own maintenance category.
+      const hasPmCases = allCases.some(c => c.category === 'preventive_maintenance')
+      if (hasPmCases && !base.some(c => c.slug === 'preventive_maintenance')) {
+        return [...base, { slug: 'preventive_maintenance', label: t.categories?.preventive_maintenance ?? 'Preventive Maintenance' }]
       }
       return base
     },
-    [catList, t, activeCompany],
+    [catList, t, allCases],
   )
   const categoryData = useMemo(() => {
     const catMap: Record<string, number> = {}
