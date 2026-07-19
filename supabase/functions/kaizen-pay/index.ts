@@ -109,8 +109,28 @@ Deno.serve(async (req) => {
 
   // The price is SERVER-authoritative — look it up from kaizen_products by key (works for
   // both 'subscription' packages and 'addon' keys). Never trust the client-declared amount.
-  const { data: priceRow, error: priceErr } = await admin.from("kaizen_products").select("price, duration_days").eq("key", target).maybeSingle();
+  const { data: priceRow, error: priceErr } = await admin.from("kaizen_products").select("price, duration_days, kind").eq("key", target).maybeSingle();
   if (priceErr) return json({ error: "Price lookup failed — please try again." }, 500);
+
+  // KP-004: `kind` is client-supplied and was never checked against the product's own
+  // kind. Because the lookups above and in the activation branch below match on `key`
+  // alone, a manager could POST { kind: "subscription", target: "<addon key>" }, pay the
+  // add-on's price, and have kaizen_activate_subscription run with the ADD-ON row:
+  // add-ons carry NULL seat caps (read as unlimited) and NULL duration_days (falling back
+  // to `|| 365`). A ฿10,000 add-on therefore bought an unlimited-seat, 365-day plan that
+  // should cost ฿79,000. The reverse — a package key sent as an add-on — merged a plan
+  // key into the company's addons JSONB.
+  //
+  // The product's own kind is the only authority here.
+  if (priceRow?.kind) {
+    const wantsSubscription = kind === "subscription";
+    const kindOk = wantsSubscription
+      ? priceRow.kind === "package"
+      : (priceRow.kind === "addon" || priceRow.kind === "custom");
+    if (!kindOk) {
+      return json({ error: "That item cannot be purchased that way. Please refresh and try again." }, 400);
+    }
+  }
   const expectedPrice = (priceRow?.price != null && priceRow.price > 0) ? Number(priceRow.price) : null;
   // Store the authoritative price when known, so submission/invoice records can't be
   // under-stated by the client.
@@ -222,8 +242,11 @@ Deno.serve(async (req) => {
         // term). The function extends from the existing expiry, or anchors a first-ever
         // subscription to today in Asia/Bangkok, and returns the prior plan + new end.
         // Capture current expiry BEFORE extending — this becomes the invoice period_start.
-        const { data: coNow } = await admin.from("kaizen_companies").select("plan_expires_at").eq("id", company_id).maybeSingle();
-        const periodStart = coNow?.plan_expires_at ? (coNow.plan_expires_at as string).slice(0, 10) : bangkokDate();
+        // KP-005: the column is subscription_end, not plan_expires_at — the old name
+        // does not exist, so the select errored and periodStart silently defaulted to
+        // today on every invoice, mis-stating the billing period for a renewal.
+        const { data: coNow } = await admin.from("kaizen_companies").select("subscription_end").eq("id", company_id).maybeSingle();
+        const periodStart = coNow?.subscription_end ? (coNow.subscription_end as string).slice(0, 10) : bangkokDate();
         const { data: actRows, error: updateErr } = await admin.rpc("kaizen_activate_subscription", {
           p_company_id: company_id,
           p_plan: target,
@@ -278,10 +301,17 @@ Deno.serve(async (req) => {
 
     if (activationErr) {
       // Mark as activation_failed so the slip-free dedup doesn't permanently block retries.
-      await admin.from("kaizen_payment_submissions")
+      //
+      // KP-006: this previously ended in `.catch(() => {})`. A PostgrestFilterBuilder is a
+      // bare PromiseLike — it implements then() but has no catch() — so that call threw
+      // TypeError synchronously, before the update was ever sent. The row therefore kept
+      // its old status, the dedup guard went on blocking retries, and the customer was
+      // left having paid with no plan and no way to resubmit. supabase-js resolves with
+      // { error } rather than rejecting, so the result is checked instead.
+      const { error: markErr } = await admin.from("kaizen_payment_submissions")
         .update({ status: "activation_failed" })
-        .eq("id", sub.id)
-        .catch(() => {});
+        .eq("id", sub.id);
+      if (markErr) console.error("[kaizen-pay] could not mark submission activation_failed", sub.id, markErr.message);
       return json({ error: activationErr }, 500);
     }
 

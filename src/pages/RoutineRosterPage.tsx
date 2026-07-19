@@ -223,13 +223,29 @@ export function RoutineRosterPage() {
     // saved and then vanished from the board until its date came round read as
     // a failure — prompting a re-order that the unique (template_id,
     // order_date) constraint would then reject with a confusing error.
+    // Yesterday's unfinished orders are carried over. A `>= today` window alone meant
+    // an order still awaiting acceptance or confirmation at midnight silently left the
+    // board — the work had not gone away, only the record of it.
+    //
+    // The carry-over is deliberately ONE day, not open-ended. This company has 31
+    // unfinished orders going back a fortnight; those are abandoned, not outstanding,
+    // and surfacing them all would bury today's actual work. One day recovers the
+    // midnight-rollover case without turning the board into a graveyard.
+    const carryFrom = shiftDate(today, -1)
     const res = await supabase.from('kaizen_rr_orders')
       .select('*, items:kaizen_rr_order_items(*)')
-      .eq('company_id', companyId).gte('order_date', today)
+      .eq('company_id', companyId)
+      .gte('order_date', carryFrom)
       .order('order_date', { ascending: true })
       .order('due_at', { ascending: true, nullsFirst: false })
+    // Yesterday's rows are kept only while unfinished; finished ones drop off so the
+    // board does not redisplay work that is already done.
+    const FINISHED = ['confirmed', 'cancelled']
+    const rows = ((res.data as RrOrder[]) ?? []).filter(
+      (o) => o.order_date >= today || !FINISHED.includes(o.status),
+    )
     if (res.error) toast.error(res.error.message)
-    setOrders((res.data as RrOrder[]) ?? [])
+    setOrders(rows)
     setLoading(false)
   // RR-004: include rrFo state in deps so load re-runs once access is confirmed
   }, [companyId, today, tomorrow, rrFo.loading, rrFo.allowed])
@@ -767,8 +783,10 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
   // day; the old check called every future date "tomorrow".
   const dayWord = (() => {
     const t0 = bangkokDate()
-    if (o.order_date <= t0) return tr.rr.today
+    if (o.order_date === t0) return tr.rr.today
     if (o.order_date === shiftDate(t0, 1)) return tr.rr.tomorrow
+    // Past dates name the day too: an unfinished order carried over from yesterday
+    // stays on the board, and labelling it "today" would hide that it is overdue.
     return new Date(`${o.order_date}T00:00:00+07:00`).toLocaleDateString(
       lang === 'th' ? 'th-TH' : 'en-GB',
       { day: 'numeric', month: 'short', timeZone: 'Asia/Bangkok' },
