@@ -215,11 +215,18 @@ export function RoutineRosterPage() {
     setTemplates(tplList)
 
     // Orders are now placed on demand (click a template → popup → 'sent'); we no
-    // longer auto-materialize 'pending' rows. The board shows today + tomorrow's
-    // service dates together, so the date is carried per-order, not by a tab.
+    // longer auto-materialize 'pending' rows. The date is carried per-order, not
+    // by a tab.
+    //
+    // Everything from today onward is loaded, not just today + tomorrow: the
+    // order popup lets staff pick any future service date, and an order that
+    // saved and then vanished from the board until its date came round read as
+    // a failure — prompting a re-order that the unique (template_id,
+    // order_date) constraint would then reject with a confusing error.
     const res = await supabase.from('kaizen_rr_orders')
       .select('*, items:kaizen_rr_order_items(*)')
-      .eq('company_id', companyId).in('order_date', [today, tomorrow])
+      .eq('company_id', companyId).gte('order_date', today)
+      .order('order_date', { ascending: true })
       .order('due_at', { ascending: true, nullsFirst: false })
     if (res.error) toast.error(res.error.message)
     setOrders((res.data as RrOrder[]) ?? [])
@@ -666,6 +673,15 @@ function PlaceOrderModal({ template: tp, companyId, profile, today, tomorrow, ro
                   {label}
                 </button>
               ))}
+              {/* Any later date. Today/Tomorrow stay as one-tap shortcuts for the
+                  common cases; this covers day-after-tomorrow and beyond.
+                  `min` blocks past dates — a routine cannot be ordered backwards. */}
+              <input type="date" value={serviceDate} min={today}
+                onChange={(e) => { if (e.target.value) setServiceDate(e.target.value) }}
+                className={`h-8 rounded-lg border px-2 text-xs focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/40 ${
+                  serviceDate !== today && serviceDate !== tomorrow
+                    ? 'border-[var(--brand-primary)] text-[var(--brand-primary)]'
+                    : 'border-gray-300 text-gray-600'}`} />
               <input type="time" value={time} onChange={(e) => setTime(e.target.value)}
                 className="h-8 rounded-lg border border-gray-300 px-2 text-xs focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/40" />
             </div>
@@ -746,8 +762,18 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
     (expanded || (o.status === 'accepted' && onFulfill && !readOnly))
   const canTickRooms = !readOnly && onFulfill && o.status === 'accepted'
 
-  // Deliver-by label — the date is carried by the order itself (today / tomorrow service).
-  const dayWord = o.order_date > bangkokDate() ? tr.rr.tomorrow : tr.rr.today
+  // Deliver-by label — the date is carried by the order itself. Orders can now
+  // be placed for any future date, so anything past tomorrow names the actual
+  // day; the old check called every future date "tomorrow".
+  const dayWord = (() => {
+    const t0 = bangkokDate()
+    if (o.order_date <= t0) return tr.rr.today
+    if (o.order_date === shiftDate(t0, 1)) return tr.rr.tomorrow
+    return new Date(`${o.order_date}T00:00:00+07:00`).toLocaleDateString(
+      lang === 'th' ? 'th-TH' : 'en-GB',
+      { day: 'numeric', month: 'short', timeZone: 'Asia/Bangkok' },
+    )
+  })()
   const deliverLabel = dueLabel ? tr.rr.readyByOn(dueLabel, dayWord) : ''
   // "Late": delivered/confirmed after the due time.
   const lateAt = (ts: string | null) => !!(o.due_at && ts && new Date(ts).getTime() > new Date(o.due_at).getTime())
@@ -1522,8 +1548,12 @@ function RoutineMonitorBoard({ companyId, orders, today, tomorrow, loading, onRe
     groups.get(k)!.push(o)
   }
 
+  // Orders can be placed for any future date, so anything past tomorrow shows
+  // the actual day rather than a raw ISO string.
   const dayLabel = (d: string) => d === today ? (lang === 'th' ? 'วันนี้' : 'today')
-    : d === tomorrow ? (lang === 'th' ? 'พรุ่งนี้' : 'tomorrow') : d
+    : d === tomorrow ? (lang === 'th' ? 'พรุ่งนี้' : 'tomorrow')
+    : new Date(`${d}T00:00:00+07:00`).toLocaleDateString(lang === 'th' ? 'th-TH' : 'en-GB',
+        { day: 'numeric', month: 'short', timeZone: 'Asia/Bangkok' })
 
   if (loading) return <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-gray-400" /></div>
 
@@ -1531,7 +1561,7 @@ function RoutineMonitorBoard({ companyId, orders, today, tomorrow, loading, onRe
     <div className="space-y-4">
       <div className="text-center">
         <p className="text-sm font-semibold text-gray-900">
-          {lang === 'th' ? 'วันนี้ + พรุ่งนี้' : 'Today + Tomorrow'}
+          {lang === 'th' ? 'วันนี้เป็นต้นไป' : 'Today Onwards'}
         </p>
         <p className="text-[11px] text-gray-400 flex items-center justify-center gap-1">
           <span className="inline-block h-1.5 w-1.5 rounded-full bg-green-500" />{lang === 'th' ? 'อัปเดตสด' : 'live'}
