@@ -361,7 +361,7 @@ export function RoutineRosterPage() {
           {([...(['board'] as const), ...(canRooms ? (['rooms'] as const) : []), ...(canManage ? (['report'] as const) : [])]).map((v) => (
             <button key={v} onClick={() => setView(v)}
               className={`px-3 h-8 whitespace-nowrap flex-shrink-0 transition-colors ${view === v ? 'bg-[var(--brand-primary)] text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
-              {v === 'board' ? tr.rr.boardTab : v === 'rooms' ? (lang === 'th' ? `ใบสั่ง${unitOne(unit, lang)}` : `${unitOne(unit, lang)} order`) : tr.rr.reportTab}
+              {v === 'board' ? tr.rr.boardTab : v === 'rooms' ? (lang === 'th' ? `ใบสั่ง${unitOne(unit, lang)}` : `${unitOne(unit, lang)} Order`) : tr.rr.reportTab}
             </button>
           ))}
         </div>

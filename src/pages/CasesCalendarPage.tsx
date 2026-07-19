@@ -284,7 +284,7 @@ export function CasesCalendarPage() {
   if (showRrData) rrRoomOrders.forEach(ro => { (byDay[ro.order_date] ||= []).push({ kind: 'roomorder', ro }) })
 
   const roomNoun = unitOne(roomUnit, lang)
-  const roomOrderLabel = lang === 'th' ? `ใบสั่ง${roomNoun}` : `${roomNoun} order`
+  const roomOrderLabel = lang === 'th' ? `ใบสั่ง${roomNoun}` : `${roomNoun} Order`
   // Room-order summary: who submitted + how many rooms in each state, numbers in brackets.
   const roomOrderSub = (ro: RoomOrderCal) => {
     const who = ro.submitted_by ? actorNames[ro.submitted_by] : null
