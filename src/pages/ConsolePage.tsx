@@ -1186,15 +1186,26 @@ function RecordPaymentDialog({ companyId, plan, call, onClose, onSaved }: {
 }
 
 // ── Audit tab ────────────────────────────────────────────────────────────────
-interface AppError {
-  id: string; company_id: string | null; company_name: string | null; user_id: string | null
-  source: string; message: string; detail: Record<string, unknown> | null; url: string | null
-  user_agent: string | null; resolved: boolean; created_at: string
+/** One occurrence, shown as a sample inside its group. */
+interface AppErrorSample {
+  id: string; created_at: string; url: string | null
+  detail: Record<string, unknown> | null; user_agent: string | null; resolved: boolean
+}
+
+/**
+ * Client-app errors arrive grouped by signature rather than as a flat list.
+ * `code` is a stable short id (e.g. "E-0LLA") derived from that signature — it
+ * survives reloads and deploys, so a specific fault can be referred to by name.
+ */
+interface AppErrorGroup {
+  code: string; signature: string; message: string; sources: string[]
+  count: number; unresolved: number; first_seen: string; last_seen: string
+  companies: string[]; urls: string[]; samples: AppErrorSample[]
 }
 
 function AuditTab({ call }: { call: <T,>(a: string, p?: Record<string, unknown>) => Promise<T> }) {
   const [entries, setEntries] = useState<AuditEntry[]>([])
-  const [appErrors, setAppErrors] = useState<AppError[]>([])
+  const [errGroups, setErrGroups] = useState<AppErrorGroup[]>([])
   const [loading, setLoading] = useState(true)
   const [sub, setSub] = useState<'activity' | 'errors'>('activity')
   const [expanded, setExpanded] = useState<string | null>(null)
@@ -1205,26 +1216,29 @@ function AuditTab({ call }: { call: <T,>(a: string, p?: Record<string, unknown>)
     setLoading(true)
     Promise.all([
       call<{ entries: AuditEntry[] }>('audit_log').then(d => d.entries).catch(() => [] as AuditEntry[]),
-      call<{ errors: AppError[] }>('list_errors').then(d => d.errors).catch(() => [] as AppError[]),
-    ]).then(([a, e]) => { setEntries(a); setAppErrors(e) }).finally(() => setLoading(false))
+      call<{ groups: AppErrorGroup[] }>('list_errors').then(d => d.groups).catch(() => [] as AppErrorGroup[]),
+    ]).then(([a, g]) => { setEntries(a); setErrGroups(g) }).finally(() => setLoading(false))
   }, [call])
   useEffect(() => { reload() }, [reload])
 
   const resolvingRef = useRef(new Set<string>())
-  async function resolve(id: string, resolved: boolean) {
-    if (resolvingRef.current.has(id)) return
-    resolvingRef.current.add(id)
-    setAppErrors(prev => prev.map(e => e.id === id ? { ...e, resolved } : e))
-    try { await call('resolve_error', { error_id: id, resolved }) } catch { reload() }
-    resolvingRef.current.delete(id)
+  /** Resolve or reopen every occurrence in a group at once. */
+  async function resolveGroup(code: string, resolved: boolean) {
+    if (resolvingRef.current.has(code)) return
+    resolvingRef.current.add(code)
+    setErrGroups(prev => prev.map(g => g.code === code ? { ...g, unresolved: resolved ? 0 : g.count } : g))
+    try { await call('resolve_error_group', { code, resolved }) } catch { reload() }
+    resolvingRef.current.delete(code)
   }
 
-  const { node: periodNode, inPeriod } = usePeriodFilter([...entries.map(e => e.created_at), ...appErrors.map(e => e.created_at)])
+  const { node: periodNode, inPeriod } = usePeriodFilter(entries.map(e => e.created_at))
   const activity = entries.filter(e => e.success && inPeriod(e.created_at))
   const consoleErrors = entries.filter(e => !e.success && inPeriod(e.created_at))
-  const shownAppErrors = appErrors.filter(e => inPeriod(e.created_at))
-  const openAppErrors = shownAppErrors.filter(e => !e.resolved)
-  const errCount = consoleErrors.length + openAppErrors.length
+  // Groups deliberately span all time: they carry first/last-seen, which says
+  // more about whether a fault is live than a month filter does — and the old
+  // filter only ever applied to the newest 100 rows anyway.
+  const openGroups = errGroups.filter(g => g.unresolved > 0)
+  const errCount = consoleErrors.length + openGroups.length
   // Paginate the activity feed (max per page selectable).
   const totalPages = Math.max(1, Math.ceil(activity.length / pageSize))
   const pageClamped = Math.min(page, totalPages)
@@ -1279,30 +1293,65 @@ function AuditTab({ call }: { call: <T,>(a: string, p?: Record<string, unknown>)
         </>
       ) : (
         <div className="space-y-4">
-          {/* Client-app errors */}
+          {/* Client-app errors, grouped by signature */}
           <div>
-            <p className="text-[11px] uppercase tracking-wide text-slate-500 mb-1.5">Client app errors</p>
+            <div className="flex items-baseline gap-2 mb-1.5">
+              <p className="text-[11px] uppercase tracking-wide text-slate-500">Client app errors</p>
+              <p className="text-[11px] text-slate-600">
+                grouped &middot; all time &middot; quote a code to have it fixed
+              </p>
+            </div>
             <div className="bg-slate-900 border border-slate-800 rounded-xl divide-y divide-slate-800 overflow-hidden">
-              {shownAppErrors.map((e) => (
-                <div key={e.id} className={`px-4 py-2.5 text-xs ${e.resolved ? 'opacity-50' : ''}`}>
-                  <div className="flex items-center gap-3">
-                    <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${e.resolved ? 'bg-slate-500' : 'bg-red-400'}`} />
-                    <span className="font-mono text-[10px] text-slate-400 w-16 flex-shrink-0 uppercase">{e.source}</span>
-                    <button onClick={() => setExpanded(expanded === e.id ? null : e.id)} className="text-slate-200 flex-1 truncate text-left hover:text-white">{e.message}</button>
-                    <span className="text-slate-400 flex-shrink-0 w-32 truncate text-right">{e.company_name ?? '—'}</span>
-                    <span className="text-slate-400 flex-shrink-0 w-32 text-right">{new Date(e.created_at).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bangkok' })}</span>
-                    <button onClick={() => resolve(e.id, !e.resolved)} className="flex-shrink-0 text-[10px] px-2 py-0.5 rounded-md border border-slate-700 text-slate-300 hover:bg-slate-800">{e.resolved ? 'Reopen' : 'Resolve'}</button>
-                  </div>
-                  {expanded === e.id && (
-                    <div className="mt-2 ml-7 space-y-1 text-[11px] text-slate-400">
-                      {e.url && <div className="truncate"><span className="text-slate-500">URL:</span> {e.url}</div>}
-                      {e.detail && <pre className="whitespace-pre-wrap break-words bg-slate-950 border border-slate-800 rounded-lg p-2 text-[10px] text-slate-400 max-h-48 overflow-y-auto">{JSON.stringify(e.detail, null, 2)}</pre>}
-                      {e.user_agent && <div className="truncate"><span className="text-slate-500">UA:</span> {e.user_agent}</div>}
+              {errGroups.map((g) => {
+                const open = g.unresolved > 0
+                return (
+                  <div key={g.code} className={`px-4 py-2.5 text-xs ${open ? '' : 'opacity-50'}`}>
+                    <div className="flex items-center gap-3">
+                      <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${open ? 'bg-red-400' : 'bg-slate-500'}`} />
+                      {/* The stable short code — the whole point of the grouping. */}
+                      <button
+                        onClick={() => navigator.clipboard?.writeText(g.code)}
+                        title="Copy code"
+                        className="font-mono text-[10px] px-1.5 py-0.5 rounded border border-slate-700 bg-slate-950 text-amber-400 flex-shrink-0 hover:border-amber-500/60"
+                      >{g.code}</button>
+                      <button onClick={() => setExpanded(expanded === g.code ? null : g.code)} className="text-slate-200 flex-1 truncate text-left hover:text-white">{g.message}</button>
+                      <span className="font-mono text-[10px] text-slate-400 flex-shrink-0 uppercase">{g.sources.join('+')}</span>
+                      <span className={`flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded-full ${g.count > 1 ? 'bg-slate-800 text-slate-300' : 'text-slate-500'}`}>{g.count}&times;</span>
+                      <span className="text-slate-400 flex-shrink-0 w-28 truncate text-right">{g.companies.join(', ') || '—'}</span>
+                      <span className="text-slate-400 flex-shrink-0 w-32 text-right">{new Date(g.last_seen).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bangkok' })}</span>
+                      <button onClick={() => resolveGroup(g.code, open)} className="flex-shrink-0 text-[10px] px-2 py-0.5 rounded-md border border-slate-700 text-slate-300 hover:bg-slate-800">{open ? 'Resolve' : 'Reopen'}</button>
                     </div>
-                  )}
-                </div>
-              ))}
-              {shownAppErrors.length === 0 && <div className="px-4 py-8 text-center text-sm text-slate-300">No client-app errors logged. 🎉</div>}
+                    {expanded === g.code && (
+                      <div className="mt-2 ml-7 space-y-1.5 text-[11px] text-slate-400">
+                        <div>
+                          <span className="text-slate-500">Seen:</span> {g.count}&times; between{' '}
+                          {new Date(g.first_seen).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Bangkok' })} and{' '}
+                          {new Date(g.last_seen).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Bangkok' })}
+                          {g.unresolved > 0 && <span className="text-red-400"> &middot; {g.unresolved} open</span>}
+                        </div>
+                        {g.urls.length > 0 && (
+                          <div className="space-y-0.5">
+                            <span className="text-slate-500">Pages:</span>
+                            {g.urls.map(u => <div key={u} className="truncate pl-2">{u}</div>)}
+                          </div>
+                        )}
+                        {g.samples.map(s => (
+                          <div key={s.id} className="space-y-1">
+                            <div className="text-slate-500">
+                              {new Date(s.created_at).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bangkok' })}
+                            </div>
+                            {s.detail && Object.keys(s.detail).length > 0 && (
+                              <pre className="whitespace-pre-wrap break-words bg-slate-950 border border-slate-800 rounded-lg p-2 text-[10px] text-slate-400 max-h-48 overflow-y-auto">{JSON.stringify(s.detail, null, 2)}</pre>
+                            )}
+                          </div>
+                        ))}
+                        {g.samples[0]?.user_agent && <div className="truncate"><span className="text-slate-500">UA:</span> {g.samples[0].user_agent}</div>}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+              {errGroups.length === 0 && <div className="px-4 py-8 text-center text-sm text-slate-300">No client-app errors logged. 🎉</div>}
             </div>
           </div>
 

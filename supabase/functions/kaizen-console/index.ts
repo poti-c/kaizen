@@ -120,6 +120,89 @@ async function audit(action, detail, ip, success) {
   } catch { /* never block on audit */ }
 }
 
+// ── Error grouping ───────────────────────────────────────────────────────────
+// Identical faults differ only in the volatile parts of their message (record
+// ids, line numbers, counts). Blanking those yields a stable signature, so the
+// same fault collapses into one row however many times it fired.
+//
+// Source is deliberately NOT part of the key. A single fault is usually caught
+// twice — once by the window handler as "Uncaught ReferenceError: Eye is not
+// defined" and once by the ErrorBoundary as "Eye is not defined" — and showing
+// that as two unrelated entries is the clustering this view exists to remove.
+// The throw-type prefix is stripped for the same reason. Groups list every
+// source they were seen through instead.
+function errorSignature(message) {
+  const m = (message ?? "")
+    .replace(/^uncaught\s+(?:\w*Error|exception)\s*:\s*/i, "")
+    .replace(/^unhandled\s+promise\s+rejection\s*:\s*/i, "")
+    .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, "{id}")
+    .replace(/\b\d[\d.,]*\b/g, "{n}")
+    .replace(/'[^']*'/g, "'{s}'")
+    .replace(/"[^"]*"/g, '"{s}"')
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+  return m;
+}
+
+// FNV-1a over the signature, base36 → a short code that stays the same across
+// reloads and deploys. That stability is the point: it lets a human refer to a
+// specific fault by name ("E-7K3M") long after this page was closed.
+function errorCode(signature) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < signature.length; i++) {
+    h ^= signature.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return "E-" + h.toString(36).toUpperCase().padStart(7, "0").slice(-4);
+}
+
+/** Newest-first groups over the whole log, each with a few sample occurrences. */
+async function loadErrorGroups() {
+  // Bounded so a runaway logger can never blow the response up; far above the
+  // old limit of 100, and it counts rows rather than truncating the history.
+  const { data } = await admin.from("kaizen_error_log")
+    .select("id, company_id, source, message, detail, url, user_agent, resolved, created_at, kaizen_companies(name)")
+    .order("created_at", { ascending: false }).limit(5000);
+
+  const map = new Map();
+  for (const e of data ?? []) {
+    const co = e.kaizen_companies;
+    const company_name = Array.isArray(co) ? (co[0]?.name ?? null) : (co?.name ?? null);
+    const sig = errorSignature(e.message);
+    let g = map.get(sig);
+    if (!g) {
+      g = {
+        code: errorCode(sig), signature: sig, sources: [], message: e.message,
+        count: 0, unresolved: 0, first_seen: e.created_at, last_seen: e.created_at,
+        companies: [], urls: [], samples: [], ids: [],
+      };
+      map.set(sig, g);
+    }
+    g.count++;
+    if (!e.resolved) g.unresolved++;
+    if (e.source && !g.sources.includes(e.source)) g.sources.push(e.source);
+    // Prefer the tersest variant for display: "Eye is not defined" reads better
+    // than the window handler's "Uncaught ReferenceError: Eye is not defined".
+    if (e.message && e.message.length < g.message.length) g.message = e.message;
+    // Rows arrive newest-first, so the last one seen is the oldest.
+    g.first_seen = e.created_at;
+    g.ids.push(e.id);
+    if (company_name && !g.companies.includes(company_name)) g.companies.push(company_name);
+    if (e.url && !g.urls.includes(e.url) && g.urls.length < 5) g.urls.push(e.url);
+    if (g.samples.length < 3) {
+      g.samples.push({
+        id: e.id, created_at: e.created_at, url: e.url,
+        detail: e.detail, user_agent: e.user_agent, resolved: e.resolved,
+      });
+    }
+  }
+  // Open groups first, then by recency — what still needs attention rises.
+  return [...map.values()].sort((a, b) =>
+    (b.unresolved > 0 ? 1 : 0) - (a.unresolved > 0 ? 1 : 0) ||
+    new Date(b.last_seen).getTime() - new Date(a.last_seen).getTime());
+}
+
 // Limits/features/multi-company defaults for a given package key.
 async function packageDefaults(planKey) {
   if (!planKey) return null;
@@ -265,17 +348,38 @@ Deno.serve(async (req) => {
     return json({ admins: adminsRes.data ?? [], company: settingsRes.data ?? null });
   }
 
+  // Errors are returned GROUPED by signature, not as a flat list. The old flat
+  // shape took only the newest 100 rows with no pagination, so anything older
+  // was invisible while the UI's "All time" filter implied otherwise. Grouping
+  // also stops one noisy fault burying everything else.
   if (action === "list_errors") {
-    const { data } = await admin.from("kaizen_error_log")
-      .select("id, company_id, user_id, source, message, detail, url, user_agent, resolved, created_at, kaizen_companies(name)")
-      .order("created_at", { ascending: false }).limit(100);
-    const errors = (data ?? []).map((e) => {
-      const co = e.kaizen_companies;
-      const company_name = Array.isArray(co) ? (co[0]?.name ?? null) : (co?.name ?? null);
-      const { kaizen_companies: _omit, ...rest } = e;
-      return { ...rest, company_name };
-    });
-    return json({ errors });
+    const groups = await loadErrorGroups();
+    // `errors` is the legacy flat shape, kept so an already-loaded Console
+    // (deployed before this change) keeps working — the edge function and the
+    // static app deploy independently, so one is always briefly ahead of the
+    // other. Safe to delete once the grouped UI is live everywhere.
+    const errors = groups.flatMap((g) =>
+      g.samples.map((s) => ({
+        id: s.id, company_id: null, company_name: g.companies[0] ?? null, user_id: null,
+        source: g.sources[0] ?? "app", message: g.message, detail: s.detail,
+        url: s.url, user_agent: s.user_agent, resolved: s.resolved, created_at: s.created_at,
+      }))
+    ).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 100);
+    return json({ groups, errors });
+  }
+
+  // Resolve/reopen an entire group in one call, addressed by its short code.
+  if (action === "resolve_error_group") {
+    const code = String(body.code ?? "");
+    if (!code) return json({ error: "code required" }, 400);
+    const resolved = body.resolved !== false;
+    const group = (await loadErrorGroups()).find((g) => g.code === code);
+    if (!group) return json({ error: "Unknown error code." }, 404);
+    const { error } = await admin.from("kaizen_error_log")
+      .update({ resolved }).in("id", group.ids);
+    if (error) return json({ error: error.message }, 400);
+    await audit("resolve_error_group", { code, count: group.ids.length, resolved }, ip, true);
+    return json({ success: true, count: group.ids.length });
   }
 
   if (action === "resolve_error") {
