@@ -1448,6 +1448,12 @@ function RoutineMonitorBoard({ companyId, orders, today, tomorrow, loading, onRe
   const { lang } = useLanguage()
   const [groupBy, setGroupBy] = useState<'dept' | 'routine'>('dept')
   const [outstandingOnly, setOutstandingOnly] = useState(false)
+  // Tapping a card opens it read-only. The monitor is an oversight view — some
+  // viewers reach it through the rr_monitor_depts grant and have no right to act
+  // on these orders — so this shows detail without offering any action.
+  const [detail, setDetail] = useState<RrOrder | null>(null)
+  // Keep the open order in step with live reloads, which replace the array.
+  const detailLive = detail ? orders.find((o) => o.id === detail.id) ?? detail : null
 
   // Live updates: any change to this company's routine orders re-pulls the board
   // (debounced so a burst of ticks coalesces into one reload).
@@ -1579,7 +1585,13 @@ function RoutineMonitorBoard({ companyId, orders, today, tomorrow, loading, onRe
                       const items = o.items ?? []
                       const roomProgress = items.length > 0 ? `${items.filter((i) => i.delivered).length}/${items.length}` : null
                       return (
-                        <div key={o.id} className={`flex items-center gap-2 rounded-lg border px-2.5 py-2 ${od ? 'border-red-200 bg-red-50/40' : 'border-gray-200 bg-gray-50/50'}`}>
+                        <button
+                          key={o.id}
+                          type="button"
+                          onClick={() => setDetail(o)}
+                          title={lang === 'th' ? 'ดูรายละเอียด' : 'View order'}
+                          className={`w-full text-left flex items-center gap-2 rounded-lg border px-2.5 py-2 transition-colors hover:border-[var(--brand-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/40 ${od ? 'border-red-200 bg-red-50/40' : 'border-gray-200 bg-gray-50/50'}`}
+                        >
                           <span className="flex-1 min-w-0">
                             <span className="text-sm text-gray-800">{secondary}</span>
                             {o.order_date !== today && (
@@ -1595,7 +1607,7 @@ function RoutineMonitorBoard({ companyId, orders, today, tomorrow, loading, onRe
                           </span>
                           {od && <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 flex-shrink-0">{lang === 'th' ? 'เลยเวลา' : 'overdue'}</span>}
                           <span className={`text-[10px] px-1.5 py-0.5 rounded-full border flex-shrink-0 ${MONITOR_CHIP[k]}`}>{statusText(o)}</span>
-                        </div>
+                        </button>
                       )
                     })}
                   </div>
@@ -1605,6 +1617,89 @@ function RoutineMonitorBoard({ companyId, orders, today, tomorrow, loading, onRe
           )}
         </>
       )}
+
+      {detailLive && <MonitorOrderDetail order={detailLive} onClose={() => setDetail(null)} />}
+    </div>
+  )
+}
+
+// ── monitor order detail (read-only) ─────────────────────────────────────────
+// Opened by tapping a card on the monitor board. Deliberately has no actions:
+// the monitor is visible to departments granted read-only oversight, so acting
+// on an order stays where the permission checks already live — the Orders board.
+function MonitorOrderDetail({ order: o, onClose }: { order: RrOrder; onClose: () => void }) {
+  const { lang } = useLanguage()
+  const th = lang === 'th'
+  const items = o.items ?? []
+  const done = items.filter((i) => i.delivered).length
+  const route = [o.request_department, o.fulfill_department, o.deliver_department]
+    .filter(Boolean).map((d) => deptLabel(d as Department, lang)).join(' → ')
+
+  // Escape closes, matching the other modals on this page.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm max-h-[90vh] flex flex-col">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
+          <div className="min-w-0">
+            <h3 className="font-semibold text-gray-900 truncate">{o.title}</h3>
+            <p className="text-[11px] text-gray-400 truncate">{route}</p>
+          </div>
+          <button onClick={onClose} className="p-1 rounded text-gray-400 hover:bg-gray-100"><X className="h-4 w-4" /></button>
+        </div>
+
+        <div className="px-5 py-4 space-y-3 overflow-y-auto">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className={`text-[11px] px-2 py-0.5 rounded-full border ${MONITOR_CHIP[monitorKeyOf(o)]}`}>{o.status}</span>
+            {orderOverdue(o) && (
+              <span className="text-[11px] px-2 py-0.5 rounded-full bg-red-100 text-red-700">{th ? 'เลยเวลา' : 'overdue'}</span>
+            )}
+            {o.due_at && (
+              <span className="text-[11px] text-gray-500">{th ? 'ภายใน' : 'by'} {fmtTime(o.due_at)}</span>
+            )}
+          </div>
+
+          <dl className="text-xs space-y-1">
+            {o.item_label && (
+              <div className="flex gap-2"><dt className="text-gray-400 w-20 flex-shrink-0">{th ? 'รายการ' : 'Item'}</dt><dd className="text-gray-800">{o.item_label}</dd></div>
+            )}
+            {o.quantity != null && (
+              <div className="flex gap-2"><dt className="text-gray-400 w-20 flex-shrink-0">{th ? 'จำนวน' : 'Qty'}</dt><dd className="text-gray-800">{o.quantity}{o.unit_label ? ` ${o.unit_label}` : ''}</dd></div>
+            )}
+            <div className="flex gap-2"><dt className="text-gray-400 w-20 flex-shrink-0">{th ? 'วันที่' : 'Date'}</dt><dd className="text-gray-800">{o.order_date}</dd></div>
+            {o.note && (
+              <div className="flex gap-2"><dt className="text-gray-400 w-20 flex-shrink-0">{th ? 'หมายเหตุ' : 'Note'}</dt><dd className="text-gray-800 break-words">{o.note}</dd></div>
+            )}
+          </dl>
+
+          {items.length > 0 && (
+            <div>
+              <p className="text-[11px] uppercase tracking-wide text-gray-400 mb-1">
+                {th ? 'รายการห้อง' : 'Rooms'} · {done}/{items.length}
+              </p>
+              <div className="flex flex-wrap gap-1">
+                {items.map((i) => (
+                  <span key={i.id}
+                    className={`text-[11px] px-1.5 py-0.5 rounded border ${i.delivered ? 'bg-green-50 text-green-700 border-green-200' : 'bg-gray-50 text-gray-500 border-gray-200'}`}>
+                    {i.room_no}{i.variant ? ` · ${i.variant}` : ''}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div>
+            <p className="text-[11px] uppercase tracking-wide text-gray-400 mb-1">{th ? 'ไทม์ไลน์' : 'Timeline'}</p>
+            <OrderTimeline order={o} />
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
