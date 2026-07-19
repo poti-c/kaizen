@@ -18,5 +18,50 @@ do not remove it; the preview panel connects via `::1` and shows
 - SQL migrations live in `supabase/migrations/`. Migrations pushed to git
   are NOT auto-applied to the Supabase project — apply them explicitly.
 
+## Function grants — `REVOKE ... FROM PUBLIC` does NOT work here
+Supabase runs `ALTER DEFAULT PRIVILEGES` granting `EXECUTE` to `anon` and
+`authenticated`, so every new function is created with those as **explicit**
+grants:
+
+```
+postgres=X/postgres | anon=X/postgres | authenticated=X/postgres | service_role=X/postgres
+```
+
+`REVOKE EXECUTE ON FUNCTION f() FROM PUBLIC` only drops the implicit `PUBLIC`
+grant — the explicit `anon` grant survives and the function stays callable by
+anyone holding the publishable key, which ships in the browser bundle. **Name
+the roles:**
+
+```sql
+REVOKE ALL ON FUNCTION public.f(args) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.f(args) TO service_role;  -- or authenticated
+```
+
+This trap produced two separate live vulnerabilities (2026-07-19): anonymous
+Console admin creation, and anonymous subscription/addon activation. Eight
+`REVOKE ... FROM PUBLIC` statements already in the repo are no-ops — they look
+correct in review, which is exactly why this is worth remembering.
+
+Rules of thumb for any new `SECURITY DEFINER` function:
+- It bypasses RLS. It must authorize its own caller (`auth.uid()`, role check),
+  or be `service_role`-only. Never rely on RLS to protect it.
+- Grant the narrowest role that works: `service_role` if only edge functions
+  call it, `authenticated` if the browser calls it. Never leave `anon`.
+- Verify after applying — `\df+` lies less than the migration does:
+  ```sql
+  select proname, array_to_string(proacl,' | ') from pg_proc p
+    join pg_namespace n on n.oid=p.pronamespace where n.nspname='public';
+  ```
+
+## Schema drift — the repo must be able to rebuild the DB
+Because migrations are applied explicitly, it is easy to change the live
+project and forget the migration. A sweep on 2026-07-19 found 18 orphaned
+objects that way, including two that made `db reset` abort outright. Anything
+changed on live needs a matching `supabase/migrations/` file, written with
+`if not exists` so it is a no-op against live.
+
 ## Notes
 - `.claude/` is gitignored (local dev config + the `debug` skill).
+- A rebuilt database has an empty `kaizen_console_admins`, so the Console has
+  no login until an admin is bootstrapped by hand — the live row holds a real
+  password hash and is deliberately not in the repo.
