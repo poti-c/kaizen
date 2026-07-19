@@ -33,6 +33,20 @@ const DEFAULT_DEPARTMENTS = DEPARTMENTS.filter(d => d.value !== 'top_management'
 const DEFAULT_CATEGORIES = [...CATEGORIES].map(c => c.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()))
 const DEFAULT_LOCATIONS = [...LOCATIONS] as string[]
 
+// "Preventive Maintenance" names the PMS function, not a case category. Its slug
+// (preventive_maintenance) is written by kaizen_pm_sync on the cases PMS creates
+// automatically, and CaseDetailPage keys its auto-case treatment off it — so a
+// company category of the same name would produce hand-filed cases that
+// masquerade as auto-generated ones.
+function isReservedCategory(label: string): boolean {
+  return label.trim().toLowerCase().replace(/\s+/g, '_') === 'preventive_maintenance'
+}
+function reservedCategoryMessage(lang: string): string {
+  return lang === 'th'
+    ? '"Preventive Maintenance" สงวนไว้สำหรับระบบ PMS จึงใช้เป็นหมวดหมู่ไม่ได้'
+    : '"Preventive Maintenance" is reserved for the PMS function and cannot be used as a category.'
+}
+
 // Support
 const DEFAULT_SUPPORT_EMAIL = 'potichao@me.com'
 
@@ -187,32 +201,23 @@ export function SettingsPage() {
         if (row.key === 'custom_categories') c = row.value as string[]
         if (row.key === 'custom_locations') l = row.value as string[]
       })
-      // PMS-subscribed clients get a built-in "Preventive Maintenance" category
-      // (used by auto-created overdue-maintenance cases).
-      if (companyHasAddon(activeCompany, 'pms') && !c.some(x => x.toLowerCase() === 'preventive maintenance')) {
-        c = [...c, 'Preventive Maintenance']
-      }
+      // "Preventive Maintenance" is deliberately NOT shown here. It names the PMS
+      // function, not a case category: the slug is written only by
+      // kaizen_pm_sync on the cases PMS auto-creates. It used to be injected as a
+      // virtual row, which meant it appeared in this list as a category nobody
+      // could remove, sitting alongside the company's own maintenance category.
       setDeptList(d); setCatList(c); setLocList(l)
     }
     loadLists()
     return () => { cancelled = true }
-    // Re-run when the PMS add-on state changes (same company id, updated
-    // subscription) so the injected "Preventive Maintenance" category tracks it.
-  }, [companyId, companyHasAddon(activeCompany, 'pms')])
+  }, [companyId])
 
   // SP-001: check and throw on Supabase write errors so callers can surface failures
   async function saveList(key: string, list: string[]) {
     if (!companyId) return
-    // SP-PM-PERSIST-02: "Preventive Maintenance" is a VIRTUAL category re-injected
-    // into catList on every load for PMS companies — it must never be persisted,
-    // otherwise it becomes a normal (removable) DB category once PMS is disabled.
-    let toSave = list
-    if (key === 'custom_categories' && companyHasAddon(activeCompany, 'pms')) {
-      toSave = list.filter(x => x.toLowerCase() !== 'preventive maintenance')
-    }
     const { error } = await supabase
       .from('kaizen_settings')
-      .upsert({ key, value: toSave, company_id: companyId, updated_by: profile?.id ?? null }, { onConflict: 'key,company_id' })
+      .upsert({ key, value: list, company_id: companyId, updated_by: profile?.id ?? null }, { onConflict: 'key,company_id' })
     if (error) throw error
   }
 
@@ -221,6 +226,10 @@ export function SettingsPage() {
     if (!trimmed) return
     if (list.some(i => i.toLowerCase() === trimmed.toLowerCase())) {
       toast.error(lang === 'th' ? 'มีรายการนี้อยู่แล้ว' : 'Item already exists.')
+      return
+    }
+    if (key === 'custom_categories' && isReservedCategory(trimmed)) {
+      toast.error(reservedCategoryMessage(lang))
       return
     }
     const updated = [...list, trimmed]
@@ -235,12 +244,9 @@ export function SettingsPage() {
   }
 
   async function removeItem(key: string, index: number, list: string[], setList: (l: string[]) => void) {
-    // SP-004: 'Preventive Maintenance' is re-injected on every load for PMS companies — block removal
-    if (key === 'custom_categories' && companyHasAddon(activeCompany, 'pms') &&
-        list[index]?.toLowerCase() === 'preventive maintenance') {
-      toast.error(lang === 'th' ? 'ไม่สามารถลบ "Preventive Maintenance" ขณะเปิดใช้ PMS' : 'Cannot remove "Preventive Maintenance" while PMS is active.')
-      return
-    }
+    // The old SP-004 guard blocking removal of "Preventive Maintenance" is gone
+    // with the virtual row it protected — the category is no longer listed here,
+    // so there is nothing to stop anyone deleting.
     // Check for open cases using this item before deletion (mirrors the bulk-remove affected-cases guard)
     if (companyId && (key === 'custom_categories' || key === 'custom_locations' || key === 'custom_departments')) {
       const item = list[index]
@@ -288,6 +294,10 @@ export function SettingsPage() {
       toast.error(lang === 'th' ? 'มีรายการนี้อยู่แล้ว' : 'Item already exists.')
       return
     }
+    if (key === 'custom_categories' && isReservedCategory(trimmed)) {
+      toast.error(reservedCategoryMessage(lang))
+      return
+    }
     const oldLabel = list[editingItem.index]
     const updated = list.map((item, i) => i === editingItem.index ? trimmed : item)
     try {
@@ -297,24 +307,45 @@ export function SettingsPage() {
       // existing case still referencing the old value. Migrate them in the same
       // operation so no case is left pointing at a value that no longer exists.
       if (companyId && oldLabel && oldLabel !== trimmed) {
+        // supabase-js RESOLVES with { error } rather than rejecting, so the
+        // try/catch around this block never sees a failed migration. Left
+        // unchecked, a failure here renamed the label, silently left every case
+        // pointing at the old value, and still reported "Updated." — the cases
+        // then showed up under "Other" with nothing to explain why.
+        let migrateError: { message: string } | null = null
         if (key === 'custom_categories') {
           const oldSlug = oldLabel.toLowerCase().replace(/ /g, '_')
           const newSlug = trimmed.toLowerCase().replace(/ /g, '_')
           if (oldSlug !== newSlug) {
-            await supabase.from('kaizen_cases').update({ category: newSlug })
+            const { error } = await supabase.from('kaizen_cases').update({ category: newSlug })
               .eq('company_id', companyId).eq('category', oldSlug)
+            migrateError = error
           }
         } else if (key === 'custom_locations') {
-          await supabase.from('kaizen_cases').update({ location: trimmed })
+          const { error } = await supabase.from('kaizen_cases').update({ location: trimmed })
             .eq('company_id', companyId).eq('location', oldLabel)
+          migrateError = error
         } else if (key === 'custom_departments') {
           // Built-in depts store a slug; custom depts store the label as the value.
           const oldVal = DEPARTMENTS.find(d => d.label === oldLabel)?.value ?? oldLabel
           const newVal = DEPARTMENTS.find(d => d.label === trimmed)?.value ?? trimmed
           if (oldVal !== newVal) {
-            await supabase.from('kaizen_cases').update({ department: newVal })
+            const { error } = await supabase.from('kaizen_cases').update({ department: newVal })
               .eq('company_id', companyId).eq('department', oldVal)
+            migrateError = error
           }
+        }
+        if (migrateError) {
+          // The label list was already saved above. Put it back so the taxonomy
+          // and the cases stay consistent — a rename that only half-applied is
+          // worse than one that did not happen, because the orphaned cases are
+          // invisible until someone notices the counts moved.
+          await saveList(key, list)
+          setEditingItem(null)
+          toast.error(lang === 'th'
+            ? 'เปลี่ยนชื่อไม่สำเร็จ: ย้ายข้อมูลเคสไม่ได้ จึงคืนค่าเดิมแล้ว'
+            : 'Rename failed: existing cases could not be moved, so the change was reverted.')
+          return
         }
       }
       setList(updated)
@@ -342,18 +373,9 @@ export function SettingsPage() {
     list: string[],
     setList: (l: string[]) => void,
   ) {
-    // SP-004 (bulk): 'Preventive Maintenance' is re-injected on every load for PMS
-    // companies and auto-overdue cases depend on it, so it must never be deletable —
-    // mirror the single-item removeItem guard, which the bulk path previously bypassed.
-    let targetIndices = indices
-    if (dbKey === 'custom_categories' && companyHasAddon(activeCompany, 'pms')) {
-      const safe = indices.filter(i => list[i]?.toLowerCase() !== 'preventive maintenance')
-      if (safe.length < indices.length) {
-        toast.error(lang === 'th' ? 'ไม่สามารถลบ "Preventive Maintenance" ขณะเปิดใช้ PMS' : 'Cannot remove "Preventive Maintenance" while PMS is active.')
-        if (safe.length === 0) return
-        targetIndices = safe
-      }
-    }
+    // The SP-004 bulk guard went with the virtual "Preventive Maintenance" row it
+    // mirrored — that category is no longer listed, so there is nothing to filter.
+    const targetIndices = indices
     const items = targetIndices.map(i => list[i])
     const token = ++_bulkTokenRef.current
     // Show dialog immediately with checking state
