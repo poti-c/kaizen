@@ -203,8 +203,11 @@ export function PreventiveMaintenancePage() {
 
       {/* Summary — asset health (filters the list) + task activity (scrolls to its list below) */}
       <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2 mb-2">
-        {/* All — clears the status filter and shows every asset */}
-        <SummaryTile count={assets.length} label={lang === 'th' ? 'ทั้งหมด' : 'All Assets'}
+        {/* All — clears the status filter and shows every ACTIVE asset. The
+            filtered list below hides inactive assets unless inactiveOnly is
+            set (line ~161), so counting them here (assets.length) disagreed
+            with what clicking this tile actually shows. */}
+        <SummaryTile count={assets.filter(a => a.is_active).length} label={lang === 'th' ? 'ทั้งหมด' : 'All Assets'}
           active={filter === 'all' && taskView === null} color="border-gray-200 bg-white text-gray-700"
           onClick={() => { setFilter('all'); setTaskView(null) }} />
         {/* Status filters — clicking the active one again clears back to "All". */}

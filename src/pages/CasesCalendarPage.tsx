@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { toast } from 'sonner'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { ChevronLeft, ChevronRight, Wrench, ClipboardList, DoorOpen, Flag } from 'lucide-react'
 import { unitOne, DEFAULT_UNIT, type UnitNoun } from '@/lib/roomUnit'
@@ -105,7 +106,14 @@ export function CasesCalendarPage() {
     if (!rrEnabled || !activeCompany) return
     let stale = false
     supabase.from('kaizen_settings').select('value').eq('company_id', activeCompany.id).eq('key', 'rr_room_config').maybeSingle()
-      .then(({ data }) => { const u = (data?.value as { unit?: UnitNoun } | undefined)?.unit; if (!stale && u) setRoomUnit(u) })
+      .then(({ data, error }) => {
+        // Low-stakes vs. the main calendar fetches above: worst case here is the
+        // default room noun (e.g. "Room") shown instead of a custom one — log
+        // rather than toast so a genuine failure isn't silent, without adding a
+        // second error banner for a cosmetic label.
+        if (error) { console.error('[CasesCalendar] room-unit fetch failed', error.message); return }
+        const u = (data?.value as { unit?: UnitNoun } | undefined)?.unit; if (!stale && u) setRoomUnit(u)
+      })
     return () => { stale = true }
   }, [rrEnabled, activeCompany])
 
@@ -133,6 +141,21 @@ export function CasesCalendarPage() {
     const nextM = viewMonth === 11 ? 0 : viewMonth + 1
     const bkkStartIso = `${viewYear}-${pad2(viewMonth + 1)}-01T00:00:00+07:00`
     const bkkEndIso = `${nextY}-${pad2(nextM + 1)}-01T00:00:00+07:00` // exclusive
+    // CC-BUG-04: the rendered grid pads out to full weeks with leading days
+    // from the previous month and trailing days from the next (up to 6 on
+    // each side — see `cells` in the render below), but the case/RR fetch
+    // windows stopped exactly at the current month's boundary. A case
+    // created, or a routine order dated, on one of those visible-but-padding
+    // cells therefore never appeared in byDay — those cells looked
+    // permanently empty even when real data existed for that exact date.
+    // Mirror the same leading/trailing day counts the grid itself computes.
+    const firstDow = bangkokDayOfWeek(start)
+    const leadDays = firstDow === 0 ? 6 : firstDow - 1
+    const daysInThisMonth = new Date(Date.UTC(nextY, nextM, 0)).getUTCDate()
+    const cellCount = leadDays + daysInThisMonth
+    const trailDays = (7 - (cellCount % 7)) % 7
+    const widenedStartIso = `${new Date(new Date(bkkStartIso).getTime() - leadDays * 86400000).toISOString().slice(0, 10)}T00:00:00+07:00`
+    const widenedEndIso = `${new Date(new Date(bkkEndIso).getTime() + trailDays * 86400000).toISOString().slice(0, 10)}T00:00:00+07:00`
     const jobs: PromiseLike<unknown>[] = []
     // Staff are scoped to their own department across every layer of the calendar.
     const calStaffDept = profile?.role === 'staff' ? profile.department : null
@@ -159,8 +182,17 @@ export function CasesCalendarPage() {
         ? (c: KaizenCase) => c.department === staffDept || (c.assigned_departments ?? []).includes(staffDept as Department) || (c.pic_ids ?? []).includes(staffId!)
         : null
       const q = supabase.from('kaizen_cases').select('*').eq('company_id', activeCompany.id)
-        .gte('created_at', bkkStartIso).lt('created_at', bkkEndIso)
-      jobs.push(q.then(({ data }) => {
+        .gte('created_at', widenedStartIso).lt('created_at', widenedEndIso)
+      jobs.push(q.then(({ data, error }) => {
+        // CC-BUG-03: `error` was discarded here and at every other job below.
+        // supabase-js resolves rather than rejects, so an RLS denial, a
+        // dropped connection, or an expired JWT fell through to `(data ||
+        // [])`, Promise.all still resolved, and the calendar rendered a
+        // fully-formed, completely empty month — indistinguishable from a
+        // month with genuinely nothing scheduled. No toast, no retry, no way
+        // to tell the two apart. Throwing here routes the failure into the
+        // catch below instead.
+        if (error) throw error
         const rows = (data || []) as KaizenCase[]
         _cases = staffFilter ? rows.filter(staffFilter) : rows
       }))
@@ -169,8 +201,9 @@ export function CasesCalendarPage() {
       // been created in an earlier month, so this is a separate query from the one above).
       const dq = supabase.from('kaizen_cases').select('*').eq('company_id', activeCompany.id)
         .not('due_date', 'is', null).neq('status', 'closed')
-        .gte('due_date', bkkStartIso).lt('due_date', bkkEndIso)
-      jobs.push(dq.then(({ data }) => {
+        .gte('due_date', widenedStartIso).lt('due_date', widenedEndIso)
+      jobs.push(dq.then(({ data, error }) => {
+        if (error) throw error
         const rows = (data || []) as KaizenCase[]
         _due = staffFilter ? rows.filter(staffFilter) : rows
       }))
@@ -181,9 +214,10 @@ export function CasesCalendarPage() {
         await supabase.rpc('kaizen_pm_sync')
         const from = isoKey(new Date(Date.UTC(viewYear, viewMonth - 1, 21)))
         const to = isoKey(new Date(Date.UTC(viewYear, viewMonth + 1, 14)))
-        const { data } = await supabase.from('kaizen_pm_tasks')
+        const { data, error } = await supabase.from('kaizen_pm_tasks')
           .select('*, asset:kaizen_pm_assets(name, location, notes, checklist, department, departments, type:kaizen_pm_equipment_types(name))')
           .eq('company_id', activeCompany.id).neq('status', 'cancelled').gte('due_date', from).lte('due_date', to)
+        if (error) throw error
         // CCAL-PM-STAFF-SCOPE: mirror PM-002 — staff only see PM tasks for an asset
         // that lists their department among its responsible departments.
         const pmRows = (data as PMTask[]) ?? []
@@ -192,21 +226,27 @@ export function CasesCalendarPage() {
     } else { setPmTasks([]) }
 
     if (showRrData) {
-      const monthEnd = isoKey(new Date(Date.UTC(viewYear, viewMonth + 1, 0)))
+      // CC-BUG-04: widen this window the same way as the case queries above,
+      // so a routine order dated on a leading/trailing grid-padding day isn't
+      // invisible on that (real, rendered) cell.
+      const rrStart = isoKey(new Date(start.getTime() - leadDays * 86400000))
+      const monthEnd = isoKey(new Date(Date.UTC(viewYear, viewMonth + 1, 0) + trailDays * 86400000))
       jobs.push((async () => {
-        const { data } = await supabase.from('kaizen_rr_orders')
+        const { data, error } = await supabase.from('kaizen_rr_orders')
           .select('*')
           .eq('company_id', activeCompany.id).neq('status', 'cancelled')
-          .gte('order_date', isoKey(start)).lte('order_date', monthEnd)
+          .gte('order_date', rrStart).lte('order_date', monthEnd)
+        if (error) throw error
         const list = (data as RrOrder[]) ?? []
         _rr = list
         _rrActorIds = list.flatMap(o => [o.sent_by, o.accepted_by, o.delivered_by, o.confirmed_by])
       })())
       jobs.push((async () => {
-        const { data } = await supabase.from('kaizen_rr_room_orders')
+        const { data, error } = await supabase.from('kaizen_rr_room_orders')
           .select('id, order_date, status, submitted_by, room_statuses')
           .eq('company_id', activeCompany.id)
-          .gte('order_date', isoKey(start)).lte('order_date', monthEnd)
+          .gte('order_date', rrStart).lte('order_date', monthEnd)
+        if (error) throw error
         const list = (data as RoomOrderCal[]) ?? []
         _rrRoom = list
         _rrRoomActorIds = list.map(ro => ro.submitted_by)
@@ -222,6 +262,15 @@ export function CasesCalendarPage() {
         setRrOrders(_rr); setRrRoomOrders(_rrRoom)
         await resolveNames([..._rrActorIds, ..._rrRoomActorIds])
       }
+    } catch (err) {
+      // CC-BUG-03: on a genuine failure, do NOT commit any of the (partial,
+      // now-untrustworthy) state above — leave whatever the calendar was
+      // already showing rather than replacing it with an empty-but-confident
+      // grid. The stale-fetch guard above already protects against a slow
+      // failed request racing a newer successful one.
+      if (fetchSeq != null && fetchSeq !== fetchSeqCal.current) return
+      console.error('[CasesCalendar] fetch failed', err)
+      toast.error(err instanceof Error ? err.message : (lang === 'th' ? 'โหลดปฏิทินไม่สำเร็จ' : 'Failed to load the calendar.'))
     } finally {
       if (fetchSeq == null || fetchSeq === fetchSeqCal.current) setLoading(false)
     }
@@ -234,7 +283,14 @@ export function CasesCalendarPage() {
   const deptOk = (c: KaizenCase) => profile?.role === 'staff' || deptFilter === 'all' || c.department === deptFilter
   const filteredCases = cases.filter(deptOk)
   const filteredDueCases = dueCases.filter(deptOk)
-  const isOverdue = (c: KaizenCase) => !!c.due_date && bangkokDate(new Date(c.due_date)) < bangkokDate()
+  // CC-BUG-02: due_date is a full timestamp (Create Case offers minute/hour
+  // presets and a datetime picker), but this truncated both sides to a
+  // Bangkok calendar DAY — so a case due at 09:00 today still showed amber
+  // ("due", not overdue) at 18:00 the same day, disagreeing with the rest of
+  // the app (e.g. CaseDetailPage compares the real instant) for the entire
+  // remainder of the day a deadline lapses — precisely the window the flag
+  // matters most for. Compare instants directly.
+  const isOverdue = (c: KaizenCase) => !!c.due_date && new Date(c.due_date).getTime() < Date.now()
 
   // Monday-first grid
   const firstOfMonth = parseDateOnlyBkk(`${viewYear}-${String(viewMonth + 1).padStart(2,'0')}-01`)
@@ -272,7 +328,15 @@ export function CasesCalendarPage() {
   })
   // CCAL-DEPTFILTER-PM-RR: the department Select must scope the PM/RR entries it sits
   // beside, not just cases. Room orders carry no department, so they are unaffected.
-  const deptSel = deptFilter === 'all' || profile?.role === 'staff' ? null : deptFilter
+  // CC-BUG-01: the department Select is only rendered when showDeptFilter is
+  // true — (super_admin || manager) && showCaseData, so it's hidden on the PM
+  // and Routine Roster tabs. But deptFilter is component state that survives
+  // the tab switch, and this derivation ignored visibility entirely, so it
+  // kept filtering PM tasks and RR orders by whatever department was last
+  // picked on the Cases tab — with no control on screen to explain why, or to
+  // clear it, and no fresh mount either since the value can come from
+  // localStorage on first load. Match the actual gate showDeptFilter uses.
+  const deptSel = deptFilter === 'all' || profile?.role === 'staff' || !showCaseData ? null : deptFilter
   if (showPmData) pmTasks.forEach(tk => {
     if (deptSel && !assetDepartments(tk.asset).includes(deptSel)) return
     ;(byDay[tk.due_date] ||= []).push({ kind: 'pm', task: tk })

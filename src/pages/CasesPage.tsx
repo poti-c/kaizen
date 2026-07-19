@@ -103,7 +103,20 @@ export function CasesPage() {
     supabase.from('kaizen_settings').select('key, value')
       .eq('company_id', activeCompany.id)
       .in('key', ['custom_locations', 'custom_departments', 'custom_categories'])
-      .then(({ data }) => {
+      .then(({ data, error }) => {
+        // CP-BUG-01: `error` was never checked, so a failed fetch was
+        // indistinguishable from "this company has no custom settings rows" —
+        // both fell through to setSettingsLoaded(true) with validDeptValues
+        // left at its built-in-only initial state. That falsely triggered the
+        // "this case's department was removed" banner for every case using a
+        // real custom department, and (see the prune effect below)
+        // settingsLoaded flipping true is what that effect waits for, so a
+        // failed fetch let stale department-filter pruning proceed against
+        // incomplete data too. On error, leave settingsLoaded false — the app
+        // keeps showing built-in departments rather than asserting customs
+        // were deleted, and the effect below correctly waits rather than
+        // pruning against wrong data.
+        if (error) { console.error('[CasesPage] settings fetch failed', error.message); return }
         if (!data) { setSettingsLoaded(true); return }
         const labelToSlug = Object.fromEntries(DEPARTMENTS.map((d) => [d.label, d.value]))
         data.forEach((row: { key: string; value: unknown }) => {
@@ -141,7 +154,14 @@ export function CasesPage() {
       localStorage.setItem('kaizen-adv-filters', JSON.stringify(next))
       return next
     })
-  }, [validDeptValues])
+  // CP-BUG-02: settingsLoaded was missing here. A company with no
+  // custom_departments row leaves validDeptValues unchanged (same reference)
+  // when settingsLoaded flips from false to true, so this effect — which
+  // depended only on validDeptValues — never re-ran for that company at all,
+  // and a stale saved department filter was never pruned: cases stayed
+  // silently hidden behind a filter set for a department that no longer
+  // exists, with the top-of-function guard never getting a chance to matter.
+  }, [validDeptValues, settingsLoaded])
 
   // Advanced search state — auto-enable when navigated here with URL filters (e.g. from Dashboard)
   const [advancedSearchEnabled, setAdvancedSearchEnabled] = useState<boolean>(() => {
@@ -592,7 +612,7 @@ export function CasesPage() {
             <div className="flex items-center gap-3 mt-1.5 flex-wrap">
               <DepartmentBadge department={c.department} />
               {c.category && <span className="text-xs px-1.5 py-0.5 bg-gray-100 text-gray-500 rounded">{categoryLabel(c.category, lang)}</span>}
-              <span className="text-xs text-gray-400">{formatRelativeTime(c.created_at)}</span>
+              <span className="text-xs text-gray-400">{formatRelativeTime(c.created_at, lang)}</span>
               <span className="flex items-center gap-1 text-xs text-gray-400">
                 <Clock className="h-3 w-3" />
                 {formatDuration(c.created_at, c.closed_at || undefined)}
@@ -704,11 +724,21 @@ export function CasesPage() {
   })
   const pmsOpenCount = overdueTasks.length + activeTasksAll.length
   const pmsMonthLabel = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Bangkok', month: 'long', year: 'numeric' }).format(pmsMonth)
-  const stepPmsMonth = (delta: number) => setPmsMonth(m => {
-    const [y, mo] = bangkokDate(m).split('-').map(Number)
-    const next = new Date(Date.UTC(y, mo - 1 + delta, 1))
-    return parseDateOnlyBkk(bangkokDate(next).slice(0, 7) + '-01')
-  })
+  // AF-BUG-01: switching PMS months (or toggling "View all") changes the
+  // contents of activeTasks without resetting pageActivePms. A user on page 3
+  // of a busy month who steps to a quieter one lands on a page number that no
+  // longer exists: slicePage returns [], rendering an empty white card that is
+  // NOT the real "no active tasks" empty state (the unpaginated list isn't
+  // empty), while Pagination shows "Page 3 of 1" with both arrows disabled —
+  // no way back to page 1 except changing the page size.
+  const stepPmsMonth = (delta: number) => {
+    setPageActivePms(1)
+    setPmsMonth(m => {
+      const [y, mo] = bangkokDate(m).split('-').map(Number)
+      const next = new Date(Date.UTC(y, mo - 1 + delta, 1))
+      return parseDateOnlyBkk(bangkokDate(next).slice(0, 7) + '-01')
+    })
+  }
   const paginatedActivePms = slicePage(activeTasks, pageActivePms)
   const paginatedOverduePms = slicePage(overdueTasks, pageOverduePms)
 
@@ -1115,7 +1145,8 @@ export function CasesPage() {
                         <button onClick={() => stepPmsMonth(1)} title={lang === 'th' ? 'เดือนถัดไป' : 'Next month'} className="p-1 rounded-md hover:bg-gray-100"><ChevronRight className="h-4 w-4 text-gray-600" /></button>
                       </div>
                     )}
-                    <button onClick={() => setPmsViewAll(v => !v)}
+                    {/* AF-BUG-01: same page-reset need as stepPmsMonth above. */}
+                    <button onClick={() => { setPmsViewAll(v => !v); setPageActivePms(1) }}
                       className={cn('h-8 px-3 rounded-lg border text-xs font-medium transition-colors', pmsViewAll ? 'bg-sky-600 text-white border-sky-600' : 'bg-white text-gray-600 border-gray-300 hover:border-gray-400')}>
                       {pmsViewAll ? (lang === 'th' ? 'ตามเดือน' : 'By month') : (lang === 'th' ? 'ดูทั้งหมด' : 'View all')}
                     </button>

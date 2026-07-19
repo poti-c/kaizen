@@ -217,7 +217,10 @@ function ProductCard({ product, call, onSaved, onDeleted, isNew }: { product: Pr
     if (!d.id) { togglingRef.current = false; return }
     setBusy(true)
     try { await call('upsert_product', { product: { ...d, is_active: next } }); onSaved() }
-    catch (_) { setD(prev => ({ ...prev, is_active: !next })) }
+    // PC-BUG-01: this reverted the optimistic toggle on failure but never told
+    // the admin why — the switch just silently snapped back with no
+    // explanation, unlike every other handler in this file (save/del above).
+    catch (e) { setD(prev => ({ ...prev, is_active: !next })); alert(e instanceof Error ? e.message : 'Failed to update status') }
     finally { togglingRef.current = false; setBusy(false) }
   }
   async function del() {
@@ -330,11 +333,25 @@ function PromoRow({ promo, call, onSaved, onDeleted, isNew }: { promo: Promo; ca
   const [busy, setBusy] = useState(false)
   const [dirty, setDirty] = useState(false)
   const [discountText, setDiscountText] = useState(promo.discount_percent === 0 ? '' : String(promo.discount_percent))
+  // PR-BUG-01: save() used to clear `dirty` immediately after the upsert
+  // resolved, but BEFORE the parent's async load() had replaced the `promo`
+  // prop with the saved values. Since `dirty` sits in this effect's own
+  // dependency array, that flip re-ran the resync effect against the OLD
+  // prop and wiped the just-saved edits off screen. Normally just a flash
+  // until load() returns — except ProductsView.load() swallows its own
+  // fetch error, so a failed reload left this row PERMANENTLY showing the
+  // pre-edit values while the database held the new ones; the admin then
+  // reasonably believed the save failed and re-saved, pushing stale values
+  // back over the correct ones. Mirrors ProductCard's existing justSavedRef.
+  const justSavedRef = useRef(false)
   // Resync from the server prop only when this row has NO unsaved edits. A parent
   // reload (e.g. saving a DIFFERENT promo/product) replaces every promo prop identity;
   // without the dirty guard that would clobber the edits the user is mid-way through.
   // (The previous `busy` guard was also a stale closure — not in the dep array.)
-  useEffect(() => { if (!dirty) { setD(promo); setDiscountText(promo.discount_percent === 0 ? '' : String(promo.discount_percent)) } }, [promo, dirty])
+  useEffect(() => {
+    if (justSavedRef.current) { justSavedRef.current = false; return }
+    if (!dirty) { setD(promo); setDiscountText(promo.discount_percent === 0 ? '' : String(promo.discount_percent)) }
+  }, [promo, dirty])
   const [confirmDel, setConfirmDel] = useState(false)
   function set(patch: Partial<Promo>) { setDirty(true); setD({ ...d, ...patch }) }
   async function save() {
@@ -342,7 +359,15 @@ function PromoRow({ promo, call, onSaved, onDeleted, isNew }: { promo: Promo; ca
     const discErr = validatePercentDiscount(d.discount_percent)
     if (discErr) { alert(discErr); return }
     setBusy(true)
-    try { await call('upsert_promo', { promo: d }); setDirty(false); onSaved() }
+    try {
+      const result = await call<{ promo: Promo }>('upsert_promo', { promo: d })
+      // Trust the server's own returned row over the stale local `d` — it is
+      // the same server-normalised-value pattern ProductCard already relies on.
+      if (result.promo) { setD(result.promo); setDiscountText(result.promo.discount_percent === 0 ? '' : String(result.promo.discount_percent)) }
+      justSavedRef.current = true
+      setDirty(false)
+      onSaved()
+    }
     catch (e) { alert(e instanceof Error ? e.message : 'Failed') } finally { setBusy(false) }
   }
   async function del() {

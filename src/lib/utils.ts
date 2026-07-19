@@ -2,14 +2,18 @@ import { useCallback, useRef, useState, useEffect } from 'react'
 import { clsx, type ClassValue } from 'clsx'
 import { twMerge } from 'tailwind-merge'
 import { formatDistanceToNow, format, differenceInSeconds, differenceInMinutes, differenceInHours, differenceInDays } from 'date-fns'
+import { th } from 'date-fns/locale'
 import type { CaseStatus, CasePriority, Department, KaizenCase } from '@/types'
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
-export function formatRelativeTime(date: string | Date) {
-  return formatDistanceToNow(new Date(date), { addSuffix: true })
+// HS-BUG-02: this had no locale parameter at all, so notification timestamps
+// ("5 minutes ago") were always English regardless of the language switcher —
+// the only English left on an otherwise fully-translated notification list.
+export function formatRelativeTime(date: string | Date, lang?: string) {
+  return formatDistanceToNow(new Date(date), { addSuffix: true, locale: lang === 'th' ? th : undefined })
 }
 
 // ── Package feature authorities ──────────────────────────────────────────────

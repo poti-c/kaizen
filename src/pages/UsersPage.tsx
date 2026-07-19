@@ -237,13 +237,28 @@ export function UsersPage() {
     if (!editUser || !editFullName.trim()) { toast.error(t.users.fillRequired); return }
     const emailLogin = editRole === 'manager' || editRole === 'super_admin'
     if (emailLogin && !editEmail.trim()) { toast.error(t.users.emailRequired); return }
+    // AU-BUG-02: the edge function's newUsername computation only reads
+    // updates.username for a super_admin caller, so this used to be able to
+    // send username: null (clearing the field) and have it write straight to
+    // the profile with NO corresponding auth-email update. The staff member's
+    // login stayed on the OLD <username>@<code>.staff.kaizen.internal address
+    // — which now appears nowhere in the app for anyone to look up — while
+    // logging in with a username the profile no longer shows. Staff need a
+    // non-blank username the same way manager/admin need a non-blank email.
+    if (editRole === 'staff' && !editUsername.trim()) { toast.error(t.users.usernameRequired); return }
     setSaving(true)
     try {
       const updates: Record<string, unknown> = {
         full_name: editFullName.trim(),
         position: editPosition.trim() || null,
-        username: editUsername.trim() || null,
       }
+      // AU-BUG-01(dup label avoided)/AU-004: the edge function only honours
+      // `username` for a super_admin caller (MU-003) — a manager's edit always
+      // included it here regardless, so the request 200'd, the UI said "User
+      // updated.", and the change log below recorded a "Username → @x" entry
+      // for a rename that the server had silently discarded. Only send (and
+      // only log a change for) what the server will actually apply.
+      if (profile?.role === 'super_admin') updates.username = editUsername.trim() || null
       // Managers/admins log in by email; send it so the login stays in sync.
       if (emailLogin) updates.email = editEmail.trim()
       // Only super admins can change role/department (the edge function also re-validates this)
@@ -253,7 +268,15 @@ export function UsersPage() {
       }
 
       const resettingPassword = editNewPassword.trim().length >= 8
-      if (resettingPassword) updates.must_change_password = true
+      // AU-BUG-01: must_change_password is Top-Management-only server-side (the
+      // edge function 403s the WHOLE update_profile call, not just this field, if
+      // a non-super_admin sends it). This used to be set unconditionally on any
+      // password reset, so a MANAGER resetting a staff member's password — an
+      // action reset_password itself fully permits — could never save at all:
+      // name/position/username changes bundled into the same call were rejected
+      // right along with it. A manager's reset now just skips the flag; the
+      // password itself still changes via the separate reset_password call below.
+      if (resettingPassword && profile?.role === 'super_admin') updates.must_change_password = true
 
       // Persist the profile update (incl. must_change_password) BEFORE changing
       // the password. If the password reset then fails, the user simply keeps
@@ -268,7 +291,7 @@ export function UsersPage() {
       const changes: string[] = []
       if (editFullName.trim() !== editUser.full_name) changes.push(`Name → ${editFullName.trim()}`)
       if (editPosition.trim() !== (editUser.position || '')) changes.push(`Position → ${editPosition.trim() || '(cleared)'}`)
-      if (editUsername.trim() !== (editUser.username || '')) changes.push(`Username → @${editUsername.trim()}`)
+      if (profile?.role === 'super_admin' && editUsername.trim() !== (editUser.username || '')) changes.push(`Username → @${editUsername.trim()}`)
       if (emailLogin && editEmail.trim() !== (editUser.email || '')) changes.push(`Login email → ${editEmail.trim()}`)
       if (resettingPassword) changes.push('Password reset (must change on login)')
       if (profile?.role === 'super_admin' && editRole !== editUser.role) changes.push(`Role → ${editRole}`)
@@ -686,10 +709,19 @@ export function UsersPage() {
               </div>
             ) : (
               <div className="space-y-1.5">
-                <Label>{lang === 'th' ? 'ชื่อผู้ใช้' : 'Username'}</Label>
+                <Label>
+                  {lang === 'th' ? 'ชื่อผู้ใช้' : 'Username'}
+                  {/* AU-BUG-04: only super_admin edits are actually applied
+                      server-side (MU-003) — a manager could previously "change"
+                      this, see a success toast, and have the audit log record a
+                      rename that never happened. Read-only for everyone else. */}
+                  {profile?.role !== 'super_admin' && (
+                    <span className="text-gray-400 text-xs font-normal"> {lang === 'th' ? '(เฉพาะผู้ดูแลระบบสูงสุด)' : '(Top Management only)'}</span>
+                  )}
+                </Label>
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">@</span>
-                  <Input value={editUsername} onChange={(e) => setEditUsername(e.target.value)} placeholder={lang === 'th' ? 'ชื่อผู้ใช้' : 'username'} className="pl-7" />
+                  <Input value={editUsername} onChange={(e) => setEditUsername(e.target.value)} placeholder={lang === 'th' ? 'ชื่อผู้ใช้' : 'username'} className="pl-7" readOnly={profile?.role !== 'super_admin'} disabled={profile?.role !== 'super_admin'} />
                 </div>
               </div>
             )}

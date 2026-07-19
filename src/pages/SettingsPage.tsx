@@ -330,9 +330,45 @@ export function SettingsPage() {
           const oldVal = DEPARTMENTS.find(d => d.label === oldLabel)?.value ?? oldLabel
           const newVal = DEPARTMENTS.find(d => d.label === trimmed)?.value ?? trimmed
           if (oldVal !== newVal) {
-            const { error } = await supabase.from('kaizen_cases').update({ department: newVal })
+            const { error: caseErr } = await supabase.from('kaizen_cases').update({ department: newVal })
               .eq('company_id', companyId).eq('department', oldVal)
-            migrateError = error
+            // SP-DEPT-ORPHAN-01: cases were migrated above, but kaizen_profiles
+            // stores the SAME identifier in two places — profiles.department
+            // (the user's home department) and profiles.managed_departments (a
+            // manager's extra granted departments) — and neither was touched.
+            // Renaming a custom department therefore split it in two: cases
+            // moved to the new label/slug while every profile still pointed at
+            // the old one, so `.in('department', getEffectiveDepts(profile))`
+            // filters throughout the app (UsersPage, PerformanceDetailPage, the
+            // dashboard) matched zero cases and the whole team lost visibility
+            // into work that was still theirs.
+            let profErr: { message: string } | null = null
+            let managedErr: { message: string } | null = null
+            if (!caseErr) {
+              ({ error: profErr } = await supabase
+                .from('kaizen_profiles').update({ department: newVal })
+                .eq('company_id', companyId).eq('department', oldVal))
+            }
+            if (!caseErr && !profErr) {
+              // managed_departments is a text[]; supabase-js has no array-replace
+              // update, so this is a scoped read-modify-write over the (small)
+              // set of managers who actually have oldVal granted.
+              const { data: mgrs, error: fetchErr } = await supabase
+                .from('kaizen_profiles').select('id, managed_departments')
+                .eq('company_id', companyId).contains('managed_departments', [oldVal])
+              if (fetchErr) {
+                managedErr = fetchErr
+              } else if (mgrs?.length) {
+                for (const m of mgrs) {
+                  const next = ((m.managed_departments as string[] | null) ?? [])
+                    .map((d) => d === oldVal ? newVal : d)
+                  const { error } = await supabase.from('kaizen_profiles')
+                    .update({ managed_departments: next }).eq('id', m.id)
+                  if (error) { managedErr = error; break }
+                }
+              }
+            }
+            migrateError = caseErr || profErr || managedErr
           }
         }
         if (migrateError) {
@@ -343,8 +379,8 @@ export function SettingsPage() {
           await saveList(key, list)
           setEditingItem(null)
           toast.error(lang === 'th'
-            ? 'เปลี่ยนชื่อไม่สำเร็จ: ย้ายข้อมูลเคสไม่ได้ จึงคืนค่าเดิมแล้ว'
-            : 'Rename failed: existing cases could not be moved, so the change was reverted.')
+            ? 'เปลี่ยนชื่อไม่สำเร็จ: ย้ายข้อมูลที่เกี่ยวข้องไม่ได้ จึงคืนค่าเดิมแล้ว'
+            : 'Rename failed: existing data could not be moved, so the change was reverted.')
           return
         }
       }
@@ -1284,6 +1320,12 @@ const LABEL_TO_DEPT_VALUE = Object.fromEntries(DEPARTMENTS.map((d) => [d.label, 
 function MultiDeptManagersSection({ companyId }: { companyId: string | null }) {
   const [managers, setManagers] = React.useState<KaizenProfile[]>([])
   const [saving, setSaving] = React.useState<string | null>(null)
+  // SP-BUG-01: this section rendered "No managers found in this company." the
+  // instant it mounted, before the fetch below had a chance to resolve — a
+  // company that genuinely has managers still flashed (or, on a slow
+  // connection, sat on) the empty-state message.
+  const [loading, setLoading] = React.useState(true)
+  const [loadError, setLoadError] = React.useState(false)
   // Full company department list (built-in + custom). value is the DB-stored identifier.
   // SP-003: exclude top_management — managers must not be assignable to it as an extra dept
   const [allDepts, setAllDepts] = React.useState<{ value: string; label: string }[]>(
@@ -1298,7 +1340,7 @@ function MultiDeptManagersSection({ companyId }: { companyId: string | null }) {
       supabase.from('kaizen_settings').select('value').eq('company_id', companyId).eq('key', 'custom_departments').maybeSingle(),
     ]).then(([mgrsRes, deptsRes]) => {
       if (cancelled) return
-      if (mgrsRes.error) { console.error('[MultiDeptManagers:managers]', mgrsRes.error.message); return }
+      if (mgrsRes.error) { console.error('[MultiDeptManagers:managers]', mgrsRes.error.message); setLoadError(true); setLoading(false); return }
       setManagers((mgrsRes.data ?? []) as KaizenProfile[])
       if (deptsRes.data?.value) {
         const labels = deptsRes.data.value as string[]
@@ -1308,7 +1350,8 @@ function MultiDeptManagersSection({ companyId }: { companyId: string | null }) {
       } else {
         setAllDepts(DEPARTMENTS.filter(d => d.value !== 'top_management'))
       }
-    }).catch(err => console.error('[MultiDeptManagers]', err))
+      setLoading(false)
+    }).catch(err => { console.error('[MultiDeptManagers]', err); if (!cancelled) { setLoadError(true); setLoading(false) } })
     return () => { cancelled = true }
   }, [companyId])
 
@@ -1328,6 +1371,12 @@ function MultiDeptManagersSection({ companyId }: { companyId: string | null }) {
     setSaving(null)
   }
 
+  if (loading) {
+    return <div className="flex justify-center py-4"><Loader2 className="h-4 w-4 animate-spin text-gray-400" /></div>
+  }
+  if (loadError) {
+    return <p className="text-sm text-red-500 py-2">Failed to load managers — please refresh.</p>
+  }
   if (managers.length === 0) {
     return <p className="text-sm text-gray-400 py-2">No managers found in this company.</p>
   }

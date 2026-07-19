@@ -198,8 +198,23 @@ Deno.serve(async (req) => {
         const { data: existing } = await admin.from("kaizen_payment_submissions")
           .select("id, status").eq("company_id", company_id).eq("proof_hash", proofHash).maybeSingle();
         if (existing?.status === "activation_failed") {
-          // Concurrent insert lost the race to an existing failed row — reuse + retry it.
-          await admin.from("kaizen_payment_submissions").update({ status: "pending" }).eq("id", existing.id);
+          // KP-007: this used to reset the row unconditionally, with no
+          // `.eq('status','activation_failed')` compare-and-set, no row-count
+          // check, and no error capture — unlike the KP-DBLEXT-01 claim below,
+          // which this branch bypasses entirely (it assigns `sub` directly
+          // instead of going through `reuseId`). Two concurrent requests
+          // carrying the SAME slip that both lose the insert race both read
+          // status === 'activation_failed' here and would both have flipped it
+          // to 'pending' and proceeded — both calling the row-locked
+          // kaizen_activate_subscription EXTEND, so the company got two paid
+          // terms and two invoice rows for one payment. Mirror the reuseId
+          // claim exactly: only the request that actually flips the row wins.
+          const { data: claimed, error: claimErr } = await admin.from("kaizen_payment_submissions")
+            .update({ status: "pending" }).eq("id", existing.id).eq("status", "activation_failed").select("id");
+          if (claimErr) return json({ error: "Could not retry activation — please contact support." }, 500);
+          if (!claimed || claimed.length === 0) {
+            return json({ success: true, id: existing.id, status: "pending", verified: false, duplicate: true });
+          }
           sub = { id: existing.id };
         } else if (existing) {
           return json({ success: true, id: existing.id, status: existing.status, verified: existing.status === "approved", duplicate: true });

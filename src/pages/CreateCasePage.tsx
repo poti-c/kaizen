@@ -31,7 +31,14 @@ const DUE_PRESETS: { key: string; en: string; th: string; at: () => string }[] =
 // the foreground (especially in an installed PWA), wiping all in-memory React state —
 // the #1 cause of "my typed text disappeared / I can't add a case from my phone"
 // reports. Persisting the draft to sessionStorage lets a forced reload recover it.
-const DRAFT_KEY = 'kaizen_create_case_draft'
+//
+// CC-BUG-04: this used to be one fixed global key, no user or company component.
+// sessionStorage survives a logout within the same tab, so on a shared device a
+// second person signing in after the first would be shown — and prompted to
+// "restore" — the first person's unsent case text and photo URLs.
+function draftKey(profileId: string | undefined, companyId: string | undefined) {
+  return `kaizen_create_case_draft:${profileId ?? 'anon'}:${companyId ?? 'none'}`
+}
 
 interface CaseDraft {
   caseNumber: string
@@ -48,17 +55,17 @@ interface CaseDraft {
   photoUrls: string[]
 }
 
-function loadDraft(): CaseDraft | null {
+function loadDraft(key: string): CaseDraft | null {
   try {
-    const raw = sessionStorage.getItem(DRAFT_KEY)
+    const raw = sessionStorage.getItem(key)
     return raw ? (JSON.parse(raw) as CaseDraft) : null
   } catch {
     return null
   }
 }
 
-function clearDraft() {
-  try { sessionStorage.removeItem(DRAFT_KEY) } catch { /* storage unavailable */ }
+function clearDraft(key: string) {
+  try { sessionStorage.removeItem(key) } catch { /* storage unavailable */ }
 }
 
 export function CreateCasePage() {
@@ -67,9 +74,16 @@ export function CreateCasePage() {
   const { activeCompany } = useCompany()
   const { t, lang } = useLanguage()
 
-  const [draft] = useState(() => loadDraft())
+  // Computed once at mount, matching the lazy draft/caseNumber initializers
+  // below — CreateCasePage is only reachable behind a route guard that
+  // already requires `profile` to be resolved, so this is stable by the time
+  // the page renders.
+  const [dKey] = useState(() => draftKey(profile?.id, activeCompany?.id))
+  const [draft] = useState(() => loadDraft(dKey))
 
-  const [caseNumber] = useState(() => draft?.caseNumber ?? generateCaseNumber())
+  // CC-BUG-02: was `const [caseNumber]` — read-only. See the retry loop in
+  // handleSubmit for why it needs a setter.
+  const [caseNumber, setCaseNumber] = useState(() => draft?.caseNumber ?? generateCaseNumber())
   const [title, setTitle] = useState(draft?.title ?? '')
   const [description, setDescription] = useState(draft?.description ?? '')
   const [priority, setPriority] = useState<CasePriority>(draft?.priority ?? 'medium')
@@ -93,12 +107,16 @@ export function CreateCasePage() {
 
   useEffect(() => {
     const hasContent = title || description || category || location || photoUrls.length > 0
-    if (!hasContent) return
+    // CC-BUG-04: this used to just return here, leaving whatever draft was
+    // already in sessionStorage untouched. Clearing every field then leaves a
+    // now-stale draft sitting there — the NEXT visit to this page restores
+    // text the user had deliberately deleted, not a blank form.
+    if (!hasContent) { clearDraft(dKey); return }
     const d: CaseDraft = {
       caseNumber, title, description, priority, department, dueDate,
       category, categoryOther, location, locationOther, isRecurring, photoUrls,
     }
-    try { sessionStorage.setItem(DRAFT_KEY, JSON.stringify(d)) } catch { /* storage full/unavailable */ }
+    try { sessionStorage.setItem(dKey, JSON.stringify(d)) } catch { /* storage full/unavailable */ }
   }, [caseNumber, title, description, priority, department, dueDate, category, categoryOther, location, locationOther, isRecurring, photoUrls])
 
   // Load company's custom categories + locations from settings
@@ -164,28 +182,49 @@ export function CreateCasePage() {
     setLoading(true)
 
     try {
-      const { data: newCase, error } = await supabase
-        .from('kaizen_cases')
-        .insert({
-          case_number: caseNumber,
-          title: title.trim(),
-          description: description.trim(),
-          department,
-          created_by: profile.id,
-          priority,
-          status: 'open',
-          company_id: activeCompany?.id ?? null,
-          due_date: dueDate || null,
-          category: category || null,
-          category_other: category === 'other' ? categoryOther.trim() || null : null,
-          location: location || null,
-          location_other: location === 'Others' ? locationOther.trim() || null : null,
-          is_recurring: isRecurring,
-        })
-        .select()
-        .single()
-
-      if (error) throw error
+      // CC-BUG-02: case_number is `KZN-YYYYMM-<1000..9999>` — only 9000 values
+      // PER MONTH, shared across every tenant, on a plain UNIQUE column. A
+      // collision is a realistic 23505 with any real volume of cases, not a
+      // theoretical edge case. The number used to be fixed for the lifetime of
+      // the component (and persisted into the sessionStorage draft), so a
+      // collision was unrecoverable: every retry, and even a full page reload,
+      // resubmitted the exact same colliding number and failed again — while
+      // the generic catch below deleted the reporter's already-uploaded photos
+      // on that very first, retryable failure.
+      let usedCaseNumber = caseNumber
+      let newCase: { id: string } | null = null
+      for (let attempt = 0; attempt < 5; attempt++) {
+        const { data, error } = await supabase
+          .from('kaizen_cases')
+          .insert({
+            case_number: usedCaseNumber,
+            title: title.trim(),
+            description: description.trim(),
+            department,
+            created_by: profile.id,
+            priority,
+            status: 'open',
+            company_id: activeCompany?.id ?? null,
+            due_date: dueDate || null,
+            category: category || null,
+            category_other: category === 'other' ? categoryOther.trim() || null : null,
+            location: location || null,
+            location_other: location === 'Others' ? locationOther.trim() || null : null,
+            is_recurring: isRecurring,
+          })
+          .select()
+          .single()
+        if (!error) { newCase = data; break }
+        const isCaseNumberCollision = error.code === '23505' && /case_number/i.test(error.message)
+        if (!isCaseNumberCollision || attempt === 4) throw error
+        usedCaseNumber = generateCaseNumber()
+      }
+      if (!newCase) throw new Error('Failed to create case after retrying a colliding case number.')
+      // Persist the number that actually got used — into React state (so the
+      // success toast/JSX below see it) and, via the existing draft-save effect
+      // (which depends on `caseNumber`), into sessionStorage, so a reload can't
+      // resurrect the collision.
+      if (usedCaseNumber !== caseNumber) setCaseNumber(usedCaseNumber)
 
       if (photoUrls.length > 0) {
         const { error: photoErr } = await supabase.from('kaizen_case_photos').insert(
@@ -225,7 +264,18 @@ export function CreateCasePage() {
       })
       if (timelineErr) console.error('case timeline insert failed', timelineErr)
 
-      const [{ data: managersByDept }, { data: managersByManaged }] = await Promise.all([
+      // CC-BUG-01: managed_departments is a Postgres TEXT[] column, not jsonb
+      // (20260616000005_profiles_managed_departments.sql). PostgREST's `cs`
+      // operator on a real array column needs the PG array-literal form
+      // {"value"}; the old CC-003 fix sent JSON.stringify([department]) —
+      // ["value"] — which Postgres rejects as a malformed array literal. Every
+      // OTHER call site in the repo (rrNotify.ts, RoutineRosterPage.tsx) already
+      // uses the correct {"..."} form; this one silently errored on every
+      // submit, and because only `{ data }` was destructured the failure never
+      // surfaced — a manager who covers this department solely via
+      // managed_departments never got the 'New Case Reported' notification.
+      const escDept = department.replace(/"/g, '\\"')
+      const [{ data: managersByDept, error: mgrDeptErr }, { data: managersByManaged, error: mgrManagedErr }] = await Promise.all([
         supabase
           .from('kaizen_profiles')
           .select('id')
@@ -241,10 +291,10 @@ export function CreateCasePage() {
           .eq('role', 'manager')
           .eq('is_active', true)
           .neq('id', profile.id)
-          // CC-003: use explicit JSON serialisation so special characters (& < > etc.)
-          // in custom department labels are correctly encoded for PostgREST's cs filter.
-          .filter('managed_departments', 'cs', JSON.stringify([department])),
+          .filter('managed_departments', 'cs', `{"${escDept}"}`),
       ])
+      if (mgrDeptErr) console.error('manager-by-department lookup failed', mgrDeptErr)
+      if (mgrManagedErr) console.error('manager-by-managed-departments lookup failed', mgrManagedErr)
       const managerIdsSeen = new Set<string>()
       const managers = [...(managersByDept ?? []), ...(managersByManaged ?? [])].filter(
         (m: { id: string }) => { if (managerIdsSeen.has(m.id)) return false; managerIdsSeen.add(m.id); return true }
@@ -256,10 +306,10 @@ export function CreateCasePage() {
             user_id: m.id,
             case_id: newCase.id,
             title: 'New Case Reported',
-            message: `${profile.full_name} reported: "${title.trim()}" (${caseNumber})`,
+            message: `${profile.full_name} reported: "${title.trim()}" (${usedCaseNumber})`,
             notification_type: 'new_case',
             title_key: 'case_new',
-            body_params: { reporter: profile.full_name, title: title.trim(), caseNo: caseNumber },
+            body_params: { reporter: profile.full_name, title: title.trim(), caseNo: usedCaseNumber },
           }))
         )
         if (mgrNotifErr) console.error('manager notification insert failed', mgrNotifErr)
@@ -279,17 +329,17 @@ export function CreateCasePage() {
             user_id: a.id,
             case_id: newCase.id,
             title: 'New Case Reported',
-            message: `${profile.full_name} (${deptLabel(department, lang)}) reported: "${title.trim()}" (${caseNumber})`,
+            message: `${profile.full_name} (${deptLabel(department, lang)}) reported: "${title.trim()}" (${usedCaseNumber})`,
             notification_type: 'new_case',
             title_key: 'case_new',
-            body_params: { reporter: profile.full_name, title: title.trim(), caseNo: caseNumber },
+            body_params: { reporter: profile.full_name, title: title.trim(), caseNo: usedCaseNumber },
           }))
         )
         if (adminNotifErr) console.error('admin notification insert failed', adminNotifErr)
       }
 
-      clearDraft()
-      toast.success(t.createCase.created(caseNumber))
+      clearDraft(dKey)
+      toast.success(t.createCase.created(usedCaseNumber))
       navigate(`/cases/${newCase.id}`)
     } catch (err) {
       if (photoUrls.length > 0) {
@@ -322,7 +372,7 @@ export function CreateCasePage() {
       supabase.storage.from('kaizen-photos').remove(paths).catch((rmErr) =>
         console.error('photo cleanup on cancel failed', rmErr))
     }
-    clearDraft()
+    clearDraft(dKey)
     navigate(-1)
   }
 
@@ -539,7 +589,23 @@ export function CreateCasePage() {
                   <img src={url} alt="" className="w-full h-full object-cover" />
                   <button
                     type="button"
-                    onClick={() => setPhotoUrls((prev) => prev.filter((_, idx) => idx !== i))}
+                    onClick={() => {
+                      // CC-BUG-03: this only ever dropped the URL from React
+                      // state. PhotoUpload writes to storage immediately on
+                      // capture, and this page cleans up orphans on cancel and
+                      // on submit failure — but BOTH of those cleanup paths
+                      // walk `photoUrls`, so once a URL is removed from state
+                      // here, neither path can ever find it again. Every photo
+                      // a reporter took and then discarded leaked in storage
+                      // permanently. Delete the object itself before removing
+                      // it from state.
+                      const marker = '/kaizen-photos/'
+                      const idx = url.indexOf(marker)
+                      const path = idx !== -1 ? url.slice(idx + marker.length) : url
+                      supabase.storage.from('kaizen-photos').remove([path]).catch((rmErr) =>
+                        console.error('photo cleanup on remove failed', rmErr))
+                      setPhotoUrls((prev) => prev.filter((_, idx2) => idx2 !== i))
+                    }}
                     className="absolute top-1 right-1 bg-red-600 text-white rounded-full p-0.5 shadow-sm"
                   >
                     <X className="h-3 w-3" />

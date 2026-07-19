@@ -310,13 +310,30 @@ export function DashboardPage() {
   }))
   // Surface cases whose category no longer exists in the taxonomy as "Other"
   // rather than dropping them from the chart (see categoryData.__other__).
+  //
+  // DASH-BUG-01: this pushed `category: 'other'` — the SAME key a company's own
+  // real "Other" category row uses when effectiveCats includes one (built in,
+  // or kept as a custom category). Two rows sharing a React key means one
+  // silently overwrites the other's DOM node on reorder/update, and both
+  // pointed the deep-link at `/cases?category=other`, so whichever row
+  // survived showed a count (the orphan count) that did not match what
+  // clicking through to that filtered case list actually contained (the real
+  // "Other"-category cases). Give the orphan bucket its own identity: merge
+  // into an existing real "Other" row's count if there is one, otherwise add a
+  // distinct, non-navigating row (the render below skips the Link for it,
+  // since `/cases?category=__other__` is not a filter CasesPage understands).
   if ((categoryData.__other__ ?? 0) > 0) {
-    catPieData.push({
-      name:     t.categories?.other ?? 'Other',
-      value:    categoryData.__other__,
-      color:    CAT_FALLBACK[effectiveCats.length % CAT_FALLBACK.length],
-      category: 'other',
-    })
+    const existingOther = catPieData.find(d => d.category === 'other')
+    if (existingOther) {
+      existingOther.value += categoryData.__other__
+    } else {
+      catPieData.push({
+        name:     t.categories?.other ?? 'Other',
+        value:    categoryData.__other__,
+        color:    CAT_FALLBACK[effectiveCats.length % CAT_FALLBACK.length],
+        category: '__other__',
+      })
+    }
   }
   const catTotal = catPieData.reduce((s, d) => s + d.value, 0)
   const catPieSlices = catPieData.filter(d => d.value > 0)
@@ -504,22 +521,29 @@ export function DashboardPage() {
               )}
             </div>
             <div className="flex-1 min-w-0">
-              {catPieData.map((d) => (
-                <Link
-                  key={d.category}
-                  to={`/cases?category=${d.category}`}
-                  className="flex items-center justify-between px-2 py-1 rounded-lg hover:bg-gray-50 transition-colors group"
-                >
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: d.color, opacity: d.value === 0 ? 0.3 : 1 }} />
-                    <span className={`text-xs truncate ${d.value === 0 ? 'text-gray-400' : 'text-gray-700'}`}>{d.name}</span>
-                  </div>
-                  <div className="flex items-center gap-1 flex-shrink-0 ml-1">
-                    <span className="text-sm font-bold" style={{ color: d.value > 0 ? d.color : undefined }}>{d.value === 0 ? <span className="text-gray-300">0</span> : d.value}</span>
-                    {d.value > 0 && <svg className="h-3 w-3 text-gray-300 group-hover:text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>}
-                  </div>
-                </Link>
-              ))}
+              {catPieData.map((d) => {
+                // DASH-BUG-01: '__other__' is the synthetic orphaned-category
+                // bucket, not a real filterable category — CasesPage has no
+                // matching filter for it, so this row isn't a link.
+                const rowClass = "flex items-center justify-between px-2 py-1 rounded-lg hover:bg-gray-50 transition-colors group"
+                const inner = (
+                  <>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: d.color, opacity: d.value === 0 ? 0.3 : 1 }} />
+                      <span className={`text-xs truncate ${d.value === 0 ? 'text-gray-400' : 'text-gray-700'}`}>{d.name}</span>
+                    </div>
+                    <div className="flex items-center gap-1 flex-shrink-0 ml-1">
+                      <span className="text-sm font-bold" style={{ color: d.value > 0 ? d.color : undefined }}>{d.value === 0 ? <span className="text-gray-300">0</span> : d.value}</span>
+                      {d.value > 0 && d.category !== '__other__' && <svg className="h-3 w-3 text-gray-300 group-hover:text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>}
+                    </div>
+                  </>
+                )
+                return d.category === '__other__' ? (
+                  <div key={d.category} className={rowClass}>{inner}</div>
+                ) : (
+                  <Link key={d.category} to={`/cases?category=${d.category}`} className={rowClass}>{inner}</Link>
+                )
+              })}
             </div>
           </div>
         </div>

@@ -304,6 +304,14 @@ export function CaseDetailPage() {
 
       setShowPicEditor(false)
       setNotifyDepts([])
+      // CDP-BUG-03: promptDue lives in component state shared between the
+      // one-shot PM auto-prompt dialog and every later call to savePic (e.g.
+      // from the always-visible "Edit In Charge" pencil). It used to persist
+      // after this save — and after a plain dismissal, see below — so typing a
+      // due date into the auto-prompt, then later editing In Charge through
+      // the normal pencil for something unrelated, silently reapplied that
+      // stale date. Consumed once per save, then cleared.
+      setPromptDue('')
       fetchCase()
     } finally { setSavingPic(false) }
   }
@@ -805,8 +813,12 @@ export function CaseDetailPage() {
         const commentLower = newComment.toLowerCase()
         const preview = newComment.trim().length > 80 ? newComment.trim().slice(0, 80) + '…' : newComment.trim()
 
-        // @all — notify every person in charge + assigned staff on this case
-        if (commentLower.includes('@all')) {
+        // @all — notify every person in charge + assigned staff on this case.
+        // CDP-BUG-04: substring .includes('@all') also matched "@Allan",
+        // "@allison", etc. — a comment mentioning a real person named Allan
+        // fired the notify-EVERYONE path instead of (or in addition to) an
+        // individual mention. Word-boundary match instead.
+        if (/@all\b/i.test(commentLower)) {
           const picIds = kcase?.pic_ids?.length
             ? kcase.pic_ids
             : kcase?.person_in_charge ? [kcase.person_in_charge] : []
@@ -923,10 +935,18 @@ export function CaseDetailPage() {
       if (editDescription.trim() !== kcase?.description) changes.push('description updated')
       if (editDepartment !== kcase?.department) changes.push(`department: ${DEPARTMENT_LABELS[kcase?.department as Department] ?? kcase?.department} → ${DEPARTMENT_LABELS[editDepartment as Department] ?? editDepartment}`)
       if (editDueDate !== (kcase?.due_date || '')) changes.push(`due date: ${editDueDate || 'removed'}`)
-      if (editStatus && editStatus !== kcase?.status) changes.push(`status: ${kcase?.status} → ${editStatus}`)
+      if (canManagerAssign && editStatus && editStatus !== kcase?.status) changes.push(`status: ${kcase?.status} → ${editStatus}`)
 
       const openFamilyStatuses = ['open', 'assigned', 'in_progress', 'reopened']
-      const statusChanged = editStatus && editStatus !== kcase?.status
+      // CDP-BUG-02: the status field used to be writable by anyone who could open
+      // this modal — including a plain staff reporter, via canEditCase's
+      // `id === created_by` branch. Selecting "closed" there stamped
+      // manager_approved_by / admin_approved_by with the EDITOR'S OWN id,
+      // forging both approval steps and closing the case with no resolution note
+      // or evidence photos. The UI now hides the status field for non-managers
+      // (see the Select below); this is the server-side backstop in case a
+      // status somehow arrives in state anyway.
+      const statusChanged = canManagerAssign && editStatus && editStatus !== kcase?.status
       const rollingBackToOpen = statusChanged && openFamilyStatuses.includes(editStatus!)
       const movingToClosed = statusChanged && editStatus === 'closed'
       const nowIso = new Date().toISOString()
@@ -1107,9 +1127,6 @@ export function CaseDetailPage() {
     (isHRManager || profile?.department === kcase.department)
 
   const canManagerAssign  = profile?.role === 'super_admin' || isActingDeptManager
-  const canEditPic = kcase.status !== 'closed' && (
-    profile?.role === 'super_admin' || isActingDeptManager || profile?.role === 'staff'
-  )
   const canEditDueDate    = kcase.status !== 'closed' && (
     profile?.role === 'super_admin' || isActingDeptManager
   )
@@ -1121,6 +1138,17 @@ export function CaseDetailPage() {
     ? kcase.pic_ids
     : (kcase.person_in_charge ? [kcase.person_in_charge] : [])
   const isInCharge = !!profile?.id && picIdsForResolve.includes(profile.id)
+  // CDP-BUG-01: this used to allow ANY staff member, on ANY case they could see,
+  // to open the PIC editor and name themselves In Charge — which then grants
+  // resolve rights via isInCharge below. RLS narrows the write to same-department
+  // staff, but "same department, otherwise uninvolved" was still a real hole: a
+  // colleague could silently take over a teammate's case and replace the PIC list
+  // wholesale. Staff may now only edit PIC on a case they created or are already
+  // named on; assigning someone else stays a manager/super_admin action.
+  const canEditPic = kcase.status !== 'closed' && (
+    profile?.role === 'super_admin' || isActingDeptManager ||
+    (profile?.role === 'staff' && (isInCharge || profile.id === kcase.created_by))
+  )
   // Department(s) of the people in charge — their department manager may act.
   const picDepartments = new Set(picProfiles.map(p => p.department).filter(Boolean) as string[])
   const isPicDeptManager = profile?.role === 'manager' &&
@@ -1166,7 +1194,7 @@ export function CaseDetailPage() {
     <div className="p-4 md:p-6 max-w-5xl mx-auto animate-fade-in">
       {/* Auto-prompt: assign PIC + optional due date on an unassigned PM case */}
       {showPmAssignPrompt && (
-        <Dialog open onOpenChange={(o) => { if (!o) setPmPromptDismissed(true) }}>
+        <Dialog open onOpenChange={(o) => { if (!o) { setPmPromptDismissed(true); setPromptDue('') } }}>
           <DialogContent className="max-w-md">
             <DialogHeader>
               <DialogTitle>{lang === 'th' ? 'มอบหมายเคสบำรุงรักษานี้' : 'Assign this maintenance case'}</DialogTitle>
@@ -1195,7 +1223,7 @@ export function CaseDetailPage() {
               </div>
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setPmPromptDismissed(true)}>{lang === 'th' ? 'ภายหลัง' : 'Later'}</Button>
+              <Button variant="outline" onClick={() => { setPmPromptDismissed(true); setPromptDue('') }}>{lang === 'th' ? 'ภายหลัง' : 'Later'}</Button>
               <Button onClick={async () => { await savePic(); setPmPromptDismissed(true) }} disabled={savingPic || selectedPics.length === 0}>
                 {savingPic ? (lang === 'th' ? 'กำลังมอบหมาย…' : 'Assigning…') : (lang === 'th' ? 'มอบหมาย' : 'Assign')}
               </Button>
@@ -1995,6 +2023,11 @@ export function CaseDetailPage() {
               </div>
             </div>
 
+            {/* CDP-BUG-02: manual status override (incl. "closed", which self-stamps
+                both approval steps) is a manager/admin correction tool, not
+                something the case's own reporter should have. Case creators who
+                are plain staff can still fix title/description/due date above. */}
+            {canManagerAssign && (
             <div className="space-y-1.5">
               <Label>{t.caseDetail.fieldStatus}</Label>
               <Select value={editStatus} onValueChange={(v) => setEditStatus(v as CaseStatus)}>
@@ -2009,6 +2042,7 @@ export function CaseDetailPage() {
               </Select>
               <p className="text-xs text-gray-400">{t.caseDetail.statusManualNote}</p>
             </div>
+            )}
           </div>
 
           <DialogFooter className="gap-2">
