@@ -154,8 +154,13 @@ export function CasesCalendarPage() {
     const daysInThisMonth = new Date(Date.UTC(nextY, nextM, 0)).getUTCDate()
     const cellCount = leadDays + daysInThisMonth
     const trailDays = (7 - (cellCount % 7)) % 7
-    const widenedStartIso = `${new Date(new Date(bkkStartIso).getTime() - leadDays * 86400000).toISOString().slice(0, 10)}T00:00:00+07:00`
-    const widenedEndIso = `${new Date(new Date(bkkEndIso).getTime() + trailDays * 86400000).toISOString().slice(0, 10)}T00:00:00+07:00`
+    // Use bangkokDate() (not .toISOString().slice(0,10), which reads the UTC
+    // calendar date) to derive the widened bound — bkkStartIso/bkkEndIso are
+    // Bangkok-midnight instants that are always 17:00 UTC the PREVIOUS day, so
+    // a naive UTC slice landed the widened window one day early and silently
+    // re-excluded the last trailing padding cell.
+    const widenedStartIso = `${bangkokDate(new Date(new Date(bkkStartIso).getTime() - leadDays * 86400000))}T00:00:00+07:00`
+    const widenedEndIso = `${bangkokDate(new Date(new Date(bkkEndIso).getTime() + trailDays * 86400000))}T00:00:00+07:00`
     const jobs: PromiseLike<unknown>[] = []
     // Staff are scoped to their own department across every layer of the calendar.
     const calStaffDept = profile?.role === 'staff' ? profile.department : null
