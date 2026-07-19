@@ -3,7 +3,7 @@ import { useLocation } from 'react-router-dom'
 import {
   ClipboardList, Loader2, X, Check, Trash2, Pencil,
   Plus, Send, PackageCheck, CircleCheck, ArrowRight, Clock, BedDouble, Ban, ChevronDown,
-  Bell, BellOff, History, Users,
+  Bell, BellOff, History, Users, Eye,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { supabase } from '@/lib/supabase'
@@ -13,7 +13,7 @@ import { useLanguage } from '@/contexts/LanguageContext'
 import {
   DEPARTMENTS, deptLabel,
   type Department, type KaizenProfile, type RrTemplate, type RrOrder, type RrOrderItem, type RrOrderStatus,
-  type RrOrderType, type RrVariant, type RrEvent,
+  type RrOrderType, type RrVariant, type RrEvent, type RrStage, type RrPicMode,
 } from '@/types'
 import type { RrItem } from '@/components/RRSettings'
 import { RoomOrderView } from '@/components/RoomOrderView'
@@ -62,13 +62,52 @@ const STATUS_PILL: Record<RrOrderStatus, string> = {
   pending: 'bg-gray-100 text-gray-600 border-gray-200',
   sent: 'bg-blue-50 text-blue-700 border-blue-200',
   accepted: 'bg-amber-50 text-amber-700 border-amber-200',
+  ready: 'bg-indigo-50 text-indigo-700 border-indigo-200',
   delivered: 'bg-teal-50 text-teal-700 border-teal-200',
   confirmed: 'bg-green-50 text-green-700 border-green-200',
   cancelled: 'bg-red-50 text-red-400 border-red-200',
 }
 const STATUS_DOT: Record<RrOrderStatus, string> = {
   pending: 'bg-gray-300', sent: 'bg-blue-500', accepted: 'bg-amber-500',
-  delivered: 'bg-teal-500', confirmed: 'bg-green-500', cancelled: 'bg-red-300',
+  ready: 'bg-indigo-500', delivered: 'bg-teal-500', confirmed: 'bg-green-500', cancelled: 'bg-red-300',
+}
+
+// ── stages: Requesting → Fulfilling → Delivery ───────────────────────────────
+// Delivery is optional. `deliver_department == null` means a two-stage order, where
+// fulfilling delivers directly and the 'ready' status is never used.
+
+/** The department that owns `stage`, or null if the order has no delivery stage. */
+function stageDept(o: RrOrder, stage: RrStage): Department | null {
+  return stage === 'request' ? o.request_department
+    : stage === 'fulfill' ? o.fulfill_department
+    : o.deliver_department
+}
+
+/**
+ * Per-stage PIC config. The request stage falls back to the legacy single
+ * pic_mode/pic_ids pair, which was always scoped to the requesting department —
+ * so templates saved before the delivery stage keep their existing PIC behaviour.
+ */
+function stagePic(tpl: RrTemplate | null, stage: RrStage): { mode: RrPicMode; ids: string[] } {
+  if (!tpl) return { mode: 'department', ids: [] }
+  if (stage === 'request') {
+    return { mode: tpl.request_pic_mode ?? tpl.pic_mode, ids: tpl.request_pic_ids ?? tpl.pic_ids ?? [] }
+  }
+  if (stage === 'fulfill') return { mode: tpl.fulfill_pic_mode ?? 'department', ids: tpl.fulfill_pic_ids ?? [] }
+  return { mode: tpl.deliver_pic_mode ?? 'department', ids: tpl.deliver_pic_ids ?? [] }
+}
+
+/** Whose turn is it? Maps a status to the stage that owes the next action. */
+function stageOnDuty(o: RrOrder): RrStage | null {
+  switch (o.status) {
+    case 'pending': return 'request'
+    case 'sent':
+    case 'accepted': return 'fulfill'
+    // A two-stage order has no delivery party, so fulfilling still owes the delivery.
+    case 'ready': return o.deliver_department ? 'deliver' : 'fulfill'
+    case 'delivered': return 'request' // requester confirms receipt to close the loop
+    default: return null // confirmed / cancelled — nobody
+  }
 }
 
 const inputCls = 'w-full h-9 rounded-lg border border-gray-300 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/40'
@@ -83,13 +122,20 @@ export function RoutineRosterPage() {
   const canManage = profile?.role === 'super_admin' || profile?.role === 'manager'
   const rrFo = useRrFoAccess()
 
-  const [view, setView] = useState<'board' | 'rooms' | 'templates' | 'report'>('board')
+  const [view, setView] = useState<'board' | 'rooms' | 'report'>('board')
+  const [boardMode, setBoardMode] = useState<'orders' | 'monitor' | 'templates'>('orders')
   const [fulfillingDepts, setFulfillingDepts] = useState<Set<string>>(new Set()) // depts used as a fulfilling dept in the room recipes
+  const [monitorDepts, setMonitorDepts] = useState<string[]>([]) // extra depts granted the read-only Monitor tab
   const { allOptions: allDepts } = useDepartments()
   // Managers + authorized Front Office can place/inspect; staff in a fulfilling department see their own fulfil board.
   const canRooms = canManage
     || (profile?.department === 'front_office' && rrFo.allowed)
     || (!!profile?.department && fulfillingDepts.has(profile.department))
+  // Read-only oversight. Same `rr_monitor_depts` grant that drives the room monitor,
+  // so one setting configures both wall displays.
+  const canMonitor = canManage
+    || (profile?.department === 'front_office' && rrFo.allowed)
+    || (!!profile?.department && monitorDepts.includes(profile.department))
 
   // Deep-link from the calendar's room-order chip: open the Room order tab at that date.
   const location = useLocation()
@@ -109,6 +155,7 @@ export function RoutineRosterPage() {
 
   const statusLabel = (s: RrOrderStatus) =>
     ({ pending: tr.rr.pending, sent: tr.rr.sentStatus, accepted: tr.rr.acceptedStatus,
+       ready: lang === 'th' ? 'ส่งต่อแล้ว' : 'Handed over',
        delivered: tr.rr.deliveredStatus, confirmed: tr.rr.confirmedStatus, cancelled: tr.rr.cancelledStatus }[s])
 
   // Room locations for the active company (per-room grids).
@@ -138,6 +185,13 @@ export function RoutineRosterPage() {
         const set = new Set<string>()
         Object.values(recipes).forEach((lines) => (lines ?? []).forEach((l) => { if (l.fulfill_department) set.add(l.fulfill_department) }))
         setFulfillingDepts(set)
+      })
+    // Extra departments granted the read-only monitor boards.
+    supabase.from('kaizen_settings').select('value')
+      .eq('company_id', companyId).eq('key', 'rr_monitor_depts').maybeSingle()
+      .then(({ data }) => {
+        if (stale) return
+        setMonitorDepts(Array.isArray(data?.value) ? (data!.value as string[]) : [])
       })
     return () => { stale = true }
   }, [companyId])
@@ -245,25 +299,27 @@ export function RoutineRosterPage() {
 
   const tplOf = useCallback((o: RrOrder) => templates.find((tp) => tp.id === o.template_id) ?? null, [templates])
 
-  // Is the current user on the REQUEST side for this order? With pic_mode 'users',
-  // a staff member only counts if they're an assigned PIC; managers always can act.
-  const onRequestSide = useCallback((o: RrOrder) => {
+  // Is the current user on `stage`'s side of this order? With PIC mode 'users', a
+  // staff member only counts if they're assigned to that stage; managers always can act.
+  const onStage = useCallback((o: RrOrder, stage: RrStage) => {
     if (!profile) return false
     if (canManage) return true
-    if (profile.department !== o.request_department) return false
-    const tpl = tplOf(o)
-    if (tpl?.pic_mode === 'users') return (tpl.pic_ids ?? []).includes(profile.id)
+    const dept = stageDept(o, stage)
+    if (!dept || profile.department !== dept) return false
+    const { mode, ids } = stagePic(tplOf(o), stage)
+    if (mode === 'users') return ids.includes(profile.id)
     return true
   }, [profile, canManage, tplOf])
 
-  // Whose turn is it? delivered → requesting side; sent/accepted → fulfilling side.
+  const onRequestSide = useCallback((o: RrOrder) => onStage(o, 'request'), [onStage])
+
+  // Whose turn is it? Ask the lifecycle which stage owes the next action, then check
+  // whether this user is on that stage's side.
   const needsMyAction = useCallback((o: RrOrder) => {
     if (!profile) return false
-    const onFulfill = canManage || profile.department === o.fulfill_department
-    if (o.status === 'pending' || o.status === 'delivered') return onRequestSide(o)
-    if (o.status === 'sent' || o.status === 'accepted') return onFulfill
-    return false
-  }, [profile, canManage, onRequestSide])
+    const duty = stageOnDuty(o)
+    return duty ? onStage(o, duty) : false
+  }, [profile, onStage])
 
   const mine = orders.filter(needsMyAction)
   const rest = orders.filter((o) => !needsMyAction(o))
@@ -274,7 +330,8 @@ export function RoutineRosterPage() {
     if (!profile) return false
     if (canManage) return true
     if (profile.department !== tp.request_department) return false
-    if (tp.pic_mode === 'users') return (tp.pic_ids ?? []).includes(profile.id)
+    const { mode, ids } = stagePic(tp, 'request')
+    if (mode === 'users') return ids.includes(profile.id)
     return true
   }, [profile, canManage])
   const menuTemplates = templates.filter((tp) => tp.active && canRequestTemplate(tp))
@@ -290,27 +347,55 @@ export function RoutineRosterPage() {
     )
   }
 
+  const showBoardModes = canMonitor || canManage // no sub-bar for staff who only ever see the order board
+
   return (
-    <div className="max-w-3xl mx-auto px-4 py-6">
+    // The monitor is a wall display — let it use the full width instead of the reading column.
+    <div className={`${view === 'board' && boardMode === 'monitor' ? 'max-w-6xl' : 'max-w-3xl'} mx-auto px-4 py-6`}>
       <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
         <div className="flex items-center gap-2">
           <ClipboardList className="h-5 w-5 text-[var(--brand-primary)]" />
           <h1 className="text-lg font-bold text-gray-900">{tr.rr.title}</h1>
         </div>
         <div className="flex rounded-lg border border-gray-300 overflow-x-auto max-w-full text-xs font-medium">
-          {([...(['board'] as const), ...(canRooms ? (['rooms'] as const) : []), ...(canManage ? (['templates'] as const) : []), ...(canManage ? (['report'] as const) : [])]).map((v) => (
+          {([...(['board'] as const), ...(canRooms ? (['rooms'] as const) : []), ...(canManage ? (['report'] as const) : [])]).map((v) => (
             <button key={v} onClick={() => setView(v)}
               className={`px-3 h-8 whitespace-nowrap flex-shrink-0 transition-colors ${view === v ? 'bg-[var(--brand-primary)] text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
-              {v === 'board' ? tr.rr.boardTab : v === 'rooms' ? (lang === 'th' ? `ใบสั่ง${unitOne(unit, lang)}` : `${unitOne(unit, lang)} order`) : v === 'templates' ? tr.rr.templatesTab : tr.rr.reportTab}
+              {v === 'board' ? tr.rr.boardTab : v === 'rooms' ? (lang === 'th' ? `ใบสั่ง${unitOne(unit, lang)}` : `${unitOne(unit, lang)} order`) : tr.rr.reportTab}
             </button>
           ))}
         </div>
       </div>
 
-      {view === 'rooms' && canRooms && companyId ? (
+      {/* Sub-modes of the Today board — mirrors the Room order view's mode switch. */}
+      {view === 'board' && showBoardModes && (
+        <div className="flex rounded-lg border border-gray-300 overflow-hidden text-xs font-medium w-fit mb-4">
+          <button onClick={() => setBoardMode('orders')}
+            className={`px-3 h-8 ${boardMode === 'orders' ? 'bg-[var(--brand-primary)] text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
+            {lang === 'th' ? 'ออเดอร์' : 'Orders'}
+          </button>
+          {canMonitor && (
+            <button onClick={() => setBoardMode('monitor')}
+              className={`px-3 h-8 flex items-center gap-1 ${boardMode === 'monitor' ? 'bg-[var(--brand-primary)] text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
+              <Eye className="h-3.5 w-3.5" />{lang === 'th' ? 'ติดตาม' : 'Monitor'}
+            </button>
+          )}
+          {canManage && (
+            <button onClick={() => setBoardMode('templates')}
+              className={`px-3 h-8 ${boardMode === 'templates' ? 'bg-[var(--brand-primary)] text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
+              {tr.rr.templatesTab}
+            </button>
+          )}
+        </div>
+      )}
+
+      {view === 'board' && boardMode === 'monitor' && canMonitor && companyId ? (
+        <RoutineMonitorBoard companyId={companyId} orders={orders} today={today} tomorrow={tomorrow}
+          loading={loading} onReload={load} />
+      ) : view === 'rooms' && canRooms && companyId ? (
         <RoomOrderView companyId={companyId} initialDate={nav?.roomDate}
           initialMode={nav?.rrView === 'rooms' && !(profile?.role === 'super_admin' || profile?.department === 'front_office') ? 'fulfil' : undefined} />
-      ) : view === 'templates' && canManage && companyId ? (
+      ) : view === 'board' && boardMode === 'templates' && canManage && companyId ? (
         <TemplatesView companyId={companyId} templates={templates}
           mutes={mutes} onMuteToggle={loadMutes} canManage={canManage} onChanged={load} allDepts={allDepts} />
       ) : view === 'report' && canManage && companyId ? (
@@ -324,7 +409,7 @@ export function RoutineRosterPage() {
           <p className="text-sm text-gray-500">{tr.rr.noTemplates}</p>
           <p className="text-xs text-gray-400 mt-1">{tr.rr.noTemplatesHint}</p>
           {canManage && (
-            <button onClick={() => setView('templates')} className="mt-3 text-sm text-[var(--brand-primary)] font-medium">
+            <button onClick={() => setBoardMode('templates')} className="mt-3 text-sm text-[var(--brand-primary)] font-medium">
               {tr.rr.setupTemplates}
             </button>
           )}
@@ -481,6 +566,7 @@ function PlaceOrderModal({ template: tp, companyId, profile, today, tomorrow, ro
     const { data: inserted, error } = await supabase.from('kaizen_rr_orders').insert({
       company_id: companyId, template_id: tp.id, order_date,
       title: tp.name, request_department: tp.request_department, fulfill_department: tp.fulfill_department,
+      deliver_department: tp.deliver_department ?? null,
       order_type: tp.order_type, item_label, unit_label: isBulk ? tp.unit_label : null,
       quantity, note: note.trim() || null, status: 'sent', due_at, sent_by: profile.id, sent_at: nowIso,
     }).select().single()
@@ -514,12 +600,24 @@ function PlaceOrderModal({ template: tp, companyId, profile, today, tomorrow, ro
       company_id: companyId, order_id: inserted.id, actor_id: profile.id, action: 'sent', detail: qtyLabel,
     })
     const itemSuffix = item_label ? ` — ${item_label}` : ''
+    const fulfillPic = stagePic(tp, 'fulfill')
     await notifyDept(tp.fulfill_department,
       lang === 'th' ? 'มีออเดอร์ประจำเข้ามาใหม่' : 'Routine order received',
       lang === 'th'
         ? `"${tp.name}"${itemSuffix} — ${qtyLabel} จากแผนก ${deptLabel(tp.request_department, lang)}`
         : `"${tp.name}"${itemSuffix} — ${qtyLabel} requested by ${deptLabel(tp.request_department, lang)}`,
-      { templateId: tp.id, picMode: tp.pic_mode, picIds: tp.pic_ids, useDeptConfig: true })
+      { templateId: tp.id, picMode: fulfillPic.mode, picIds: fulfillPic.ids, useDeptConfig: true })
+    // Three-stage: delivery is told up front that work is coming, so they can plan —
+    // but it isn't actionable for them until fulfilling hands it over.
+    if (tp.deliver_department) {
+      const deliverPic = stagePic(tp, 'deliver')
+      await notifyDept(tp.deliver_department,
+        lang === 'th' ? 'มีงานจัดส่งเข้ามาใหม่' : 'Delivery incoming',
+        lang === 'th'
+          ? `"${tp.name}"${itemSuffix} — ${qtyLabel} · รอแผนก ${deptLabel(tp.fulfill_department, lang)} ส่งต่อ`
+          : `"${tp.name}"${itemSuffix} — ${qtyLabel} · awaiting handover from ${deptLabel(tp.fulfill_department, lang)}`,
+        { templateId: tp.id, picMode: deliverPic.mode, picIds: deliverPic.ids, useDeptConfig: true })
+    }
     toast.success(tr.rr.orderSent)
     onPlaced()
     onClose()
@@ -627,19 +725,22 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
   const variants = tpl?.variants ?? null
   const hasVariants = o.order_type === 'per_room_variants'
   const isPerRoom = o.order_type === 'per_room' || o.order_type === 'per_room_variants'
-  const picMode = tpl?.pic_mode ?? 'department'
-  const picIds = tpl?.pic_ids ?? []
+  const { mode: picMode, ids: picIds } = stagePic(tpl, 'request')
 
+  // Three-stage orders route the last hop through a separate delivery department.
+  const hasDelivery = !!o.deliver_department
   const onRequest = onRequestSide
   const onFulfill = canManage || profile?.department === o.fulfill_department
+  const onDeliver = hasDelivery && (canManage || profile?.department === o.deliver_department)
   const items = (o.items ?? []).slice().sort((a, b) => a.room_no.localeCompare(b.room_no, undefined, { numeric: true }))
   const deliveredCount = items.filter((i) => i.delivered).length
-  const deptArrow = `${deptLabel(o.request_department, lang)} → ${deptLabel(o.fulfill_department, lang)}`
+  const deptArrow = [o.request_department, o.fulfill_department, o.deliver_department]
+    .filter(Boolean).map((d) => deptLabel(d as Department, lang)).join(' → ')
   const dueLabel = o.due_at ? fmtTime(o.due_at) : ''
   const unitOf = (n: number) => (o.unit_label ? `${n} ${o.unit_label}` : String(n))
   // The per-room checklist is shown while delivering, and as a read-only recap after.
   const showChecklist = isPerRoom && items.length > 0 &&
-    (o.status === 'accepted' || o.status === 'delivered' || o.status === 'confirmed') &&
+    (o.status === 'accepted' || o.status === 'ready' || o.status === 'delivered' || o.status === 'confirmed') &&
     (expanded || (o.status === 'accepted' && onFulfill && !readOnly))
   const canTickRooms = !readOnly && onFulfill && o.status === 'accepted'
 
@@ -675,7 +776,7 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
   }
 
   async function update(patch: Partial<RrOrder>, okMsg: string, ev: { action: string; detail: string | null },
-    notify?: { dept: Department; title: string; message: string; useDeptConfig?: boolean },
+    notify?: { dept: Department; title: string; message: string; useDeptConfig?: boolean; stage?: RrStage },
     noToast?: boolean) {
     if (!profile) return
     setBusy(true)
@@ -684,8 +785,10 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
     await logEvent(ev.action, ev.detail)
     if (notify) {
       try {
+        // PICs are per stage, so a notification uses the PIC list of the stage it targets.
+        const pic = stagePic(tpl, notify.stage ?? 'request')
         await notifyDept(notify.dept, notify.title, notify.message,
-          { templateId: o.template_id, picMode, picIds, useDeptConfig: notify.useDeptConfig })
+          { templateId: o.template_id, picMode: pic.mode, picIds: pic.ids, useDeptConfig: notify.useDeptConfig })
       } catch (err) {
         console.error('[update:notifyDept]', err)
       }
@@ -703,12 +806,13 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
         { status: 'sent', quantity: n, note: note.trim() || null, sent_by: profile.id, sent_at: now() },
         tr.rr.orderSent,
         { action: 'sent', detail: `${unitOf(n)}${itemSuffix}` },
-        { dept: o.fulfill_department, useDeptConfig: true,
+        { dept: o.fulfill_department, useDeptConfig: true, stage: 'fulfill',
           title: lang === 'th' ? 'มีออเดอร์ประจำเข้ามาใหม่' : 'Routine order received',
           message: lang === 'th'
             ? `"${o.title}"${itemSuffix} — ${unitOf(n)} จากแผนก ${deptLabel(o.request_department, lang)}`
             : `"${o.title}"${itemSuffix} — ${unitOf(n)} requested by ${deptLabel(o.request_department, lang)}` },
       )
+      await notifyDeliveryIncoming(unitOf(n))
     } else if (isPerRoom) {
       // Room grid: keys present in `grid` are the selected rooms; value is the variant code.
       const picked = Object.keys(grid)
@@ -743,10 +847,29 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
           lang === 'th'
             ? `"${o.title}"${itemSuffix} — ${picked.length} ห้อง จากแผนก ${deptLabel(o.request_department, lang)}`
             : `"${o.title}"${itemSuffix} — ${picked.length} rooms, requested by ${deptLabel(o.request_department, lang)}`,
-          { templateId: o.template_id, picMode, picIds, useDeptConfig: true })
+          { templateId: o.template_id, ...stagePicOpts('fulfill'), useDeptConfig: true })
       } catch (err) { console.error('[sendOrder:notifyDept]', err) }
+      await notifyDeliveryIncoming(`${picked.length} ${lang === 'th' ? 'ห้อง' : 'rooms'}`)
       toast.success(tr.rr.orderSent); onChanged()
     }
+  }
+
+  const stagePicOpts = (stage: RrStage) => {
+    const p = stagePic(tpl, stage)
+    return { picMode: p.mode, picIds: p.ids }
+  }
+
+  /** Three-stage: tell delivery work is coming so they can plan the last leg. */
+  async function notifyDeliveryIncoming(qtyLabel: string) {
+    if (!o.deliver_department) return
+    try {
+      await notifyDept(o.deliver_department,
+        lang === 'th' ? 'มีงานจัดส่งเข้ามาใหม่' : 'Delivery incoming',
+        lang === 'th'
+          ? `"${o.title}"${itemSuffix} — ${qtyLabel} · รอแผนก ${deptLabel(o.fulfill_department, lang)} ส่งต่อ`
+          : `"${o.title}"${itemSuffix} — ${qtyLabel} · awaiting handover from ${deptLabel(o.fulfill_department, lang)}`,
+        { templateId: o.template_id, ...stagePicOpts('deliver'), useDeptConfig: true })
+    } catch (err) { console.error('[notifyDeliveryIncoming]', err) }
   }
 
   async function acceptOrder() {
@@ -754,7 +877,7 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
       { status: 'accepted', accepted_by: profile!.id, accepted_at: now() },
       tr.rr.orderAccepted,
       { action: 'accepted', detail: null },
-      { dept: o.request_department,
+      { dept: o.request_department, stage: 'request',
         title: lang === 'th' ? 'รับออเดอร์แล้ว' : 'Routine order accepted',
         message: lang === 'th'
           ? `"${o.title}"${itemSuffix} รับงานโดยแผนก ${deptLabel(o.fulfill_department, lang)}`
@@ -762,16 +885,33 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
     )
   }
 
+  // Three-stage only: fulfilling has finished and is passing the order to delivery,
+  // who now owes the last leg to the customer.
+  async function handOver() {
+    await update(
+      { status: 'ready', ready_by: profile!.id, ready_at: now() },
+      lang === 'th' ? 'ส่งต่อให้ฝ่ายจัดส่งแล้ว' : 'Handed over to delivery',
+      { action: 'ready', detail: null },
+      { dept: o.deliver_department!, useDeptConfig: true, stage: 'deliver',
+        title: lang === 'th' ? 'พร้อมจัดส่ง' : 'Ready for delivery',
+        message: lang === 'th'
+          ? `"${o.title}"${itemSuffix} พร้อมแล้วจากแผนก ${deptLabel(o.fulfill_department, lang)} — กรุณาจัดส่งให้ลูกค้า`
+          : `"${o.title}"${itemSuffix} is ready from ${deptLabel(o.fulfill_department, lang)} — deliver it to the customer` },
+    )
+  }
+
   async function markDelivered() {
+    // Two-stage: fulfilling delivered. Three-stage: the delivery department did.
+    const byDept = hasDelivery ? o.deliver_department! : o.fulfill_department
     await update(
       { status: 'delivered', delivered_by: profile!.id, delivered_at: now() },
       tr.rr.orderDelivered,
       { action: 'delivered', detail: null },
-      { dept: o.request_department,
+      { dept: o.request_department, stage: 'request',
         title: lang === 'th' ? 'จัดส่งออเดอร์แล้ว' : 'Routine order delivered',
         message: lang === 'th'
-          ? `"${o.title}"${itemSuffix} จัดส่งโดยแผนก ${deptLabel(o.fulfill_department, lang)}`
-          : `"${o.title}"${itemSuffix} was delivered by ${deptLabel(o.fulfill_department, lang)}` },
+          ? `"${o.title}"${itemSuffix} จัดส่งโดยแผนก ${deptLabel(byDept, lang)}`
+          : `"${o.title}"${itemSuffix} was delivered by ${deptLabel(byDept, lang)}` },
     )
   }
 
@@ -780,7 +920,7 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
       { status: 'confirmed', confirmed_by: profile!.id, confirmed_at: now() },
       tr.rr.orderConfirmed,
       { action: 'confirmed', detail: null },
-      { dept: o.fulfill_department, useDeptConfig: true,
+      { dept: o.fulfill_department, useDeptConfig: true, stage: 'fulfill',
         title: lang === 'th' ? 'ยืนยันการรับออเดอร์แล้ว' : 'Routine order confirmed',
         message: lang === 'th'
           ? `"${o.title}"${itemSuffix} ยืนยันการรับโดยแผนก ${deptLabel(o.request_department, lang)}`
@@ -824,23 +964,38 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
       allDone = !!rows && rows.length > 0 && rows.every((x) => x.delivered)
     }
     if (allDone) {
-      const { data: promoted, error: e2 } = await supabase.from('kaizen_rr_orders').update({
-        status: 'delivered', delivered_by: profile.id, delivered_at: now(),
-      }).eq('id', o.id).eq('status', 'accepted').select('id')
+      // Three-stage: finishing every room means fulfilling is done, so the order moves to
+      // 'ready' and delivery takes the last leg — it must NOT jump straight to 'delivered',
+      // which would skip the delivery department entirely.
+      const nextStatus: RrOrderStatus = hasDelivery ? 'ready' : 'delivered'
+      const stamp = hasDelivery
+        ? { status: nextStatus, ready_by: profile.id, ready_at: now() }
+        : { status: nextStatus, delivered_by: profile.id, delivered_at: now() }
+      const { data: promoted, error: e2 } = await supabase.from('kaizen_rr_orders')
+        .update(stamp).eq('id', o.id).eq('status', 'accepted').select('id')
       if (e2) toast.error(e2.message)
       else if (promoted && promoted.length > 0) {
         // RR-006: use DB row count rather than stale closure items.length
         const dbCount = dbRows?.length ?? items.length
-        await logEvent('delivered', null)
+        await logEvent(hasDelivery ? 'ready' : 'delivered', null)
         try {
-          await notifyDept(o.request_department,
-            lang === 'th' ? 'จัดส่งออเดอร์แล้ว' : 'Routine order delivered',
-            lang === 'th'
-              ? `"${o.title}"${itemSuffix} — ครบทั้ง ${dbCount} ห้อง โดยแผนก ${deptLabel(o.fulfill_department, lang)}`
-              : `"${o.title}"${itemSuffix} — all ${dbCount} rooms done by ${deptLabel(o.fulfill_department, lang)}`,
-            { templateId: o.template_id, picMode, picIds })
+          if (hasDelivery) {
+            await notifyDept(o.deliver_department!,
+              lang === 'th' ? 'พร้อมจัดส่ง' : 'Ready for delivery',
+              lang === 'th'
+                ? `"${o.title}"${itemSuffix} — ครบทั้ง ${dbCount} ห้อง จากแผนก ${deptLabel(o.fulfill_department, lang)} — กรุณาจัดส่งให้ลูกค้า`
+                : `"${o.title}"${itemSuffix} — all ${dbCount} rooms ready from ${deptLabel(o.fulfill_department, lang)} — deliver to the customer`,
+              { templateId: o.template_id, ...stagePicOpts('deliver'), useDeptConfig: true })
+          } else {
+            await notifyDept(o.request_department,
+              lang === 'th' ? 'จัดส่งออเดอร์แล้ว' : 'Routine order delivered',
+              lang === 'th'
+                ? `"${o.title}"${itemSuffix} — ครบทั้ง ${dbCount} ห้อง โดยแผนก ${deptLabel(o.fulfill_department, lang)}`
+                : `"${o.title}"${itemSuffix} — all ${dbCount} rooms done by ${deptLabel(o.fulfill_department, lang)}`,
+              { templateId: o.template_id, ...stagePicOpts('request') })
+          }
         } catch (err) { console.error('[toggleRoom:notifyDept]', err) }
-        toast.success(tr.rr.orderDelivered)
+        toast.success(hasDelivery ? (lang === 'th' ? 'ส่งต่อให้ฝ่ายจัดส่งแล้ว' : 'Handed over to delivery') : tr.rr.orderDelivered)
       }
     }
     setBusy(false)
@@ -961,13 +1116,48 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
         </div>
       )}
 
-      {/* accepted bulk → mark delivered */}
+      {/* accepted bulk → two-stage: fulfilling delivers. three-stage: hand to delivery. */}
       {!readOnly && o.status === 'accepted' && o.order_type === 'bulk' && onFulfill && (
+        <div className="mt-3 pl-5">
+          {hasDelivery ? (
+            <button onClick={handOver} disabled={busy} className={actionBtnCls}>
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
+              {lang === 'th' ? `ส่งต่อให้${deptLabel(o.deliver_department!, lang)}` : `Hand to ${deptLabel(o.deliver_department!, lang)}`}
+            </button>
+          ) : (
+            <button onClick={markDelivered} disabled={busy} className={actionBtnCls}>
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <PackageCheck className="h-4 w-4" />}{tr.rr.markDelivered}
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* per-room three-stage: rooms are ticked off, then the whole order is handed over at once */}
+      {!readOnly && o.status === 'accepted' && isPerRoom && hasDelivery && onFulfill && (
+        <div className="mt-3 pl-5">
+          <button onClick={handOver} disabled={busy} className={actionBtnCls}>
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
+            {lang === 'th' ? `ส่งต่อให้${deptLabel(o.deliver_department!, lang)}` : `Hand to ${deptLabel(o.deliver_department!, lang)}`}
+          </button>
+        </div>
+      )}
+
+      {/* ready → the delivery department completes the last leg to the customer */}
+      {!readOnly && o.status === 'ready' && onDeliver && (
         <div className="mt-3 pl-5">
           <button onClick={markDelivered} disabled={busy} className={actionBtnCls}>
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <PackageCheck className="h-4 w-4" />}{tr.rr.markDelivered}
           </button>
         </div>
+      )}
+
+      {/* ready, seen by anyone else → who we're waiting on */}
+      {!readOnly && o.status === 'ready' && !onDeliver && (
+        <p className="mt-3 pl-5 text-xs text-gray-400">
+          {lang === 'th'
+            ? `รอแผนก ${deptLabel(o.deliver_department!, lang)} จัดส่ง`
+            : `Awaiting delivery by ${deptLabel(o.deliver_department!, lang)}`}
+        </p>
       )}
 
       {/* per-room checklist (deliver ticks while accepted; recap when expanded later) */}
@@ -1148,7 +1338,10 @@ function RoomGrid({ rooms, grid, setGrid, variants }: {
 // ── order acknowledgement timeline ────────────────────────────────────────────
 
 function OrderTimeline({ order: o }: { order: RrOrder }) {
-  const { t: tr } = useLanguage()
+  const { t: tr, lang } = useLanguage()
+  const readyWord = lang === 'th'
+    ? `ส่งต่อให้${o.deliver_department ? deptLabel(o.deliver_department, lang) : 'ฝ่ายจัดส่ง'}`
+    : `handed over to ${o.deliver_department ? deptLabel(o.deliver_department, lang) : 'delivery'}`
   const [events, setEvents] = useState<(RrEvent & { actor?: { full_name: string } | null })[]>([])
   const [names, setNames] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
@@ -1156,7 +1349,7 @@ function OrderTimeline({ order: o }: { order: RrOrder }) {
   // The order's own columns are the source of truth for the lifecycle (who placed /
   // accepted / delivered / confirmed). Events add finer detail (per-room, reassign)
   // but may be absent — so the milestones below never depend on them.
-  const actorIds = [o.sent_by, o.accepted_by, o.delivered_by, o.confirmed_by].filter(Boolean) as string[]
+  const actorIds = [o.sent_by, o.accepted_by, o.ready_by, o.delivered_by, o.confirmed_by].filter(Boolean) as string[]
   useEffect(() => {
     let stale = false
     ;(async () => {
@@ -1177,10 +1370,10 @@ function OrderTimeline({ order: o }: { order: RrOrder }) {
       setLoading(false)
     })()
     return () => { stale = true }
-  }, [o.id, o.sent_by, o.accepted_by, o.delivered_by, o.confirmed_by, o.sent_at, o.accepted_at, o.delivered_at, o.confirmed_at]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [o.id, o.sent_by, o.accepted_by, o.ready_by, o.delivered_by, o.confirmed_by, o.sent_at, o.accepted_at, o.ready_at, o.delivered_at, o.confirmed_at]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const actionLabel = (a: string): string => ({
-    sent: tr.rr.evSent, accepted: tr.rr.evAccepted, delivered: tr.rr.evDelivered,
+    sent: tr.rr.evSent, accepted: tr.rr.evAccepted, ready: readyWord, delivered: tr.rr.evDelivered,
     confirmed: tr.rr.evConfirmed, cancelled: tr.rr.evCancelled, room_delivered: tr.rr.evRoomDelivered,
     pic_changed: tr.rr.evPicChanged,
   } as Record<string, string>)[a] ?? a
@@ -1194,6 +1387,7 @@ function OrderTimeline({ order: o }: { order: RrOrder }) {
   const rows: Row[] = [
     o.sent_at && { key: 'sent', at: o.sent_at, text: `${nm(o.sent_by)} ${tr.rr.evSent}${qtyDetail ? ` · ${qtyDetail}` : ''}` },
     o.accepted_at && { key: 'accepted', at: o.accepted_at, text: `${nm(o.accepted_by)} ${tr.rr.evAccepted}` },
+    o.ready_at && { key: 'ready', at: o.ready_at, text: `${nm(o.ready_by)} ${readyWord}` },
     o.delivered_at && { key: 'delivered', at: o.delivered_at, text: `${nm(o.delivered_by)} ${tr.rr.evDelivered}` },
     o.confirmed_at && { key: 'confirmed', at: o.confirmed_at, text: `${nm(o.confirmed_by)} ${tr.rr.evConfirmed}` },
   ].filter(Boolean) as Row[]
@@ -1216,6 +1410,202 @@ function OrderTimeline({ order: o }: { order: RrOrder }) {
         </li>
       ))}
     </ul>
+  )
+}
+
+// ── monitor board (read-only wall display) ───────────────────────────────────
+
+type MonitorKey = 'done' | 'handover' | 'delivering' | 'working' | 'pending' | 'cancelled'
+
+/** Where an order sits from a watcher's point of view (mirrors the room monitor's statusOf). */
+function monitorKeyOf(o: RrOrder): MonitorKey {
+  if (o.status === 'cancelled') return 'cancelled'
+  if (o.status === 'confirmed') return 'done'
+  if (o.status === 'delivered') return 'handover'
+  if (o.status === 'ready') return 'delivering' // with delivery: out for delivery; without: fulfilling still owes it
+  if (o.status === 'accepted' || o.status === 'sent') return 'working'
+  return 'pending'
+}
+/** Past its ready-by time and still not closed. */
+function orderOverdue(o: RrOrder): boolean {
+  if (!o.due_at || o.status === 'confirmed' || o.status === 'cancelled') return false
+  return Date.now() > new Date(o.due_at).getTime()
+}
+
+const MONITOR_CHIP: Record<MonitorKey, string> = {
+  done: 'bg-green-50 text-green-700 border-green-200',
+  handover: 'bg-teal-50 text-teal-700 border-teal-200',
+  delivering: 'bg-indigo-50 text-indigo-700 border-indigo-200',
+  working: 'bg-amber-50 text-amber-700 border-amber-200',
+  pending: 'bg-gray-100 text-gray-500 border-gray-200',
+  cancelled: 'bg-red-50 text-red-400 border-red-200',
+}
+
+function RoutineMonitorBoard({ companyId, orders, today, tomorrow, loading, onReload }: {
+  companyId: string; orders: RrOrder[]; today: string; tomorrow: string
+  loading: boolean; onReload: () => void
+}) {
+  const { lang } = useLanguage()
+  const [groupBy, setGroupBy] = useState<'dept' | 'routine'>('dept')
+  const [outstandingOnly, setOutstandingOnly] = useState(false)
+
+  // Live updates: any change to this company's routine orders re-pulls the board
+  // (debounced so a burst of ticks coalesces into one reload).
+  const reloadTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => {
+    if (!companyId) return
+    const bump = () => {
+      if (reloadTimer.current) clearTimeout(reloadTimer.current)
+      reloadTimer.current = setTimeout(() => onReload(), 400)
+    }
+    const ch = supabase.channel(`rr_board_monitor_${companyId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'kaizen_rr_orders', filter: `company_id=eq.${companyId}` }, bump)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'kaizen_rr_order_items', filter: `company_id=eq.${companyId}` }, bump)
+      .subscribe()
+    return () => { if (reloadTimer.current) clearTimeout(reloadTimer.current); supabase.removeChannel(ch) }
+  }, [companyId, onReload])
+
+  // Re-render on a timer so overdue styling appears without waiting for a data change.
+  const [, tick] = useState(0)
+  useEffect(() => {
+    const id = setInterval(() => tick((n) => n + 1), 30_000)
+    return () => clearInterval(id)
+  }, [])
+
+  const statusText = (o: RrOrder): string => {
+    const th = lang === 'th'
+    switch (monitorKeyOf(o)) {
+      case 'done': return `${th ? 'เสร็จสิ้น' : 'Confirmed'}${o.confirmed_at ? ` · ${fmtTime(o.confirmed_at)}` : ''}`
+      case 'handover': return `${th ? 'ส่งแล้ว · รอยืนยัน' : 'Delivered · awaiting confirm'}${o.delivered_at ? ` · ${fmtTime(o.delivered_at)}` : ''}`
+      case 'delivering': return o.deliver_department
+        ? `${th ? 'กำลังจัดส่ง · ' : 'Out for delivery · '}${deptLabel(o.deliver_department, lang)}`
+        : `${th ? 'พร้อมส่ง · ' : 'Ready · '}${deptLabel(o.fulfill_department, lang)}`
+      case 'working': return o.status === 'accepted'
+        ? `${th ? 'กำลังทำ · ' : 'In progress · '}${deptLabel(o.fulfill_department, lang)}`
+        : `${th ? 'ส่งคำสั่งแล้ว · รอ' : 'Sent · awaiting'} ${deptLabel(o.fulfill_department, lang)}`
+      case 'cancelled': return th ? 'ยกเลิก' : 'Cancelled'
+      default: return `${th ? 'รอ · ' : 'Pending · '}${deptLabel(o.request_department, lang)}`
+    }
+  }
+
+  // Cancelled orders never count toward progress — they're shown for awareness only.
+  const live = orders.filter((o) => o.status !== 'cancelled')
+  const visible = outstandingOnly
+    ? orders.filter((o) => !['confirmed', 'cancelled'].includes(o.status))
+    : orders
+  const total = live.length
+  const counts = {
+    done: live.filter((o) => monitorKeyOf(o) === 'done').length,
+    handover: live.filter((o) => monitorKeyOf(o) === 'handover').length,
+    delivering: live.filter((o) => monitorKeyOf(o) === 'delivering').length,
+    working: live.filter((o) => monitorKeyOf(o) === 'working').length,
+    pending: live.filter((o) => monitorKeyOf(o) === 'pending').length,
+    overdue: live.filter(orderOverdue).length,
+  }
+
+  // Today first, then tomorrow; within a day, earliest ready-by first.
+  const byTime = (a: RrOrder, b: RrOrder) =>
+    a.order_date.localeCompare(b.order_date) || (a.due_at ?? '~').localeCompare(b.due_at ?? '~')
+  const groupKey = (o: RrOrder) => groupBy === 'dept' ? deptLabel(o.fulfill_department, lang) : o.title
+  const groups = new Map<string, RrOrder[]>()
+  for (const o of visible.slice().sort((a, b) => groupKey(a).localeCompare(groupKey(b)) || byTime(a, b))) {
+    const k = groupKey(o)
+    if (!groups.has(k)) groups.set(k, [])
+    groups.get(k)!.push(o)
+  }
+
+  const dayLabel = (d: string) => d === today ? (lang === 'th' ? 'วันนี้' : 'today')
+    : d === tomorrow ? (lang === 'th' ? 'พรุ่งนี้' : 'tomorrow') : d
+
+  if (loading) return <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-gray-400" /></div>
+
+  return (
+    <div className="space-y-4">
+      <div className="text-center">
+        <p className="text-sm font-semibold text-gray-900">
+          {lang === 'th' ? 'วันนี้ + พรุ่งนี้' : 'Today + tomorrow'}
+        </p>
+        <p className="text-[11px] text-gray-400 flex items-center justify-center gap-1">
+          <span className="inline-block h-1.5 w-1.5 rounded-full bg-green-500" />{lang === 'th' ? 'อัปเดตสด' : 'live'}
+        </p>
+      </div>
+
+      {total === 0 ? (
+        <div className="text-center py-16 bg-white rounded-xl border border-gray-200 text-sm text-gray-400">
+          {lang === 'th' ? 'ยังไม่มีออเดอร์สำหรับวันนี้และพรุ่งนี้' : 'No orders placed for today or tomorrow.'}
+        </div>
+      ) : (
+        <>
+          <div className="flex items-center gap-2 flex-wrap rounded-xl border border-gray-200 bg-white px-4 py-3">
+            <div className="flex-1 flex items-center gap-1.5 flex-wrap">
+              <span className="text-sm font-semibold text-gray-900">{counts.done}/{total} {lang === 'th' ? 'เสร็จสิ้น' : 'confirmed'}</span>
+              {counts.overdue > 0 && <span className="text-[11px] px-1.5 py-0.5 rounded-full bg-red-50 text-red-700 border border-red-200">{counts.overdue} {lang === 'th' ? 'เลยเวลา' : 'overdue'}</span>}
+              {counts.delivering > 0 && <span className="text-[11px] px-1.5 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">{counts.delivering} {lang === 'th' ? 'กำลังจัดส่ง' : 'out for delivery'}</span>}
+              {counts.handover > 0 && <span className="text-[11px] px-1.5 py-0.5 rounded-full bg-teal-50 text-teal-700 border border-teal-200">{counts.handover} {lang === 'th' ? 'รอยืนยัน' : 'awaiting confirm'}</span>}
+              {counts.working > 0 && <span className="text-[11px] px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">{counts.working} {lang === 'th' ? 'กำลังทำ' : 'in progress'}</span>}
+              {counts.pending > 0 && <span className="text-[11px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500 border border-gray-200">{counts.pending} {lang === 'th' ? 'รอ' : 'pending'}</span>}
+            </div>
+            <button onClick={() => setOutstandingOnly((v) => !v)}
+              className={`px-2.5 h-8 rounded-lg border text-xs font-medium ${outstandingOnly ? 'border-[var(--brand-primary)] text-[var(--brand-primary)] bg-[var(--brand-primary)]/5' : 'border-gray-300 text-gray-600 bg-white'}`}>
+              {lang === 'th' ? 'เฉพาะค้าง' : 'Outstanding'}
+            </button>
+            <div className="flex rounded-lg border border-gray-300 overflow-hidden text-xs font-medium">
+              <button onClick={() => setGroupBy('dept')} className={`px-2.5 h-8 ${groupBy === 'dept' ? 'bg-[var(--brand-primary)] text-white' : 'bg-white text-gray-600'}`}>{lang === 'th' ? 'ตามแผนก' : 'By dept'}</button>
+              <button onClick={() => setGroupBy('routine')} className={`px-2.5 h-8 ${groupBy === 'routine' ? 'bg-[var(--brand-primary)] text-white' : 'bg-white text-gray-600'}`}>{lang === 'th' ? 'ตามงาน' : 'By routine'}</button>
+            </div>
+          </div>
+
+          {groups.size === 0 ? (
+            <div className="text-center py-12 bg-white rounded-xl border border-gray-200 text-sm text-gray-400">
+              {lang === 'th' ? 'เสร็จครบทุกรายการแล้ว 🎉' : 'Everything confirmed 🎉'}
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {Array.from(groups.entries()).map(([key, gos]) => (
+                <div key={key} className="rounded-xl border border-gray-200 bg-white p-3">
+                  <div className="flex items-center gap-2 mb-2">
+                    <p className="text-sm font-semibold text-gray-900">{key}</p>
+                    <span className="ml-auto text-[11px] text-gray-400">
+                      {gos.filter((o) => monitorKeyOf(o) === 'done').length}/{gos.filter((o) => o.status !== 'cancelled').length} {lang === 'th' ? 'เสร็จ' : 'done'}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-1.5">
+                    {gos.map((o) => {
+                      const k = monitorKeyOf(o)
+                      const od = orderOverdue(o)
+                      const secondary = groupBy === 'dept' ? o.title : deptLabel(o.fulfill_department, lang)
+                      const route = [o.request_department, o.fulfill_department, o.deliver_department]
+                        .filter(Boolean).map((d) => deptLabel(d as Department, lang)).join(' → ')
+                      const items = o.items ?? []
+                      const roomProgress = items.length > 0 ? `${items.filter((i) => i.delivered).length}/${items.length}` : null
+                      return (
+                        <div key={o.id} className={`flex items-center gap-2 rounded-lg border px-2.5 py-2 ${od ? 'border-red-200 bg-red-50/40' : 'border-gray-200 bg-gray-50/50'}`}>
+                          <span className="flex-1 min-w-0">
+                            <span className="text-sm text-gray-800">{secondary}</span>
+                            {o.order_date !== today && (
+                              <span className="ml-1 text-[9px] px-1 rounded bg-blue-100 text-blue-700 align-middle">{dayLabel(o.order_date)}</span>
+                            )}
+                            <span className="block text-[11px] text-gray-400 truncate">
+                              {groupBy === 'dept' ? deptLabel(o.request_department, lang) : route}
+                              {o.item_label ? ` · ${o.item_label}` : ''}
+                              {o.quantity ? ` ×${o.quantity}${o.unit_label ? ` ${o.unit_label}` : ''}` : ''}
+                              {roomProgress ? ` · ${roomProgress}` : ''}
+                              {o.due_at ? ` · ${lang === 'th' ? 'ภายใน' : 'by'} ${fmtTime(o.due_at)}` : ''}
+                            </span>
+                          </span>
+                          {od && <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 flex-shrink-0">{lang === 'th' ? 'เลยเวลา' : 'overdue'}</span>}
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded-full border flex-shrink-0 ${MONITOR_CHIP[k]}`}>{statusText(o)}</span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
   )
 }
 
@@ -1313,13 +1703,20 @@ function TemplateEditor({ companyId, template, sortNext, onClose, onSaved, allDe
     name: template?.name ?? '', name_th: template?.name_th ?? '',
     request_department: template?.request_department ?? ('front_office' as Department),
     fulfill_department: template?.fulfill_department ?? ('restaurant' as Department),
+    // '' = no delivery stage, i.e. fulfilling delivers directly (the original behaviour).
+    deliver_department: (template?.deliver_department ?? '') as Department | '',
     due_time: (template?.due_time ?? '12:00').slice(0, 5),
     order_type: (template?.order_type ?? 'bulk') as RrOrderType,
     active: template?.active ?? true,
-    pic_mode: (template?.pic_mode ?? 'department') as 'department' | 'users',
-    pic_ids: template?.pic_ids ?? [],
+    // Per-stage PIC. Request falls back to the legacy pair for templates saved before
+    // the delivery stage existed.
+    request_pic_mode: (template?.request_pic_mode ?? template?.pic_mode ?? 'department') as RrPicMode,
+    request_pic_ids: template?.request_pic_ids ?? template?.pic_ids ?? [],
+    fulfill_pic_mode: (template?.fulfill_pic_mode ?? 'department') as RrPicMode,
+    fulfill_pic_ids: template?.fulfill_pic_ids ?? [],
+    deliver_pic_mode: (template?.deliver_pic_mode ?? 'department') as RrPicMode,
+    deliver_pic_ids: template?.deliver_pic_ids ?? [],
   })
-  const [picCandidates, setPicCandidates] = useState<{ id: string; full_name: string; role: string; job_title: string | null }[]>([])
   const [rrItems, setRrItems] = useState<RrItem[]>([])
   const [catalogItems, setCatalogItems] = useState<{ label: string; unit: string }[]>(template?.catalog_items ?? [])
   const set = (patch: Partial<typeof f>) => setF((prev) => ({ ...prev, ...patch }))
@@ -1334,31 +1731,27 @@ function TemplateEditor({ companyId, template, sortNext, onClose, onSaved, allDe
       })
     return () => { stale = true }
   }, [companyId])
-  // PIC candidates = active staff/managers in the REQUESTING department, minus Owner.
-  useEffect(() => {
-    let stale = false
-    supabase.from('kaizen_profiles').select('id, full_name, role, job_title')
-      .eq('company_id', companyId).eq('is_active', true).is('deleted_at', null)
-      .eq('department', f.request_department)
-      .in('role', ['staff', 'manager'])
-      .order('role', { ascending: false }).order('full_name')
-      .then(({ data }) => {
-        if (stale) return
-        setPicCandidates(((data as { id: string; full_name: string; role: string; job_title: string | null }[]) ?? [])
-          .filter((p) => p.job_title !== 'Owner'))
-      })
-    return () => { stale = true }
-  }, [companyId, f.request_department])
-
   async function save() {
     if (!f.name.trim()) { toast.error(tr.rr.nameRequired); return }
     if (f.request_department === f.fulfill_department) { toast.error(tr.rr.sameDeptError); return }
-    const cleanPics = f.pic_ids.filter((id) => picCandidates.some((c) => c.id === id))
-    if (f.pic_mode === 'users' && cleanPics.length === 0) { toast.error(tr.rr.picNoneSelected); return }
+    // Handing an order to the department that just fulfilled it is a no-op stage.
+    if (f.deliver_department && f.deliver_department === f.fulfill_department) {
+      toast.error(lang === 'th' ? 'ฝ่ายจัดส่งต้องไม่ใช่ฝ่ายเดียวกับผู้ดำเนินการ' : 'Delivery must differ from Fulfilling.')
+      return
+    }
+    // Each stage set to "specific people" needs at least one person named, or nobody
+    // would ever be notified for it.
+    const stageEmpty = ([
+      [f.request_pic_mode, f.request_pic_ids, true],
+      [f.fulfill_pic_mode, f.fulfill_pic_ids, true],
+      [f.deliver_pic_mode, f.deliver_pic_ids, !!f.deliver_department],
+    ] as const).some(([mode, ids, applies]) => applies && mode === 'users' && ids.length === 0)
+    if (stageEmpty) { toast.error(tr.rr.picNoneSelected); return }
     setBusy(true)
     const row = {
       company_id: companyId, name: f.name.trim(), name_th: f.name_th.trim() || null,
       request_department: f.request_department, fulfill_department: f.fulfill_department,
+      deliver_department: f.deliver_department || null,
       order_type: f.order_type, due_time: f.due_time || '12:00',
       // A bulk routine is one item ordered in a quantity; the picked catalog item drives the
       // daily order's item label + unit (previously these were hardcoded null, so the picker
@@ -1369,8 +1762,17 @@ function TemplateEditor({ companyId, template, sortNext, onClose, onSaved, allDe
       active: f.active, sort_order: template?.sort_order ?? sortNext,
       unit_label: catalogItems[0]?.unit || null,
       variants: template?.variants ?? null,
-      pic_mode: f.pic_mode,
-      pic_ids: f.pic_mode === 'users' ? cleanPics : null,
+      request_pic_mode: f.request_pic_mode,
+      request_pic_ids: f.request_pic_mode === 'users' ? f.request_pic_ids : null,
+      fulfill_pic_mode: f.fulfill_pic_mode,
+      fulfill_pic_ids: f.fulfill_pic_mode === 'users' ? f.fulfill_pic_ids : null,
+      // A template with no delivery stage keeps no delivery PIC — otherwise turning the
+      // stage back on later would silently resurrect a stale set of people.
+      deliver_pic_mode: f.deliver_department ? f.deliver_pic_mode : 'department',
+      deliver_pic_ids: f.deliver_department && f.deliver_pic_mode === 'users' ? f.deliver_pic_ids : null,
+      // Legacy pair, kept in sync with the request stage until the columns are dropped.
+      pic_mode: f.request_pic_mode,
+      pic_ids: f.request_pic_mode === 'users' ? f.request_pic_ids : null,
     }
     const res = template
       ? await supabase.from('kaizen_rr_templates').update(row).eq('id', template.id)
@@ -1404,18 +1806,32 @@ function TemplateEditor({ companyId, template, sortNext, onClose, onSaved, allDe
           <Field label={tr.rr.nameTh}>
             <input value={f.name_th} onChange={(e) => set({ name_th: e.target.value })} className={inputCls} />
           </Field>
-          <div className="grid grid-cols-2 gap-2.5">
-            <Field label={tr.rr.requestDept}>
+          {/* Stages: Requesting → Fulfilling → Delivery. Delivery is optional. */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+            <Field label={lang === 'th' ? 'ผู้ขอ' : 'Requesting'}>
               <select value={f.request_department} onChange={(e) => set({ request_department: e.target.value as Department })} className={inputCls}>
                 {allDepts.map((d) => <option key={d.value} value={d.value}>{deptLabel(d.value, lang)}</option>)}
               </select>
             </Field>
-            <Field label={tr.rr.fulfillDept}>
+            <Field label={lang === 'th' ? 'ผู้ดำเนินการ' : 'Fulfilling'}>
               <select value={f.fulfill_department} onChange={(e) => set({ fulfill_department: e.target.value as Department })} className={inputCls}>
                 {allDepts.map((d) => <option key={d.value} value={d.value}>{deptLabel(d.value, lang)}</option>)}
               </select>
             </Field>
+            <Field label={lang === 'th' ? 'ผู้จัดส่ง' : 'Delivery'}>
+              <select value={f.deliver_department} onChange={(e) => set({ deliver_department: e.target.value as Department | '' })} className={inputCls}>
+                <option value="">{lang === 'th' ? '— ไม่มี —' : '— none —'}</option>
+                {allDepts.map((d) => <option key={d.value} value={d.value}>{deptLabel(d.value, lang)}</option>)}
+              </select>
+            </Field>
           </div>
+          <p className="text-[11px] text-gray-400 -mt-1">
+            {f.deliver_department
+              ? `${deptLabel(f.request_department, lang)} → ${deptLabel(f.fulfill_department, lang)} → ${deptLabel(f.deliver_department, lang)}`
+              : (lang === 'th'
+                ? `${deptLabel(f.request_department, lang)} → ${deptLabel(f.fulfill_department, lang)} · ผู้ดำเนินการจัดส่งเอง`
+                : `${deptLabel(f.request_department, lang)} → ${deptLabel(f.fulfill_department, lang)} · fulfilling delivers directly`)}
+          </p>
 
           <Field label={tr.rr.dueTime}>
             <input type="time" value={f.due_time} onChange={(e) => set({ due_time: e.target.value })} className={inputCls + ' max-w-[160px]'} />
@@ -1446,31 +1862,21 @@ function TemplateEditor({ companyId, template, sortNext, onClose, onSaved, allDe
             )
           })()}
 
-          {/* Person in charge (request side) */}
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium text-gray-500">{tr.rr.personInCharge}</label>
-            <div className="flex rounded-lg border border-gray-300 overflow-hidden text-xs font-medium">
-              {(['department', 'users'] as const).map((m) => (
-                <button key={m} type="button" onClick={() => set({ pic_mode: m })}
-                  className={`flex-1 px-3 h-8 transition-colors ${f.pic_mode === m ? 'bg-[var(--brand-primary)] text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
-                  {m === 'department' ? tr.rr.picWholeDept : tr.rr.picSpecificPeople}
-                </button>
-              ))}
-            </div>
-            {f.pic_mode === 'users' && (
-              <div className="max-h-44 overflow-y-auto rounded-lg border border-gray-200 divide-y divide-gray-50">
-                {picCandidates.length === 0 && <p className="px-3 py-2 text-xs text-gray-400">{tr.rr.picSelectPeople}</p>}
-                {picCandidates.map((p) => (
-                  <label key={p.id} className="flex items-center gap-2 px-3 py-1.5 cursor-pointer hover:bg-gray-50">
-                    <input type="checkbox" className="h-3.5 w-3.5 accent-[var(--brand-primary)]"
-                      checked={f.pic_ids.includes(p.id)}
-                      onChange={() => set({ pic_ids: f.pic_ids.includes(p.id) ? f.pic_ids.filter((x) => x !== p.id) : [...f.pic_ids, p.id] })} />
-                    <span className="text-xs text-gray-800 flex-1">{p.full_name}</span>
-                    {p.role === 'manager' && <span className="text-[10px] text-gray-400">{tr.roles.manager}</span>}
-                  </label>
-                ))}
-              </div>
-            )}
+          {/* Person in charge — one per stage */}
+          <div className="pt-1 space-y-3 border-t border-gray-100">
+            <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide pt-2">{tr.rr.personInCharge}</p>
+            <StagePicPicker companyId={companyId} dept={f.request_department}
+              mode={f.request_pic_mode} ids={f.request_pic_ids}
+              onChange={(n) => set({ request_pic_mode: n.mode, request_pic_ids: n.ids })}
+              label={`${lang === 'th' ? 'ผู้ขอ' : 'Requesting'} · ${deptLabel(f.request_department, lang)}`} />
+            <StagePicPicker companyId={companyId} dept={f.fulfill_department}
+              mode={f.fulfill_pic_mode} ids={f.fulfill_pic_ids}
+              onChange={(n) => set({ fulfill_pic_mode: n.mode, fulfill_pic_ids: n.ids })}
+              label={`${lang === 'th' ? 'ผู้ดำเนินการ' : 'Fulfilling'} · ${deptLabel(f.fulfill_department, lang)}`} />
+            <StagePicPicker companyId={companyId} dept={f.deliver_department || null}
+              mode={f.deliver_pic_mode} ids={f.deliver_pic_ids}
+              onChange={(n) => set({ deliver_pic_mode: n.mode, deliver_pic_ids: n.ids })}
+              label={`${lang === 'th' ? 'ผู้จัดส่ง' : 'Delivery'} · ${f.deliver_department ? deptLabel(f.deliver_department, lang) : ''}`} />
           </div>
         </div>
         <div className="flex items-center gap-2 px-5 py-4 border-t border-gray-200">
@@ -1491,6 +1897,71 @@ function TemplateEditor({ companyId, template, sortNext, onClose, onSaved, allDe
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return <div className="space-y-1"><label className="text-xs font-medium text-gray-500">{label}</label>{children}</div>
+}
+
+/**
+ * Person-in-charge picker for one stage: whole department, or named people from that
+ * department. Owns its own candidate list, so each of the three stages draws from its
+ * own department rather than all three sharing the requester's staff.
+ */
+function StagePicPicker({ companyId, dept, mode, ids, onChange, label }: {
+  companyId: string; dept: Department | null
+  mode: RrPicMode; ids: string[]
+  onChange: (next: { mode: RrPicMode; ids: string[] }) => void
+  label: string
+}) {
+  const { t: tr } = useLanguage()
+  const [candidates, setCandidates] = useState<{ id: string; full_name: string; role: string }[]>([])
+
+  useEffect(() => {
+    if (!dept) { setCandidates([]); return }
+    let stale = false
+    supabase.from('kaizen_profiles').select('id, full_name, role, job_title')
+      .eq('company_id', companyId).eq('is_active', true).is('deleted_at', null)
+      .eq('department', dept)
+      .in('role', ['staff', 'manager'])
+      .order('role', { ascending: false }).order('full_name')
+      .then(({ data }) => {
+        if (stale) return
+        const list = ((data as { id: string; full_name: string; role: string; job_title: string | null }[]) ?? [])
+          .filter((p) => p.job_title !== 'Owner')
+        setCandidates(list)
+        // Switching department strands anyone picked from the previous one — drop them
+        // so a template can't be saved naming a PIC who isn't in the stage's department.
+        const valid = ids.filter((id) => list.some((c) => c.id === id))
+        if (valid.length !== ids.length) onChange({ mode, ids: valid })
+      })
+    return () => { stale = true }
+  }, [companyId, dept]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (!dept) return null
+  return (
+    <div className="space-y-1.5">
+      <label className="text-xs font-medium text-gray-500">{label}</label>
+      <div className="flex rounded-lg border border-gray-300 overflow-hidden text-xs font-medium">
+        {(['department', 'users'] as const).map((m) => (
+          <button key={m} type="button" onClick={() => onChange({ mode: m, ids })}
+            className={`flex-1 px-3 h-8 transition-colors ${mode === m ? 'bg-[var(--brand-primary)] text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
+            {m === 'department' ? tr.rr.picWholeDept : tr.rr.picSpecificPeople}
+          </button>
+        ))}
+      </div>
+      {mode === 'users' && (
+        <div className="max-h-44 overflow-y-auto rounded-lg border border-gray-200 divide-y divide-gray-50">
+          {candidates.length === 0 && <p className="px-3 py-2 text-xs text-gray-400">{tr.rr.picSelectPeople}</p>}
+          {candidates.map((p) => (
+            <label key={p.id} className="flex items-center gap-2 px-3 py-1.5 cursor-pointer hover:bg-gray-50">
+              <input type="checkbox" className="h-3.5 w-3.5 accent-[var(--brand-primary)]"
+                checked={ids.includes(p.id)}
+                onChange={() => onChange({ mode, ids: ids.includes(p.id) ? ids.filter((x) => x !== p.id) : [...ids, p.id] })} />
+              <span className="text-xs text-gray-800 flex-1">{p.full_name}</span>
+              {p.role === 'manager' && <span className="text-[10px] text-gray-400">{tr.roles.manager}</span>}
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+  )
 }
 
 // ── Dept item picker — add catalog items ──────────────────────────────────────

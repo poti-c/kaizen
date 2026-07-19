@@ -163,8 +163,11 @@ export interface KaizenNotification {
 
 // ── Routine Roster (daily recurring inter-department orders) ────────────────
 export type RrOrderType = 'bulk' | 'per_room' | 'per_room_variants'
-export type RrOrderStatus = 'pending' | 'sent' | 'accepted' | 'delivered' | 'confirmed' | 'cancelled'
+/** `ready` = fulfilling handed off to delivery; only three-stage orders enter it. */
+export type RrOrderStatus = 'pending' | 'sent' | 'accepted' | 'ready' | 'delivered' | 'confirmed' | 'cancelled'
 export type RrPicMode = 'department' | 'users'
+/** The three parties to an order. Delivery is optional per template. */
+export type RrStage = 'request' | 'fulfill' | 'deliver'
 
 /** A selectable variant for per-room-with-variants routines (e.g. V1/V2/V3). */
 export interface RrVariant {
@@ -180,6 +183,8 @@ export interface RrTemplate {
   name_th: string | null
   request_department: Department
   fulfill_department: Department
+  /** Final delivery stage. NULL = two-stage template (fulfilling delivers directly). */
+  deliver_department: Department | null
   order_type: RrOrderType
   default_item: string | null
   /** Per-weekday item override, keys 'mon'..'sun' (e.g. turndown gift of the day) */
@@ -195,9 +200,17 @@ export interface RrTemplate {
   variants: RrVariant[] | null
   // ── catalog items (from dept item catalog) ──
   catalog_items: { label: string; unit: string }[] | null
-  // ── person in charge (request side) ──
+  // ── person in charge, per stage ──
+  /** @deprecated superseded by request_pic_mode; kept for one release. */
   pic_mode: RrPicMode
+  /** @deprecated superseded by request_pic_ids; kept for one release. */
   pic_ids: string[] | null
+  request_pic_mode: RrPicMode
+  request_pic_ids: string[] | null
+  fulfill_pic_mode: RrPicMode
+  fulfill_pic_ids: string[] | null
+  deliver_pic_mode: RrPicMode
+  deliver_pic_ids: string[] | null
 }
 
 export interface RrOrder {
@@ -208,6 +221,8 @@ export interface RrOrder {
   title: string
   request_department: Department
   fulfill_department: Department
+  /** Snapshot of the template's delivery stage. NULL = two-stage order. */
+  deliver_department: Department | null
   order_type: RrOrderType
   item_label: string | null
   quantity: number | null
@@ -220,6 +235,9 @@ export interface RrOrder {
   sent_at: string | null
   accepted_by: string | null
   accepted_at: string | null
+  /** Fulfilling → delivery handoff. Only stamped on three-stage orders. */
+  ready_by: string | null
+  ready_at: string | null
   delivered_by: string | null
   delivered_at: string | null
   confirmed_by: string | null
