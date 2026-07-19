@@ -1529,7 +1529,7 @@ function RoutineMonitorBoard({ companyId, orders, today, tomorrow, loading, onRe
     <div className="space-y-4">
       <div className="text-center">
         <p className="text-sm font-semibold text-gray-900">
-          {lang === 'th' ? 'วันนี้ + พรุ่งนี้' : 'Today + tomorrow'}
+          {lang === 'th' ? 'วันนี้ + พรุ่งนี้' : 'Today + Tomorrow'}
         </p>
         <p className="text-[11px] text-gray-400 flex items-center justify-center gap-1">
           <span className="inline-block h-1.5 w-1.5 rounded-full bg-green-500" />{lang === 'th' ? 'อัปเดตสด' : 'live'}
@@ -1556,8 +1556,8 @@ function RoutineMonitorBoard({ companyId, orders, today, tomorrow, loading, onRe
               {lang === 'th' ? 'เฉพาะค้าง' : 'Outstanding'}
             </button>
             <div className="flex rounded-lg border border-gray-300 overflow-hidden text-xs font-medium">
-              <button onClick={() => setGroupBy('dept')} className={`px-2.5 h-8 ${groupBy === 'dept' ? 'bg-[var(--brand-primary)] text-white' : 'bg-white text-gray-600'}`}>{lang === 'th' ? 'ตามแผนก' : 'By dept'}</button>
-              <button onClick={() => setGroupBy('routine')} className={`px-2.5 h-8 ${groupBy === 'routine' ? 'bg-[var(--brand-primary)] text-white' : 'bg-white text-gray-600'}`}>{lang === 'th' ? 'ตามงาน' : 'By routine'}</button>
+              <button onClick={() => setGroupBy('dept')} className={`px-2.5 h-8 ${groupBy === 'dept' ? 'bg-[var(--brand-primary)] text-white' : 'bg-white text-gray-600'}`}>{lang === 'th' ? 'ตามแผนก' : 'By Dept'}</button>
+              <button onClick={() => setGroupBy('routine')} className={`px-2.5 h-8 ${groupBy === 'routine' ? 'bg-[var(--brand-primary)] text-white' : 'bg-white text-gray-600'}`}>{lang === 'th' ? 'ตามงาน' : 'By Routine'}</button>
             </div>
           </div>
 
