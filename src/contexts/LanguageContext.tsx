@@ -326,7 +326,7 @@ const en = {
   },
   rr: {
     title: 'Routine Roster',
-    boardTab: 'Today board', templatesTab: 'Templates',
+    boardTab: 'Today Board', templatesTab: 'Templates',
     todayBtn: 'Today', readOnlyHint: 'History — read only',
     needsMyAction: 'Needs my action', otherOrders: 'Other orders',
     noOrders: 'No routine orders for this day.',
