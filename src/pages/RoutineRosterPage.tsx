@@ -1618,7 +1618,12 @@ function RoutineMonitorBoard({ companyId, orders, today, tomorrow, loading, onRe
         </>
       )}
 
-      {detailLive && <MonitorOrderDetail order={detailLive} onClose={() => setDetail(null)} />}
+      {/* statusText is passed in rather than recomputed: it is the localised,
+          stage-aware label ("กำลังทำ · ครัว"), where o.status is the raw English
+          database value. */}
+      {detailLive && (
+        <MonitorOrderDetail order={detailLive} statusLabel={statusText(detailLive)} onClose={() => setDetail(null)} />
+      )}
     </div>
   )
 }
@@ -1627,7 +1632,7 @@ function RoutineMonitorBoard({ companyId, orders, today, tomorrow, loading, onRe
 // Opened by tapping a card on the monitor board. Deliberately has no actions:
 // the monitor is visible to departments granted read-only oversight, so acting
 // on an order stays where the permission checks already live — the Orders board.
-function MonitorOrderDetail({ order: o, onClose }: { order: RrOrder; onClose: () => void }) {
+function MonitorOrderDetail({ order: o, statusLabel, onClose }: { order: RrOrder; statusLabel: string; onClose: () => void }) {
   const { lang } = useLanguage()
   const th = lang === 'th'
   const items = o.items ?? []
@@ -1656,7 +1661,7 @@ function MonitorOrderDetail({ order: o, onClose }: { order: RrOrder; onClose: ()
 
         <div className="px-5 py-4 space-y-3 overflow-y-auto">
           <div className="flex flex-wrap items-center gap-1.5">
-            <span className={`text-[11px] px-2 py-0.5 rounded-full border ${MONITOR_CHIP[monitorKeyOf(o)]}`}>{o.status}</span>
+            <span className={`text-[11px] px-2 py-0.5 rounded-full border ${MONITOR_CHIP[monitorKeyOf(o)]}`}>{statusLabel}</span>
             {orderOverdue(o) && (
               <span className="text-[11px] px-2 py-0.5 rounded-full bg-red-100 text-red-700">{th ? 'เลยเวลา' : 'overdue'}</span>
             )}
