@@ -442,10 +442,17 @@ serve(async (req) => {
     }
 
     // When a user is promoted to super_admin ensure they have a company grant row.
+    //
+    // A PostgrestFilterBuilder is a bare PromiseLike: it implements then() but has NO
+    // catch(). The `.catch(() => {})` that used to sit here therefore threw TypeError
+    // synchronously — before the upsert was ever sent — so the promotion updated the
+    // role but never created the grant row, leaving a super_admin with no company
+    // access. supabase-js resolves with { error } instead of rejecting, so the result
+    // is checked directly.
     if (allowed.role === "super_admin" && target.company_id) {
-      await supabaseAdmin.from("kaizen_super_admin_companies")
-        .upsert({ super_admin_id: userId, company_id: target.company_id }, { onConflict: "super_admin_id,company_id", ignoreDuplicates: true })
-        .catch(() => {});
+      const { error: grantErr } = await supabaseAdmin.from("kaizen_super_admin_companies")
+        .upsert({ super_admin_id: userId, company_id: target.company_id }, { onConflict: "super_admin_id,company_id", ignoreDuplicates: true });
+      if (grantErr) console.error("[kaizen-manage-users] super_admin grant upsert failed", userId, target.company_id, grantErr.message);
     }
 
     return json({ success: true });
