@@ -32,10 +32,20 @@ export async function reportError(
     recent.set(key, now)
     if (recent.size > 100) recent.clear()
 
-    // RLS only permits authenticated inserts; skip anonymous (pre-login) errors.
-    const { data: u } = await supabase.auth.getUser()
-    const uid = u?.user?.id ?? null
-    if (!uid) return
+    // RLS only permits authenticated inserts, so a signed-out visitor still has
+    // nothing to report to. But identity is read from the CACHED session rather
+    // than getUser(): getUser() calls /auth/v1/user over the network on every
+    // single error, and when that call failed the old code returned early and
+    // dropped the error entirely. That inverted the reporter's purpose — a
+    // flaky connection is exactly when errors happen and exactly when they were
+    // least likely to be recorded. getSession() reads localStorage and cannot
+    // fail for network reasons.
+    const { data: s } = await supabase.auth.getSession()
+    const session = s?.session ?? null
+    if (!session) return
+    // Fall back to null rather than dropping the row: user_id is nullable, and
+    // an error with no attributed user is far more useful than no error at all.
+    const uid = session.user?.id ?? null
 
     await supabase.from('kaizen_error_log').insert({
       company_id: currentCompanyId,
