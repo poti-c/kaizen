@@ -374,16 +374,18 @@ export function RoutineRosterPage() {
             className={`px-3 h-8 ${boardMode === 'orders' ? 'bg-[var(--brand-primary)] text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
             {lang === 'th' ? 'ออเดอร์' : 'Orders'}
           </button>
-          {canMonitor && (
-            <button onClick={() => setBoardMode('monitor')}
-              className={`px-3 h-8 flex items-center gap-1 ${boardMode === 'monitor' ? 'bg-[var(--brand-primary)] text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
-              <Eye className="h-3.5 w-3.5" />{lang === 'th' ? 'ติดตาม' : 'Monitor'}
-            </button>
-          )}
           {canManage && (
             <button onClick={() => setBoardMode('templates')}
               className={`px-3 h-8 ${boardMode === 'templates' ? 'bg-[var(--brand-primary)] text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
               {tr.rr.templatesTab}
+            </button>
+          )}
+          {/* Monitor sits last: it is the read-only oversight view, and the two
+              working modes read better adjacent to each other. */}
+          {canMonitor && (
+            <button onClick={() => setBoardMode('monitor')}
+              className={`px-3 h-8 flex items-center gap-1 ${boardMode === 'monitor' ? 'bg-[var(--brand-primary)] text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
+              <Eye className="h-3.5 w-3.5" />{lang === 'th' ? 'ติดตาม' : 'Monitor'}
             </button>
           )}
         </div>
