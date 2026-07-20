@@ -10,7 +10,7 @@
 // The deploy workflow rewrites this line with the commit SHA — do NOT rely on
 // editing it by hand. It sat at 'kaizen-v3' for 184 commits and silently
 // disabled the update path for every release in between.
-const BUILD_ID = 'kaizen-ebc3aeee34e53906f958c5ef9fea04026d6dfb30'
+const BUILD_ID = 'kaizen-8f0ef14359d7df34287b7c7685eb81584cefa632'
 
 // Set the home-screen app badge. On iOS the Badging API may be exposed on the
 // worker's `self.navigator` (newer) or not at all (older). Try every surface
