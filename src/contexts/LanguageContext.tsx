@@ -389,7 +389,7 @@ const en = {
     // ── bulk unit ──
     quantityUnit: (unit: string) => `Quantity (${unit})`,
     // ── per-room variants ──
-    pickRooms: 'Pick rooms', tapToAssign: 'Tap a room to add it; tap again to cycle its variant.',
+    pickRooms: 'Pick rooms', tapToAssign: 'Choose a room from the list; tap a picked room to cycle its variant or remove it.',
     roomGridSummary: (parts: string, total: number) => `${parts} · ${total} ${total === 1 ? 'room' : 'rooms'}`,
     noVariantRooms: 'Select at least one room.',
     clearRooms: 'Clear',
@@ -828,7 +828,7 @@ const th: Translations = {
     // ── bulk unit ──
     quantityUnit: (unit: string) => `จำนวน (${unit})`,
     // ── per-room variants ──
-    pickRooms: 'เลือกห้อง', tapToAssign: 'แตะห้องเพื่อเพิ่ม แตะอีกครั้งเพื่อเปลี่ยนตัวเลือก',
+    pickRooms: 'เลือกห้อง', tapToAssign: 'เลือกห้องจากรายการ แตะห้องที่เลือกแล้วเพื่อเปลี่ยนตัวเลือกหรือเอาออก',
     roomGridSummary: (parts: string, total: number) => `${parts} · ${total} ห้อง`,
     noVariantRooms: 'กรุณาเลือกอย่างน้อยหนึ่งห้อง',
     clearRooms: 'ล้าง',
