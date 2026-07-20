@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Bell, X, LogOut, ChevronDown, Building2 } from 'lucide-react'
+import { Bell, X, LogOut, ChevronDown, Building2, MessageSquarePlus } from 'lucide-react'
 import { useNavigate, Link, NavLink } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
 import { useCompany } from '@/contexts/CompanyContext'
@@ -9,6 +9,7 @@ import { supabase } from '@/lib/supabase'
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
 import { getInitials, formatRelativeTime, companyHasAddon, companyHasFeature } from '@/lib/utils'
 import { useNavItems } from '@/hooks/useNavItems'
+import { useFeedback } from './FeedbackWidget'
 import { localizeNotif } from '@/lib/i18nDynamic'
 import { useRrFoAccess } from '@/hooks/useRrFoAccess'
 import { deptLabel } from '@/types'
@@ -17,6 +18,7 @@ import type { KaizenNotification } from '@/types'
 
 export function Header() {
   const { profile, signOut } = useAuth()
+  const { openFeedback } = useFeedback()
   const { activeCompany, companies, setActiveCompany } = useCompany()
   const { t, lang } = useLanguage()
   const { showSidebar } = useViewMode()
@@ -341,6 +343,19 @@ export function Header() {
                 </NavLink>
               ))}
             </nav>
+
+            {/* Feedback — same slot as the desktop sidebar: bottom of the nav area,
+                just above the user section. Closes the drawer so the modal isn't
+                covered by it. */}
+            <div className="px-3 pb-2">
+              <button
+                onClick={() => { setShowMobileNav(false); openFeedback() }}
+                className="flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium transition-all w-full text-white/70 hover:bg-white/10 hover:text-white"
+              >
+                <MessageSquarePlus className="h-5 w-5 flex-shrink-0" />
+                <span>{lang === 'th' ? 'ความคิดเห็น' : 'Feedback'}</span>
+              </button>
+            </div>
 
             {/* User + sign out */}
             <div className="border-t border-white/10 p-4 space-y-3">
