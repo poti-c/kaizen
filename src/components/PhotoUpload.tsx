@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { Upload, X, Image, Camera, ImageIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { supabase } from '@/lib/supabase'
@@ -12,6 +12,17 @@ const isTouchDevice = typeof window !== 'undefined' && ('ontouchstart' in window
 // (the old code silently dropped the photo — the #1 "can't upload on Android" cause).
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024 // 10 MB
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
+
+// Set right before we open the native camera. Opening the camera backgrounds the tab, and
+// low-memory Android can kill it while the camera app is foreground — the captured File then
+// never reaches the (dead) page, so the photo is silently lost. sessionStorage survives the
+// OS tab-kill-and-restore (the same property CreateCasePage's draft recovery relies on), so
+// if this marker is still present when PhotoUpload next mounts, we know a capture was
+// interrupted and can tell the user to retake it instead of leaving a silent gap.
+const CAMERA_PENDING_KEY = 'kaizen-camera-capture-pending'
+// Ignore a stale marker older than this (e.g. a much-later session restore) to avoid a
+// confusing warning long after the fact.
+const CAMERA_PENDING_MAX_AGE_MS = 10 * 60 * 1000 // 10 minutes
 
 function rawExtOf(file: File): string {
   return (file.name.split('.').pop() ?? 'jpg').toLowerCase()
@@ -217,7 +228,44 @@ export function PhotoUpload({ onUpload, maxFiles = 3, label = 'Add Photos', buck
 
   const remaining = maxFiles - previews.length
 
+  // Camera-capture interruption guard. See CAMERA_PENDING_KEY above.
+  const clearCameraPending = () => {
+    try { sessionStorage.removeItem(CAMERA_PENDING_KEY) } catch { /* storage unavailable */ }
+  }
+  const markCameraPending = () => {
+    try { sessionStorage.setItem(CAMERA_PENDING_KEY, String(Date.now())) } catch { /* storage unavailable */ }
+  }
+
+  // On mount, if a capture was pending (the tab was killed while the camera was open), the
+  // photo never made it back — warn the user to retake it rather than leaving a silent gap.
+  useEffect(() => {
+    let pending: string | null = null
+    try { pending = sessionStorage.getItem(CAMERA_PENDING_KEY) } catch { /* storage unavailable */ }
+    if (!pending) return
+    clearCameraPending()
+    const age = Date.now() - Number(pending)
+    if (Number.isFinite(age) && age >= 0 && age <= CAMERA_PENDING_MAX_AGE_MS) {
+      toast.error(lang === 'th'
+        ? 'รูปที่เพิ่งถ่ายอาจไม่ได้ถูกบันทึก — กรุณาถ่ายใหม่อีกครั้ง'
+        : "Your last photo may not have been captured — please take it again.")
+    }
+    // Run once on mount; `lang` is captured at that point which is fine for a one-shot toast.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Returning to the tab (camera closed, whether a photo was taken or cancelled) means the
+  // page survived — clear the pending marker so it can't trigger a false warning on a later
+  // reload. A genuine tab-kill destroys the page before this ever runs, leaving the marker
+  // for the mount check above.
+  useEffect(() => {
+    const onVisible = () => { if (document.visibilityState === 'visible') clearCameraPending() }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [])
+
   async function handleFiles(files: FileList | null) {
+    // A capture (or cancel) returned to a live page — the interruption guard no longer applies.
+    clearCameraPending()
     if (!files || remaining <= 0) return
     const newFiles = Array.from(files).slice(0, remaining)
 
@@ -282,7 +330,7 @@ export function PhotoUpload({ onUpload, maxFiles = 3, label = 'Add Photos', buck
             {/* Take Photo button */}
             <button
               type="button"
-              onClick={() => cameraInputRef.current?.click()}
+              onClick={() => { markCameraPending(); cameraInputRef.current?.click() }}
               className="flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-gray-300 py-5 active:bg-gray-50 transition-colors"
             >
               <Camera className="h-7 w-7 text-gray-400" />
