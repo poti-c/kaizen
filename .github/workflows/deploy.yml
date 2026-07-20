@@ -34,6 +34,21 @@ jobs:
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
           VITE_VAPID_PUBLIC_KEY: ${{ secrets.VITE_VAPID_PUBLIC_KEY }}
 
+      # public/sw.js is copied into dist verbatim — Vite does not hash or stamp it.
+      # A release whose sw.js is byte-identical never installs a new worker, so the
+      # auto-update in index.html never fires and installed PWAs stay on the old
+      # build. Stamping the commit SHA guarantees a difference every deploy.
+      # The grep is the point: if someone renames BUILD_ID, this fails the deploy
+      # instead of silently going back to shipping stale apps.
+      - name: Stamp service worker with build ID
+        run: |
+          sed -i "s|^const BUILD_ID = .*|const BUILD_ID = 'kaizen-${GITHUB_SHA}'|" dist/sw.js
+          grep -q "^const BUILD_ID = 'kaizen-${GITHUB_SHA}'$" dist/sw.js || {
+            echo "::error file=public/sw.js::BUILD_ID was not stamped. The declaration in public/sw.js must stay on one line as: const BUILD_ID = '...'"
+            exit 1
+          }
+          grep -n "^const BUILD_ID" dist/sw.js
+
       - name: Deploy to gh-pages
         uses: JamesIves/github-pages-deploy-action@v4
         with:

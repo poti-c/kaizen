@@ -1,9 +1,16 @@
 // Na Nirand Kaizen — Service Worker
-// Handles push notifications and offline caching
+// Handles push notifications. (No fetch handler: nothing is cached here.)
 
-// Bump this version on each release so installed PWAs detect the new worker,
-// activate it (skipWaiting below), and the page auto-reloads to the latest build.
-const CACHE_NAME = 'kaizen-v3'
+// Sole purpose: give this file different bytes on every release. A browser only
+// installs a new worker when the fetched sw.js differs from the installed one,
+// and that install is what drives the auto-update in index.html
+// (skipWaiting → clients.claim → controllerchange → reload). If sw.js is
+// byte-identical, installed PWAs stay on the old build indefinitely.
+//
+// The deploy workflow rewrites this line with the commit SHA — do NOT rely on
+// editing it by hand. It sat at 'kaizen-v3' for 184 commits and silently
+// disabled the update path for every release in between.
+const BUILD_ID = 'kaizen-dev'
 
 // Set the home-screen app badge. On iOS the Badging API may be exposed on the
 // worker's `self.navigator` (newer) or not at all (older). Try every surface
