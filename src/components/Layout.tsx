@@ -4,7 +4,7 @@ import { Sidebar } from './Sidebar'
 import { Header } from './Header'
 import { BottomNav } from './BottomNav'
 import { TrialBanner, PmsTrialBanner } from './TrialBanner'
-import { FeedbackWidget } from './FeedbackWidget'
+import { FeedbackProvider, FeedbackFab } from './FeedbackWidget'
 import { useAuth } from '@/contexts/AuthContext'
 import { useViewMode } from '@/contexts/ViewModeContext'
 import { useLanguage } from '@/contexts/LanguageContext'
@@ -84,31 +84,33 @@ export function Layout() {
   // gesture-bar). Desktop (md+): fixed app-shell with an internally scrolling
   // <main> so the sidebar stays put.
   return (
-    <div className="flex min-h-[100dvh] bg-gray-50 md:h-[100dvh] md:overflow-hidden">
-      {/* Sidebar — conditionally shown based on view mode */}
-      {showSidebar && (
-        <div className="flex flex-shrink-0">
-          <Sidebar />
+    <FeedbackProvider>
+      <div className="flex min-h-[100dvh] bg-gray-50 md:h-[100dvh] md:overflow-hidden">
+        {/* Sidebar — conditionally shown based on view mode. Hosts the feedback trigger in its footer. */}
+        {showSidebar && (
+          <div className="flex flex-shrink-0">
+            <Sidebar />
+          </div>
+        )}
+
+        <div className="flex-1 flex flex-col min-w-0 md:overflow-hidden">
+          <Header />
+          <TrialBanner />
+          <PmsTrialBanner />
+          <main
+            className="flex-1 overflow-x-hidden md:overflow-y-auto"
+            style={{ background: 'var(--brand-background, #f9fafb)', paddingBottom: showBottomNav ? 'calc(4rem + env(safe-area-inset-bottom, 0px))' : undefined }}
+          >
+            <Outlet />
+          </main>
         </div>
-      )}
 
-      <div className="flex-1 flex flex-col min-w-0 md:overflow-hidden">
-        <Header />
-        <TrialBanner />
-        <PmsTrialBanner />
-        <main
-          className="flex-1 overflow-x-hidden md:overflow-y-auto"
-          style={{ background: 'var(--brand-background, #f9fafb)', paddingBottom: showBottomNav ? 'calc(4rem + env(safe-area-inset-bottom, 0px))' : undefined }}
-        >
-          <Outlet />
-        </main>
+        {/* Bottom nav — only shown in auto/mobile mode */}
+        {showBottomNav && <BottomNav />}
+
+        {/* Floating feedback affordance — only where there's no sidebar footer to host it (mobile) */}
+        {showBottomNav && <FeedbackFab />}
       </div>
-
-      {/* Bottom nav — only shown in auto/mobile mode */}
-      {showBottomNav && <BottomNav />}
-
-      {/* App-wide feedback affordance (trial friction capture) */}
-      <FeedbackWidget />
-    </div>
+    </FeedbackProvider>
   )
 }

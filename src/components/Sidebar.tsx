@@ -1,5 +1,6 @@
 import { NavLink, useNavigate } from 'react-router-dom'
-import { LogOut, ChevronLeft, ChevronRight } from 'lucide-react'
+import { LogOut, ChevronLeft, ChevronRight, MessageSquarePlus } from 'lucide-react'
+import { useFeedback } from './FeedbackWidget'
 import { useAuth } from '@/contexts/AuthContext'
 import { useCompany } from '@/contexts/CompanyContext'
 import { useLanguage } from '@/contexts/LanguageContext'
@@ -17,6 +18,7 @@ export function Sidebar() {
   const { t, lang } = useLanguage()
   const navigate = useNavigate()
   const rrFo = useRrFoAccess()
+  const { openFeedback } = useFeedback()
 
   // Today's date — e.g. "Sat. 13 - June 2026"
   // Refreshed every minute so the label stays current if the tab is left open overnight.
@@ -96,6 +98,21 @@ export function Sidebar() {
           </NavLink>
         ))}
       </nav>
+
+      {/* Feedback — pinned to the bottom of the nav area, just above the user section */}
+      <div className="px-2 pb-2">
+        <button
+          onClick={openFeedback}
+          className={cn(
+            'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all w-full text-white/70 hover:bg-white/10 hover:text-white',
+            collapsed && 'justify-center px-0'
+          )}
+          title={collapsed ? (lang === 'th' ? 'ส่งความคิดเห็น' : 'Send feedback') : undefined}
+        >
+          <MessageSquarePlus className="h-5 w-5 flex-shrink-0" />
+          {!collapsed && <span className="truncate">{lang === 'th' ? 'ความคิดเห็น' : 'Feedback'}</span>}
+        </button>
+      </div>
 
       {/* User section */}
       <div className={cn('border-t border-white/10 p-3', collapsed && 'px-0 flex flex-col items-center')}>
