@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useLocation } from 'react-router-dom'
 import {
   ClipboardList, Loader2, X, Check, Trash2, Pencil,
@@ -1348,10 +1348,23 @@ function RoomGrid({ rooms, grid, setGrid, variants }: {
 }) {
   const { t: tr, lang } = useLanguage()
   const selected = Object.keys(grid)
+    .sort((a, b) => a.localeCompare(b, lang === 'th' ? 'th' : 'en', { numeric: true, sensitivity: 'base' }))
   const codes = (variants ?? []).map((v) => v.code)
   const labelFor = (code: string) => {
     const v = variants?.find((x) => x.code === code)
     return v ? (lang === 'th' ? (v.label_th || v.label || v.code) : (v.label || v.code)) : code
+  }
+
+  // Dropdown lists only rooms not yet picked, A→Z (numeric so F2 sorts before F10).
+  const available = useMemo(
+    () => rooms.filter((r) => !(r in grid))
+      .sort((a, b) => a.localeCompare(b, lang === 'th' ? 'th' : 'en', { numeric: true, sensitivity: 'base' })),
+    [rooms, grid, lang],
+  )
+
+  function add(room: string) {
+    if (!room || room in grid) return
+    setGrid((prev) => ({ ...prev, [room]: variants && codes.length > 0 ? codes[0] : '' }))
   }
 
   function toggle(room: string) {
@@ -1394,22 +1407,28 @@ function RoomGrid({ rooms, grid, setGrid, variants }: {
         )}
       </div>
       <p className="text-[11px] text-gray-400">{tr.rr.tapToAssign}</p>
-      <div className="flex flex-wrap gap-1.5 max-h-56 overflow-y-auto p-0.5">
-        {rooms.map((room) => {
-          const on = room in grid
-          return (
+      <select value="" onChange={(e) => { add(e.target.value); e.target.value = '' }}
+        disabled={available.length === 0} className={inputCls}>
+        <option value="">
+          {available.length === 0
+            ? (lang === 'th' ? 'เลือกครบทุกห้องแล้ว' : 'All rooms added')
+            : (lang === 'th' ? 'เลือกห้อง…' : 'Add a room…')}
+        </option>
+        {available.map((room) => <option key={room} value={room}>{room}</option>)}
+      </select>
+      {selected.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 max-h-56 overflow-y-auto p-0.5">
+          {selected.map((room) => (
             <button key={room} type="button" onClick={() => toggle(room)}
-              className={`px-2 h-8 rounded-lg border text-xs font-medium transition-colors flex items-center gap-1 ${
-                on ? 'bg-[var(--brand-primary)] text-white border-[var(--brand-primary)]'
-                   : 'bg-white text-gray-600 border-gray-300 hover:border-gray-400'}`}>
+              className="px-2 h-8 rounded-lg border text-xs font-medium transition-colors flex items-center gap-1 bg-[var(--brand-primary)] text-white border-[var(--brand-primary)]">
               {room}
-              {on && variants && grid[room] && (
+              {variants && grid[room] && (
                 <span className="text-[10px] px-1 rounded bg-white/25">{labelFor(grid[room])}</span>
               )}
             </button>
-          )
-        })}
-      </div>
+          ))}
+        </div>
+      )}
       <p className="text-[11px] font-medium text-gray-600">{summary}</p>
     </div>
   )
