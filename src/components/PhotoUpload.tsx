@@ -39,6 +39,31 @@ function looksLikeImage(file: File): boolean {
   return IMAGE_EXTS.includes(rawExtOf(file))
 }
 
+// HEIC/HEIF is the default "High Efficiency" capture format on modern Samsung/Pixel and
+// iOS phones, and the browser's native image pipeline (createImageBitmap / <img>) CANNOT
+// decode it on Android — so those photos failed to upload entirely. Detect them so we can
+// transcode to JPEG first. Android often delivers HEIC as `image/heic`/`image/heif`, or as
+// an empty MIME with a `.heic`/`.heif` name.
+function isHeic(file: File): boolean {
+  const t = file.type.toLowerCase()
+  if (t === 'image/heic' || t === 'image/heif' || t === 'image/heic-sequence' || t === 'image/heif-sequence') return true
+  if (t === '') { const e = rawExtOf(file); return e === 'heic' || e === 'heif' }
+  return false
+}
+
+// Transcode a HEIC/HEIF blob to a JPEG the canvas pipeline can then downscale. The heic2any
+// decoder (libheif-wasm, ~fat) is dynamically imported so it only downloads for the users
+// who actually pick a HEIC — it never enters the main bundle. Returns null if decoding fails.
+async function heicToJpeg(file: Blob): Promise<Blob | null> {
+  try {
+    const { default: heic2any } = await import('heic2any')
+    const out = await heic2any({ blob: file, toType: 'image/jpeg', quality: 0.85 })
+    return Array.isArray(out) ? (out[0] ?? null) : out
+  } catch {
+    return null
+  }
+}
+
 // Convert a data URL (from canvas.toDataURL) into a Blob, for engines lacking canvas.toBlob.
 function dataURLToBlob(dataURL: string): Blob {
   const comma = dataURL.indexOf(',')
@@ -82,13 +107,14 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
 // than an <img> element and honours EXIF orientation, so Android camera shots aren't
 // uploaded sideways. Falls back to an <img> element where the API is missing.
 // NOTE: `Image` is shadowed by the lucide-react import here, so we use document.createElement.
-async function decodeImage(file: File): Promise<{ w: number; h: number; src: CanvasImageSource; release: () => void }> {
+async function decodeImage(file: Blob): Promise<{ w: number; h: number; src: CanvasImageSource; release: () => void }> {
   if (typeof createImageBitmap === 'function') {
     try {
       const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' } as ImageBitmapOptions)
       return { w: bmp.width, h: bmp.height, src: bmp, release: () => bmp.close() }
     } catch {
-      // Some formats (e.g. HEIC on Android) can't be decoded this way — try <img> next.
+      // Some formats can't be decoded this way — try an <img> element next. (HEIC is
+      // transcoded to JPEG upstream in compressImage before it ever reaches here.)
     }
   }
   const url = URL.createObjectURL(file)
@@ -114,17 +140,36 @@ async function decodeImage(file: File): Promise<{ w: number; h: number; src: Can
 async function compressImage(file: File): Promise<{ blob: Blob; ext: string } | null> {
   if (!looksLikeImage(file)) return null
 
-  // The raw file is uploadable as-is when it's a known image type/extension and within the
-  // size cap. Accept empty-MIME files whose extension is a plain web image (old Android) so
-  // the raw fallback can still rescue them if re-encoding is unavailable.
-  const rawExt = rawExtOf(file)
-  const rawTypeOk = ALLOWED_TYPES.includes(file.type) || (file.type === '' && RAW_OK_EXTS.includes(rawExt))
-  const rawUsable = rawTypeOk && file.size <= MAX_UPLOAD_BYTES
-  const rawFallback = () => (rawUsable ? { blob: file, ext: rawExt } : null)
+  // HEIC/HEIF can't be decoded natively — transcode to JPEG first, then run the normal
+  // downscale/re-encode path on the result. If the transcode fails the photo genuinely
+  // can't be used (the raw HEIC isn't an uploadable bucket type either), so bail to null
+  // and let the caller show a clear error instead of silently dropping it.
+  let input: Blob = file
+  let inputType = file.type
+  let rawExt = rawExtOf(file)
+  if (isHeic(file)) {
+    let jpeg: Blob | null = null
+    try {
+      jpeg = await withTimeout(heicToJpeg(file), 20000)
+    } catch {
+      jpeg = null
+    }
+    if (!jpeg) return null
+    input = jpeg
+    inputType = 'image/jpeg'
+    rawExt = 'jpg'
+  }
+
+  // The (post-transcode) input is uploadable as-is when it's a known image type/extension
+  // and within the size cap. Accept empty-MIME files whose extension is a plain web image
+  // (old Android) so the raw fallback can still rescue them if re-encoding is unavailable.
+  const rawTypeOk = ALLOWED_TYPES.includes(inputType) || (inputType === '' && RAW_OK_EXTS.includes(rawExt))
+  const rawUsable = rawTypeOk && input.size <= MAX_UPLOAD_BYTES
+  const rawFallback = () => (rawUsable ? { blob: input, ext: rawExt } : null)
 
   let decoded: Awaited<ReturnType<typeof decodeImage>>
   try {
-    decoded = await withTimeout(decodeImage(file), 15000)
+    decoded = await withTimeout(decodeImage(input), 15000)
   } catch {
     return rawFallback()
   }
@@ -302,7 +347,9 @@ export function PhotoUpload({ onUpload, maxFiles = 3, label = 'Add Photos', buck
         <div className="grid grid-cols-3 gap-2">
           {previews.map((item, i) => (
             <div key={i} className="relative aspect-square rounded-lg overflow-hidden bg-gray-100">
-              <img src={item.preview} alt="" className="w-full h-full object-cover" />
+              {/* Once uploaded, prefer the stored URL: the local object-URL preview of a
+                  HEIC can't be rendered by the browser, so it would show broken otherwise. */}
+              <img src={item.url ?? item.preview} alt="" className="w-full h-full object-cover" />
               {item.uploading && (
                 <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
                   <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin" />
