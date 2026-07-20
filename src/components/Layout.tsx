@@ -4,7 +4,7 @@ import { Sidebar } from './Sidebar'
 import { Header } from './Header'
 import { BottomNav } from './BottomNav'
 import { TrialBanner, PmsTrialBanner } from './TrialBanner'
-import { FeedbackProvider, FeedbackFab } from './FeedbackWidget'
+import { FeedbackProvider } from './FeedbackWidget'
 import { useAuth } from '@/contexts/AuthContext'
 import { useViewMode } from '@/contexts/ViewModeContext'
 import { useLanguage } from '@/contexts/LanguageContext'
@@ -107,9 +107,6 @@ export function Layout() {
 
         {/* Bottom nav — only shown in auto/mobile mode */}
         {showBottomNav && <BottomNav />}
-
-        {/* Floating feedback affordance — only where there's no sidebar footer to host it (mobile) */}
-        {showBottomNav && <FeedbackFab />}
       </div>
     </FeedbackProvider>
   )

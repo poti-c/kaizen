@@ -1,6 +1,5 @@
 import { createContext, useContext, useState, type ReactNode } from 'react'
 import { MessageSquarePlus, X, Loader2, Check } from 'lucide-react'
-const MIN_KEY = 'kaizen-feedback-minimized'
 import { useLocation } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
@@ -22,9 +21,9 @@ export function useFeedback() {
 
 /**
  * Provides the app-wide feedback modal and an `openFeedback()` trigger. Mount once (in
- * Layout). Triggers live wherever they read best — the sidebar footer on desktop, the
- * floating <FeedbackFab/> on mobile — instead of a single fixed button that can obstruct
- * page content. Captures the current route + role + company so trial friction is
+ * Layout). Triggers live in the nav chrome — the sidebar footer on desktop, the mobile
+ * nav drawer on small screens — instead of a fixed button that can obstruct page content.
+ * Captures the current route + role + company so trial friction is
  * actionable. Writes to kaizen_feedback (RLS: insert-own; Top Management reads its company's).
  */
 export function FeedbackProvider({ children }: { children: ReactNode }) {
@@ -102,50 +101,5 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
         </div>
       )}
     </FeedbackContext.Provider>
-  )
-}
-
-/**
- * Floating "Send feedback" affordance for layouts without a sidebar to host the trigger
- * (mobile / bottom-nav mode). Collapses to a small bubble when dismissed; remembered per
- * device. On desktop the sidebar footer button is used instead, so this isn't rendered.
- */
-export function FeedbackFab() {
-  const { profile } = useAuth()
-  const { lang } = useLanguage()
-  const { openFeedback } = useFeedback()
-  // Collapsed to a small bubble when the user dismisses it; remembered per device.
-  const [minimized, setMinimized] = useState(() => localStorage.getItem(MIN_KEY) === '1')
-  const minimize = (on: boolean) => { setMinimized(on); localStorage.setItem(MIN_KEY, on ? '1' : '0') }
-
-  if (!profile) return null
-
-  return minimized ? (
-    // Collapsed: a small, unobtrusive bubble — tap to bring the button back.
-    <button
-      onClick={() => minimize(false)}
-      title={lang === 'th' ? 'แสดงปุ่มความคิดเห็น' : 'Show feedback button'}
-      className="fixed right-4 bottom-20 md:bottom-5 z-40 h-9 w-9 flex items-center justify-center rounded-full shadow-md bg-[var(--brand-primary)]/70 text-white hover:bg-[var(--brand-primary)] transition-colors"
-    >
-      <MessageSquarePlus className="h-4 w-4" />
-    </button>
-  ) : (
-    <div className="fixed right-4 bottom-20 md:bottom-5 z-40 flex items-center">
-      <button
-        onClick={openFeedback}
-        title={lang === 'th' ? 'ส่งความคิดเห็น' : 'Send feedback'}
-        className="flex items-center gap-1.5 h-10 pl-3 pr-3 rounded-l-full rounded-r-none shadow-lg bg-[var(--brand-primary)] text-white text-sm font-semibold hover:opacity-90 transition-opacity"
-      >
-        <MessageSquarePlus className="h-4 w-4" />
-        <span className="hidden sm:inline">{lang === 'th' ? 'ความคิดเห็น' : 'Feedback'}</span>
-      </button>
-      <button
-        onClick={() => minimize(true)}
-        title={lang === 'th' ? 'ซ่อน' : 'Hide'}
-        className="h-10 w-7 flex items-center justify-center rounded-r-full shadow-lg bg-[var(--brand-primary)] text-white/80 hover:text-white border-l border-white/20"
-      >
-        <X className="h-3.5 w-3.5" />
-      </button>
-    </div>
   )
 }
