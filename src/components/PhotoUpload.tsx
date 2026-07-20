@@ -24,12 +24,19 @@ const RAW_OK_EXTS = ['jpg', 'jpeg', 'png', 'webp', 'gif']
 
 // Old Android browsers/WebViews very often deliver a camera/gallery File with an EMPTY
 // `type` (""), which the old `type.startsWith('image/')` guard rejected outright — the
-// #1 reason photos couldn't be uploaded on those phones. Treat an empty MIME type as an
-// image when the filename extension says so.
+// #1 reason photos couldn't be uploaded on those phones.
+//
+// Worse: many Android gallery / file-manager pickers ALSO hand back a name with no
+// usable extension (e.g. "image", or a content:// URI), so keying off the filename
+// dropped these too — a valid JPEG whose thumbnail even renders, rejected before we ever
+// try to decode it. When the MIME is empty we trust the <input accept="image/*"> filter
+// and let the decoder be the real judge (a non-image will simply fail to decode and get
+// the same clear error). Only a file that positively declares a non-image MIME is
+// rejected up front.
 function looksLikeImage(file: File): boolean {
   if (file.type.startsWith('image/')) return true
-  if (file.type === '') return IMAGE_EXTS.includes(rawExtOf(file))
-  return false
+  if (file.type === '') return true
+  return IMAGE_EXTS.includes(rawExtOf(file))
 }
 
 // Convert a data URL (from canvas.toDataURL) into a Blob, for engines lacking canvas.toBlob.
