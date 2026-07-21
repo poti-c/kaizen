@@ -19,10 +19,13 @@ const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
 // OS tab-kill-and-restore (the same property CreateCasePage's draft recovery relies on), so
 // if this marker is still present when PhotoUpload next mounts, we know a capture was
 // interrupted and can tell the user to retake it instead of leaving a silent gap.
-const CAMERA_PENDING_KEY = 'kaizen-camera-capture-pending'
+// Exported so CreateCasePage can tell an OS-forced reload-during-capture apart from a genuine
+// cold return to an abandoned draft, and suppress its "Restored your unsaved draft" toast in
+// the former case (the reload here is expected, not a recovered abandonment).
+export const CAMERA_PENDING_KEY = 'kaizen-camera-capture-pending'
 // Ignore a stale marker older than this (e.g. a much-later session restore) to avoid a
 // confusing warning long after the fact.
-const CAMERA_PENDING_MAX_AGE_MS = 10 * 60 * 1000 // 10 minutes
+export const CAMERA_PENDING_MAX_AGE_MS = 10 * 60 * 1000 // 10 minutes
 
 function rawExtOf(file: File): string {
   return (file.name.split('.').pop() ?? 'jpg').toLowerCase()
@@ -219,7 +222,9 @@ interface PhotoUploadProps {
 
 export function PhotoUpload({ onUpload, maxFiles = 3, label = 'Add Photos', bucket = 'kaizen-photos', caseNumber, department, companyId }: PhotoUploadProps) {
   const { lang } = useLanguage()
-  const [previews, setPreviews] = useState<{ file: File; preview: string; uploading: boolean; url?: string }[]>([])
+  // `file` is dropped (set undefined) once the photo is uploaded — see handleFiles — so the
+  // multi-MB uncompressed camera File isn't pinned in memory for the rest of the form's life.
+  const [previews, setPreviews] = useState<{ file?: File; preview: string; uploading: boolean; url?: string }[]>([])
   const [dragOver, setDragOver] = useState(false)
   const desktopInputRef = useRef<HTMLInputElement>(null)
   const cameraInputRef = useRef<HTMLInputElement>(null)
@@ -299,7 +304,16 @@ export function PhotoUpload({ onUpload, maxFiles = 3, label = 'Add Photos', buck
         const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(data.path)
         const url = urlData.publicUrl
         setPreviews((prev) =>
-          prev.map((p) => (p.preview === item.preview ? { ...p, uploading: false, url } : p))
+          prev.map((p) => {
+            if (p.preview !== item.preview) return p
+            // Photo is safely in Storage now. Revoke the local object URL and drop the
+            // uncompressed File so neither is pinned in memory while the form stays open —
+            // lowering the page's footprint during capture, when low-memory Android is
+            // deciding whether to kill the backgrounded tab. The thumbnail switches to the
+            // remote `url` below (`item.url ?? item.preview`), so nothing visual is lost.
+            try { URL.revokeObjectURL(p.preview) } catch { /* already revoked */ }
+            return { ...p, uploading: false, url, file: undefined }
+          })
         )
         // Report each photo as soon as it's uploaded rather than batching at the end of
         // the loop — on Android, backgrounding the tab to open the camera can get the
@@ -339,7 +353,7 @@ export function PhotoUpload({ onUpload, maxFiles = 3, label = 'Add Photos', buck
             {/* Choose from Library button */}
             <button
               type="button"
-              onClick={() => galleryInputRef.current?.click()}
+              onClick={() => { markCameraPending(); galleryInputRef.current?.click() }}
               className="flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-gray-300 py-5 active:bg-gray-50 transition-colors"
             >
               <ImageIcon className="h-7 w-7 text-gray-400" />

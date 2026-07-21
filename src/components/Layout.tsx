@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, Suspense } from 'react'
 import { Outlet, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { Sidebar } from './Sidebar'
 import { Header } from './Header'
@@ -101,7 +101,17 @@ export function Layout() {
             className="flex-1 overflow-x-hidden md:overflow-y-auto"
             style={{ background: 'var(--brand-background, #f9fafb)', paddingBottom: showBottomNav ? 'calc(4rem + env(safe-area-inset-bottom, 0px))' : undefined }}
           >
-            <Outlet />
+            {/* Route components are lazy-loaded (see App.tsx) so a phone only downloads the
+                page it's on, not the whole app — smaller bundle, lower memory, faster reload
+                after an Android tab-kill. This boundary keeps the header/nav on screen while
+                the next route's chunk loads. */}
+            <Suspense fallback={
+              <div className="flex items-center justify-center py-20">
+                <div className="w-8 h-8 border-2 border-gray-300 border-t-transparent rounded-full animate-spin" />
+              </div>
+            }>
+              <Outlet />
+            </Suspense>
           </main>
         </div>
 

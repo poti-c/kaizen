@@ -10,7 +10,7 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { PhotoUpload } from '@/components/PhotoUpload'
+import { PhotoUpload, CAMERA_PENDING_KEY, CAMERA_PENDING_MAX_AGE_MS } from '@/components/PhotoUpload'
 import { generateCaseNumber, CATEGORIES, LOCATIONS, formatDueBy, toDateTimeLocal, fromDateTimeLocal, bangkokDate, photoStoragePathFromUrl } from '@/lib/utils'
 import { CATEGORY_LABELS_EN, categoryLabel, deptLabel } from '@/types'
 import type { CasePriority, Department } from '@/types'
@@ -115,7 +115,25 @@ export function CreateCasePage() {
   const [photoUrls, setPhotoUrls] = useState<string[]>(draft?.photoUrls ?? [])
   const [loading, setLoading] = useState(false)
 
+  // Was the OS killing/reloading this tab while a native camera or gallery picker was open?
+  // If so, this mount is an expected return-from-capture, not a cold re-open of an abandoned
+  // draft — so we suppress the "Restored your unsaved draft" toast below (it reads as an error
+  // to an employee who was simply adding a photo mid-form). Read here in a lazy initializer,
+  // NOT in the mount effect: PhotoUpload is a child, and React runs child effects before parent
+  // effects, so its mount effect clears this marker before our effect would ever see it. Render
+  // runs top-down (parent before child), so this read happens first. We only read, never clear —
+  // PhotoUpload owns clearing it (and showing its own "retake your photo" warning).
+  const [returnedFromCapture] = useState(() => {
+    try {
+      const pending = sessionStorage.getItem(CAMERA_PENDING_KEY)
+      if (!pending) return false
+      const age = Date.now() - Number(pending)
+      return Number.isFinite(age) && age >= 0 && age <= CAMERA_PENDING_MAX_AGE_MS
+    } catch { return false }
+  })
+
   useEffect(() => {
+    if (returnedFromCapture) return
     if (draft && (draft.title || draft.description || draft.photoUrls.length > 0)) {
       toast.info(lang === 'th' ? 'กู้คืนแบบร่างที่ยังไม่ได้บันทึกไว้ให้แล้ว' : 'Restored your unsaved draft')
     }
