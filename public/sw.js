@@ -42,12 +42,20 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
   event.waitUntil((async () => {
     // Drop shells cached by previous builds so a new release doesn't accrete stale caches.
-    const names = await caches.keys()
-    await Promise.all(
-      names
-        .filter((n) => n.startsWith('kaizen-shell-') && n !== CACHE_NAME)
-        .map((n) => caches.delete(n))
-    )
+    // Guard the cache work: if Cache Storage is unavailable (restricted/partitioned storage,
+    // quota exhausted on a low-end phone), a throw here must NOT skip clients.claim() — that
+    // claim is what lets the auto-update flow (skipWaiting → controllerchange → reload) take
+    // control of the open page. Losing the cache cleanup is harmless; losing claim is not.
+    try {
+      const names = await caches.keys()
+      await Promise.all(
+        names
+          .filter((n) => n.startsWith('kaizen-shell-') && n !== CACHE_NAME)
+          .map((n) => caches.delete(n))
+      )
+    } catch (e) {
+      console.log('[sw] cache cleanup skipped', e)
+    }
     await clients.claim()
   })())
 })
@@ -75,13 +83,24 @@ self.addEventListener('fetch', (event) => {
   if (!url.pathname.startsWith('/assets/')) return
 
   event.respondWith((async () => {
-    const cache = await caches.open(CACHE_NAME)
-    const hit = await cache.match(req)
-    if (hit) return hit
+    // Cache is a pure optimisation: if Cache Storage is unavailable (restricted/partitioned
+    // storage, quota exhausted on a low-end phone — the target device), opening or reading it
+    // can reject. That must fall back to a plain network fetch, NOT reject the response — a
+    // rejected respondWith serves a network error for the chunk and white-screens the app,
+    // where the old no-fetch-handler SW would have loaded it natively.
+    let cache = null
+    try {
+      cache = await caches.open(CACHE_NAME)
+      const hit = await cache.match(req)
+      if (hit) return hit
+    } catch (e) {
+      return fetch(req)
+    }
     const res = await fetch(req)
     // Only cache a genuine success (status 200, not an opaque/redirect/error response).
     if (res && res.status === 200 && res.type === 'basic') {
-      cache.put(req, res.clone())
+      // Not awaited — a put() failure (e.g. quota) must not fail the returned response.
+      cache.put(req, res.clone()).catch(() => { /* cache write best-effort */ })
     }
     return res
   })())
