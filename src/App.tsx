@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
-import React from 'react'
+import React, { Suspense } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from 'sonner'
 import { AuthProvider, useAuth } from '@/contexts/AuthContext'
@@ -10,24 +10,56 @@ import { ThemeProvider } from '@/contexts/ThemeContext'
 import { LanguageProvider } from '@/contexts/LanguageContext'
 import { ViewModeProvider } from '@/contexts/ViewModeContext'
 import { Layout } from '@/components/Layout'
-import { LoginPage } from '@/pages/LoginPage'
-import { ConsolePage } from '@/pages/ConsolePage'
-import { DashboardPage } from '@/pages/DashboardPage'
-import { CasesPage } from '@/pages/CasesPage'
-import { CaseDetailPage } from '@/pages/CaseDetailPage'
-import { CreateCasePage } from '@/pages/CreateCasePage'
-import { UsersPage } from '@/pages/UsersPage'
-import { NotificationsPage } from '@/pages/NotificationsPage'
-import { SettingsPage } from '@/pages/SettingsPage'
-import { CasesCalendarPage } from '@/pages/CasesCalendarPage'
-import { PreventiveMaintenancePage } from '@/pages/PreventiveMaintenancePage'
-import { RoutineRosterPage } from '@/pages/RoutineRosterPage'
-import { PackagesExpansions } from '@/components/PackagesExpansions'
-import { PerformancePage } from '@/pages/PerformancePage'
-import { PerformanceDetailPage } from '@/pages/PerformanceDetailPage'
-import { ChangePasswordPage } from '@/pages/ChangePasswordPage'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { installGlobalErrorReporter, setErrorContext } from '@/lib/errorReporter'
+
+// Eager: the entry/critical-path screens. LoginPage is the first paint for a signed-out
+// user, ChangePasswordPage is on the forced first-login path — lazy-loading these would
+// only add a spinner flash to the very first thing the user sees.
+import { LoginPage } from '@/pages/LoginPage'
+import { ChangePasswordPage } from '@/pages/ChangePasswordPage'
+
+// Everything else is split into its own chunk (lever B): a phone on /cases/new downloads
+// only that route's code, not the Console/PM/Roster/Performance pages it never opens. This
+// shrinks the 2.1 MB monolith, lowers baseline memory (a smaller Android kill target), and
+// speeds every cold reload — including the OS-forced one after a tab-kill during capture.
+//
+// lazyPage retries the dynamic import a few times before giving up: on the weak hotel Wi-Fi
+// this app runs on, a chunk fetch can fail transiently, and without a retry that surfaces as
+// a blank ErrorBoundary screen instead of the page. Named-export friendly.
+function lazyPage<T extends React.ComponentType<Record<string, never>>>(
+  load: () => Promise<Record<string, unknown>>,
+  name: string,
+): React.LazyExoticComponent<T> {
+  return React.lazy(async () => {
+    let lastErr: unknown
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const mod = await load()
+        return { default: mod[name] as T }
+      } catch (e) {
+        lastErr = e
+        await new Promise((r) => setTimeout(r, 300 * (attempt + 1)))
+      }
+    }
+    throw lastErr
+  })
+}
+
+const ConsolePage = lazyPage(() => import('@/pages/ConsolePage'), 'ConsolePage')
+const DashboardPage = lazyPage(() => import('@/pages/DashboardPage'), 'DashboardPage')
+const CasesPage = lazyPage(() => import('@/pages/CasesPage'), 'CasesPage')
+const CaseDetailPage = lazyPage(() => import('@/pages/CaseDetailPage'), 'CaseDetailPage')
+const CreateCasePage = lazyPage(() => import('@/pages/CreateCasePage'), 'CreateCasePage')
+const UsersPage = lazyPage(() => import('@/pages/UsersPage'), 'UsersPage')
+const NotificationsPage = lazyPage(() => import('@/pages/NotificationsPage'), 'NotificationsPage')
+const SettingsPage = lazyPage(() => import('@/pages/SettingsPage'), 'SettingsPage')
+const CasesCalendarPage = lazyPage(() => import('@/pages/CasesCalendarPage'), 'CasesCalendarPage')
+const PreventiveMaintenancePage = lazyPage(() => import('@/pages/PreventiveMaintenancePage'), 'PreventiveMaintenancePage')
+const RoutineRosterPage = lazyPage(() => import('@/pages/RoutineRosterPage'), 'RoutineRosterPage')
+const PackagesExpansions = lazyPage(() => import('@/components/PackagesExpansions'), 'PackagesExpansions')
+const PerformancePage = lazyPage(() => import('@/pages/PerformancePage'), 'PerformancePage')
+const PerformanceDetailPage = lazyPage(() => import('@/pages/PerformanceDetailPage'), 'PerformanceDetailPage')
 
 // Keeps the error reporter aware of the active company and installs global handlers.
 function ErrorReporterBridge() {
@@ -80,7 +112,13 @@ export default function App() {
         <ErrorBoundary>
           <ConsoleErrorReporter />
           <div className="h-[100dvh] overflow-y-auto bg-slate-950">
-            <ConsolePage />
+            <Suspense fallback={
+              <div className="flex items-center justify-center h-full">
+                <div className="w-8 h-8 border-2 border-slate-600 border-t-transparent rounded-full animate-spin" />
+              </div>
+            }>
+              <ConsolePage />
+            </Suspense>
             <Toaster position="top-right" richColors />
           </div>
         </ErrorBoundary>
