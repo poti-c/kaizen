@@ -1,0 +1,1 @@
+System.register([],function(n,t){"use strict";return{execute:function(){n({a:function(n,r){var o=null!=n?n:t;return e("th"===r&&o.one_th||o.one||t.one)},c:e,u:function(n,r){var o=null!=n?n:t;return e("th"===r&&o.many_th||o.many||t.many)}});var t=n("D",{one:"Room",many:"Rooms",one_th:"ห้อง",many_th:"ห้อง"});function e(n){return n?n.charAt(0).toUpperCase()+n.slice(1):n}}}});

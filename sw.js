@@ -1,5 +1,5 @@
 // Na Nirand Kaizen — Service Worker
-// Handles push notifications. (No fetch handler: nothing is cached here.)
+// Handles push notifications AND runtime caching of the app shell (see the fetch handler).
 
 // Sole purpose: give this file different bytes on every release. A browser only
 // installs a new worker when the fetched sw.js differs from the installed one,
@@ -10,7 +10,11 @@
 // The deploy workflow rewrites this line with the commit SHA — do NOT rely on
 // editing it by hand. It sat at 'kaizen-v3' for 184 commits and silently
 // disabled the update path for every release in between.
-const BUILD_ID = 'kaizen-8f0ef14359d7df34287b7c7685eb81584cefa632'
+const BUILD_ID = 'kaizen-b132b8f254eb6e78e7babb907ec9827dfaf51a72'
+
+// Runtime cache for the app shell, keyed on BUILD_ID so each release starts a fresh cache
+// and old ones are pruned on activate. See the fetch handler for the caching strategy.
+const CACHE_NAME = `kaizen-shell-${BUILD_ID}`
 
 // Set the home-screen app badge. On iOS the Badging API may be exposed on the
 // worker's `self.navigator` (newer) or not at all (older). Try every surface
@@ -36,7 +40,70 @@ self.addEventListener('install', (event) => {
 
 // ── Activate ─────────────────────────────────────────────────────────────────
 self.addEventListener('activate', (event) => {
-  event.waitUntil(clients.claim())
+  event.waitUntil((async () => {
+    // Drop shells cached by previous builds so a new release doesn't accrete stale caches.
+    // Guard the cache work: if Cache Storage is unavailable (restricted/partitioned storage,
+    // quota exhausted on a low-end phone), a throw here must NOT skip clients.claim() — that
+    // claim is what lets the auto-update flow (skipWaiting → controllerchange → reload) take
+    // control of the open page. Losing the cache cleanup is harmless; losing claim is not.
+    try {
+      const names = await caches.keys()
+      await Promise.all(
+        names
+          .filter((n) => n.startsWith('kaizen-shell-') && n !== CACHE_NAME)
+          .map((n) => caches.delete(n))
+      )
+    } catch (e) {
+      console.log('[sw] cache cleanup skipped', e)
+    }
+    await clients.claim()
+  })())
+})
+
+// ── Fetch: app-shell runtime cache ─────────────────────────────────────────────
+// Android kills the backgrounded tab while the native camera is open; the OS-forced reload
+// that follows used to re-download the entire JS bundle over weak hotel Wi-Fi (slow blank
+// screen — the visible symptom users report). We cache-first the immutable, content-hashed
+// build assets so that reload serves them from disk instead.
+//
+// Scope is deliberately narrow and safe:
+//   • ONLY same-origin GETs under /assets/ (Vite hashes these — the URL changes whenever the
+//     bytes change, so a cached copy can never be stale).
+//   • index.html is NOT cached — it stays on the network so it always references the current
+//     chunk hashes (a stale shell pointing at evicted chunks would white-screen the app).
+//   • Cross-origin requests (Supabase API / auth / storage) and everything dynamic are not
+//     touched at all — they must always hit the network.
+self.addEventListener('fetch', (event) => {
+  const req = event.request
+  if (req.method !== 'GET') return
+
+  let url
+  try { url = new URL(req.url) } catch (e) { return }
+  if (url.origin !== self.location.origin) return
+  if (!url.pathname.startsWith('/assets/')) return
+
+  event.respondWith((async () => {
+    // Cache is a pure optimisation: if Cache Storage is unavailable (restricted/partitioned
+    // storage, quota exhausted on a low-end phone — the target device), opening or reading it
+    // can reject. That must fall back to a plain network fetch, NOT reject the response — a
+    // rejected respondWith serves a network error for the chunk and white-screens the app,
+    // where the old no-fetch-handler SW would have loaded it natively.
+    let cache = null
+    try {
+      cache = await caches.open(CACHE_NAME)
+      const hit = await cache.match(req)
+      if (hit) return hit
+    } catch (e) {
+      return fetch(req)
+    }
+    const res = await fetch(req)
+    // Only cache a genuine success (status 200, not an opaque/redirect/error response).
+    if (res && res.status === 200 && res.type === 'basic') {
+      // Not awaited — a put() failure (e.g. quota) must not fail the returned response.
+      cache.put(req, res.clone()).catch(() => { /* cache write best-effort */ })
+    }
+    return res
+  })())
 })
 
 // ── Push received ─────────────────────────────────────────────────────────────

@@ -1,0 +1,1 @@
+const o={one:"Room",many:"Rooms",one_th:"ห้อง",many_th:"ห้อง"};function e(n){return n&&n.charAt(0).toUpperCase()+n.slice(1)}function c(n,a){const t=n!=null?n:o;return e(a==="th"&&t.one_th||t.one||o.one)}function r(n,a){const t=n!=null?n:o;return e(a==="th"&&t.many_th||t.many||o.many)}export{o as D,c as a,e as c,r as u};
