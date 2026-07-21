@@ -439,6 +439,11 @@ export function CaseDetailPage() {
     setPhotos((ph.data || []) as KaizenCasePhoto[])
     setAssignments(asn.data || [])
     setComments((cmts.data || []) as Array<{id:string,content:string,created_at:string,user:KaizenProfile}>)
+    } catch (err) {
+      // Case missing or inaccessible (e.g. a stale link to a deleted case) — the
+      // !kcase fallback below already renders a "not found" state, so just log it
+      // instead of letting it surface as an unhandled rejection.
+      console.error('[fetchCase]', err)
     } finally {
       // CDP-002: always clear loading even on network error
       setLoading(false)

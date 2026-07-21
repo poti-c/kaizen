@@ -40,7 +40,9 @@ export function freqLabel(unit: FreqUnit, interval: number, lang?: string): stri
 // Month/year steps clamp to the end of the target month so e.g. Jan 31 + 1 month = Feb 28/29
 // (instead of JS's overflow to Mar 2/3) and Feb 29 + 1 year = Feb 28.
 export function addInterval(dateStr: string, unit: FreqUnit, interval: number): string {
-  let [y, m, day] = dateStr.split('-').map(Number)
+  const parts = dateStr.split('-').map(Number)
+  let y = parts[0], m = parts[1]
+  const day = parts[2]
   if (unit === 'day' || unit === 'week') {
     const d = new Date(Date.UTC(y, m - 1, unit === 'week' ? day + interval * 7 : day + interval))
     return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`
