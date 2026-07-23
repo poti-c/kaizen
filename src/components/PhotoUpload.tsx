@@ -4,6 +4,10 @@ import { toast } from 'sonner'
 import { supabase } from '@/lib/supabase'
 import { cn, buildPhotoPath } from '@/lib/utils'
 import { useLanguage } from '@/contexts/LanguageContext'
+import { blockSWReload, unblockSWReload } from '@/lib/swReload'
+
+// Per-mount id so each PhotoUpload holds its own SW-reload deferral independently.
+let photoUploadSeq = 0
 
 // True on any touch-capable device (phones, tablets)
 const isTouchDevice = typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0)
@@ -218,18 +222,33 @@ interface PhotoUploadProps {
   caseNumber?: string
   department?: string
   companyId?: string
+  // Already-uploaded photo URLs to show as removable thumbnails on mount — used to
+  // rehydrate a recovered draft (e.g. the resolve form after an update reload) so
+  // photos that survived in the parent's state are visible again, not just queued.
+  initialUrls?: string[]
+  // Called when a thumbnail is removed, so the parent can drop the URL from its own
+  // list (onUpload only ever appends). Without it a removed photo is still submitted.
+  onRemove?: (url: string) => void
 }
 
-export function PhotoUpload({ onUpload, maxFiles = 3, label = 'Add Photos', bucket = 'kaizen-photos', caseNumber, department, companyId }: PhotoUploadProps) {
+export function PhotoUpload({ onUpload, maxFiles = 3, label = 'Add Photos', bucket = 'kaizen-photos', caseNumber, department, companyId, initialUrls, onRemove }: PhotoUploadProps) {
   const { lang } = useLanguage()
   // `file` is dropped (set undefined) once the photo is uploaded — see handleFiles — so the
   // multi-MB uncompressed camera File isn't pinned in memory for the rest of the form's life.
-  const [previews, setPreviews] = useState<{ file?: File; preview: string; uploading: boolean; url?: string }[]>([])
+  const [previews, setPreviews] = useState<{ file?: File; preview: string; uploading: boolean; url?: string }[]>(
+    // Seed once from any recovered URLs (already in Storage, so uploading:false).
+    () => (initialUrls ?? []).map((url) => ({ preview: url, url, uploading: false })),
+  )
   const [dragOver, setDragOver] = useState(false)
   const desktopInputRef = useRef<HTMLInputElement>(null)
   const cameraInputRef = useRef<HTMLInputElement>(null)
   const galleryInputRef = useRef<HTMLInputElement>(null)
   const photoIndexRef = useRef(1)
+  // This mount's SW-reload deferral reason, and the fallback timer that releases it
+  // if the user returns from the picker without choosing a file (no handleFiles).
+  const reloadReasonRef = useRef<string>('')
+  if (!reloadReasonRef.current) reloadReasonRef.current = `photo-upload-${++photoUploadSeq}`
+  const releaseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const remaining = maxFiles - previews.length
 
@@ -239,7 +258,17 @@ export function PhotoUpload({ onUpload, maxFiles = 3, label = 'Add Photos', buck
   }
   const markCameraPending = () => {
     try { sessionStorage.setItem(CAMERA_PENDING_KEY, String(Date.now())) } catch { /* storage unavailable */ }
+    // Hold off any pending SW update reload until the capture has been handled —
+    // otherwise returning from the camera can reload the page and lose the photo.
+    blockSWReload(reloadReasonRef.current)
   }
+
+  // Safety net: always release this mount's reload block (and its timer) when the
+  // component unmounts, so a deferral can never get stuck open.
+  useEffect(() => () => {
+    if (releaseTimerRef.current) clearTimeout(releaseTimerRef.current)
+    unblockSWReload(reloadReasonRef.current)
+  }, [])
 
   // On mount, if a capture was pending (the tab was killed while the camera was open), the
   // photo never made it back — warn the user to retake it rather than leaving a silent gap.
@@ -263,7 +292,19 @@ export function PhotoUpload({ onUpload, maxFiles = 3, label = 'Add Photos', buck
   // reload. A genuine tab-kill destroys the page before this ever runs, leaving the marker
   // for the mount check above.
   useEffect(() => {
-    const onVisible = () => { if (document.visibilityState === 'visible') clearCameraPending() }
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return
+      clearCameraPending()
+      // Returned from the camera/gallery. If a file was chosen, handleFiles holds
+      // the reload block and releases it when the upload finishes. If the user
+      // cancelled (no onChange), release it after a short grace period so a pending
+      // SW update isn't deferred forever.
+      if (releaseTimerRef.current) clearTimeout(releaseTimerRef.current)
+      releaseTimerRef.current = setTimeout(() => {
+        releaseTimerRef.current = null
+        unblockSWReload(reloadReasonRef.current)
+      }, 5000)
+    }
     document.addEventListener('visibilitychange', onVisible)
     return () => document.removeEventListener('visibilitychange', onVisible)
   }, [])
@@ -271,7 +312,10 @@ export function PhotoUpload({ onUpload, maxFiles = 3, label = 'Add Photos', buck
   async function handleFiles(files: FileList | null) {
     // A capture (or cancel) returned to a live page — the interruption guard no longer applies.
     clearCameraPending()
-    if (!files || remaining <= 0) return
+    // A file arrived, so cancel the visibility-based fallback release; the reload
+    // block is now held for the whole upload and released in `finally` below.
+    if (releaseTimerRef.current) { clearTimeout(releaseTimerRef.current); releaseTimerRef.current = null }
+    if (!files || remaining <= 0) { unblockSWReload(reloadReasonRef.current); return }
     const newFiles = Array.from(files).slice(0, remaining)
 
     const items = newFiles.map((file) => ({
@@ -282,6 +326,7 @@ export function PhotoUpload({ onUpload, maxFiles = 3, label = 'Add Photos', buck
 
     setPreviews((prev) => [...prev, ...items])
 
+    try {
     for (const item of items) {
       const compressed = await compressImage(item.file)
       if (!compressed) {
@@ -325,12 +370,21 @@ export function PhotoUpload({ onUpload, maxFiles = 3, label = 'Add Photos', buck
         toast.error((lang === 'th' ? 'อัปโหลดรูปไม่สำเร็จ: ' : 'Photo upload failed: ') + (error?.message ?? 'unknown error'))
       }
     }
+    } finally {
+      // Whole capture handled (uploaded and reported, or failed) — the photo now
+      // lives in Storage + the parent's state, so an SW update reload is safe again.
+      unblockSWReload(reloadReasonRef.current)
+    }
   }
 
   function remove(index: number) {
     setPreviews((prev) => {
       const removed = prev[index]
-      URL.revokeObjectURL(removed.preview)
+      // Only a local object URL needs revoking; a remote (already-uploaded) URL must not be.
+      if (removed.url !== removed.preview) { try { URL.revokeObjectURL(removed.preview) } catch { /* already revoked */ } }
+      // Keep the parent's list in sync — onUpload only appends, so without this a
+      // removed (or recovered) photo would still be submitted.
+      if (removed.url) onRemove?.(removed.url)
       return prev.filter((_, i) => i !== index)
     })
   }

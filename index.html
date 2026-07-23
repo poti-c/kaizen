@@ -36,11 +36,20 @@
         // Guarded by hadController so it never reloads on a fresh first install.
         const hadController = !!navigator.serviceWorker.controller
         let refreshing = false
+        let pendingReload = false
         navigator.serviceWorker.addEventListener('controllerchange', () => {
           if (refreshing || !hadController) return
+          // The app can defer the update reload while work would be lost by it —
+          // e.g. a photo capture in progress (see src/lib/swReload.ts). Hold the
+          // reload until the app releases the block, then apply it.
+          if (window.__kaizenDeferReload) { pendingReload = true; return }
           refreshing = true
           window.location.reload()
         })
+        // Called by the app (unblockSWReload) once the last deferral clears.
+        window.__kaizenApplyPendingReload = function () {
+          if (pendingReload && !refreshing) { refreshing = true; window.location.reload() }
+        }
         window.addEventListener('load', () => {
           navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' })
             .then((reg) => {
