@@ -143,6 +143,37 @@ self.addEventListener('push', (event) => {
   )
 })
 
+// ── Push subscription rotation ────────────────────────────────────────────────
+// Browsers/push services periodically rotate the endpoint (or the browser
+// invalidates it). Without handling this, the old endpoint 410s, gets pruned by
+// kaizen-push, and the user silently stops receiving pushes until they manually
+// re-enable in Settings. Here we re-subscribe immediately to keep the browser
+// subscription alive, then ask any open app tab to persist the fresh endpoint —
+// the worker itself can't write to kaizen_push_subscriptions (RLS needs the
+// user's auth session, which lives in the page, not the worker). If no tab is
+// open, the app's global auto-subscribe (usePushNotifications) reconciles the DB
+// on next open.
+self.addEventListener('pushsubscriptionchange', (event) => {
+  event.waitUntil((async () => {
+    try {
+      // Reuse the key from the old subscription when the browser provides it
+      // (most reliable — no VAPID key is embedded in this static worker file).
+      const appServerKey = event.oldSubscription && event.oldSubscription.options
+        ? event.oldSubscription.options.applicationServerKey
+        : undefined
+      if (appServerKey) {
+        await self.registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: appServerKey })
+      }
+    } catch (e) {
+      // Re-subscribe may fail (no old key, transient error) — the page will
+      // create a fresh subscription on next open regardless.
+      console.error('[sw] pushsubscriptionchange re-subscribe failed', e)
+    }
+    const cs = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+    cs.forEach((c) => c.postMessage({ type: 'PUSH_SUBSCRIPTION_CHANGED' }))
+  })())
+})
+
 // ── Notification click ────────────────────────────────────────────────────────
 self.addEventListener('notificationclick', (event) => {
   event.notification.close()

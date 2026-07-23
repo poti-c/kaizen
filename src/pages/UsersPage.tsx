@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Plus, Trash2, Shield, Users, Loader2, Eye, EyeOff, Pencil, PowerOff, Power, KeyRound, History, AlertTriangle } from 'lucide-react'
+import { Plus, Trash2, Shield, Users, Loader2, Eye, EyeOff, Pencil, PowerOff, Power, KeyRound, History, AlertTriangle, Bell, BellOff } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { createClient } from '@supabase/supabase-js'
 import { useAuth } from '@/contexts/AuthContext'
@@ -84,6 +84,38 @@ export function UsersPage() {
   const isOwner = profile?.role === 'super_admin' && profile?.job_title === 'Owner'
 
   const isStaffViewer = profile?.role === 'staff'
+
+  // Per-user device-push status (Top Management only). Which teammates actually
+  // get push on a device vs. in-app only. RLS hides other users' subscription
+  // rows, so this reads through the kaizen_push_coverage RPC (gated to
+  // super_admin). Map of user_id → has_push; users absent from the map (inactive,
+  // or not covered by the RPC) simply show no indicator.
+  const [pushMap, setPushMap] = useState<Map<string, boolean> | null>(null)
+  useEffect(() => {
+    if (profile?.role !== 'super_admin' || !activeCompany?.id) return
+    let cancelled = false
+    ;(async () => {
+      const { data, error } = await supabase.rpc('kaizen_push_coverage', { p_company_id: activeCompany.id })
+      if (cancelled || error || !data) return
+      setPushMap(new Map((data as Array<{ user_id: string; has_push: boolean }>).map(r => [r.user_id, r.has_push])))
+    })()
+    return () => { cancelled = true }
+  }, [profile?.role, activeCompany?.id])
+
+  // Small inline badge shown next to each user's presence line — Top Management
+  // only. Renders nothing when the user isn't in the coverage map.
+  function pushIndicator(userId: string) {
+    if (profile?.role !== 'super_admin' || !pushMap || !pushMap.has(userId)) return null
+    return pushMap.get(userId) ? (
+      <span title={lang === 'th' ? 'เปิดการแจ้งเตือนบนอุปกรณ์' : 'Device push on'} className="inline-flex items-center gap-1 text-[11px] font-medium text-green-600">
+        <Bell className="h-3 w-3" />{lang === 'th' ? 'พุช' : 'Push'}
+      </span>
+    ) : (
+      <span title={lang === 'th' ? 'ยังไม่ได้เปิดพุช — รับเฉพาะการแจ้งเตือนในแอป' : 'No device push — in-app only'} className="inline-flex items-center gap-1 text-[11px] font-medium text-gray-400">
+        <BellOff className="h-3 w-3" />{lang === 'th' ? 'ไม่มีพุช' : 'No push'}
+      </span>
+    )
+  }
 
   useEffect(() => { if (!isStaffViewer) fetchUsers() }, [profile, activeCompany, isStaffViewer])
   useEffect(() => {
@@ -524,9 +556,12 @@ export function UsersPage() {
                                   </span>
                                 ))}
                               </div>
-                              <div className="mt-1 flex items-center gap-1.5">
-                                <span className={cn('w-1.5 h-1.5 rounded-full flex-shrink-0', isOnline(user.id) ? 'bg-green-500' : 'bg-gray-300')} />
-                                <span className={cn('text-[11px]', isOnline(user.id) ? 'text-green-600 font-medium' : 'text-gray-400')}>{activityLabel(user.last_active_at, isOnline(user.id))}</span>
+                              <div className="mt-1 flex items-center gap-2 flex-wrap">
+                                <span className="inline-flex items-center gap-1.5">
+                                  <span className={cn('w-1.5 h-1.5 rounded-full flex-shrink-0', isOnline(user.id) ? 'bg-green-500' : 'bg-gray-300')} />
+                                  <span className={cn('text-[11px]', isOnline(user.id) ? 'text-green-600 font-medium' : 'text-gray-400')}>{activityLabel(user.last_active_at, isOnline(user.id))}</span>
+                                </span>
+                                {pushIndicator(user.id)}
                               </div>
                             </div>
                           </Link>
@@ -551,9 +586,12 @@ export function UsersPage() {
                                   </span>
                                 ))}
                               </div>
-                              <div className="mt-1 flex items-center gap-1.5">
-                                <span className={cn('w-1.5 h-1.5 rounded-full flex-shrink-0', isOnline(user.id) ? 'bg-green-500' : 'bg-gray-300')} />
-                                <span className={cn('text-[11px]', isOnline(user.id) ? 'text-green-600 font-medium' : 'text-gray-400')}>{activityLabel(user.last_active_at, isOnline(user.id))}</span>
+                              <div className="mt-1 flex items-center gap-2 flex-wrap">
+                                <span className="inline-flex items-center gap-1.5">
+                                  <span className={cn('w-1.5 h-1.5 rounded-full flex-shrink-0', isOnline(user.id) ? 'bg-green-500' : 'bg-gray-300')} />
+                                  <span className={cn('text-[11px]', isOnline(user.id) ? 'text-green-600 font-medium' : 'text-gray-400')}>{activityLabel(user.last_active_at, isOnline(user.id))}</span>
+                                </span>
+                                {pushIndicator(user.id)}
                               </div>
                             </div>
                           </>

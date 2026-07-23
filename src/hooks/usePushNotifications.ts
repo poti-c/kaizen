@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 
 const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY as string
@@ -25,8 +25,12 @@ function isIOS(): boolean {
   return /iphone|ipad|ipod/i.test(navigator.userAgent)
 }
 
-export function usePushNotifications(userId: string | undefined) {
+export function usePushNotifications(
+  userId: string | undefined,
+  opts?: { autoSubscribe?: boolean },
+) {
   const [status, setStatus] = useState<PushStatus>('loading')
+  const autoSubscribe = opts?.autoSubscribe ?? false
 
   const hasPushAPI = typeof window !== 'undefined' &&
     'serviceWorker' in navigator &&
@@ -102,6 +106,44 @@ export function usePushNotifications(userId: string | undefined) {
       setStatus('default')
     }
   }
+
+  // ── Silent auto-subscribe (opt-in via `autoSubscribe`) ──────────────────────
+  // The root cause of "not everyone gets push": a subscription is only ever
+  // created by the manual toggle in Settings, and lapsed/rotated subscriptions
+  // are never repaired — so most staff who once granted permission silently stop
+  // receiving pushes. When mounted globally with { autoSubscribe: true }, this
+  // re-registers the current browser subscription on every app open for anyone
+  // whose OS permission is already 'granted'. subscribe() is an idempotent upsert
+  // (and re-creates the subscription if the browser invalidated it), so this both
+  // covers the never-re-subscribed majority and heals endpoint rotation. It never
+  // prompts: permission is only ever requested by the explicit Settings toggle.
+  const autoSubDone = useRef<string | null>(null)
+  useEffect(() => {
+    if (!autoSubscribe) return
+    if (!supported || !userId) return
+    if (status !== 'granted') return
+    if (autoSubDone.current === userId) return
+    autoSubDone.current = userId
+    void subscribe()
+    // subscribe is a stable in-scope function; deps intentionally limited to the
+    // gate values so this fires once per (user, mount).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoSubscribe, supported, userId, status])
+
+  // The service worker re-subscribes on `pushsubscriptionchange` (endpoint
+  // rotation) but cannot write to the DB — RLS on kaizen_push_subscriptions
+  // requires auth.uid(), which the worker has no session for. It posts a message
+  // so an open app tab persists the fresh endpoint under the user's session.
+  useEffect(() => {
+    if (!autoSubscribe || !supported || !userId) return
+    if (!('serviceWorker' in navigator)) return
+    const onMsg = (e: MessageEvent) => {
+      if ((e.data as { type?: string } | null)?.type === 'PUSH_SUBSCRIPTION_CHANGED') void subscribe()
+    }
+    navigator.serviceWorker.addEventListener('message', onMsg)
+    return () => navigator.serviceWorker.removeEventListener('message', onMsg)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoSubscribe, supported, userId])
 
   return { status, supported, isIOS: isIOS(), isStandalone: isStandalone(), subscribe, unsubscribe }
 }
