@@ -42,8 +42,13 @@ export function usePushNotifications(
 
   useEffect(() => {
     let mounted = true
-    if (!hasPushAPI) { if (mounted) setStatus('unsupported'); return () => { mounted = false } }
+    // iOS only exposes the Push API inside an installed (Home Screen) PWA — a plain
+    // Safari tab has no PushManager, so hasPushAPI is false there. Check the iOS
+    // needs-install case FIRST: otherwise every iPhone-in-Safari user falls into
+    // 'unsupported' (a dead-end "browser not supported" message) and never sees the
+    // "Add to Home Screen" guide that would actually let them enable notifications.
     if (isIOS() && !isStandalone()) { if (mounted) setStatus('needs-install'); return () => { mounted = false } }
+    if (!hasPushAPI) { if (mounted) setStatus('unsupported'); return () => { mounted = false } }
     if (!supported) { if (mounted) setStatus('unsupported'); return () => { mounted = false } }
     const perm = Notification.permission
     if (mounted) {
