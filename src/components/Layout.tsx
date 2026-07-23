@@ -4,10 +4,12 @@ import { Sidebar } from './Sidebar'
 import { Header } from './Header'
 import { BottomNav } from './BottomNav'
 import { TrialBanner, PmsTrialBanner } from './TrialBanner'
+import { PushPrompt } from './PushPrompt'
 import { FeedbackProvider } from './FeedbackWidget'
 import { useAuth } from '@/contexts/AuthContext'
 import { useViewMode } from '@/contexts/ViewModeContext'
 import { useLanguage } from '@/contexts/LanguageContext'
+import { usePushNotifications } from '@/hooks/usePushNotifications'
 import { Button } from '@/components/ui/button'
 
 export function Layout() {
@@ -16,6 +18,12 @@ export function Layout() {
   const { lang } = useLanguage()
   const location = useLocation()
   const navigate = useNavigate()
+
+  // Globally repair push subscriptions on every app open for anyone who already
+  // granted permission — see usePushNotifications. Mounted here (not just in
+  // Settings) so it runs app-wide without any staff action. No-ops until profile
+  // loads; never prompts.
+  usePushNotifications(profile?.id, { autoSubscribe: true })
 
   // Handle messages the service worker posts on notification click: deep-link via the
   // router (no full reload) and apply the app-icon badge fallback.
@@ -97,6 +105,7 @@ export function Layout() {
           <Header />
           <TrialBanner />
           <PmsTrialBanner />
+          <PushPrompt />
           <main
             className="flex-1 overflow-x-hidden md:overflow-y-auto"
             style={{ background: 'var(--brand-background, #f9fafb)', paddingBottom: showBottomNav ? 'calc(4rem + env(safe-area-inset-bottom, 0px))' : undefined }}

@@ -70,6 +70,25 @@ export function SettingsPage() {
   const { settings, updateSettings } = useTheme()
   const { t, lang, setLang } = useLanguage()
 
+  // Push-notification coverage (Top Management only). Which team members have a
+  // live push subscription — i.e. who actually gets device alerts vs. in-app only.
+  // Reads via the kaizen_push_coverage RPC because RLS hides other users' rows.
+  type PushCoverageRow = { user_id: string; full_name: string; department: string; role: string; has_push: boolean }
+  const [pushCoverage, setPushCoverage] = useState<PushCoverageRow[] | null>(null)
+  const [pushCovErr, setPushCovErr] = useState(false)
+  useEffect(() => {
+    if (profile?.role !== 'super_admin' || !companyId) return
+    let cancelled = false
+    setPushCoverage(null); setPushCovErr(false)
+    ;(async () => {
+      const { data, error } = await supabase.rpc('kaizen_push_coverage', { p_company_id: companyId })
+      if (cancelled) return
+      if (error) { setPushCovErr(true); return }
+      setPushCoverage((data ?? []) as PushCoverageRow[])
+    })()
+    return () => { cancelled = true }
+  }, [profile?.role, companyId])
+
   // Avatar upload
   const avatarInputRef = useRef<HTMLInputElement>(null)
   const [avatarUrl, setAvatarUrl] = useState<string | null>(profile?.avatar_url ?? null)
@@ -840,6 +859,73 @@ export function SettingsPage() {
           </div>
         )}
       </div>
+
+      {/* ── Notification coverage — Top Management (super_admin) only ── */}
+      {profile?.role === 'super_admin' && (
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+          <div className="flex items-center gap-2 mb-1">
+            <BellRing className="h-4 w-4 text-gray-400" />
+            <h2 className="font-semibold text-gray-900">{lang === 'th' ? 'ความครอบคลุมการแจ้งเตือน' : 'Notification Coverage'}</h2>
+          </div>
+          <p className="text-xs text-gray-400 mb-4">
+            {lang === 'th'
+              ? 'สมาชิกที่ยังไม่ได้เปิด Push จะได้รับการแจ้งเตือนในแอปเท่านั้น ไม่ได้รับบนอุปกรณ์'
+              : 'Members without push enabled still get in-app alerts, but no notification on their device.'}
+          </p>
+          {pushCovErr ? (
+            <p className="text-sm text-gray-400">{lang === 'th' ? 'โหลดข้อมูลไม่สำเร็จ' : 'Could not load coverage.'}</p>
+          ) : pushCoverage === null ? (
+            <div className="flex items-center gap-2 text-sm text-gray-400">
+              <Loader2 className="h-4 w-4 animate-spin" />{lang === 'th' ? 'กำลังโหลด...' : 'Loading...'}
+            </div>
+          ) : (() => {
+            const total = pushCoverage.length
+            const covered = pushCoverage.filter(r => r.has_push).length
+            const missing = pushCoverage.filter(r => !r.has_push)
+            const pct = total ? Math.round((covered / total) * 100) : 0
+            const byDept: Record<string, PushCoverageRow[]> = {}
+            missing.forEach(r => { const d = r.department || 'other'; (byDept[d] ??= []).push(r) })
+            return (
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-sm font-medium text-gray-900">
+                    {covered}/{total} {lang === 'th' ? 'เปิดใช้งานบนอุปกรณ์' : 'devices enabled'}
+                  </span>
+                  <span className="text-xs text-gray-400">{pct}%</span>
+                </div>
+                <div className="h-2 w-full bg-gray-100 rounded-full overflow-hidden mb-4">
+                  <div className="h-full bg-[var(--brand-primary)]" style={{ width: `${pct}%` }} />
+                </div>
+                {missing.length === 0 ? (
+                  <p className="text-sm text-green-600">
+                    {lang === 'th' ? 'ทุกคนเปิดการแจ้งเตือนบนอุปกรณ์แล้ว 🎉' : 'Everyone has device notifications enabled 🎉'}
+                  </p>
+                ) : (
+                  <div className="space-y-3">
+                    <p className="text-xs font-medium text-gray-500">
+                      {lang === 'th' ? `ยังไม่ได้เปิด (${missing.length})` : `Not enabled (${missing.length})`}
+                    </p>
+                    {Object.entries(byDept).map(([dept, members]) => (
+                      <div key={dept}>
+                        <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1">
+                          {DEPARTMENT_LABELS[dept as Department] ?? dept}
+                        </p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {members.map(m => (
+                            <span key={m.user_id} className="inline-flex items-center gap-1 text-xs px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full">
+                              <BellOff className="h-3 w-3 text-gray-400" />{m.full_name}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })()}
+        </div>
+      )}
 
       {/* Language */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
