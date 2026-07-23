@@ -43,6 +43,25 @@ function titlesRelated(a?: string | null, b?: string | null): boolean {
   return false
 }
 
+// The staff resolve form (note + already-uploaded proof photos) is persisted per
+// case in sessionStorage so a mid-form reload — the SW auto-update reload, an
+// Android OS tab-kill during camera capture, or an accidental back — doesn't
+// silently drop the work. sessionStorage survives the OS tab-kill-and-restore
+// (the same property CreateCasePage's draft recovery relies on).
+const resolveDraftKey = (caseId: string) => `kaizen-resolve-draft:${caseId}`
+function readResolveDraft(caseId: string | undefined): { note: string; photos: string[] } {
+  if (!caseId) return { note: '', photos: [] }
+  try {
+    const raw = sessionStorage.getItem(resolveDraftKey(caseId))
+    if (!raw) return { note: '', photos: [] }
+    const d = JSON.parse(raw)
+    return {
+      note: typeof d?.note === 'string' ? d.note : '',
+      photos: Array.isArray(d?.photos) ? d.photos.filter((u: unknown): u is string => typeof u === 'string') : [],
+    }
+  } catch { return { note: '', photos: [] } }
+}
+
 export function CaseDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
@@ -58,8 +77,21 @@ export function CaseDetailPage() {
   const [submitting, setSubmitting] = useState(false)
 
   // Staff resolution form
-  const [resolutionNote, setResolutionNote] = useState('')
-  const [resolutionPhotos, setResolutionPhotos] = useState<string[]>([])
+  // Lazily restore any persisted resolve draft for this case (see readResolveDraft).
+  const [resolutionNote, setResolutionNote] = useState<string>(() => readResolveDraft(id).note)
+  const [resolutionPhotos, setResolutionPhotos] = useState<string[]>(() => readResolveDraft(id).photos)
+  // Persist the resolve draft as it changes; clear it once empty (also on a
+  // successful submit, which resets both fields). Keeps a reload non-destructive.
+  useEffect(() => {
+    if (!id) return
+    try {
+      if (resolutionNote.trim() || resolutionPhotos.length > 0) {
+        sessionStorage.setItem(resolveDraftKey(id), JSON.stringify({ note: resolutionNote, photos: resolutionPhotos }))
+      } else {
+        sessionStorage.removeItem(resolveDraftKey(id))
+      }
+    } catch { /* storage unavailable */ }
+  }, [id, resolutionNote, resolutionPhotos])
 
   // Priority change (super_admin only)
   const [selectedPriority, setSelectedPriority] = useState<CasePriority | ''>('')
@@ -602,7 +634,10 @@ export function CaseDetailPage() {
     }
     setSubmitting(true)
     try {
-      await supabase.from('kaizen_case_photos').insert(
+      // Attach the proof photos FIRST and abort the whole resolution if it fails —
+      // otherwise the case would be marked resolved with no photo attached while the
+      // user sees success (the exact "photo not attached" symptom, silently).
+      const { error: photoErr } = await supabase.from('kaizen_case_photos').insert(
         resolutionPhotos.map((url) => ({
           case_id: id!,
           photo_url: url,
@@ -610,6 +645,7 @@ export function CaseDetailPage() {
           uploaded_by: profile?.id,
         }))
       )
+      if (photoErr) throw photoErr
 
       // Routing:
       //  • Manager / Top-Management resolution → skip manager approval → Top Management closes.
@@ -1786,6 +1822,8 @@ export function CaseDetailPage() {
                   <Label className="mb-2 block">{t.caseDetail.uploadEvidence}</Label>
                   <PhotoUpload
                     onUpload={(urls) => setResolutionPhotos((prev) => [...prev, ...urls])}
+                    initialUrls={resolutionPhotos}
+                    onRemove={(url) => setResolutionPhotos((prev) => prev.filter((u) => u !== url))}
                     maxFiles={3}
                     label={lang === 'th' ? 'อัปโหลดรูปภาพการแก้ไข' : 'Upload Resolution Photos'}
                   />
