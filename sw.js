@@ -10,7 +10,7 @@
 // The deploy workflow rewrites this line with the commit SHA — do NOT rely on
 // editing it by hand. It sat at 'kaizen-v3' for 184 commits and silently
 // disabled the update path for every release in between.
-const BUILD_ID = 'kaizen-7a4b2ed80ca081163f83d30b3dc6b9f088c3fb53'
+const BUILD_ID = 'kaizen-35a73e495ed20bbf926d14dbdf8f3a15f83981c5'
 
 // Runtime cache for the app shell, keyed on BUILD_ID so each release starts a fresh cache
 // and old ones are pruned on activate. See the fetch handler for the caching strategy.
@@ -141,6 +141,37 @@ self.addEventListener('push', (event) => {
       }),
     ])
   )
+})
+
+// ── Push subscription rotation ────────────────────────────────────────────────
+// Browsers/push services periodically rotate the endpoint (or the browser
+// invalidates it). Without handling this, the old endpoint 410s, gets pruned by
+// kaizen-push, and the user silently stops receiving pushes until they manually
+// re-enable in Settings. Here we re-subscribe immediately to keep the browser
+// subscription alive, then ask any open app tab to persist the fresh endpoint —
+// the worker itself can't write to kaizen_push_subscriptions (RLS needs the
+// user's auth session, which lives in the page, not the worker). If no tab is
+// open, the app's global auto-subscribe (usePushNotifications) reconciles the DB
+// on next open.
+self.addEventListener('pushsubscriptionchange', (event) => {
+  event.waitUntil((async () => {
+    try {
+      // Reuse the key from the old subscription when the browser provides it
+      // (most reliable — no VAPID key is embedded in this static worker file).
+      const appServerKey = event.oldSubscription && event.oldSubscription.options
+        ? event.oldSubscription.options.applicationServerKey
+        : undefined
+      if (appServerKey) {
+        await self.registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: appServerKey })
+      }
+    } catch (e) {
+      // Re-subscribe may fail (no old key, transient error) — the page will
+      // create a fresh subscription on next open regardless.
+      console.error('[sw] pushsubscriptionchange re-subscribe failed', e)
+    }
+    const cs = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+    cs.forEach((c) => c.postMessage({ type: 'PUSH_SUBSCRIPTION_CHANGED' }))
+  })())
 })
 
 // ── Notification click ────────────────────────────────────────────────────────
