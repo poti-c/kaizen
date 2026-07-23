@@ -365,8 +365,14 @@ export function CaseDetailPage() {
 
   useEffect(() => {
     if (!id) return
-    setResolutionNote('')
-    setResolutionPhotos([])
+    // Reset per-case editors on :id change (this component is NOT remounted per
+    // route). For the resolve form, reset to THIS case's persisted draft rather
+    // than blank — otherwise this effect would wipe the draft that the lazy
+    // useState init just restored on a reload (the recovery never worked before).
+    // A different case with no draft still resets to empty, so nothing leaks A→B.
+    const draft = readResolveDraft(id)
+    setResolutionNote(draft.note)
+    setResolutionPhotos(draft.photos)
     setPmPromptDismissed(false)
     setPromptDue('')
     setSelectedPics([])
