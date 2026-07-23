@@ -26,9 +26,11 @@ as $$
 begin
   -- SECURITY DEFINER bypasses RLS — this function MUST authorize its own caller.
   -- Only Top Management (super_admin) may see other users' push coverage.
+  -- NB: alias the table — an unqualified `role` collides with the OUT column of
+  -- the same name declared by RETURNS TABLE (Postgres error 42702, ambiguous).
   if not exists (
-    select 1 from public.kaizen_profiles
-    where id = auth.uid() and role = 'super_admin'
+    select 1 from public.kaizen_profiles kp
+    where kp.id = auth.uid() and kp.role = 'super_admin'
   ) then
     raise exception 'not authorized';
   end if;
