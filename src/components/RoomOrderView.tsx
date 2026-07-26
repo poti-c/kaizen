@@ -319,7 +319,7 @@ interface DbLine {
 
 // ── wrapper: picks Place-order (requester) vs Fulfil (department) mode ──────────
 
-export function RoomOrderView({ companyId, initialDate, initialMode }: { companyId: string; initialDate?: string; initialMode?: 'build' | 'fulfil' }) {
+export function RoomOrderView({ companyId, initialDate, initialMode }: { companyId: string; initialDate?: string; initialMode?: 'build' | 'fulfil' | 'monitor' }) {
   const { profile } = useAuth()
   const { lang } = useLanguage()
   const canManage = profile?.role === 'super_admin' || profile?.role === 'manager'

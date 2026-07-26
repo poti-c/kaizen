@@ -139,10 +139,13 @@ export function RoutineRosterPage() {
 
   // Deep-link from the calendar's room-order chip: open the Room order tab at that date.
   const location = useLocation()
-  const nav = location.state as { rrView?: string; roomDate?: string } | null
+  const nav = location.state as { rrView?: string; roomDate?: string; roomMode?: string } | null
+  // The room-order Monitor is reachable by monitor-granted depts that can't otherwise
+  // place/inspect, so a monitor deep-link opens the Room order tab on canMonitor too.
+  const canOpenRooms = canRooms || (nav?.roomMode === 'monitor' && canMonitor)
   useEffect(() => {
-    if (nav?.rrView === 'rooms' && canRooms) setView('rooms')
-  }, [nav?.rrView, canRooms])
+    if (nav?.rrView === 'rooms' && canOpenRooms) setView('rooms')
+  }, [nav?.rrView, canOpenRooms])
   const [templates, setTemplates] = useState<RrTemplate[]>([])
   const [orders, setOrders] = useState<RrOrder[]>([])
   const [rooms, setRooms] = useState<string[]>([])
@@ -417,9 +420,10 @@ export function RoutineRosterPage() {
       {view === 'board' && boardMode === 'monitor' && canMonitor && companyId ? (
         <RoutineMonitorBoard companyId={companyId} orders={orders} today={today} tomorrow={tomorrow}
           loading={loading} onReload={load} />
-      ) : view === 'rooms' && canRooms && companyId ? (
+      ) : view === 'rooms' && canOpenRooms && companyId ? (
         <RoomOrderView companyId={companyId} initialDate={nav?.roomDate}
-          initialMode={nav?.rrView === 'rooms' && !(profile?.role === 'super_admin' || profile?.department === 'front_office') ? 'fulfil' : undefined} />
+          initialMode={nav?.roomMode === 'monitor' ? 'monitor'
+            : nav?.rrView === 'rooms' && !(profile?.role === 'super_admin' || profile?.department === 'front_office') ? 'fulfil' : undefined} />
       ) : view === 'board' && boardMode === 'templates' && canManage && companyId ? (
         <TemplatesView companyId={companyId} templates={templates}
           mutes={mutes} onMuteToggle={loadMutes} canManage={canManage} onChanged={load} allDepts={allDepts} />

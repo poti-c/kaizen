@@ -538,10 +538,13 @@ export function DashboardPage() {
                     </div>
                   </>
                 )
+                // Carry the dashboard's month scope so the Cases page total matches
+                // the count shown here (the category count is scoped to selectedMonths).
+                const monthsParam = Array.from(selectedMonths).join(',')
                 return d.category === '__other__' ? (
                   <div key={d.category} className={rowClass}>{inner}</div>
                 ) : (
-                  <Link key={d.category} to={`/cases?category=${d.category}`} className={rowClass}>{inner}</Link>
+                  <Link key={d.category} to={`/cases?category=${d.category}${monthsParam ? `&months=${monthsParam}` : ''}`} className={rowClass}>{inner}</Link>
                 )
               })}
             </div>

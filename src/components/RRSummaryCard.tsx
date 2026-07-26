@@ -77,6 +77,10 @@ export function RRSummaryCard() {
   const totalRooms = rc.checkin + rc.occupied + rc.empty + rc.oo
   const hasRoom = totalRooms > 0
 
+  // Room tiles deep-link into the Routine Roster's Room order tab, opening the
+  // read-only Monitor for today's order.
+  const roomMonitorState = { rrView: 'rooms', roomDate: today, roomMode: 'monitor' }
+
   const L = {
     title: t.rr.title,
     open: lang === 'th' ? 'เปิด' : 'Open',
@@ -124,17 +128,17 @@ export function RRSummaryCard() {
           {hasRoom && (
             <div className="flex items-stretch gap-2">
               {/* Total room order hero — aligns under the Fulfillment hero */}
-              <Link to="/routine-roster" className="flex flex-col items-center justify-center rounded-lg bg-gray-50 hover:bg-gray-100 transition-colors px-3 py-1.5 w-24 flex-shrink-0">
+              <Link to="/routine-roster" state={roomMonitorState} className="flex flex-col items-center justify-center rounded-lg bg-gray-50 hover:bg-gray-100 transition-colors px-3 py-1.5 w-24 flex-shrink-0">
                 <p className="text-2xl font-bold leading-none text-gray-900">{totalRooms}</p>
                 <p className="text-[10px] text-gray-500 mt-0.5 text-center leading-tight flex items-center gap-0.5"><DoorOpen className="h-3 w-3 text-gray-400" />{L.rooms}</p>
               </Link>
-              {/* C/I · OCC · (Empty + O/O share one slot) */}
+              {/* C/I · OCC · (Empty + O/O share one slot) — each opens today's room-order Monitor */}
               <div className="flex-1 grid grid-cols-3 gap-1.5">
-                <Tile label="C/I" value={rc.checkin} tone="blue" />
-                <Tile label="OCC" value={rc.occupied} tone="teal" />
+                <Tile label="C/I" value={rc.checkin} tone="blue" state={roomMonitorState} />
+                <Tile label="OCC" value={rc.occupied} tone="teal" state={roomMonitorState} />
                 <div className="grid grid-cols-2 gap-1.5">
-                  <Tile label="Empty" value={rc.empty} tone="slate" />
-                  <Tile label="O/O" value={rc.oo} tone={rc.oo > 0 ? 'red' : 'slate'} />
+                  <Tile label="Empty" value={rc.empty} tone="slate" state={roomMonitorState} />
+                  <Tile label="O/O" value={rc.oo} tone={rc.oo > 0 ? 'red' : 'slate'} state={roomMonitorState} />
                 </div>
               </div>
             </div>
@@ -154,9 +158,9 @@ const TONES: Record<string, string> = {
   slate: 'bg-gray-50 text-gray-700',
 }
 
-function Tile({ label, value, tone }: { label: string; value: number; tone: string }) {
+function Tile({ label, value, tone, state }: { label: string; value: number; tone: string; state?: unknown }) {
   return (
-    <Link to="/routine-roster" className={`flex flex-col justify-center h-full rounded-md px-2 py-1 hover:brightness-95 transition-all ${TONES[tone]}`}>
+    <Link to="/routine-roster" state={state} className={`flex flex-col justify-center h-full rounded-md px-2 py-1 hover:brightness-95 transition-all ${TONES[tone]}`}>
       <p className="text-base font-bold leading-none">{value}</p>
       <p className="text-[10px] mt-0.5 opacity-80 leading-tight">{label}</p>
     </Link>
