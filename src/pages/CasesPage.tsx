@@ -251,7 +251,11 @@ export function CasesPage() {
 
   // ── Date filter ───────────────────────────────────────────────────────────
   const [datePickerOpen, setDatePickerOpen] = useState(false)
-  const [selectedMonths, setSelectedMonths] = useState<Set<string>>(new Set()) // empty = all
+  // Seed from a ?months= deep-link (Dashboard "Cases by Category" carries its month
+  // scope so the totals line up); keys are `${year}-${month0}`, matching monthKey below.
+  const [selectedMonths, setSelectedMonths] = useState<Set<string>>(
+    () => new Set((searchParams.get('months') || '').split(',').filter(Boolean)),
+  ) // empty = all
 
   function monthKey(year: number, month: number) { return `${year}-${month}` }
   const MONTH_SHORT_LABELS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
@@ -700,6 +704,28 @@ export function CasesPage() {
     return 'active'
   })
   const pendingTotal = pendingMgrCases.length + pendingAdminCases.length
+
+  // Category deep-link (Dashboard "Cases by Category" → ?category=safety) counts
+  // cases across ALL statuses, but this list is split into status tabs and opens on
+  // Active. When a category's cases are all closed/pending (common — e.g. Safety, all
+  // resolved) the Active tab renders an empty "no cases" state, hiding the very cases
+  // that were clicked. Once loaded, if Active is empty for a pure category deep-link,
+  // jump to whichever tab actually holds them. One-shot so it never fights manual tabs.
+  const categoryDeepLinkRef = React.useRef(false)
+  useEffect(() => {
+    if (loading || categoryDeepLinkRef.current) return
+    if (!searchParams.get('category') || searchParams.get('group') || searchParams.get('status')) return
+    // Wait for the filtered buckets to actually populate: loading flips false a render
+    // before the counts settle, and latching on that empty render would leave us stuck
+    // on the empty Active tab. Only decide once there is at least one matching case.
+    const total = activeCases.length + closedCases.length + pendingTotal
+    if (total === 0) return
+    categoryDeepLinkRef.current = true
+    if (activeCases.length === 0) {
+      if (closedCases.length > 0) setActiveTab('closed')
+      else if (pendingTotal > 0) setActiveTab('pending')
+    }
+  }, [loading, searchParams, activeCases.length, closedCases.length, pendingTotal])
 
   // ── PMS tab: preventive-maintenance tasks (active + overdue) ───────────────
   const pmsEnabled = companyHasAddon(activeCompany, 'pms')
