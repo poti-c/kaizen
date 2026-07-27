@@ -234,7 +234,10 @@ export function SettingsPage() {
 
   // SP-001: check and throw on Supabase write errors so callers can surface failures
   async function saveList(key: string, list: string[]) {
-    if (!companyId) return
+    // Throw here too — a silent return let addItem/removeItem/confirmEdit's
+    // try/catch take the success branch and toast success even though no
+    // upsert was ever attempted.
+    if (!companyId) throw new Error('No active company')
     const { error } = await supabase
       .from('kaizen_settings')
       .upsert({ key, value: list, company_id: companyId, updated_by: profile?.id ?? null }, { onConflict: 'key,company_id' })
@@ -333,6 +336,10 @@ export function SettingsPage() {
         // pointing at the old value, and still reported "Updated." — the cases
         // then showed up under "Other" with nothing to explain why.
         let migrateError: { message: string } | null = null
+        // Populated only in the custom_departments branch below; hoisted so the
+        // migrateError rollback branch (which runs after that branch's own
+        // block scope has closed) can still see which managers were touched.
+        let migratedManagerIds: string[] = []
         if (key === 'custom_categories') {
           const oldSlug = oldLabel.toLowerCase().replace(/ /g, '_')
           const newSlug = trimmed.toLowerCase().replace(/ /g, '_')
@@ -385,6 +392,7 @@ export function SettingsPage() {
                   const { error } = await supabase.from('kaizen_profiles')
                     .update({ managed_departments: next }).eq('id', m.id)
                   if (error) { managedErr = error; break }
+                  migratedManagerIds.push(m.id)
                 }
               }
             }
@@ -392,10 +400,39 @@ export function SettingsPage() {
           }
         }
         if (migrateError) {
-          // The label list was already saved above. Put it back so the taxonomy
-          // and the cases stay consistent — a rename that only half-applied is
-          // worse than one that did not happen, because the orphaned cases are
-          // invisible until someone notices the counts moved.
+          // SP-DEPT-ROLLBACK-01: the label list was already saved above, and
+          // saveList/toast used to just put the OLD label back — but that left
+          // any cases/profiles/managers already migrated in an earlier
+          // successful step still pointing at newVal, which no longer appears
+          // anywhere in the department list. "Reverted" was a lie in that case.
+          // Reverse every step that actually committed, in the opposite order,
+          // before restoring the label list.
+          if (key === 'custom_departments' && oldLabel) {
+            const oldVal = DEPARTMENTS.find(d => d.label === oldLabel)?.value ?? oldLabel
+            const newVal = DEPARTMENTS.find(d => d.label === trimmed)?.value ?? trimmed
+            for (const mgrId of migratedManagerIds) {
+              const { data: mgr } = await supabase.from('kaizen_profiles')
+                .select('managed_departments').eq('id', mgrId).maybeSingle()
+              const reverted = ((mgr?.managed_departments as string[] | null) ?? [])
+                .map((d) => d === newVal ? oldVal : d)
+              await supabase.from('kaizen_profiles')
+                .update({ managed_departments: reverted }).eq('id', mgrId)
+            }
+            // Only reachable if cases+profiles succeeded (managedErr path) — revert both.
+            // If profiles failed, cases were the only thing to revert.
+            await supabase.from('kaizen_profiles').update({ department: oldVal })
+              .eq('company_id', companyId).eq('department', newVal)
+            await supabase.from('kaizen_cases').update({ department: oldVal })
+              .eq('company_id', companyId).eq('department', newVal)
+          } else if (key === 'custom_categories' && oldLabel) {
+            const oldSlug = oldLabel.toLowerCase().replace(/ /g, '_')
+            const newSlug = trimmed.toLowerCase().replace(/ /g, '_')
+            await supabase.from('kaizen_cases').update({ category: oldSlug })
+              .eq('company_id', companyId).eq('category', newSlug)
+          } else if (key === 'custom_locations' && oldLabel) {
+            await supabase.from('kaizen_cases').update({ location: oldLabel })
+              .eq('company_id', companyId).eq('location', trimmed)
+          }
           await saveList(key, list)
           setEditingItem(null)
           toast.error(lang === 'th'
@@ -579,13 +616,17 @@ export function SettingsPage() {
     }
   }
 
-  function applyPreset(preset: typeof PRESET_COLORS[0]) {
+  async function applyPreset(preset: typeof PRESET_COLORS[0]) {
     setCustomPrimary(preset.primary)
     setCustomAccent(preset.accent)
     setCustomSidebar(preset.sidebar)
-    // Special presets also set the page background (background has no manual picker).
-    updateSettings({ primary_color: preset.primary, accent_color: preset.accent, sidebar_color: preset.sidebar, background_color: preset.background })
-    toast.success(lang === 'th' ? `ใช้ธีม "${preset.label}" แล้ว` : `Applied "${preset.label}" theme.`)
+    try {
+      // Special presets also set the page background (background has no manual picker).
+      await updateSettings({ primary_color: preset.primary, accent_color: preset.accent, sidebar_color: preset.sidebar, background_color: preset.background })
+      toast.success(lang === 'th' ? `ใช้ธีม "${preset.label}" แล้ว` : `Applied "${preset.label}" theme.`)
+    } catch {
+      toast.error(t.settings.failedTheme)
+    }
   }
 
   return (

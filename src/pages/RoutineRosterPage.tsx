@@ -1329,14 +1329,17 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
       await supabase.from('kaizen_rr_orders').update({ status: 'pending', sent_by: null, sent_at: null, quantity: 0 }).eq('id', o.id)
       toast.error(ins.error.message); return
     }
-    // Items inserted — notify fulfilling department now that the order is complete
+    // Items inserted — notify fulfilling department now that the order is complete.
+    // Use the FULFILL stage's PIC config, not `picMode`/`picIds` (the component-level
+    // request-stage destructure) — otherwise a muted fulfill-stage PIC is wrongly
+    // treated as unassigned and skipped, unlike sendOrder's identical notifyDept calls.
     try {
       await notifyDept(o.fulfill_department,
         lang === 'th' ? 'มีออเดอร์ประจำเข้ามาใหม่' : 'Routine order received',
         lang === 'th'
           ? `"${o.title}"${itemSuffix} — ${parsed.length} ห้อง จากแผนก ${deptLabel(o.request_department, lang)}`
           : `"${o.title}"${itemSuffix} — ${parsed.length} rooms, requested by ${deptLabel(o.request_department, lang)}`,
-        { templateId: o.template_id, picMode, picIds, useDeptConfig: true })
+        { templateId: o.template_id, ...stagePicOpts('fulfill'), useDeptConfig: true })
     } catch (err) { console.error('[sendOrderFromText:notifyDept]', err) }
     toast.success(tr.rr.orderSent); onChanged()
   }

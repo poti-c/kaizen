@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState, useEffect } from 'react'
 import { clsx, type ClassValue } from 'clsx'
 import { twMerge } from 'tailwind-merge'
-import { formatDistanceToNow, format, differenceInSeconds, differenceInMinutes, differenceInHours, differenceInDays } from 'date-fns'
+import { formatDistanceToNow, differenceInSeconds, differenceInMinutes, differenceInHours, differenceInDays } from 'date-fns'
 import { th } from 'date-fns/locale'
 import type { CaseStatus, CasePriority, Department, KaizenCase } from '@/types'
 
@@ -126,7 +126,12 @@ export function formatDateTime(date: string | Date) {
 }
 
 export function formatDate(date: string | Date) {
-  return format(new Date(date), 'dd MMM yyyy')
+  // TZ-stable like formatDateTime — date-fns' format() reads the system-local
+  // clock, so a Bangkok timestamp near midnight rendered a different calendar
+  // day for a viewer outside UTC+7.
+  return new Date(date).toLocaleDateString('en-GB', {
+    day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Bangkok',
+  })
 }
 
 export function formatDuration(startDate: string | Date, endDate?: string | Date): string {

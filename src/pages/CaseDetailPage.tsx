@@ -732,7 +732,7 @@ export function CaseDetailPage() {
 
         await addTimeline('closed', `Case approved and closed by Top Management (${profile?.full_name}).`)
 
-        const picIds = kcase?.pic_ids || (kcase?.person_in_charge ? [kcase.person_in_charge] : [])
+        const picIds = kcase?.pic_ids?.length ? kcase.pic_ids : (kcase?.person_in_charge ? [kcase.person_in_charge] : [])
         await notifyByDeptRole(
           { extraIds: [kcase?.created_by, kcase?.resolved_by, ...picIds] },
           'Case Closed',
@@ -787,7 +787,7 @@ export function CaseDetailPage() {
       await addTimeline('closed', `Case closed after final admin approval.`)
 
       // Notify reporter, resolver, and all In Charge members that the case is closed
-      const picIds = kcase?.pic_ids || (kcase?.person_in_charge ? [kcase.person_in_charge] : [])
+      const picIds = kcase?.pic_ids?.length ? kcase.pic_ids : (kcase?.person_in_charge ? [kcase.person_in_charge] : [])
       await notifyByDeptRole(
         { extraIds: [kcase?.created_by, kcase?.resolved_by, ...picIds] },
         'Case Closed',
@@ -889,9 +889,12 @@ export function CaseDetailPage() {
             )
           }
         } else {
-          // Individual @name mentions
+          // Individual @name mentions. Word-boundary match (not plain .includes) —
+          // otherwise a shorter name that prefixes a longer one (e.g. "Ann" inside
+          // "@Anna Lee") gets spuriously notified, the same class of bug fixed for
+          // @all vs "@Allan" above.
           const mentionedUserIds = mentionUsers
-            .filter(u => commentLower.includes(`@${u.full_name.toLowerCase()}`))
+            .filter(u => new RegExp(`@${u.full_name.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?!\\w)`, 'i').test(commentLower))
             .map(u => u.id)
             .filter(uid => uid !== profile.id)
 
@@ -980,7 +983,7 @@ export function CaseDetailPage() {
       const changes: string[] = []
       if (editTitle.trim() !== kcase?.title) changes.push(`title: "${kcase?.title}" → "${editTitle.trim()}"`)
       if (editDescription.trim() !== kcase?.description) changes.push('description updated')
-      if (editDepartment !== kcase?.department) changes.push(`department: ${DEPARTMENT_LABELS[kcase?.department as Department] ?? kcase?.department} → ${DEPARTMENT_LABELS[editDepartment as Department] ?? editDepartment}`)
+      if (canManagerAssign && editDepartment !== kcase?.department) changes.push(`department: ${DEPARTMENT_LABELS[kcase?.department as Department] ?? kcase?.department} → ${DEPARTMENT_LABELS[editDepartment as Department] ?? editDepartment}`)
       if (editDueDate !== (kcase?.due_date || '')) changes.push(`due date: ${editDueDate || 'removed'}`)
       if (canManagerAssign && editStatus && editStatus !== kcase?.status) changes.push(`status: ${kcase?.status} → ${editStatus}`)
 
@@ -1000,7 +1003,10 @@ export function CaseDetailPage() {
       const { error: editErr } = await supabase.from('kaizen_cases').update({
         title: editTitle.trim(),
         description: editDescription.trim(),
-        department: editDepartment,
+        // CDP-BUG-05: server-side backstop mirroring the status field above — the
+        // Department select is hidden for non-managers, but force kcase.department
+        // here too in case editDepartment somehow arrives stale/mutated in state.
+        department: canManagerAssign ? editDepartment : (kcase?.department ?? editDepartment),
         due_date: editDueDate || null,
         ...(statusChanged ? { status: editStatus } : {}),
         // CDP-005: clear resolution/approval fields when status is rolled back to an open state
@@ -1033,7 +1039,7 @@ export function CaseDetailPage() {
       // the case closes silently with an inconsistent timeline.
       if (movingToClosed) {
         await addTimeline('closed', `Case closed via edit by ${profile?.full_name}.`)
-        const picIds = kcase?.pic_ids || (kcase?.person_in_charge ? [kcase.person_in_charge] : [])
+        const picIds = kcase?.pic_ids?.length ? kcase.pic_ids : (kcase?.person_in_charge ? [kcase.person_in_charge] : [])
         await notifyByDeptRole(
           { extraIds: [kcase?.created_by, kcase?.resolved_by, ...picIds] },
           'Case Closed',
@@ -2040,7 +2046,14 @@ export function CaseDetailPage() {
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            {/* CDP-BUG-05: department reassignment is a manager/admin correction tool,
+                same rationale as the status field below — a plain staff reporter
+                moving their own case to an unrelated department fires no
+                notification to anyone. Gated the same way, and when hidden the
+                Due Date field takes the full row instead of leaving a lopsided
+                half-empty grid cell. */}
+            <div className={canManagerAssign ? 'grid grid-cols-2 gap-3' : ''}>
+              {canManagerAssign && (
               <div className="space-y-1.5">
                 <Label>{t.createCase.department}</Label>
                 <Select value={editDepartment} onValueChange={(v) => setEditDepartment(v as Department)}>
@@ -2061,6 +2074,7 @@ export function CaseDetailPage() {
                   </SelectContent>
                 </Select>
               </div>
+              )}
 
               <div className="space-y-1.5">
                 <Label>{t.caseDetail.fieldDueDate} <span className="text-gray-400 font-normal">{t.createCase.optional}</span></Label>

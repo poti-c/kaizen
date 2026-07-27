@@ -39,6 +39,10 @@ export function DashboardPage() {
   const defaultKey = monthKey(bkkYear, bkkMM - 1)
   const [selectedMonths, setSelectedMonths] = useState<Set<string>>(new Set([defaultKey]))
   const [pickerOpen, setPickerOpen] = useState(false)
+  // Shared by every /cases deep-link on this page so the Cases page total
+  // matches the count shown here (all these counts derive from filteredCases,
+  // which is scoped to selectedMonths).
+  const monthsParam = useMemo(() => Array.from(selectedMonths).join(','), [selectedMonths])
   useEffect(() => {
     const bkk = bangkokDate()
     const [y, mm] = bkk.split('-').map(Number)
@@ -461,11 +465,11 @@ export function DashboardPage() {
             </div>
             <div className="flex-1 min-w-0">
               {[
-                { label: t.dashboard.totalCases,      count: stats.total,      color: '#9ca3af', to: '/cases',               hover: 'hover:bg-gray-50' },
-                { label: t.dashboard.open,            count: stats.open,       color: PIE_COLORS.open,       to: '/cases?status=open',       hover: 'hover:bg-orange-50' },
-                { label: t.dashboard.inProgress,      count: stats.inProgress, color: PIE_COLORS.inProgress, to: '/cases?group=in_progress', hover: 'hover:bg-blue-50' },
-                { label: t.dashboard.waitingApproval, count: stats.pending,    color: PIE_COLORS.pending,    to: '/cases?group=pending',     hover: 'hover:bg-amber-50' },
-                { label: t.dashboard.overdue,         count: overdueCases.length, color: '#dc2626',          to: '/cases?group=overdue',     hover: 'hover:bg-red-50' },
+                { label: t.dashboard.totalCases,      count: stats.total,      color: '#9ca3af', to: `/cases${monthsParam ? `?months=${monthsParam}` : ''}`,               hover: 'hover:bg-gray-50' },
+                { label: t.dashboard.open,            count: stats.open,       color: PIE_COLORS.open,       to: `/cases?status=open${monthsParam ? `&months=${monthsParam}` : ''}`,       hover: 'hover:bg-orange-50' },
+                { label: t.dashboard.inProgress,      count: stats.inProgress, color: PIE_COLORS.inProgress, to: `/cases?group=in_progress${monthsParam ? `&months=${monthsParam}` : ''}`, hover: 'hover:bg-blue-50' },
+                { label: t.dashboard.waitingApproval, count: stats.pending,    color: PIE_COLORS.pending,    to: `/cases?group=pending${monthsParam ? `&months=${monthsParam}` : ''}`,     hover: 'hover:bg-amber-50' },
+                { label: t.dashboard.overdue,         count: overdueCases.length, color: '#dc2626',          to: `/cases?group=overdue${monthsParam ? `&months=${monthsParam}` : ''}`,     hover: 'hover:bg-red-50' },
               ].map(({ label, count, color, to, hover }) => (
                 <Link key={to} to={to} className={`flex items-center justify-between px-2 py-1 rounded-lg ${hover} transition-colors group`}>
                   <div className="flex items-center gap-2 min-w-0">
@@ -538,9 +542,6 @@ export function DashboardPage() {
                     </div>
                   </>
                 )
-                // Carry the dashboard's month scope so the Cases page total matches
-                // the count shown here (the category count is scoped to selectedMonths).
-                const monthsParam = Array.from(selectedMonths).join(',')
                 return d.category === '__other__' ? (
                   <div key={d.category} className={rowClass}>{inner}</div>
                 ) : (

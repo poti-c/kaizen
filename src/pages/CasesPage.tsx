@@ -959,6 +959,13 @@ export function CasesPage() {
               onCheckedChange={(checked) => {
                 setAdvancedSearchEnabled(checked as boolean)
                 localStorage.setItem('kaizen-advanced-search-enabled', JSON.stringify(checked))
+                // Unchecking leaves simple mode's showActive/showClosed still gated
+                // on a deep-link statusFilter (e.g. ?status=closed) that has no
+                // remaining UI control to clear — the Active tab renders nothing
+                // and there's no way back except re-checking the box. Turning
+                // advanced search off is a deliberate "leave filtered mode" action,
+                // so reset the filters the same way the "Filtered: ... [x]" chip does.
+                if (!checked) clearFilters()
               }}
             />
             <span className="text-gray-600">{lang === 'th' ? 'ตัวกรอง' : 'Filter'}</span>

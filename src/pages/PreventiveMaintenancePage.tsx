@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Wrench, Plus, Loader2, X, Check, Trash2, Pencil, MapPin, Search, Ban, FileBarChart } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
@@ -76,8 +76,16 @@ export function PreventiveMaintenancePage() {
   const canSeeReport = profile?.role === 'super_admin' ||
     (profile?.role === 'manager' && !!profile?.id && reportManagerIds.includes(profile.id))
 
+  // Sequence token, not a plain boolean flag: with useCallback's deps ([companyId,
+  // profile]) firing a NEW load() call whenever either changes, a boolean set once
+  // per call can't tell "this call is stale" apart from "a later call already
+  // finished" if calls resolve out of order. A per-call token can. Mirrors the
+  // `cancelled` guard in PMSummaryCard.tsx (same stale-response race), scaled up
+  // for this page's extra concurrent set* calls.
+  const loadSeqRef = useRef(0)
   const load = useCallback(async () => {
     if (!companyId) return
+    const mySeq = ++loadSeqRef.current
     setLoading(true)
     try { await supabase.rpc('kaizen_pm_sync') } catch { /* materialize tasks; ignore if it fails */ }
     const taskSel = '*, asset:kaizen_pm_assets(name, location, notes, checklist, department, departments, type:kaizen_pm_equipment_types(name))'
@@ -92,6 +100,10 @@ export function PreventiveMaintenancePage() {
       supabase.from('kaizen_pm_tasks').select(taskSel).eq('company_id', companyId).in('status', ['done', 'approved']).gte('performed_at', monthStartKey),
       supabase.from('kaizen_settings').select('value').eq('company_id', companyId).eq('key', 'custom_locations').maybeSingle(),
     ])
+    // A newer load() call (e.g. the user switched company) already started — or
+    // finished — after this one; committing this stale response would clobber the
+    // current company's freshly-loaded data with a previous company's leftovers.
+    if (mySeq !== loadSeqRef.current) return
     if (a.error) { toast.error(a.error.message) } else {
       const rawAssets = (a.data as Asset[]) ?? []
       // PM-002: staff see only their own department's assets (and thus counts, the

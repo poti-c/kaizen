@@ -158,6 +158,12 @@ serve(async (req) => {
     if (!role || !full_name || !department || !password) {
       return json({ error: "role, full_name, department and password are required" }, 400);
     }
+    // update_profile already rejects an invalid role via VALID_ROLES; create never
+    // did, so an arbitrary role string here fell through to the manager/admin
+    // branch below and bypassed roleLimitError's seat-cap check (which only fires
+    // for the three known roles) along with the top_management department guard.
+    const VALID_ROLES = new Set(["super_admin", "manager", "staff"]);
+    if (!VALID_ROLES.has(role)) return json({ error: "Invalid role." }, 400);
     if (password.length < 8) return json({ error: "Password must be at least 8 characters." }, 400);
 
     if (callerRole === "manager") {
@@ -337,6 +343,13 @@ serve(async (req) => {
   if (action === "update_profile") {
     const { userId, updates } = body;
     if (!userId || !updates) return json({ error: "userId and updates are required" }, 400);
+    // set_active and delete both reject a caller targeting their own account; this
+    // action had no equivalent, so a super_admin could self-demote their own role
+    // via a raw API call (bypassing the UI, which already hides self-management —
+    // canManage in UsersPage requires user.id !== profile.id for every role) and,
+    // if they were the company's only super_admin, instantly strip their own
+    // cross-company access with no recovery path.
+    if (userId === user.id) return json({ error: "Cannot edit your own account through this action" }, 400);
     const check = await assertCanManage(userId);
     if (!check.ok) return json({ error: check.error }, 403);
     const target = check.target;

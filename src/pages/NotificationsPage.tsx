@@ -7,6 +7,7 @@ import { useLanguage } from '@/contexts/LanguageContext'
 import { Button } from '@/components/ui/button'
 import { formatDateTime, bangkokDate } from '@/lib/utils'
 import { localizeNotif } from '@/lib/i18nDynamic'
+import { useRrFoAccess } from '@/hooks/useRrFoAccess'
 import type { KaizenNotification } from '@/types'
 import { cn } from '@/lib/utils'
 
@@ -14,6 +15,10 @@ export function NotificationsPage() {
   const { profile } = useAuth()
   const { t, lang } = useLanguage()
   const navigate = useNavigate()
+  // HS-001 parity: an 'rr' notification must not deep-link a front-office
+  // staffer who isn't authorized for Routine Roster, same guard Header.tsx
+  // applies for the identical click path.
+  const rrFo = useRrFoAccess()
   const [notifications, setNotifications] = useState<KaizenNotification[]>([])
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
@@ -240,7 +245,7 @@ export function NotificationsPage() {
                       await markRead(n.id)
                       if (n.case_id) navigate(`/cases/${n.case_id}`)
                       else if (n.notification_type === 'pm') navigate('/maintenance')
-                      else if (n.notification_type === 'rr') navigate('/routine-roster')
+                      else if (n.notification_type === 'rr' && rrFo.allowed) navigate('/routine-roster')
                     }}
                   >
                     <div className={cn('w-2.5 h-2.5 rounded-full mt-2 flex-shrink-0', typeColors[n.notification_type] || 'bg-gray-400', n.is_read && 'opacity-30')} />
