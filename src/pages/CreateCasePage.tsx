@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, Loader2, RefreshCw, X } from 'lucide-react'
+import { ArrowLeft, Loader2, RefreshCw } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useCompany } from '@/contexts/CompanyContext'
 import { useLanguage } from '@/contexts/LanguageContext'
@@ -611,39 +611,29 @@ export function CreateCasePage() {
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6 space-y-3">
           <h2 className="font-semibold text-gray-900 border-b border-gray-100 pb-3">{t.createCase.photoEvidence}</h2>
           <p className="text-sm text-gray-500">{t.createCase.photoSubtitle}</p>
-          {photoUrls.length > 0 && (
-            <div className="grid grid-cols-3 gap-2">
-              {photoUrls.map((url, i) => (
-                <div key={url} className="relative aspect-square rounded-lg overflow-hidden bg-gray-100">
-                  <img src={url} alt="" className="w-full h-full object-cover" />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      // CC-BUG-03: this only ever dropped the URL from React
-                      // state. PhotoUpload writes to storage immediately on
-                      // capture, and this page cleans up orphans on cancel and
-                      // on submit failure — but BOTH of those cleanup paths
-                      // walk `photoUrls`, so once a URL is removed from state
-                      // here, neither path can ever find it again. Every photo
-                      // a reporter took and then discarded leaked in storage
-                      // permanently. Delete the object itself before removing
-                      // it from state.
-                      const path = photoStoragePathFromUrl(url)
-                      supabase.storage.from('kaizen-photos').remove([path]).catch((rmErr) =>
-                        console.error('photo cleanup on remove failed', rmErr))
-                      setPhotoUrls((prev) => prev.filter((_, idx2) => idx2 !== i))
-                    }}
-                    className="absolute top-1 right-1 bg-red-600 text-white rounded-full p-0.5 shadow-sm"
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
+          {/* PhotoUpload owns the thumbnail grid via initialUrls/onRemove (matching
+              CaseDetailPage's resolve-photo usage) — this page used to also render its own
+              separate grid for the same photoUrls with no initialUrls/onRemove wired into
+              PhotoUpload, so every photo showed twice and PhotoUpload's own remove button
+              was a dead end (it only cleared PhotoUpload's internal state, never storage or
+              this page's photoUrls). maxFiles is now a flat 5, not `5 - photoUrls.length` —
+              PhotoUpload already derives its own remaining-capacity from initialUrls.length,
+              so subtracting here too double-counted every photo and hid the upload buttons
+              after only ~3 of the intended 5. */}
           <PhotoUpload
             onUpload={(urls) => setPhotoUrls((prev) => [...prev, ...urls])}
-            maxFiles={Math.max(0, 5 - photoUrls.length)}
+            onRemove={(url) => {
+              // CC-BUG-03: delete the object itself before dropping it from state — this
+              // page's orphan cleanup (on cancel / submit failure) only ever walks
+              // photoUrls, so a photo removed from state without deleting storage first
+              // could never be found again and leaked permanently.
+              const path = photoStoragePathFromUrl(url)
+              supabase.storage.from('kaizen-photos').remove([path]).catch((rmErr) =>
+                console.error('photo cleanup on remove failed', rmErr))
+              setPhotoUrls((prev) => prev.filter((u) => u !== url))
+            }}
+            initialUrls={photoUrls}
+            maxFiles={5}
             label={t.createCase.addPhotos}
             caseNumber={caseNumber}
             department={department}

@@ -4,7 +4,7 @@ import { toast } from 'sonner'
 import { supabase } from '@/lib/supabase'
 import { cn, buildPhotoPath } from '@/lib/utils'
 import { useLanguage } from '@/contexts/LanguageContext'
-import { blockSWReload, unblockSWReload } from '@/lib/swReload'
+import { blockSWReload, unblockSWReload, clearSWReloadReason } from '@/lib/swReload'
 
 // Per-mount id so each PhotoUpload holds its own SW-reload deferral independently.
 let photoUploadSeq = 0
@@ -125,7 +125,12 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
 // than an <img> element and honours EXIF orientation, so Android camera shots aren't
 // uploaded sideways. Falls back to an <img> element where the API is missing.
 // NOTE: `Image` is shadowed by the lucide-react import here, so we use document.createElement.
-async function decodeImage(file: Blob): Promise<{ w: number; h: number; src: CanvasImageSource; release: () => void }> {
+// `onUrlCreated` reports the <img>-fallback's object URL the instant it's created (before
+// awaiting the load), so a caller racing this against a timeout (see compressImage) can
+// still revoke it even if decodeImage's own promise never settles in time — otherwise that
+// promise, and the `release` closure holding the only other reference to the URL, is
+// silently discarded and the blob leaks for the rest of the page's life.
+async function decodeImage(file: Blob, onUrlCreated?: (url: string) => void): Promise<{ w: number; h: number; src: CanvasImageSource; release: () => void }> {
   if (typeof createImageBitmap === 'function') {
     try {
       const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' } as ImageBitmapOptions)
@@ -136,6 +141,7 @@ async function decodeImage(file: Blob): Promise<{ w: number; h: number; src: Can
     }
   }
   const url = URL.createObjectURL(file)
+  onUrlCreated?.(url)
   try {
     const img = await new Promise<HTMLImageElement>((resolve, reject) => {
       const el = document.createElement('img')
@@ -143,9 +149,9 @@ async function decodeImage(file: Blob): Promise<{ w: number; h: number; src: Can
       el.onerror = () => reject(new Error('image load failed'))
       el.src = url
     })
-    return { w: img.naturalWidth, h: img.naturalHeight, src: img, release: () => URL.revokeObjectURL(url) }
+    return { w: img.naturalWidth, h: img.naturalHeight, src: img, release: () => { try { URL.revokeObjectURL(url) } catch { /* already revoked */ } } }
   } catch (e) {
-    URL.revokeObjectURL(url)
+    try { URL.revokeObjectURL(url) } catch { /* already revoked */ }
     throw e
   }
 }
@@ -185,10 +191,14 @@ async function compressImage(file: File): Promise<{ blob: Blob; ext: string } | 
   const rawUsable = rawTypeOk && input.size <= MAX_UPLOAD_BYTES
   const rawFallback = () => (rawUsable ? { blob: input, ext: rawExt } : null)
 
+  // Set synchronously by decodeImage's <img>-fallback branch, before the (possibly slow)
+  // load it then awaits — so if withTimeout below rejects first, we can still revoke it.
+  let pendingUrl: string | null = null
   let decoded: Awaited<ReturnType<typeof decodeImage>>
   try {
-    decoded = await withTimeout(decodeImage(input), 15000)
+    decoded = await withTimeout(decodeImage(input, (url) => { pendingUrl = url }), 15000)
   } catch {
+    if (pendingUrl) { try { URL.revokeObjectURL(pendingUrl) } catch { /* already revoked */ } }
     return rawFallback()
   }
 
@@ -264,10 +274,13 @@ export function PhotoUpload({ onUpload, maxFiles = 3, label = 'Add Photos', buck
   }
 
   // Safety net: always release this mount's reload block (and its timer) when the
-  // component unmounts, so a deferral can never get stuck open.
+  // component unmounts, so a deferral can never get stuck open. Uses the full-clear
+  // variant, not unblockSWReload — if two captures were overlapping when this unmounts,
+  // a per-call unblock would only cancel one of them, leaving the reason permanently
+  // stuck at a positive count since nothing can call unblock for it after unmount.
   useEffect(() => () => {
     if (releaseTimerRef.current) clearTimeout(releaseTimerRef.current)
-    unblockSWReload(reloadReasonRef.current)
+    clearSWReloadReason(reloadReasonRef.current)
   }, [])
 
   // On mount, if a capture was pending (the tab was killed while the camera was open), the
@@ -332,6 +345,7 @@ export function PhotoUpload({ onUpload, maxFiles = 3, label = 'Add Photos', buck
       if (!compressed) {
         // Couldn't produce an uploadable image (unsupported format like HEIC, or still too
         // large). Tell the user instead of silently dropping it.
+        try { URL.revokeObjectURL(item.preview) } catch { /* already revoked */ }
         setPreviews((prev) => prev.filter((p) => p.preview !== item.preview))
         toast.error(lang === 'th'
           ? 'อัปโหลดรูปนี้ไม่ได้ — ไฟล์ใหญ่เกินไปหรือไม่รองรับ (ลองถ่ายใหม่หรือเลือกจากคลังภาพ)'
@@ -342,7 +356,8 @@ export function PhotoUpload({ onUpload, maxFiles = 3, label = 'Add Photos', buck
       const path =
         caseNumber && department
           ? buildPhotoPath(caseNumber, department, photoIndexRef.current++, ext, companyId)
-          : `Na Nirand Kaizen/unsorted/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
+          // PHOTO-ORPHAN-01: no spaces — see the matching comment in buildPhotoPath.
+          : `na_nirand_kaizen/unsorted/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
       const { data, error } = await supabase.storage.from(bucket).upload(path, blob, { contentType: blob.type || 'image/jpeg' })
 
       if (!error && data) {
@@ -366,6 +381,7 @@ export function PhotoUpload({ onUpload, maxFiles = 3, label = 'Add Photos', buck
         // every already-uploaded photo because onUpload() never got called for them.
         onUpload([url])
       } else {
+        try { URL.revokeObjectURL(item.preview) } catch { /* already revoked */ }
         setPreviews((prev) => prev.filter((p) => p.preview !== item.preview))
         toast.error((lang === 'th' ? 'อัปโหลดรูปไม่สำเร็จ: ' : 'Photo upload failed: ') + (error?.message ?? 'unknown error'))
       }
@@ -378,15 +394,20 @@ export function PhotoUpload({ onUpload, maxFiles = 3, label = 'Add Photos', buck
   }
 
   function remove(index: number) {
-    setPreviews((prev) => {
-      const removed = prev[index]
-      // Only a local object URL needs revoking; a remote (already-uploaded) URL must not be.
-      if (removed.url !== removed.preview) { try { URL.revokeObjectURL(removed.preview) } catch { /* already revoked */ } }
-      // Keep the parent's list in sync — onUpload only appends, so without this a
-      // removed (or recovered) photo would still be submitted.
-      if (removed.url) onRemove?.(removed.url)
-      return prev.filter((_, i) => i !== index)
-    })
+    // PHOTO-REMOVE-RENDER-01: onRemove (the parent's setState) must NOT be called from
+    // inside the setPreviews updater — React updater functions can run during another
+    // component's render, and calling a different component's setState there triggers
+    // "Cannot update a component while rendering a different component". Read the item
+    // and fire onRemove/revoke here, outside any setState callback; only the filter
+    // itself needs the functional form.
+    const removed = previews[index]
+    if (!removed) return
+    // Only a local object URL needs revoking; a remote (already-uploaded) URL must not be.
+    if (removed.url !== removed.preview) { try { URL.revokeObjectURL(removed.preview) } catch { /* already revoked */ } }
+    // Keep the parent's list in sync — onUpload only appends, so without this a
+    // removed (or recovered) photo would still be submitted.
+    if (removed.url) onRemove?.(removed.url)
+    setPreviews((prev) => prev.filter((_, i) => i !== index))
   }
 
   return (

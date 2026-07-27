@@ -80,10 +80,19 @@ export function CaseDetailPage() {
   // Lazily restore any persisted resolve draft for this case (see readResolveDraft).
   const [resolutionNote, setResolutionNote] = useState<string>(() => readResolveDraft(id).note)
   const [resolutionPhotos, setResolutionPhotos] = useState<string[]>(() => readResolveDraft(id).photos)
-  // Persist the resolve draft as it changes; clear it once empty (also on a
-  // successful submit, which resets both fields). Keeps a reload non-destructive.
+  // CDP-PHOTO-LEAK-01: this component is NOT remounted on an :id change, so navigating
+  // A→B fires this effect and the id-reset effect below in the SAME commit — and React
+  // runs a component's passive effects in declaration order, so this one (declared first)
+  // would otherwise run BEFORE the reset effect, writing A's still-current
+  // resolutionNote/resolutionPhotos under B's sessionStorage key. The reset effect then
+  // reads back what this effect just clobbered, showing (and re-persisting) A's draft —
+  // including proof photos — as if it belonged to case B. Skip the write on the render
+  // where `id` just changed; the reset effect (which runs right after) sets
+  // prevIdRef.current so this resumes persisting normally from the very next render.
+  const prevIdRef = useRef(id)
   useEffect(() => {
     if (!id) return
+    if (prevIdRef.current !== id) return
     try {
       if (resolutionNote.trim() || resolutionPhotos.length > 0) {
         sessionStorage.setItem(resolveDraftKey(id), JSON.stringify({ note: resolutionNote, photos: resolutionPhotos }))
@@ -373,6 +382,7 @@ export function CaseDetailPage() {
     const draft = readResolveDraft(id)
     setResolutionNote(draft.note)
     setResolutionPhotos(draft.photos)
+    prevIdRef.current = id
     setPmPromptDismissed(false)
     setPromptDue('')
     setSelectedPics([])
@@ -642,16 +652,30 @@ export function CaseDetailPage() {
     try {
       // Attach the proof photos FIRST and abort the whole resolution if it fails —
       // otherwise the case would be marked resolved with no photo attached while the
-      // user sees success (the exact "photo not attached" symptom, silently).
-      const { error: photoErr } = await supabase.from('kaizen_case_photos').insert(
-        resolutionPhotos.map((url) => ({
-          case_id: id!,
-          photo_url: url,
-          photo_type: 'resolution',
-          uploaded_by: profile?.id,
-        }))
-      )
-      if (photoErr) throw photoErr
+      // user sees success (the exact "photo not attached" symptom, silently). Keep this
+      // ordering even on retry (see below) — reversing it would trade the duplicate-rows
+      // bug for that worse one.
+      //
+      // CDP-PHOTO-DUP-01: if this insert succeeds but the status update below fails,
+      // resolutionNote/resolutionPhotos are deliberately NOT cleared on failure (so the
+      // user can retry without re-picking photos) — but that means retrying re-submits
+      // the same resolutionPhotos, which used to re-insert them as brand-new duplicate
+      // rows. Skip any URL already attached as a resolution photo for this case first.
+      const { data: existingPhotos } = await supabase.from('kaizen_case_photos')
+        .select('photo_url').eq('case_id', id!).eq('photo_type', 'resolution')
+      const alreadyAttached = new Set((existingPhotos ?? []).map((p) => p.photo_url))
+      const newPhotoUrls = resolutionPhotos.filter((url) => !alreadyAttached.has(url))
+      if (newPhotoUrls.length > 0) {
+        const { error: photoErr } = await supabase.from('kaizen_case_photos').insert(
+          newPhotoUrls.map((url) => ({
+            case_id: id!,
+            photo_url: url,
+            photo_type: 'resolution',
+            uploaded_by: profile?.id,
+          }))
+        )
+        if (photoErr) throw photoErr
+      }
 
       // Routing:
       //  • Manager / Top-Management resolution → skip manager approval → Top Management closes.
@@ -1838,6 +1862,9 @@ export function CaseDetailPage() {
                     onRemove={(url) => setResolutionPhotos((prev) => prev.filter((u) => u !== url))}
                     maxFiles={3}
                     label={lang === 'th' ? 'อัปโหลดรูปภาพการแก้ไข' : 'Upload Resolution Photos'}
+                    caseNumber={kcase?.case_number}
+                    department={kcase?.department}
+                    companyId={kcase?.company_id ?? undefined}
                   />
                 </div>
                 <Button onClick={handleResolve} disabled={submitting} className="w-full bg-green-600 hover:bg-green-700">

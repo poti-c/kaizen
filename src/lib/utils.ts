@@ -231,8 +231,20 @@ export function buildPhotoPath(caseNumber: string, department: string, index: nu
   const dd = bkkParts[2]
   const dept = DEPT_ABBR[department] ?? department.toUpperCase().slice(0, 2)
   const caseTag = caseNumber.replace(/-/g, '_')
-  const folder = companyId ? `${companyId}/kaizen/${yyyy}-${mm}` : `Na Nirand Kaizen/${yyyy}-${mm}`
-  const filename = `${yyyy}_${mm}_${dd}_${dept}_${caseTag}_${index}.${ext}`
+  // PHOTO-ORPHAN-01: this legacy folder name (used whenever companyId isn't known yet)
+  // contains literal spaces. getPublicUrl() encodeURIs the public URL (spaces -> %20),
+  // but storage.objects.name keeps the raw decoded path — so the orphan-sweep SQL, which
+  // compares photo_url against storage.objects.name with no decode step, never matched
+  // these paths and treated every photo under it as orphaned garbage for deletion.
+  // A space-free literal keeps both sides of that comparison identical.
+  const folder = companyId ? `${companyId}/kaizen/${yyyy}-${mm}` : `na_nirand_kaizen/${yyyy}-${mm}`
+  // PHOTO-COLLISION-01: index alone isn't unique across a component remount (e.g. a
+  // draft-recovery reload resets photoIndexRef to 1), so a same-day re-upload could
+  // collide with an already-uploaded photo's exact path and silently fail (Storage
+  // rejects a duplicate key with no upsert). A short random suffix makes every path
+  // unique regardless of what index the caller thinks it's on.
+  const uniq = Math.random().toString(36).slice(2, 8)
+  const filename = `${yyyy}_${mm}_${dd}_${dept}_${caseTag}_${index}_${uniq}.${ext}`
   return `${folder}/${filename}`
 }
 
@@ -391,7 +403,12 @@ export function parseDateOnlyBkk(s: string): Date {
 export function photoStoragePathFromUrl(url: string): string {
   const marker = '/kaizen-photos/'
   const idx = url.indexOf(marker)
-  return idx !== -1 ? url.slice(idx + marker.length) : url
+  if (idx === -1) return url
+  const raw = url.slice(idx + marker.length)
+  // getPublicUrl() encodeURIs the path (e.g. a space becomes %20), but storage.objects
+  // holds the raw decoded key — .remove([path]) needs the latter or it silently no-ops
+  // instead of deleting (Supabase doesn't error on a non-matching key).
+  try { return decodeURIComponent(raw) } catch { return raw }
 }
 
 // Format a Date for display in Asia/Bangkok time — always pass this instead of
