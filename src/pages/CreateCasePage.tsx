@@ -93,9 +93,14 @@ export function CreateCasePage() {
   const [draft] = useState(() => {
     const found = loadDraft(dKey)
     if (found) return found
-    // One-time migration: adopt and clear a pre-scoping draft if one exists.
-    const legacy = loadDraft(LEGACY_DRAFT_KEY)
-    if (legacy) { clearDraft(LEGACY_DRAFT_KEY); return legacy }
+    // The one-time migration used to ADOPT a pre-scoping legacy draft here — but
+    // sessionStorage survives a logout within the same tab on a shared device, so
+    // that reintroduced the exact cross-user leak CC-BUG-04 fixed: whatever text/
+    // photos User A left unsent under the old unscoped key would be shown to User
+    // B as "Restored your unsaved draft" the next time anyone opened Create Case
+    // in that tab, with no check the draft belonged to them. Only clean up the
+    // orphaned key now; never adopt its content.
+    clearDraft(LEGACY_DRAFT_KEY)
     return null
   })
 

@@ -60,7 +60,14 @@ export function PerformanceDetailPage() {
     const profileRes = await supabase.from('kaizen_profiles').select('*').eq('id', userId!).single()
     if (isCancelled()) return
     const u = profileRes.data as KaizenProfile | null
-    if (!u) { setLoading(false); return }
+    if (!u) {
+      // Otherwise a stale `user` from a PREVIOUS successful load (e.g. navigating from
+      // one profile to a bad/deleted userId) keeps rendering, since the `if (!user)
+      // return <NotFound/>` check below only ever sees non-null state once it's been set.
+      setUser(null); setCases([]); setScoreCases([]); setActivity([])
+      setLoading(false)
+      return
+    }
     setUser(u)
 
     const companyId = activeCompany?.id ?? u.company_id ?? ''
@@ -378,7 +385,10 @@ export function PerformanceDetailPage() {
           if (c.status !== 'closed' || !c.closed_at) return false
           if (c.due_date) {
             const raw = String(c.due_date)
-            const due = new Date(raw.length <= 10 ? `${raw}T23:59:59` : raw)
+            // AF-001: without the +07:00 offset, a date-only due_date is parsed in the
+            // viewer's local timezone instead of Bangkok, drifting the SLA deadline by
+            // the viewer's UTC offset — matches utils.ts's isSLABreached.
+            const due = new Date(raw.length <= 10 ? `${raw}T23:59:59+07:00` : raw)
             if (!isNaN(due.getTime())) return new Date(c.closed_at) > due
           }
           return differenceInHours(new Date(c.closed_at), new Date(c.created_at)) > getSLAHours(c.priority)

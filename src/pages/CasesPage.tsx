@@ -181,6 +181,24 @@ export function CasesPage() {
   // exists, with the top-of-function guard never getting a chance to matter.
   }, [validDeptValues, settingsLoaded])
 
+  // Same protection as the department prune above, for the category dimension —
+  // a deleted/renamed custom category left in a saved advFilters.categories used
+  // to zero out every case on every future visit (filter with no possible match),
+  // with no visible explanation and the pill still showing a nonzero count.
+  useEffect(() => {
+    if (!settingsLoaded) return
+    if (validCategorySlugs.length === 0) return
+    const valid = new Set(validCategorySlugs.map(s => s.toLowerCase()))
+    valid.add('preventive_maintenance') // PM cases' category is never a pickable option, but is always valid (see incompleteCases above)
+    setAdvFilters(prev => {
+      const pruned = prev.categories.filter(c => valid.has(c.toLowerCase()))
+      if (pruned.length === prev.categories.length) return prev
+      const next = { ...prev, categories: pruned }
+      localStorage.setItem('kaizen-adv-filters', JSON.stringify(next))
+      return next
+    })
+  }, [validCategorySlugs, settingsLoaded])
+
   // Advanced search state — auto-enable when navigated here with URL filters (e.g. from Dashboard)
   const [advancedSearchEnabled, setAdvancedSearchEnabled] = useState<boolean>(() => {
     if (searchParams.get('group') || searchParams.get('status') || searchParams.get('priority') || searchParams.get('category')) return true
@@ -340,8 +358,9 @@ export function CasesPage() {
       if (advFilters.priorities.length > 0) {
         result = result.filter((c) => advFilters.priorities.includes(c.priority))
       }
-      // Category filter: OR logic
-      if (advFilters.categories.length > 0) {
+      // Category filter: OR logic. Same settingsLoaded gate as departments — a saved
+      // custom category slug from localStorage hasn't been validated/pruned yet.
+      if (advFilters.categories.length > 0 && settingsLoaded) {
         result = result.filter((c) => c.category && advFilters.categories.includes(c.category))
       }
     } else {

@@ -42,6 +42,7 @@ const RR_TONES: Record<string, { chip: string; dot: string }> = {
   pending:   { chip: 'bg-gray-100 text-gray-600 border-gray-200',    dot: 'bg-gray-400' },
   sent:      { chip: 'bg-sky-50 text-sky-700 border-sky-200',        dot: 'bg-sky-500' },
   accepted:  { chip: 'bg-amber-50 text-amber-700 border-amber-200',  dot: 'bg-amber-500' },
+  ready:     { chip: 'bg-indigo-50 text-indigo-700 border-indigo-200', dot: 'bg-indigo-500' },
   delivered: { chip: 'bg-teal-50 text-teal-700 border-teal-200',     dot: 'bg-teal-500' },
   confirmed: { chip: 'bg-green-50 text-green-700 border-green-200',  dot: 'bg-green-500' },
 }
@@ -380,14 +381,14 @@ export function CasesCalendarPage() {
   }
 
   const rrStatusLabel = (s: string) => ({
-    pending: t.rr.pending, sent: t.rr.sentStatus, accepted: t.rr.acceptedStatus,
+    pending: t.rr.pending, sent: t.rr.sentStatus, accepted: t.rr.acceptedStatus, ready: t.rr.readyStatus,
     delivered: t.rr.deliveredStatus, confirmed: t.rr.confirmedStatus, cancelled: t.rr.cancelledStatus,
   } as Record<string, string>)[s] ?? s
 
   // Status + who did it: "Confirmed by Panomwan", "Accepted by Manode", "Sent by Wiboonchai".
   const rrStatusWithActor = (o: RrOrder) => {
     const id = o.status === 'confirmed' ? o.confirmed_by : o.status === 'delivered' ? o.delivered_by
-      : o.status === 'accepted' ? o.accepted_by : o.status === 'sent' ? o.sent_by : null
+      : o.status === 'ready' ? o.ready_by : o.status === 'accepted' ? o.accepted_by : o.status === 'sent' ? o.sent_by : null
     const who = id ? actorNames[id] : null
     return who ? `${rrStatusLabel(o.status)} ${lang === 'th' ? 'โดย' : 'by'} ${who}` : rrStatusLabel(o.status)
   }
@@ -600,6 +601,7 @@ export function CasesCalendarPage() {
             <Legend color="bg-gray-400" label={t.rr.pending} />
             <Legend color="bg-sky-500" label={t.rr.sentStatus} />
             <Legend color="bg-amber-500" label={t.rr.acceptedStatus} />
+            <Legend color="bg-indigo-500" label={t.rr.readyStatus} />
             <Legend color="bg-teal-500" label={t.rr.deliveredStatus} />
             <Legend color="bg-green-500" label={t.rr.confirmedStatus} />
           </div>

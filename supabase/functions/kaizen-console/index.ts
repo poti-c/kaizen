@@ -816,8 +816,14 @@ Deno.serve(async (req) => {
     const owner_id = String(body.owner_id ?? "");
     const is_active = body.is_active === true;
     if (!owner_id) return json({ error: "owner_id required" }, 400);
-    const { data: prof } = await admin.from("kaizen_profiles").select("email").eq("id", owner_id).maybeSingle();
+    const { data: prof } = await admin.from("kaizen_profiles").select("email, role").eq("id", owner_id).maybeSingle();
     if (prof?.email === FOUNDER && !is_active) return json({ error: "The founder account cannot be disabled." }, 403);
+    // The update below is scoped by role so it silently matches zero rows when
+    // owner_id isn't a super_admin — but the auth ban/unban call after it is NOT
+    // role-scoped, so it used to run unconditionally on whatever account that id
+    // belongs to even when the profile write was a no-op. Verify the role up front
+    // instead of letting the two calls fall out of sync.
+    if (!prof || prof.role !== "super_admin") return json({ error: "Not an owner account." }, 400);
     const { error } = await admin.from("kaizen_profiles").update({ is_active }).eq("id", owner_id).eq("role", "super_admin");
     if (error) return json({ error: error.message }, 400);
     // Revoke (or restore) the auth session so a suspended super_admin can't keep using
@@ -932,12 +938,28 @@ Deno.serve(async (req) => {
       patch.login_code = newCode;
       if (oldCode && oldCode !== newCode) {
         const { data: staff } = await admin.from("kaizen_profiles").select("id, username").eq("company_id", company_id).eq("role", "staff");
+        const repointedStaff: { id: string; username: string }[] = [];
+        const failed: string[] = [];
         for (const s of staff ?? []) {
           const uname = normUser(s.username || "");
           if (!uname) continue; // staff without a username have no derivable auth email
           const newEmail = uname + "@" + newCode + ".staff.kaizen.internal";
           const { error: reErr } = await admin.auth.admin.updateUserById(s.id, { email: newEmail, email_confirm: true });
-          if (!reErr) repointed++;
+          if (!reErr) { repointed++; repointedStaff.push({ id: s.id, username: s.username }); }
+          else failed.push(s.username || s.id);
+        }
+        // A staff auth email is derived from <username>@<login_code>...; a partial
+        // repoint here used to be silently swallowed and the code change committed
+        // anyway, stranding the failed staff's login under an email pointing at a
+        // login_code that no longer exists. Roll back everyone this call already
+        // repointed and refuse to commit the code change instead.
+        if (failed.length > 0) {
+          for (const s of repointedStaff) {
+            const uname = normUser(s.username || "");
+            if (!uname) continue;
+            await admin.auth.admin.updateUserById(s.id, { email: uname + "@" + oldCode + ".staff.kaizen.internal", email_confirm: true }).catch(() => {});
+          }
+          return json({ error: `Could not update login credentials for ${failed.length} staff account(s): ${failed.join(", ")}. Login code was not changed.` }, 400);
         }
       }
     }

@@ -392,15 +392,21 @@ serve(async (req) => {
         }
         allowed.department = updates.department;
       }
+      // This used to only run inside `if (updates.role !== undefined)`, checking
+      // updates.role instead of finalRole — so a call that sent ONLY `department`
+      // (no role) for a user who is ALREADY super_admin skipped the invariant
+      // entirely, moving a Top Management account out of top_management with no
+      // check at all. finalRole already resolves to target.role when role isn't
+      // part of this update, so checking it here covers both cases.
+      if (finalRole === "super_admin") {
+        const effectiveDept = updates.department ?? target.department;
+        if (effectiveDept !== "top_management") {
+          return json({ error: "Top Management accounts must belong to the Top Management department." }, 400);
+        }
+      }
       if (updates.role !== undefined) {
         const VALID_ROLES = new Set(["super_admin", "manager", "staff"]);
         if (!VALID_ROLES.has(updates.role)) return json({ error: "Invalid role." }, 400);
-        if (updates.role === "super_admin") {
-          const effectiveDept = updates.department ?? target.department;
-          if (effectiveDept !== "top_management") {
-            return json({ error: "Top Management accounts must belong to the Top Management department." }, 400);
-          }
-        }
         if (updates.role !== target.role) {
           const limitErr = await roleLimitError(target.company_id, updates.role, userId);
           if (limitErr) return json({ error: limitErr }, 400);
@@ -452,6 +458,21 @@ serve(async (req) => {
         await supabaseAdmin.auth.admin.updateUserById(userId, { email: oldAuthEmail, email_confirm: true }).catch(() => {});
       }
       return json({ error: updErr.message }, 400);
+    }
+
+    // SEAT-001 (mitigation): create and set_active both re-verify the seat cap AFTER
+    // committing and roll back if a concurrent request slipped through the same
+    // pre-check TOCTOU window — this role-change path had no equivalent, so two
+    // concurrent update_profile calls promoting two different staff to manager could
+    // both pass roleLimitError above and push the company over max_managers. Return
+    // early (not falling through to the grant-row logic below, which reads the
+    // pre-rollback `allowed.role`) so the response accurately reflects what committed.
+    if (allowed.role !== undefined && allowed.role !== target.role) {
+      const overLimitErr = await roleLimitError(target.company_id, allowed.role as string, userId);
+      if (overLimitErr) {
+        await supabaseAdmin.from("kaizen_profiles").update({ role: target.role }).eq("id", userId);
+        return json({ error: overLimitErr }, 400);
+      }
     }
 
     // When a user is promoted to super_admin ensure they have a company grant row.

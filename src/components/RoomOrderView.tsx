@@ -26,7 +26,7 @@ const DEPT_BADGE: Record<string, string> = {
   kitchen: 'bg-amber-50 text-amber-700 border-amber-200',
   house_keeping: 'bg-teal-50 text-teal-700 border-teal-200',
   front_office: 'bg-blue-50 text-blue-700 border-blue-200',
-  engineering: 'bg-purple-50 text-purple-700 border-purple-200',
+  engineering_team: 'bg-purple-50 text-purple-700 border-purple-200',
 }
 const deptBadge = (d: string) => DEPT_BADGE[d] || 'bg-gray-100 text-gray-600 border-gray-200'
 
@@ -375,18 +375,19 @@ export function RoomOrderView({ companyId, initialDate, initialMode }: { company
     const cfg = await loadApprovalConfig(companyId)
     setRequireApproval(cfg.require)
     if (!canManage || !cfg.require) { setPendingApprovals(0); return }
-    // Orders are placed for tomorrow by default, and a 'before_serving' cutoff for
-    // tomorrow can lapse while it's still today — so escalate/count BOTH days, not
-    // just today, otherwise tomorrow's overdue specials never auto-release.
-    const today = bangkokDate()
-    const tomorrow = shiftDate(today, 1)
-    await Promise.all([
-      escalateOverdueSpecials(companyId, today, cfg, lang),
-      escalateOverdueSpecials(companyId, tomorrow, cfg, lang),
-    ])
+    // The Place-order navigator lets a requester pick ANY future date, not just
+    // today/tomorrow, so a special request further out used to sit pending
+    // forever — never escalated, never counted in the badge. Discover every
+    // date that actually has a pending special line instead of hardcoding
+    // today+tomorrow, then escalate/count all of them.
+    const { data: pendingDates } = await supabase.from('kaizen_rr_room_lines')
+      .select('order_date')
+      .eq('company_id', companyId).eq('source', 'special').eq('active', true).eq('approval_status', 'pending')
+    const dates = [...new Set((pendingDates ?? []).map((r) => r.order_date as string))]
+    await Promise.all(dates.map((d) => escalateOverdueSpecials(companyId, d, cfg, lang)))
     const { count } = await supabase.from('kaizen_rr_room_lines')
       .select('id', { count: 'exact', head: true })
-      .eq('company_id', companyId).in('order_date', [today, tomorrow]).eq('source', 'special').eq('active', true).eq('approval_status', 'pending')
+      .eq('company_id', companyId).eq('source', 'special').eq('active', true).eq('approval_status', 'pending')
     setPendingApprovals(count ?? 0)
   }, [companyId, canManage, lang])
   useEffect(() => { refreshPending() }, [refreshPending])

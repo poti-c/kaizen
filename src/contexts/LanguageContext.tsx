@@ -335,7 +335,7 @@ const en = {
     setupTemplates: '+ Set up routine templates',
     due: 'due', qty: 'Qty',
     // statuses
-    pending: 'Pending', sentStatus: 'Sent', acceptedStatus: 'Accepted',
+    pending: 'Pending', sentStatus: 'Sent', acceptedStatus: 'Accepted', readyStatus: 'Handed over',
     deliveredStatus: 'Delivered', confirmedStatus: 'Confirmed', cancelledStatus: 'Cancelled',
     // timestamps line
     sentAt: 'Sent', acceptedAt: 'Accepted', deliveredAt: 'Delivered', confirmedAt: 'Confirmed',
@@ -774,7 +774,7 @@ const th: Translations = {
     setupTemplates: '+ ตั้งค่าแม่แบบงานประจำ',
     due: 'กำหนด', qty: 'จำนวน',
     // statuses
-    pending: 'รอส่ง', sentStatus: 'ส่งออเดอร์แล้ว', acceptedStatus: 'รับออเดอร์แล้ว',
+    pending: 'รอส่ง', sentStatus: 'ส่งออเดอร์แล้ว', acceptedStatus: 'รับออเดอร์แล้ว', readyStatus: 'ส่งต่อแล้ว',
     deliveredStatus: 'จัดส่งแล้ว', confirmedStatus: 'ยืนยันรับแล้ว', cancelledStatus: 'ยกเลิก',
     // timestamps line
     sentAt: 'ส่ง', acceptedAt: 'รับออเดอร์', deliveredAt: 'จัดส่ง', confirmedAt: 'ยืนยัน',

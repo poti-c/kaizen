@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { X, Printer, Loader2, FileBarChart, ArrowUp, ArrowDown, Minus, AlertTriangle, CheckCircle2, TrendingUp, Users, CalendarClock, ClipboardList } from 'lucide-react'
 import { toast } from 'sonner'
 import { supabase } from '@/lib/supabase'
@@ -30,7 +30,17 @@ interface RAsset {
 const keyOf = bangkokDate
 const perfKey = (ts: string) => bangkokDate(new Date(ts))
 let todayKey = bangkokDate() // overridden inside useMemo to avoid module-level freeze
-function addMonths(base: Date, m: number) { const d = new Date(base); d.setMonth(d.getMonth() + m); return d }
+// Clamp to the last day of the target month, mirroring lib/pm.ts's addInterval — plain
+// Date.setMonth's day-preserving overflow rolls a day near month-end forward into the
+// NEXT month when the target month is shorter (e.g. Mar 31 minus 1 month lands on
+// Mar 2/3, not Feb 28/29), shifting the vs-1M/3M/6M report anchors by a few days.
+function addMonths(base: Date, m: number) {
+  const targetMonthIndex = base.getMonth() + m
+  const daysInTargetMonth = new Date(base.getFullYear(), targetMonthIndex + 1, 0).getDate()
+  const d = new Date(base)
+  d.setMonth(targetMonthIndex, Math.min(base.getDate(), daysInTargetMonth))
+  return d
+}
 function diffDays(a: string, b: string) {
   return Math.round((parseDateOnlyBkk(a).getTime() - parseDateOnlyBkk(b).getTime()) / 86400000)
 }
@@ -107,8 +117,10 @@ export function PMReport({ companyName, onClose }: { companyName: string; onClos
   const [assets, setAssets] = useState<RAsset[]>([])
   const [techNames, setTechNames] = useState<Record<string, string>>({})
 
+  const loadSeqRef = useRef(0)
   const load = useCallback(async () => {
     if (!companyId) return
+    const mySeq = ++loadSeqRef.current
     setLoading(true)
     const [tRes, aRes, pRes] = await Promise.all([
       supabase.from('kaizen_pm_tasks')
@@ -128,6 +140,11 @@ export function PMReport({ companyName, onClose }: { companyName: string; onClos
     // every stat tile. This is printed for management meetings — a failed fetch
     // and a genuinely healthy company were indistinguishable. Surface the error
     // and refuse to render the report body rather than a false all-clear.
+    // A newer load() call (e.g. the company was switched while this report was open)
+    // already started after this one — committing this response would overwrite the
+    // current company's data with a previous company's, the same stale-response race
+    // PMSummaryCard.tsx guards against.
+    if (mySeq !== loadSeqRef.current) return
     const err = tRes.error || aRes.error || pRes.error
     if (err) {
       toast.error(err.message)
