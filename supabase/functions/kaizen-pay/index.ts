@@ -256,12 +256,12 @@ Deno.serve(async (req) => {
         // clobbering each other (the loser previously overwrote the winner, losing a paid
         // term). The function extends from the existing expiry, or anchors a first-ever
         // subscription to today in Asia/Bangkok, and returns the prior plan + new end.
-        // Capture current expiry BEFORE extending — this becomes the invoice period_start.
-        // KP-005: the column is subscription_end, not plan_expires_at — the old name
-        // does not exist, so the select errored and periodStart silently defaulted to
-        // today on every invoice, mis-stating the billing period for a renewal.
-        const { data: coNow } = await admin.from("kaizen_companies").select("subscription_end").eq("id", company_id).maybeSingle();
-        const periodStart = coNow?.subscription_end ? (coNow.subscription_end as string).slice(0, 10) : bangkokDate();
+        // KP-006: this used to read current expiry via a SEPARATE, UNLOCKED select before
+        // calling the row-locked RPC, to use as the invoice's period_start. Two verified
+        // renewals landing close together could both read the same pre-renewal expiry that
+        // way — the RPC itself still serialized/stacked subscription_end correctly, but the
+        // second payment's invoice period_start ended up wrong. old_end is now read INSIDE
+        // the RPC's own FOR UPDATE lock and returned, closing that window.
         const { data: actRows, error: updateErr } = await admin.rpc("kaizen_activate_subscription", {
           p_company_id: company_id,
           p_plan: target,
@@ -278,6 +278,7 @@ Deno.serve(async (req) => {
         } else {
           const fromPlan = act.from_plan ?? null;
           const end = act.new_end as string;
+          const periodStart = act.old_end ? (act.old_end as string).slice(0, 10) : bangkokDate();
           if (fromPlan !== target) {
             const { error: pcErr } = await admin.from("kaizen_plan_changes").insert({ company_id, from_plan: fromPlan, to_plan: target, source: "payment" });
             if (pcErr) console.error("[kaizen-pay] plan_changes insert failed", sub.id, company_id, pcErr.message);

@@ -120,7 +120,7 @@ export function buildCasePrintHtml(
           <div class="meta-item"><span class="meta-label">${L.created}</span><span class="meta-value">${fmtDateSafe(kcase.created_at, loc, { day: 'numeric', month: 'long', year: 'numeric' })}</span></div>
           ${kcase.due_date ? `<div class="meta-item"><span class="meta-label">${L.dueDate}</span><span class="meta-value">${esc(formatDueBy(kcase.due_date, lang))}</span></div>` : ''}
           <div class="meta-item"><span class="meta-label">${L.reporter}</span><span class="meta-value">${esc((kcase.creator as KaizenProfile)?.full_name || L.unknown)}</span></div>
-          ${(kcase as any).location ? `<div class="meta-item"><span class="meta-label">${th ? 'สถานที่' : 'Location'}</span><span class="meta-value">${esc((kcase as any).location === 'other' && (kcase as any).location_other ? (kcase as any).location_other : (kcase as any).location)}</span></div>` : ''}
+          ${(kcase as any).location ? `<div class="meta-item"><span class="meta-label">${th ? 'สถานที่' : 'Location'}</span><span class="meta-value">${esc((kcase as any).location === 'Others' && (kcase as any).location_other ? (kcase as any).location_other : (kcase as any).location)}</span></div>` : ''}
         </div>
       </div>
 

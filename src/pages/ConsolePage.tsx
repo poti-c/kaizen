@@ -265,12 +265,20 @@ function Dashboard({ token, adminName, onLogout }: { token: string; adminName: s
     catch (err) { if ((err as { status?: number }).status === 401) onLogout(); throw err }
   }, [token, onLogout])
 
-  const openForm = useCallback((formId: string) => { setFormPreviewId(formId); setSelectedCompanyId(null); setView('forms') }, [])
+  // formPreviewId and formDraft both drive FormGeneratorView but are independent
+  // state that outlives it (the view fully unmounts/remounts on each visit to
+  // 'forms', but this ConsolePage-level state doesn't). Abandoning one flow
+  // before it's consumed (e.g. clicking Issue, then navigating away) used to
+  // leave the other setter's leftover value to silently apply itself the next
+  // time an unrelated 'View'/'Issue' action opened the editor. Each action now
+  // clears the other's state so only one can be pending at a time.
+  const openForm = useCallback((formId: string) => { setFormPreviewId(formId); setFormDraft(null); setSelectedCompanyId(null); setView('forms') }, [])
 
   // "Issue" on a receipt request → Form Generator (Tax Invoice/Receipt) prefilled.
   const issueReceiptForm = useCallback((r: ReceiptReq) => {
     const desc = `${r.payee ?? 'Subscription'}${r.period_start && r.period_end ? ` (covers ${r.period_start} → ${r.period_end})` : ''}`
     setFormDraft({ formType: 'tax_invoice_receipt', companyId: r.company_id, items: [{ description: desc, qty: 1, unit_price: Number(r.amount) || 0 }], invoiceId: r.id })
+    setFormPreviewId(null)
     setSelectedCompanyId(null); setView('forms')
   }, [])
 

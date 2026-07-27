@@ -313,6 +313,14 @@ function ProductCard({ product, call, onSaved, onDeleted, isNew }: { product: Pr
         ) : (
           <>
             <button onClick={() => set({ is_active: !d.is_active })} title={d.is_active ? 'Active' : 'Inactive'} className={`p-2 rounded-lg transition-colors ${d.is_active ? 'text-green-400 hover:bg-green-500/10' : 'text-slate-500 hover:bg-slate-800'}`}><Power className="h-4 w-4" /></button>
+            {/* Editing an existing product only ever offered Delete or Save — reconsidering
+                an edit forced either persisting it or confirming deletion of the whole
+                product. Cancel discards in-progress changes (no network call) and re-locks. */}
+            {!isNew && (
+              <button onClick={() => { setD(product); setPriceText(String(product.price ?? 0)); setLocked(true) }} className="text-xs px-2 py-1 rounded text-slate-400 hover:bg-slate-800">
+                Cancel
+              </button>
+            )}
             <button onClick={save} disabled={busy} className="ml-auto flex items-center gap-1.5 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-slate-950 text-xs font-semibold px-3 py-1.5 rounded-lg">
               {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}{isNew ? 'Create' : 'Save'}
             </button>

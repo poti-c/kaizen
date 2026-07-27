@@ -53,7 +53,7 @@ export function Header() {
   )
 
   async function handleSignOut() {
-    await signOut()
+    try { await signOut() } catch { /* ignore — navigate to login regardless */ }
     navigate('/login')
   }
 
