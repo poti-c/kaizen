@@ -339,7 +339,7 @@ export function SettingsPage() {
         // Populated only in the custom_departments branch below; hoisted so the
         // migrateError rollback branch (which runs after that branch's own
         // block scope has closed) can still see which managers were touched.
-        let migratedManagerIds: string[] = []
+        const migratedManagerIds: string[] = []
         if (key === 'custom_categories') {
           const oldSlug = oldLabel.toLowerCase().replace(/ /g, '_')
           const newSlug = trimmed.toLowerCase().replace(/ /g, '_')
