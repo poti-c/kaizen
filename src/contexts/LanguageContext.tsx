@@ -370,7 +370,7 @@ const en = {
     templateSaved: 'Template updated', templateAdded: 'Template added', templateDeleted: 'Template deleted',
     // report
     reportTab: 'Generate Report', reportTitle: 'Routine Roster Report',
-    reportDaily: 'Daily', reportWeekly: 'Weekly', reportPeriod: 'Period',
+    reportDaily: 'Daily', reportWeekly: 'Weekly', reportMonthly: 'Monthly', reportPeriod: 'Period',
     reportPrint: 'Print / Save PDF', reportNoData: 'No orders in this period.',
     reportDate: 'Date', reportRoutine: 'Routine', reportItem: 'Item', reportQty: 'Qty',
     reportRooms: 'Rooms', reportFrom: 'Requested by', reportTo: 'Fulfilled by', reportStatus: 'Status',
@@ -809,7 +809,7 @@ const th: Translations = {
     templateSaved: 'บันทึกแม่แบบแล้ว', templateAdded: 'เพิ่มแม่แบบแล้ว', templateDeleted: 'ลบแม่แบบแล้ว',
     // report
     reportTab: 'สร้างรายงาน', reportTitle: 'รายงานงานประจำวัน',
-    reportDaily: 'รายวัน', reportWeekly: 'รายสัปดาห์', reportPeriod: 'ช่วงเวลา',
+    reportDaily: 'รายวัน', reportWeekly: 'รายสัปดาห์', reportMonthly: 'รายเดือน', reportPeriod: 'ช่วงเวลา',
     reportPrint: 'พิมพ์ / บันทึก PDF', reportNoData: 'ไม่มีรายการในช่วงเวลานี้',
     reportDate: 'วันที่', reportRoutine: 'งานประจำ', reportItem: 'รายการ', reportQty: 'จำนวน',
     reportRooms: 'ห้อง', reportFrom: 'แผนกผู้ขอ', reportTo: 'แผนกผู้จัดทำ', reportStatus: 'สถานะ',

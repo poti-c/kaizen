@@ -2264,6 +2264,18 @@ function startOfWeek(key: string): string {
   return bangkokDate(d)
 }
 
+function startOfMonth(key: string): string {
+  return `${key.slice(0, 7)}-01`
+}
+
+function endOfMonth(key: string): string {
+  const [y, m] = key.split('-').map(Number)
+  // Day 0 of the next month is the last day of this one. UTC math keeps this
+  // independent of the runtime timezone — the key is a plain calendar date.
+  const last = new Date(Date.UTC(y, m, 0)).getUTCDate()
+  return `${key.slice(0, 7)}-${String(last).padStart(2, '0')}`
+}
+
 function ReportView({ companyId, companyName, generatedBy, statusLabel, templates }: {
   companyId: string
   companyName: string
@@ -2272,7 +2284,7 @@ function ReportView({ companyId, companyName, generatedBy, statusLabel, template
   templates: RrTemplate[]
 }) {
   const { t: tr, lang } = useLanguage()
-  const [mode, setMode] = useState<'daily' | 'weekly'>('daily')
+  const [mode, setMode] = useState<'daily' | 'weekly' | 'monthly'>('daily')
   const [anchor, setAnchor] = useState(() => bangkokDate())
   const [rows, setRows] = useState<RrOrder[]>([])
   const [loading, setLoading] = useState(true)
@@ -2283,8 +2295,8 @@ function ReportView({ companyId, companyName, generatedBy, statusLabel, template
   const [roomStatusCounts, setRoomStatusCounts] = useState<Record<string, number>>({})
   const [roomDays, setRoomDays] = useState(0)
 
-  const from = mode === 'daily' ? anchor : startOfWeek(anchor)
-  const to = mode === 'daily' ? anchor : shiftDate(startOfWeek(anchor), 6)
+  const from = mode === 'daily' ? anchor : mode === 'weekly' ? startOfWeek(anchor) : startOfMonth(anchor)
+  const to = mode === 'daily' ? anchor : mode === 'weekly' ? shiftDate(startOfWeek(anchor), 6) : endOfMonth(anchor)
 
   useEffect(() => {
     let stale = false
@@ -2346,7 +2358,12 @@ function ReportView({ companyId, companyName, generatedBy, statusLabel, template
 
   const fmtDay = (key: string) => new Date(key + 'T00:00:00+07:00').toLocaleDateString(
     lang === 'th' ? 'th-TH' : 'en-GB', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Bangkok' })
-  const periodLabel = mode === 'daily' ? fmtDay(from) : `${fmtDay(from)} – ${fmtDay(to)}`
+  // Monthly reads better as "August 2026" than as a day range.
+  const fmtMonth = (key: string) => new Date(key + 'T00:00:00+07:00').toLocaleDateString(
+    lang === 'th' ? 'th-TH' : 'en-GB', { month: 'long', year: 'numeric', timeZone: 'Asia/Bangkok' })
+  const periodLabel = mode === 'daily' ? fmtDay(from)
+    : mode === 'monthly' ? fmtMonth(from)
+      : `${fmtDay(from)} – ${fmtDay(to)}`
 
   // Room-order aggregation: items per department (with delivered count) + status names.
   const roomItemsTmp: Record<string, Record<string, { total: number; done: number }>> = {}
@@ -2431,10 +2448,10 @@ function ReportView({ companyId, companyName, generatedBy, statusLabel, template
       {/* Period controls */}
       <div className="bg-white rounded-xl border border-gray-200 p-4 flex items-center gap-3 flex-wrap">
         <div className="flex rounded-lg border border-gray-300 overflow-hidden text-xs font-medium">
-          {(['daily', 'weekly'] as const).map((m) => (
+          {(['daily', 'weekly', 'monthly'] as const).map((m) => (
             <button key={m} onClick={() => setMode(m)}
               className={`px-3 h-8 transition-colors ${mode === m ? 'bg-[var(--brand-primary)] text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
-              {m === 'daily' ? tr.rr.reportDaily : tr.rr.reportWeekly}
+              {m === 'daily' ? tr.rr.reportDaily : m === 'weekly' ? tr.rr.reportWeekly : tr.rr.reportMonthly}
             </button>
           ))}
         </div>
