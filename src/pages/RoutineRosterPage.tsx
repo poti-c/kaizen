@@ -58,6 +58,10 @@ function variantBreakdown(items: RrOrderItem[], variants: RrVariant[] | null, la
   return Array.from(counts.entries()).map(([code, n]) => `${labelFor(code)}×${n}`).join(' · ')
 }
 
+// How many room chips an order card shows inline before collapsing to "+N".
+// Keeps a 30-room order from burying the rest of the card on a phone.
+const ROOM_PREVIEW_MAX = 8
+
 const STATUS_PILL: Record<RrOrderStatus, string> = {
   pending: 'bg-gray-100 text-gray-600 border-gray-200',
   sent: 'bg-blue-50 text-blue-700 border-blue-200',
@@ -810,11 +814,21 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
     .filter(Boolean).map((d) => deptLabel(d as Department, lang)).join(' → ')
   const dueLabel = o.due_at ? fmtTime(o.due_at) : ''
   const unitOf = (n: number) => (o.unit_label ? `${n} ${o.unit_label}` : String(n))
-  // The per-room checklist is shown while delivering, and as a read-only recap after.
-  const showChecklist = isPerRoom && items.length > 0 &&
-    (o.status === 'accepted' || o.status === 'ready' || o.status === 'delivered' || o.status === 'confirmed') &&
-    (expanded || (o.status === 'accepted' && onFulfill && !readOnly))
-  const canTickRooms = !readOnly && onFulfill && o.status === 'accepted'
+  // The per-room checklist is shown to whoever is currently working the order —
+  // fulfilling while 'accepted', delivering while 'ready' — and as a read-only
+  // recap after. It used to auto-open for the fulfil stage only, which left the
+  // delivery department (FB) with no way to reach it at all: the expand chevron
+  // was rendered only for delivered/confirmed, so at 'ready' nothing could set
+  // `expanded` and the room numbers were unreachable on that card.
+  const checklistStatus = o.status === 'accepted' || o.status === 'ready' ||
+    o.status === 'delivered' || o.status === 'confirmed'
+  const autoChecklist = !readOnly && (
+    (o.status === 'accepted' && onFulfill) || (o.status === 'ready' && onDeliver)
+  )
+  const showChecklist = isPerRoom && items.length > 0 && checklistStatus && (expanded || autoChecklist)
+  const canTickRooms = !readOnly && (
+    (onFulfill && o.status === 'accepted') || (onDeliver && o.status === 'ready')
+  )
 
   // Deliver-by label — the date is carried by the order itself. Orders can now
   // be placed for any future date, so anything past tomorrow names the actual
@@ -1048,22 +1062,28 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
       allDone = !!rows && rows.length > 0 && rows.every((x) => x.delivered)
     }
     if (allDone) {
-      // Three-stage: finishing every room means fulfilling is done, so the order moves to
-      // 'ready' and delivery takes the last leg — it must NOT jump straight to 'delivered',
-      // which would skip the delivery department entirely.
-      const nextStatus: RrOrderStatus = hasDelivery ? 'ready' : 'delivered'
-      const stamp = hasDelivery
+      // Which leg just finished decides where the order goes next:
+      //  - fulfilling ('accepted'), three-stage → 'ready'; delivery takes the last
+      //    leg and it must NOT jump straight to 'delivered', which would skip the
+      //    delivery department entirely.
+      //  - fulfilling ('accepted'), two-stage  → 'delivered'.
+      //  - delivering ('ready')                → 'delivered'; the last room ticked
+      //    by FB is the same completion as pressing "mark delivered".
+      const fromStatus: RrOrderStatus = o.status === 'ready' ? 'ready' : 'accepted'
+      const nextStatus: RrOrderStatus = fromStatus === 'accepted' && hasDelivery ? 'ready' : 'delivered'
+      const doneByDept = fromStatus === 'ready' ? o.deliver_department! : o.fulfill_department
+      const stamp = nextStatus === 'ready'
         ? { status: nextStatus, ready_by: profile.id, ready_at: now() }
         : { status: nextStatus, delivered_by: profile.id, delivered_at: now() }
       const { data: promoted, error: e2 } = await supabase.from('kaizen_rr_orders')
-        .update(stamp).eq('id', o.id).eq('status', 'accepted').select('id')
+        .update(stamp).eq('id', o.id).eq('status', fromStatus).select('id')
       if (e2) toast.error(e2.message)
       else if (promoted && promoted.length > 0) {
         // RR-006: use DB row count rather than stale closure items.length
         const dbCount = dbRows?.length ?? items.length
-        await logEvent(hasDelivery ? 'ready' : 'delivered', null)
+        await logEvent(nextStatus, null)
         try {
-          if (hasDelivery) {
+          if (nextStatus === 'ready') {
             await notifyDept(o.deliver_department!,
               lang === 'th' ? 'พร้อมจัดส่ง' : 'Ready for delivery',
               lang === 'th'
@@ -1074,12 +1094,12 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
             await notifyDept(o.request_department,
               lang === 'th' ? 'จัดส่งออเดอร์แล้ว' : 'Routine order delivered',
               lang === 'th'
-                ? `"${o.title}"${itemSuffix} — ครบทั้ง ${dbCount} ห้อง โดยแผนก ${deptLabel(o.fulfill_department, lang)}`
-                : `"${o.title}"${itemSuffix} — all ${dbCount} rooms done by ${deptLabel(o.fulfill_department, lang)}`,
+                ? `"${o.title}"${itemSuffix} — ครบทั้ง ${dbCount} ห้อง โดยแผนก ${deptLabel(doneByDept, lang)}`
+                : `"${o.title}"${itemSuffix} — all ${dbCount} rooms done by ${deptLabel(doneByDept, lang)}`,
               { templateId: o.template_id, ...stagePicOpts('request') })
           }
         } catch (err) { console.error('[toggleRoom:notifyDept]', err) }
-        toast.success(hasDelivery ? (lang === 'th' ? 'ส่งต่อให้ฝ่ายจัดส่งแล้ว' : 'Handed over to delivery') : tr.rr.orderDelivered)
+        toast.success(nextStatus === 'ready' ? (lang === 'th' ? 'ส่งต่อให้ฝ่ายจัดส่งแล้ว' : 'Handed over to delivery') : tr.rr.orderDelivered)
       }
     }
     setBusy(false)
@@ -1126,6 +1146,26 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
               <span className="flex items-center gap-0.5">· <BedDouble className="h-3 w-3" /> {tr.rr.roomsDone(deliveredCount, items.length)}</span>
             )}
           </p>
+          {/* Room numbers at a glance. The count alone ("0/1 ห้อง") told the
+              delivering department nothing about WHERE to deliver, and the room
+              list itself sits inside the checklist below — so surface the numbers
+              here too, for every stage and for read-only viewers. Suppressed when
+              the checklist is already open right underneath. */}
+          {isPerRoom && items.length > 0 && !showChecklist && (
+            <p className="mt-1 flex items-center gap-1 flex-wrap">
+              {items.slice(0, ROOM_PREVIEW_MAX).map((it) => (
+                <span key={it.id} className={`text-[10px] px-1.5 py-0.5 rounded border ${
+                  it.delivered
+                    ? 'bg-teal-50 border-teal-200 text-teal-700'
+                    : 'bg-gray-50 border-gray-200 text-gray-600'}`}>
+                  {it.room_no}{it.variant ? ` · ${it.variant}` : ''}
+                </span>
+              ))}
+              {items.length > ROOM_PREVIEW_MAX && (
+                <span className="text-[10px] text-gray-400">+{items.length - ROOM_PREVIEW_MAX}</span>
+              )}
+            </p>
+          )}
           {/* Delivery deadline */}
           {deliverLabel && (
             <p className="text-[11px] text-gray-400 mt-0.5 flex items-center gap-1 flex-wrap">
@@ -1154,8 +1194,9 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
               <Trash2 className="h-4 w-4" />
             </button>
           )}
-          {/* expand toggle for finished per-room checklists */}
-          {isPerRoom && items.length > 0 && (o.status === 'delivered' || o.status === 'confirmed') && (
+          {/* Expand toggle for any per-room checklist that is not already open —
+              including 'ready', so bystanders (and FB before it acts) can open it. */}
+          {isPerRoom && items.length > 0 && checklistStatus && !autoChecklist && (
             <button onClick={() => setExpanded((v) => !v)} title={tr.rr.roomChecklist}
               className="p-1.5 -m-1 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100">
               <ChevronDown className={`h-4 w-4 transition-transform ${expanded ? 'rotate-180' : ''}`} />
