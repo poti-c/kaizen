@@ -157,6 +157,7 @@ export function RoutineRosterPage() {
   const [mutes, setMutes] = useState<Set<string>>(new Set()) // template_ids muted by me
   const [loading, setLoading] = useState(true)
   const [placeTpl, setPlaceTpl] = useState<RrTemplate | null>(null) // template being ordered in the popup
+  const [addUpTo, setAddUpTo] = useState<RrOrder | null>(null) // order being added on top of
   const today = bangkokDate()
   const tomorrow = shiftDate(today, 1)
 
@@ -354,6 +355,43 @@ export function RoutineRosterPage() {
   const mine = orders.filter(needsMyAction)
   const rest = orders.filter((o) => !needsMyAction(o))
 
+  /**
+   * Display numbering for add-ups: the original order is #1, so the first add-up
+   * reads "Add-up #2". Derived from the loaded board rather than stored, since it
+   * is a label, not an identity — a cancelled or aged-out sibling shifts it, which
+   * is fine for something only ever read alongside the cards it numbers.
+   *
+   * Add-ups are NOT nested under their parent card. The board splits by "needs my
+   * action", and an add-up routinely sits on a different side of that split from
+   * the order it follows (kitchen still cooking the add-up while the first run is
+   * already delivered) — so nesting would have to break one grouping or the other.
+   */
+  const addUpSeqById = useMemo(() => {
+    const bySibling = new Map<string, RrOrder[]>()
+    orders.forEach((o) => {
+      if (!o.is_add_up) return
+      const root = o.parent_order_id ?? o.id
+      const list = bySibling.get(root)
+      if (list) list.push(o); else bySibling.set(root, [o])
+    })
+    const seq = new Map<string, number>()
+    bySibling.forEach((list) => {
+      list.slice().sort((a, b) => a.created_at.localeCompare(b.created_at))
+        .forEach((o, i) => seq.set(o.id, i + 2))
+    })
+    return seq
+  }, [orders])
+
+  /** What the next add-up on this order would be numbered. */
+  const nextAddUpSeq = useCallback((o: RrOrder) => {
+    const root = o.parent_order_id ?? o.id
+    return orders.filter((x) => x.is_add_up && (x.parent_order_id ?? x.id) === root).length + 2
+  }, [orders])
+
+  // Add-ups need the routine's template (order type, variants, PIC config) to be
+  // placed, so the button is hidden on an order whose template has been deleted.
+  const canAddUp = useCallback((o: RrOrder) => !!tplOf(o) && onStage(o, 'request'), [tplOf, onStage])
+
   // Templates this user may place an order for (request side). Managers can place
   // any; staff only their own department's routines (honouring pic_mode 'users').
   const canRequestTemplate = useCallback((tp: RrTemplate) => {
@@ -511,7 +549,9 @@ export function RoutineRosterPage() {
                         <OrderCard key={o.id} order={o} title={displayTitle(o)} template={tplOf(o)}
                           rooms={rooms} statusLabel={statusLabel} readOnly={false} canManage={canManage}
                           onRequestSide={onRequestSide(o)} muted={o.template_id ? mutes.has(o.template_id) : false}
-                          onMuteToggle={loadMutes} notifyDept={notifyDept} onChanged={load} />
+                          onMuteToggle={loadMutes} notifyDept={notifyDept} onChanged={load}
+                          addUpSeq={addUpSeqById.get(o.id)}
+                          onAddUp={canAddUp(o) ? () => setAddUpTo(o) : undefined} />
                       ))}
                     </div>
                   </div>
@@ -528,7 +568,9 @@ export function RoutineRosterPage() {
                         <OrderCard key={o.id} order={o} title={displayTitle(o)} template={tplOf(o)}
                           rooms={rooms} statusLabel={statusLabel} readOnly={false} canManage={canManage}
                           onRequestSide={onRequestSide(o)} muted={o.template_id ? mutes.has(o.template_id) : false}
-                          onMuteToggle={loadMutes} notifyDept={notifyDept} onChanged={load} />
+                          onMuteToggle={loadMutes} notifyDept={notifyDept} onChanged={load}
+                          addUpSeq={addUpSeqById.get(o.id)}
+                          onAddUp={canAddUp(o) ? () => setAddUpTo(o) : undefined} />
                       ))}
                     </div>
                   </div>
@@ -544,13 +586,22 @@ export function RoutineRosterPage() {
           today={today} tomorrow={tomorrow} rooms={rooms} notifyDept={notifyDept}
           onClose={() => setPlaceTpl(null)} onPlaced={load} />
       )}
+
+      {/* Add-up: same popup, but the routine and the service day are inherited
+          from the order it is being added to. */}
+      {addUpTo && companyId && profile && tplOf(addUpTo) && (
+        <PlaceOrderModal template={tplOf(addUpTo)!} companyId={companyId} profile={profile}
+          today={today} tomorrow={tomorrow} rooms={rooms} notifyDept={notifyDept}
+          addUpTo={addUpTo} addUpSeq={nextAddUpSeq(addUpTo)}
+          onClose={() => setAddUpTo(null)} onPlaced={load} />
+      )}
     </div>
   )
 }
 
 // ── place-order popup (click a routine → quantity / rooms + ready-by → sent) ───
 
-function PlaceOrderModal({ template: tp, companyId, profile, today, tomorrow, rooms, notifyDept, onClose, onPlaced }: {
+function PlaceOrderModal({ template: tp, companyId, profile, today, tomorrow, rooms, notifyDept, addUpTo, addUpSeq, onClose, onPlaced }: {
   template: RrTemplate
   companyId: string
   profile: KaizenProfile
@@ -559,14 +610,27 @@ function PlaceOrderModal({ template: tp, companyId, profile, today, tomorrow, ro
   rooms: string[]
   notifyDept: (dept: Department, title: string, message: string,
     opts?: { templateId?: string | null; picMode?: string | null; picIds?: string[] | null; useDeptConfig?: boolean }) => Promise<void>
+  /** Set when placing an add-up: the order being added on top of. */
+  addUpTo?: RrOrder | null
+  /** Position among that order's add-ups (the parent counts as #1). */
+  addUpSeq?: number
   onClose: () => void
   onPlaced: () => void
 }) {
   const { t: tr, lang } = useLanguage()
+  // An add-up belongs to the day its parent was placed for — the date is inherited,
+  // not re-picked. Everything else (rooms, variants, ready time) is chosen afresh:
+  // the whole point of an add-up is that it differs from the order it follows.
+  const isAddUp = !!addUpTo
   // Routine orders are placed ahead by default; staff can switch to Today in the picker.
-  const [serviceDate, setServiceDate] = useState(tomorrow)
+  const [serviceDate, setServiceDate] = useState(addUpTo?.order_date ?? tomorrow)
   const [qty, setQty] = useState('')
-  const [time, setTime] = useState(hhmm(tp.due_time) || '12:00')
+  // An add-up starts from the time of the run it follows, not the template's
+  // nominal due time: ABF BOX is templated at 22:00 but the actual order was for
+  // 06:00 the next morning, and seeding 22:00 there would be wrong by 16 hours
+  // on a field staff are expected to skim past.
+  const [time, setTime] = useState(
+    (addUpTo?.due_at ? fmtTime(addUpTo.due_at) : '') || hhmm(tp.due_time) || '12:00')
   const [note, setNote] = useState('')
   const [grid, setGrid] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState(false)
@@ -588,7 +652,10 @@ function PlaceOrderModal({ template: tp, companyId, profile, today, tomorrow, ro
     // but the board's `.gte('order_date', today)` filter excludes it, so the
     // user got a success toast and then an empty slot — the exact "saved then
     // vanished" failure the today-onwards board change exists to prevent.
-    if (order_date < today) {
+    // An add-up inherits its parent's date, which may be yesterday's carried-over
+    // order still on the board — that is legitimate, so only the freely-picked
+    // date is clamped.
+    if (!isAddUp && order_date < today) {
       toast.error(lang === 'th' ? 'ไม่สามารถสั่งย้อนหลังได้' : 'Cannot place an order for a past date.')
       return
     }
@@ -617,6 +684,12 @@ function PlaceOrderModal({ template: tp, companyId, profile, today, tomorrow, ro
       deliver_department: tp.deliver_department ?? null,
       order_type: tp.order_type, item_label, unit_label: isBulk ? tp.unit_label : null,
       quantity, note: note.trim() || null, status: 'sent', due_at, sent_by: profile.id, sent_at: nowIso,
+      // Add-ups sit outside the one-live-order-per-routine-per-date index, so any
+      // number can follow the order they were added to.
+      is_add_up: isAddUp,
+      // Group under the *root* order: an add-up on an add-up still belongs to the
+      // original, keeping the numbering and the report grouping one level deep.
+      parent_order_id: addUpTo ? (addUpTo.parent_order_id ?? addUpTo.id) : null,
     }).select().single()
     if (error) {
       setBusy(false)
@@ -644,16 +717,22 @@ function PlaceOrderModal({ template: tp, companyId, profile, today, tomorrow, ro
     const qtyLabel = isBulk ? unitOf(quantity)
       : hasVariants ? `${variantBreakdown(picked.map((r) => ({ variant: grid[r] } as RrOrderItem)), variants, lang)} · ${picked.length} ${roomsWord}`
       : `${picked.length} ${roomsWord}`
+    const seqTag = isAddUp ? `${tr.rr.addUpSeq(addUpSeq ?? 2)} · ` : ''
     await supabase.from('kaizen_rr_events').insert({
-      company_id: companyId, order_id: inserted.id, actor_id: profile.id, action: 'sent', detail: qtyLabel,
+      company_id: companyId, order_id: inserted.id, actor_id: profile.id, action: 'sent', detail: `${seqTag}${qtyLabel}`,
     })
     const itemSuffix = item_label ? ` — ${item_label}` : ''
     const fulfillPic = stagePic(tp, 'fulfill')
+    // An add-up MUST read as extra work, not as a repeat of the order the kitchen
+    // already has — that ambiguity is what the phone call used to resolve.
+    const dueTag = ` · ${lang === 'th' ? 'ต้องการ' : 'ready by'} ${time}`
     await notifyDept(tp.fulfill_department,
-      lang === 'th' ? 'มีออเดอร์ประจำเข้ามาใหม่' : 'Routine order received',
+      isAddUp
+        ? (lang === 'th' ? 'มีออเดอร์สั่งเพิ่ม' : 'Add-up order received')
+        : (lang === 'th' ? 'มีออเดอร์ประจำเข้ามาใหม่' : 'Routine order received'),
       lang === 'th'
-        ? `"${tp.name}"${itemSuffix} — ${qtyLabel} จากแผนก ${deptLabel(tp.request_department, lang)}`
-        : `"${tp.name}"${itemSuffix} — ${qtyLabel} requested by ${deptLabel(tp.request_department, lang)}`,
+        ? `${seqTag}"${tp.name}"${itemSuffix} — ${qtyLabel} จากแผนก ${deptLabel(tp.request_department, lang)}${isAddUp ? dueTag : ''}`
+        : `${seqTag}"${tp.name}"${itemSuffix} — ${qtyLabel} requested by ${deptLabel(tp.request_department, lang)}${isAddUp ? dueTag : ''}`,
       { templateId: tp.id, picMode: fulfillPic.mode, picIds: fulfillPic.ids, useDeptConfig: true })
     // Three-stage: delivery is told up front that work is coming, so they can plan —
     // but it isn't actionable for them until fulfilling hands it over.
@@ -662,11 +741,11 @@ function PlaceOrderModal({ template: tp, companyId, profile, today, tomorrow, ro
       await notifyDept(tp.deliver_department,
         lang === 'th' ? 'มีงานจัดส่งเข้ามาใหม่' : 'Delivery incoming',
         lang === 'th'
-          ? `"${tp.name}"${itemSuffix} — ${qtyLabel} · รอแผนก ${deptLabel(tp.fulfill_department, lang)} ส่งต่อ`
-          : `"${tp.name}"${itemSuffix} — ${qtyLabel} · awaiting handover from ${deptLabel(tp.fulfill_department, lang)}`,
+          ? `${seqTag}"${tp.name}"${itemSuffix} — ${qtyLabel} · รอแผนก ${deptLabel(tp.fulfill_department, lang)} ส่งต่อ`
+          : `${seqTag}"${tp.name}"${itemSuffix} — ${qtyLabel} · awaiting handover from ${deptLabel(tp.fulfill_department, lang)}`,
         { templateId: tp.id, picMode: deliverPic.mode, picIds: deliverPic.ids, useDeptConfig: true })
     }
-    toast.success(tr.rr.orderSent)
+    toast.success(isAddUp ? tr.rr.addUpSent : tr.rr.orderSent)
     onPlaced()
     onClose()
     setBusy(false)
@@ -678,12 +757,24 @@ function PlaceOrderModal({ template: tp, companyId, profile, today, tomorrow, ro
       <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm max-h-[90vh] flex flex-col">
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
           <div className="min-w-0">
-            <h3 className="font-semibold text-gray-900 truncate">{name}</h3>
+            <div className="flex items-center gap-1.5 min-w-0">
+              <h3 className="font-semibold text-gray-900 truncate">{name}</h3>
+              {isAddUp && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-amber-700 flex-shrink-0">
+                  {tr.rr.addUpSeq(addUpSeq ?? 2)}
+                </span>
+              )}
+            </div>
             <p className="text-[11px] text-gray-400">{lang === 'th' ? 'ส่งไปยัง' : 'To'} {deptLabel(tp.fulfill_department, lang)}</p>
           </div>
           <button onClick={onClose} className="p-1 rounded text-gray-400 hover:bg-gray-100"><X className="h-4 w-4" /></button>
         </div>
         <div className="px-5 py-4 space-y-4 overflow-y-auto">
+          {isAddUp && (
+            <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-2">
+              {tr.rr.addUpSameDay}
+            </p>
+          )}
           {/* Quantity (bulk) or room grid (per-room) */}
           {isBulk ? (
             <div className="space-y-1">
@@ -704,7 +795,16 @@ function PlaceOrderModal({ template: tp, companyId, profile, today, tomorrow, ro
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-gray-500">{lang === 'th' ? 'ต้องการก่อน' : 'Ready by'}</label>
             <div className="flex items-center gap-2 flex-wrap">
-              {([[today, lang === 'th' ? 'วันนี้' : 'Today'], [tomorrow, lang === 'th' ? 'พรุ่งนี้' : 'Tomorrow']] as const).map(([d, label]) => (
+              {/* The date is fixed to the parent's service day; only the time is
+                  chosen — an add-up commonly has an earlier pickup than the
+                  order it follows (04:45 against a 06:00 run). */}
+              {isAddUp ? (
+                <span className="px-3 h-8 inline-flex items-center rounded-full border border-gray-200 bg-gray-50 text-xs font-medium text-gray-600">
+                  {serviceDate === today ? (lang === 'th' ? 'วันนี้' : 'Today')
+                    : serviceDate === tomorrow ? (lang === 'th' ? 'พรุ่งนี้' : 'Tomorrow')
+                      : dateLabel(serviceDate)}
+                </span>
+              ) : ([[today, lang === 'th' ? 'วันนี้' : 'Today'], [tomorrow, lang === 'th' ? 'พรุ่งนี้' : 'Tomorrow']] as const).map(([d, label]) => (
                 <button key={d} type="button" onClick={() => setServiceDate(d)}
                   className={`px-3 h-8 rounded-full border text-xs font-medium transition-colors ${
                     serviceDate === d ? 'bg-[var(--brand-primary)] text-white border-[var(--brand-primary)]'
@@ -717,16 +817,18 @@ function PlaceOrderModal({ template: tp, companyId, profile, today, tomorrow, ro
                   `min` alone is enforced only on form submit and this input
                   isn't inside a <form> — clamp on every change too; place()
                   below has the real guard regardless. */}
-              <input type="date" value={serviceDate} min={today}
-                onChange={(e) => { if (e.target.value) setServiceDate(e.target.value < today ? today : e.target.value) }}
-                className={`h-8 rounded-lg border px-2 text-xs focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/40 ${
-                  serviceDate !== today && serviceDate !== tomorrow
-                    ? 'border-[var(--brand-primary)] text-[var(--brand-primary)]'
-                    : 'border-gray-300 text-gray-600'}`} />
+              {!isAddUp && (
+                <input type="date" value={serviceDate} min={today}
+                  onChange={(e) => { if (e.target.value) setServiceDate(e.target.value < today ? today : e.target.value) }}
+                  className={`h-8 rounded-lg border px-2 text-xs focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/40 ${
+                    serviceDate !== today && serviceDate !== tomorrow
+                      ? 'border-[var(--brand-primary)] text-[var(--brand-primary)]'
+                      : 'border-gray-300 text-gray-600'}`} />
+              )}
               <input type="time" value={time} onChange={(e) => setTime(e.target.value)}
                 className="h-8 rounded-lg border border-gray-300 px-2 text-xs focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/40" />
             </div>
-            {serviceDate !== today && serviceDate !== tomorrow && (
+            {!isAddUp && serviceDate !== today && serviceDate !== tomorrow && (
               <p className="text-[11px] text-gray-400">{dateLabel(serviceDate)}</p>
             )}
           </div>
@@ -755,7 +857,7 @@ function PlaceOrderModal({ template: tp, companyId, profile, today, tomorrow, ro
 // ── order card ───────────────────────────────────────────────────────────────
 
 function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnly, canManage,
-  onRequestSide, muted, onMuteToggle, notifyDept, onChanged }: {
+  onRequestSide, muted, onMuteToggle, notifyDept, onChanged, addUpSeq, onAddUp }: {
   order: RrOrder
   title: string
   template: RrTemplate | null
@@ -765,6 +867,10 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
   canManage: boolean
   onRequestSide: boolean
   muted: boolean
+  /** Position among the routine's add-ups for that day (the first order is #1). */
+  addUpSeq?: number
+  /** Place another order on top of this one. Omitted where add-ups don't apply. */
+  onAddUp?: () => void
   onMuteToggle: () => void
   notifyDept: (dept: Department, title: string, message: string,
     opts?: { templateId?: string | null; picMode?: string | null; picIds?: string[] | null; useDeptConfig?: boolean }) => Promise<void>
@@ -1132,6 +1238,14 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <p className="text-sm font-semibold text-gray-900">{title}</p>
+            {/* An add-up is a separate order, so it gets its own card rather than
+                being folded into the parent's — the badge is what ties the two
+                together, and marks it as extra work rather than a duplicate. */}
+            {o.is_add_up && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-amber-700">
+                {addUpSeq ? tr.rr.addUpSeq(addUpSeq) : tr.rr.addUp}
+              </span>
+            )}
             {o.item_label && (
               <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 border border-gray-200 text-gray-600">{o.item_label}</span>
             )}
@@ -1322,13 +1436,26 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
         </div>
       )}
 
-      {/* manager-only cancel while the chain is still running */}
-      {!readOnly && canManage && !['confirmed', 'cancelled'].includes(o.status) && (
-        <div className="mt-2 pl-5">
-          <button onClick={cancelOrder} disabled={busy}
-            className="flex items-center gap-1 text-[11px] text-red-400 hover:text-red-600">
-            <Ban className="h-3 w-3" />{tr.rr.cancelOrder}
-          </button>
+      {/* Add-up (request side) + manager-only cancel while the chain is running.
+          Add-up stays available at every status except cancelled — including
+          'confirmed': a late add-up on a run that already went out is the exact
+          case this exists for, and refusing it there sends the work back to
+          paper. */}
+      {!readOnly && ((onRequest && !!onAddUp && o.status !== 'cancelled') ||
+                     (canManage && !['confirmed', 'cancelled'].includes(o.status))) && (
+        <div className="mt-2 pl-5 flex items-center gap-3 flex-wrap">
+          {onRequest && onAddUp && o.status !== 'cancelled' && (
+            <button onClick={onAddUp} disabled={busy}
+              className="flex items-center gap-1 h-7 px-2 rounded-lg border border-amber-200 bg-amber-50 text-[11px] font-medium text-amber-700 hover:bg-amber-100 disabled:opacity-50">
+              <Plus className="h-3 w-3" />{tr.rr.addUp}
+            </button>
+          )}
+          {canManage && !['confirmed', 'cancelled'].includes(o.status) && (
+            <button onClick={cancelOrder} disabled={busy}
+              className="flex items-center gap-1 text-[11px] text-red-400 hover:text-red-600">
+              <Ban className="h-3 w-3" />{tr.rr.cancelOrder}
+            </button>
+          )}
         </div>
       )}
 
@@ -1748,6 +1875,13 @@ function RoutineMonitorBoard({ companyId, orders, today, tomorrow, loading, onRe
                         >
                           <span className="flex-1 min-w-0">
                             <span className="text-sm text-gray-800">{secondary}</span>
+                            {/* Two tiles of the same routine on one day are an add-up,
+                                not a display glitch — say so on the wall board. */}
+                            {o.is_add_up && (
+                              <span className="ml-1 text-[9px] px-1 rounded bg-amber-100 text-amber-700 align-middle">
+                                {lang === 'th' ? 'สั่งเพิ่ม' : 'Add-up'}
+                              </span>
+                            )}
                             {o.order_date !== today && (
                               <span className="ml-1 text-[9px] px-1 rounded bg-blue-100 text-blue-700 align-middle">{dayLabel(o.order_date)}</span>
                             )}
@@ -2382,6 +2516,10 @@ function ReportView({ companyId, companyName, generatedBy, statusLabel, template
   }, [companyId, from, to])
 
   const variantsOf = (o: RrOrder) => templates.find((tp) => tp.id === o.template_id)?.variants ?? null
+  // Add-ups are counted as their own line (they are their own order, and the item
+  // totals below must include them) — the tag is what stops accounting reading two
+  // lines of the same routine on the same day as a double entry.
+  const rowTitle = (o: RrOrder) => o.is_add_up ? `${o.title} (${tr.rr.addUp})` : o.title
   // Quantity of an order: bulk = quantity; per-room = number of rooms.
   const qtyOf = (o: RrOrder) => o.order_type === 'bulk' ? (o.quantity ?? 0) : (o.items?.length ?? 0)
   // Displayed qty: bulk shows the unit; per-room shows the room count.
@@ -2430,7 +2568,7 @@ function ReportView({ companyId, companyName, generatedBy, statusLabel, template
     const rowsHtml = rows.map((o) => `
       <tr>
         <td>${esc(fmtDay(o.order_date))}</td>
-        <td>${esc(o.title)}</td>
+        <td>${esc(rowTitle(o))}</td>
         <td>${esc(o.item_label ?? '—')}</td>
         <td style="text-align:right">${esc(qtyText(o))}</td>
         <td>${esc(variantText(o))}</td>
@@ -2532,7 +2670,7 @@ function ReportView({ companyId, companyName, generatedBy, statusLabel, template
                 {rows.map((o) => (
                   <tr key={o.id}>
                     <td className="px-3 py-2 whitespace-nowrap text-gray-600">{fmtDay(o.order_date)}</td>
-                    <td className="px-3 py-2 font-medium text-gray-900">{o.title}</td>
+                    <td className="px-3 py-2 font-medium text-gray-900">{rowTitle(o)}</td>
                     <td className="px-3 py-2 text-gray-600">{o.item_label ?? '—'}</td>
                     <td className="px-3 py-2 text-right text-gray-900 font-medium">{qtyText(o)}</td>
                     <td className="px-3 py-2 text-gray-600">{variantText(o)}</td>

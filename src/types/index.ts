@@ -228,6 +228,14 @@ export interface RrOrder {
   quantity: number | null
   note: string | null
   status: RrOrderStatus
+  /**
+   * An extra order placed on top of one already sent for this routine+date
+   * (a late "add up"). Add-ups carry their own rooms, ready time and status,
+   * and are exempt from the one-live-order-per-routine-per-date index.
+   */
+  is_add_up?: boolean
+  /** The order this was added on top of. NULL once the parent is deleted. */
+  parent_order_id?: string | null
   /** Bulk unit label snapshot, e.g. "gallon". */
   unit_label: string | null
   due_at: string | null

@@ -353,6 +353,11 @@ const en = {
     quantityRequired: 'Enter a quantity.', roomsRequired: 'Add at least one room.',
     orderSent: 'Order sent', orderAccepted: 'Order accepted', orderDelivered: 'Marked as delivered',
     orderConfirmed: 'Receipt confirmed', orderCancelled: 'Order cancelled',
+    // add-up (an extra order on top of one already sent for the same routine + day)
+    addUp: 'Add-up', addUpSeq: (n: number) => `Add-up #${n}`,
+    addUpFor: (name: string) => `Add-up · ${name}`,
+    addUpSent: 'Add-up sent',
+    addUpSameDay: 'Added on top of the order already placed for this day.',
     // templates view
     addTemplate: 'Add template', editTemplate: 'Edit template', newTemplate: 'New template',
     name: 'Name (EN)', namePh: 'e.g. Welcome drinks', nameTh: 'Name (Thai, optional)',
@@ -792,6 +797,11 @@ const th: Translations = {
     quantityRequired: 'กรุณาระบุจำนวน', roomsRequired: 'กรุณาเพิ่มอย่างน้อยหนึ่งห้อง',
     orderSent: 'ส่งออเดอร์แล้ว', orderAccepted: 'รับออเดอร์แล้ว', orderDelivered: 'บันทึกการจัดส่งแล้ว',
     orderConfirmed: 'ยืนยันการรับแล้ว', orderCancelled: 'ยกเลิกออเดอร์แล้ว',
+    // add-up (an extra order on top of one already sent for the same routine + day)
+    addUp: 'สั่งเพิ่ม', addUpSeq: (n: number) => `สั่งเพิ่ม #${n}`,
+    addUpFor: (name: string) => `สั่งเพิ่ม · ${name}`,
+    addUpSent: 'ส่งออเดอร์เพิ่มแล้ว',
+    addUpSameDay: 'สั่งเพิ่มจากออเดอร์ที่สั่งไว้แล้วของวันนี้',
     // templates view
     addTemplate: 'เพิ่มแม่แบบ', editTemplate: 'แก้ไขแม่แบบ', newTemplate: 'แม่แบบใหม่',
     name: 'ชื่อ (อังกฤษ)', namePh: 'เช่น Welcome drinks', nameTh: 'ชื่อ (ไทย ไม่บังคับ)',
