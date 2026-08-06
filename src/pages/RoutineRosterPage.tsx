@@ -124,6 +124,14 @@ export function RoutineRosterPage() {
   const { t: tr, lang } = useLanguage()
   const companyId = activeCompany?.id ?? null
   const canManage = profile?.role === 'super_admin' || profile?.role === 'manager'
+  // Accounting reconciles the routine roster against billing, so the whole
+  // department gets the report tab whatever their role — the report is the
+  // record they work from, and routing it through a manager each time is what
+  // pushed that reconciliation out of the system in the first place.
+  // Read-only by construction: the tab renders totals over rows the
+  // company-scoped RLS on kaizen_rr_orders / _room_orders / _room_lines
+  // already lets any member of the company select, and it exposes no mutation.
+  const canReport = canManage || profile?.department === 'accounting'
   const rrFo = useRrFoAccess()
 
   const [view, setView] = useState<'board' | 'rooms' | 'report'>('board')
@@ -426,7 +434,7 @@ export function RoutineRosterPage() {
           <h1 className="text-lg font-bold text-gray-900">{tr.rr.title}</h1>
         </div>
         <div className="flex rounded-lg border border-gray-300 overflow-x-auto max-w-full text-xs font-medium">
-          {([...(['board'] as const), ...(canRooms ? (['rooms'] as const) : []), ...(canManage ? (['report'] as const) : [])]).map((v) => (
+          {([...(['board'] as const), ...(canRooms ? (['rooms'] as const) : []), ...(canReport ? (['report'] as const) : [])]).map((v) => (
             <button key={v} onClick={() => setView(v)}
               className={`px-3 h-8 whitespace-nowrap flex-shrink-0 transition-colors ${view === v ? 'bg-[var(--brand-primary)] text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
               {v === 'board' ? tr.rr.boardTab : v === 'rooms' ? (lang === 'th' ? `ใบสั่ง${unitOne(unit, lang)}` : `${unitOne(unit, lang)} Order`) : tr.rr.reportTab}
@@ -469,7 +477,7 @@ export function RoutineRosterPage() {
       ) : view === 'board' && boardMode === 'templates' && canManage && companyId ? (
         <TemplatesView companyId={companyId} templates={templates}
           mutes={mutes} onMuteToggle={loadMutes} canManage={canManage} onChanged={load} allDepts={allDepts} />
-      ) : view === 'report' && canManage && companyId ? (
+      ) : view === 'report' && canReport && companyId ? (
         <ReportView companyId={companyId} companyName={activeCompany?.org_title || activeCompany?.name || ''}
           generatedBy={profile?.full_name ?? ''} statusLabel={statusLabel} templates={templates} />
       ) : loading ? (
