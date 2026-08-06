@@ -2579,6 +2579,8 @@ function ReportView({ companyId, companyName, generatedBy, statusLabel, template
     const summaryHtml = Object.entries(summary).map(([k, v]) =>
       `<tr><td>${esc(k)}</td><td style="text-align:right">${v}</td></tr>`).join('')
     const routineHtml = rows.length > 0 ? `
+      <h2>${esc(tr.rr.sectionRoutine)}</h2>
+      <p class="note">${esc(tr.rr.sectionRoutineHelp)}</p>
       <table><thead><tr>
         <th>${esc(tr.rr.reportDate)}</th><th>${esc(tr.rr.reportRoutine)}</th><th>${esc(tr.rr.reportItem)}</th>
         <th style="text-align:right">${esc(tr.rr.reportQty)}</th><th>${esc(tr.rr.reportVariants)}</th><th>${esc(tr.rr.reportFrom)}</th>
@@ -2588,7 +2590,8 @@ function ReportView({ companyId, companyName, generatedBy, statusLabel, template
       <table style="max-width:380px"><thead><tr><th>${esc(tr.rr.reportItem)}</th><th style="text-align:right">${esc(tr.rr.reportTotal)}</th></tr></thead>
       <tbody>${summaryHtml}</tbody></table>` : ''
     const roomHtml = hasRoomData ? `
-      <h2>${esc(lang === 'th' ? 'ใบสั่งห้อง' : 'Room orders')} <span style="font-weight:400;color:#888;font-size:12px">(${roomDays} ${esc(lang === 'th' ? 'วัน' : 'days')})</span></h2>
+      <h2>${esc(tr.rr.sectionRooms)} <span style="font-weight:400;color:#888;font-size:12px">(${roomDays} ${esc(lang === 'th' ? 'วัน' : roomDays === 1 ? 'day' : 'days')})</span></h2>
+      <p class="note">${esc(tr.rr.sectionRoomsHelp)}</p>
       <table style="max-width:420px"><thead><tr><th>${esc(lang === 'th' ? 'สถานะห้อง' : 'Room status')}</th><th style="text-align:right">${esc(tr.rr.reportTotal)}</th></tr></thead>
       <tbody>${(['checkin', 'occupied', 'empty', 'oo'] as const).map((s) => `<tr><td>${esc(roomStatusName(s))}</td><td style="text-align:right">${roomStatusCounts[s] ?? 0}</td></tr>`).join('')}</tbody></table>
       ${roomDeptKeys.map((dept) => `
@@ -2602,7 +2605,10 @@ function ReportView({ companyId, companyName, generatedBy, statusLabel, template
         table{width:100%;border-collapse:collapse;margin-bottom:24px}
         th{background:#f3f4f6;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:#555}
         th,td{border:1px solid #e5e7eb;padding:6px 10px}
-        h2{font-size:14px;margin:18px 0 8px}
+        h2{font-size:14px;margin:18px 0 4px}
+        /* Sits between a section heading and its table, so it must not read as
+           a table caption — hence the muted colour and the tighter top margin. */
+        .note{color:#666;font-size:11px;line-height:1.45;margin:0 0 10px;max-width:620px}
         .foot{color:#888;font-size:11px;margin-top:24px;border-top:1px solid #e5e7eb;padding-top:8px}
         @media print{body{padding:0}}
       </style></head><body>
@@ -2652,6 +2658,10 @@ function ReportView({ companyId, companyName, generatedBy, statusLabel, template
           {rows.length > 0 && (
           <>
           {/* Orders table */}
+          <div className="bg-white rounded-xl border border-gray-200 p-4 pb-3">
+            <h3 className="text-sm font-semibold text-gray-900">{tr.rr.sectionRoutine}</h3>
+            <p className="text-xs text-gray-500 mt-1 leading-relaxed">{tr.rr.sectionRoutineHelp}</p>
+          </div>
           <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
             <table className="w-full text-sm min-w-[560px]">
               <thead>
@@ -2704,9 +2714,10 @@ function ReportView({ companyId, companyName, generatedBy, statusLabel, template
           {hasRoomData && (
             <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-4">
               <div className="flex items-center gap-2 flex-wrap">
-                <h3 className="text-sm font-semibold text-gray-900">{lang === 'th' ? 'ใบสั่งห้อง' : 'Room orders'}</h3>
+                <h3 className="text-sm font-semibold text-gray-900">{tr.rr.sectionRooms}</h3>
                 <span className="text-[11px] text-gray-400">{roomDays} {lang === 'th' ? 'วัน' : roomDays === 1 ? 'day' : 'days'}</span>
               </div>
+              <p className="text-xs text-gray-500 -mt-2 leading-relaxed">{tr.rr.sectionRoomsHelp}</p>
 
               {/* Room-status breakdown */}
               <div className="flex flex-wrap gap-2">
