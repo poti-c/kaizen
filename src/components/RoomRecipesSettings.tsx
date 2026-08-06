@@ -44,7 +44,7 @@ function newId(): string {
   return (globalThis.crypto?.randomUUID?.() ?? `line_${Math.floor(performance.now() * 1000)}`)
 }
 /** Catalog label for an item, matching the Template editor's format. */
-function itemLabel(it: RrItem): string {
+export function itemLabel(it: RrItem): string {
   return it.code ? `${it.code} — ${it.description}` : it.description
 }
 

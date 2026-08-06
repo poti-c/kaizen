@@ -15,7 +15,7 @@ import { DEFAULT_UNIT, unitOne, unitMany, type UnitNoun } from '@/lib/roomUnit'
 import { resolveDeptRecipients } from '@/lib/rrNotify'
 import { bangkokDate, parseDateOnlyBkk, bangkokDayOfWeek } from '@/lib/utils'
 import type { RecipeLine, RoomRecipes, LineType } from '@/components/RoomRecipesSettings'
-import { ItemField } from '@/components/RoomRecipesSettings'
+import { ItemField, itemLabel } from '@/components/RoomRecipesSettings'
 import { recipeSeedOff } from '@/lib/roomRecipe'
 
 const DEPT_OPTIONS = DEPARTMENTS.filter((d) => d.value !== 'top_management')
@@ -1287,6 +1287,20 @@ function LineRow({ line: l, items, lang, onPatch, onRemove, onToggle, special, r
       onPatch(l.id, { prepare_department: l.fulfill_department, fulfill_department: deliverer })
     }
   }
+
+  /**
+   * Picking a catalogued item adopts the routing configured for it: an item whose catalog
+   * entry names a different DELIVERING department (a cake baked by Kitchen, served by
+   * Restaurant) turns the line into a handoff by itself — no toggling, one line.
+   * Only special requests auto-route; a recipe-seeded line keeps the routing management
+   * curated for it in the category recipe, even if its item is swapped here.
+   */
+  function itemPatch(v: string): Partial<SheetLine> {
+    if (!special) return { item: v }
+    const deliverer = deptItems.find((it) => itemLabel(it) === v)?.deliver_department
+    if (!deliverer || deliverer === catalogDept) return { item: v }
+    return { item: v, prepare_department: catalogDept, fulfill_department: deliverer }
+  }
   return (
     <div className={`rounded-lg border border-gray-100 p-2.5 space-y-2 transition-opacity ${l.active ? 'bg-gray-50/50' : 'bg-gray-100/40 opacity-55'}`}>
       <div className="flex items-center gap-2">
@@ -1349,7 +1363,7 @@ function LineRow({ line: l, items, lang, onPatch, onRemove, onToggle, special, r
             </select>
           ))}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            <ItemField value={l.item} options={deptItems} lang={lang} onChange={(v) => onPatch(l.id, { item: v })} />
+            <ItemField value={l.item} options={deptItems} lang={lang} onChange={(v) => onPatch(l.id, itemPatch(v))} />
             <div className="flex items-center gap-1.5">
               <span className="text-[11px] text-gray-400 flex-shrink-0">{lang === 'th' ? 'เวลา' : 'by'}</span>
               <input type="time" value={l.serving_at} onChange={(e) => onPatch(l.id, { serving_at: e.target.value })}

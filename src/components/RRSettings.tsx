@@ -13,6 +13,14 @@ export interface RrItem {
   description: string
   /** Catalog grouping: standard recipe items vs ad-hoc upsell/special requests. Missing = 'default'. */
   kind?: 'default' | 'special'
+  /**
+   * The department that DELIVERS this item, when it isn't the one that makes it —
+   * a cake is baked by Kitchen but served by Restaurant. Picking such an item in a
+   * special request routes the line as a two-stage handoff on its own, so the
+   * requester files one line instead of one per department.
+   * Null/absent = the owning department both makes and delivers it.
+   */
+  deliver_department?: Department | null
 }
 
 const DEPT_OPTIONS = DEPARTMENTS.filter((d) => d.value !== 'top_management')
@@ -200,6 +208,12 @@ function DeptModal({ dept, allItems, lang, onClose, onSave }: {
     setLocal((prev) => prev.map((it, i) => i === globalIdx ? { ...it, [field]: value } : it))
   }
 
+  /** "" = this department delivers its own item; any other dept = two-stage handoff. */
+  function patchDeliverer(globalIdx: number, value: string) {
+    setLocal((prev) => prev.map((it, i) => i === globalIdx
+      ? { ...it, deliver_department: value ? (value as Department) : null } : it))
+  }
+
   function remove(globalIdx: number) {
     setLocal((prev) => prev.filter((_, i) => i !== globalIdx))
   }
@@ -214,7 +228,11 @@ function DeptModal({ dept, allItems, lang, onClose, onSave }: {
 
   async function save() {
     setBusy(true)
+    // A deliverer only means something when it differs from the department that makes the
+    // item — transferring an item into its own delivering dept collapses it to single-stage.
     const clean = local.filter((it) => it.code.trim() || it.description.trim())
+      .map((it) => (it.deliver_department && it.deliver_department === it.department
+        ? { ...it, deliver_department: null } : it))
     const ok = await onSave(clean)
     setBusy(false)
     if (ok) onClose()
@@ -250,6 +268,14 @@ function DeptModal({ dept, allItems, lang, onClose, onSave }: {
                 <input value={it.description} onChange={(e) => patch(i, 'description', e.target.value)}
                   placeholder={lang === 'th' ? 'คำอธิบาย' : 'Description'}
                   className="flex-1 min-w-0 h-8 rounded-md border border-gray-200 px-2 text-sm focus:outline-none focus:ring-1 focus:ring-[var(--brand-primary)]/40 bg-white" />
+
+                {/* Who delivers it — blank means this department delivers its own item */}
+                <select value={it.deliver_department ?? ''} onChange={(e) => patchDeliverer(i, e.target.value)}
+                  title={lang === 'th' ? 'แผนกที่นำไปส่ง (ถ้าไม่ใช่แผนกนี้)' : 'Delivered by (if not this department)'}
+                  className={`w-24 h-8 flex-shrink-0 rounded-md border px-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-[var(--brand-primary)]/40 ${it.deliver_department ? 'border-[var(--brand-primary)] text-[var(--brand-primary)]' : 'border-gray-200 text-gray-400'}`}>
+                  <option value="">{lang === 'th' ? 'ส่งเอง' : 'self'}</option>
+                  {otherDepts.map((d) => <option key={d.value} value={d.value}>→ {deptLabel(d.value, lang)}</option>)}
+                </select>
 
                 {/* Transfer to another department */}
                 <div className="relative flex-shrink-0" ref={transferIdx === i ? transferRef : undefined}>
