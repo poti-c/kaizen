@@ -1,7 +1,12 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" translate="no">
   <head>
     <meta charset="UTF-8" />
+    <!-- The app ships its own EN/TH switcher (LanguageContext), which also keeps
+         <html lang> in sync. Browser auto-translation on top of that rewrites the
+         text nodes React owns and crashes it with "Failed to execute 'removeChild'
+         on 'Node'" — 46 logged occurrences across every page. Opt out. -->
+    <meta name="google" content="notranslate" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <script>
       // GitHub Pages SPA routing fix — restore path from query param set by 404.html

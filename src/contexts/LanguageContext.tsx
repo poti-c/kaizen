@@ -922,6 +922,16 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
     return () => { active = false; sub.subscription.unsubscribe() }
   }, [])
 
+  // Keep the document language in sync with the UI language. Without this the
+  // page always claimed lang="en" while rendering Thai, so Chrome offered (and
+  // for many users auto-applied) a translation — which rewrites React's text
+  // nodes and crashes the app on unmount. index.html also opts out of
+  // translation outright; this keeps the declaration honest for screen readers
+  // and Thai line-breaking.
+  useEffect(() => {
+    document.documentElement.lang = lang
+  }, [lang])
+
   const t = lang === 'th' ? th : en
   return <LangContext.Provider value={{ lang, setLang, t }}>{children}</LangContext.Provider>
 }
