@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   Loader2, X, Check, Plus, Trash2, Send, ChevronLeft, ChevronRight,
-  Truck, ListChecks, ArrowRight, DoorOpen, DoorClosed, CheckCircle2, ShieldCheck, Clock, AlertTriangle, RotateCcw, History, ChevronDown, Eye, FileText,
+  Truck, ListChecks, ArrowRight, ChefHat, DoorOpen, DoorClosed, CheckCircle2, ShieldCheck, Clock, AlertTriangle, RotateCcw, History, ChevronDown, Eye, FileText,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { RoomDocModal } from '@/components/RoomDocModal'
@@ -660,7 +660,11 @@ function RoomOrderBuild({ companyId, unit, requireApproval, date: controlledDate
     setBusy(true)
     const orderResult = await ensureOrder(); if (!orderResult) { setBusy(false); return false } const oid = orderResult.id
     const room = rooms.find((r) => r.no === roomNo)!
+    // A handoff only counts when the preparer differs from the deliverer — picking the same
+    // dept on both sides is a single-stage line, not a two-stage one (matching the recipe
+    // editor's rule), so it must not be written as a handoff the boards would route twice.
     const clean = lines.filter((l) => l.item.trim() || l.slot.trim())
+      .map((l) => (l.prepare_department && l.prepare_department === l.fulfill_department ? { ...l, prepare_department: null } : l))
     const nextStatuses = { ...roomStatuses, [roomNo]: status }
     // Reconcile rather than delete+reinsert: existing rows are UPDATED in place so their
     // fulfilment/approval state (status, delivered/acknowledged stamps, approval_status)
@@ -1266,6 +1270,23 @@ function LineRow({ line: l, items, lang, onPatch, onRemove, onToggle, special, r
   // for a handoff line that's the PREPARER (who makes it), else the single dept.
   const catalogDept = l.prepare_department ?? l.fulfill_department
   const deptItems = items.filter((it) => it.department === catalogDept)
+  const handoff = !!l.prepare_department
+
+  // Same two-stage shape the category recipe offers (RoomRecipesSettings.toggleHandoff),
+  // so a one-off request like a birthday cake is ONE line — Kitchen makes it, Restaurant
+  // delivers — instead of the requester filing a near-duplicate line per department.
+  function toggleHandoff() {
+    if (l.prepare_department) {
+      // Off: collapse to the preparer, who is the dept that actually makes the item.
+      onPatch(l.id, { fulfill_department: l.prepare_department, prepare_department: null })
+    } else {
+      // On: current dept becomes the PREPARER; another delivers (Restaurant by default).
+      const deliverer = DEPT_OPTIONS.find((d) => d.value !== l.fulfill_department && d.value === 'restaurant')?.value
+        ?? DEPT_OPTIONS.find((d) => d.value !== l.fulfill_department)?.value
+        ?? l.fulfill_department
+      onPatch(l.id, { prepare_department: l.fulfill_department, fulfill_department: deliverer })
+    }
+  }
   return (
     <div className={`rounded-lg border border-gray-100 p-2.5 space-y-2 transition-opacity ${l.active ? 'bg-gray-50/50' : 'bg-gray-100/40 opacity-55'}`}>
       <div className="flex items-center gap-2">
@@ -1300,18 +1321,40 @@ function LineRow({ line: l, items, lang, onPatch, onRemove, onToggle, special, r
           {special && l.note && <span className="text-gray-400">· {l.note}</span>}
         </div>
       ) : (
-        <div className={`grid grid-cols-1 sm:grid-cols-2 gap-2 ${l.active ? '' : 'pointer-events-none'}`}>
-          {special && (
+        <div className={`space-y-2 ${l.active ? '' : 'pointer-events-none'}`}>
+          {/* Department(s). Single-stage = one dept; handoff = prepare → deliver.
+              The item catalog stays keyed to the preparer, so switching the deliverer
+              never invalidates an item that's already been picked. */}
+          {special && (handoff ? (
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-[10px] font-medium text-gray-400 flex items-center gap-1 mb-0.5"><ChefHat className="h-3 w-3" />{lang === 'th' ? 'เตรียมโดย' : 'Prepared by'}</label>
+                <select value={l.prepare_department ?? ''} onChange={(e) => onPatch(l.id, { prepare_department: e.target.value as Department, item: '' })}
+                  className="h-8 w-full rounded-md border border-gray-200 px-2 text-sm bg-white focus:outline-none focus:ring-1 focus:ring-[var(--brand-primary)]/40">
+                  {DEPT_OPTIONS.map((d) => <option key={d.value} value={d.value}>{deptLabel(d.value, lang)}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-[10px] font-medium text-gray-400 flex items-center gap-1 mb-0.5"><Truck className="h-3 w-3" />{lang === 'th' ? 'ส่งโดย' : 'Delivered by'}</label>
+                <select value={l.fulfill_department} onChange={(e) => onPatch(l.id, { fulfill_department: e.target.value as Department })}
+                  className="h-8 w-full rounded-md border border-gray-200 px-2 text-sm bg-white focus:outline-none focus:ring-1 focus:ring-[var(--brand-primary)]/40">
+                  {DEPT_OPTIONS.map((d) => <option key={d.value} value={d.value}>{deptLabel(d.value, lang)}</option>)}
+                </select>
+              </div>
+            </div>
+          ) : (
             <select value={l.fulfill_department} onChange={(e) => onPatch(l.id, { fulfill_department: e.target.value as Department, item: '' })}
-              className="h-8 rounded-md border border-gray-200 px-2 text-sm bg-white focus:outline-none focus:ring-1 focus:ring-[var(--brand-primary)]/40">
+              className="h-8 w-full rounded-md border border-gray-200 px-2 text-sm bg-white focus:outline-none focus:ring-1 focus:ring-[var(--brand-primary)]/40">
               {DEPT_OPTIONS.map((d) => <option key={d.value} value={d.value}>{deptLabel(d.value, lang)}</option>)}
             </select>
-          )}
-          <ItemField value={l.item} options={deptItems} lang={lang} onChange={(v) => onPatch(l.id, { item: v })} />
-          <div className="flex items-center gap-1.5">
-            <span className="text-[11px] text-gray-400 flex-shrink-0">{lang === 'th' ? 'เวลา' : 'by'}</span>
-            <input type="time" value={l.serving_at} onChange={(e) => onPatch(l.id, { serving_at: e.target.value })}
-              className="h-8 w-full rounded-md border border-gray-200 px-2 text-sm bg-white focus:outline-none focus:ring-1 focus:ring-[var(--brand-primary)]/40" />
+          ))}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <ItemField value={l.item} options={deptItems} lang={lang} onChange={(v) => onPatch(l.id, { item: v })} />
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] text-gray-400 flex-shrink-0">{lang === 'th' ? 'เวลา' : 'by'}</span>
+              <input type="time" value={l.serving_at} onChange={(e) => onPatch(l.id, { serving_at: e.target.value })}
+                className="h-8 w-full rounded-md border border-gray-200 px-2 text-sm bg-white focus:outline-none focus:ring-1 focus:ring-[var(--brand-primary)]/40" />
+            </div>
           </div>
         </div>
       )}
@@ -1321,6 +1364,14 @@ function LineRow({ line: l, items, lang, onPatch, onRemove, onToggle, special, r
           {l.line_type === 'checklist' ? <ListChecks className="h-3 w-3" /> : <Truck className="h-3 w-3" />}
           {l.line_type === 'checklist' ? (lang === 'th' ? 'เช็คลิสต์' : 'Checklist') : (lang === 'th' ? 'จัดส่ง' : 'Delivery')}
         </span>
+        {special && !readOnly && (
+          <button onClick={toggleHandoff}
+            title={lang === 'th' ? 'เตรียมโดยแผนกหนึ่ง แล้วส่งต่ออีกแผนกเพื่อจัดส่ง' : 'One dept prepares, another delivers'}
+            className={`h-7 px-2 flex items-center gap-1 rounded-md border text-[11px] flex-shrink-0 ${handoff ? 'border-[var(--brand-primary)] text-[var(--brand-primary)] bg-[var(--brand-primary)]/5' : 'border-gray-200 text-gray-400 hover:text-gray-600'}`}>
+            <ArrowRight className="h-3 w-3" />
+            {lang === 'th' ? 'ส่งต่อ' : 'Hand off'}
+          </button>
+        )}
         {special && !readOnly && (
           <input value={l.note} onChange={(e) => onPatch(l.id, { note: e.target.value })}
             placeholder={lang === 'th' ? 'หมายเหตุ' : 'note (optional)'}
