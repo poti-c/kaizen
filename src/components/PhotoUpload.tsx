@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabase'
 import { cn, buildPhotoPath } from '@/lib/utils'
 import { useLanguage } from '@/contexts/LanguageContext'
 import { blockSWReload, unblockSWReload, clearSWReloadReason } from '@/lib/swReload'
+import { reportError } from '@/lib/errorReporter'
 
 // Per-mount id so each PhotoUpload holds its own SW-reload deferral independently.
 let photoUploadSeq = 0
@@ -16,6 +17,15 @@ const isTouchDevice = typeof window !== 'undefined' && ('ontouchstart' in window
 // (the old code silently dropped the photo — the #1 "can't upload on Android" cause).
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024 // 10 MB
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
+
+// `image/*` alone is enough for Chrome and Safari, but some Android file pickers
+// (Samsung's "My Files", several vendor gallery apps) match the filter against the
+// file EXTENSION rather than the MIME type and then show an empty, unselectable
+// list — the photo is right there and can't be picked. Listing the extensions
+// alongside the wildcard makes those pickers behave. HEIC/HEIF are included on
+// purpose: compressImage transcodes them, so accepting them here is better than
+// having the picker grey out every photo on a phone shooting High Efficiency.
+const PICKER_ACCEPT = 'image/*,.jpg,.jpeg,.png,.webp,.gif,.heic,.heif'
 
 // Set right before we open the native camera. Opening the camera backgrounds the tab, and
 // low-memory Android can kill it while the camera app is foreground — the captured File then
@@ -251,9 +261,11 @@ export function PhotoUpload({ onUpload, maxFiles = 3, label = 'Add Photos', buck
   )
   const [dragOver, setDragOver] = useState(false)
   const desktopInputRef = useRef<HTMLInputElement>(null)
-  const cameraInputRef = useRef<HTMLInputElement>(null)
-  const galleryInputRef = useRef<HTMLInputElement>(null)
   const photoIndexRef = useRef(1)
+  // PHOTO-PICKER-01 telemetry: which picker was last activated, and whether anything
+  // actually happened afterwards. See notePickerOpened.
+  const pickerWatchRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pickerRespondedRef = useRef(true)
   // This mount's SW-reload deferral reason, and the fallback timer that releases it
   // if the user returns from the picker without choosing a file (no handleFiles).
   const reloadReasonRef = useRef<string>('')
@@ -273,6 +285,27 @@ export function PhotoUpload({ onUpload, maxFiles = 3, label = 'Add Photos', buck
     blockSWReload(reloadReasonRef.current)
   }
 
+  // A silently-dead picker is invisible to us: the browser reports no error, so the
+  // only symptom is a user saying "nothing happens when I tap". Watch for it — if
+  // neither a file nor a tab-backgrounding (which is what opening a native chooser
+  // does) follows the tap, record it so the failure shows up in the Console error log
+  // with the device's user agent instead of being reported by hand weeks later.
+  // Log-only: never toast, since a picker that opens as an in-page sheet without
+  // hiding the tab would make a user-facing warning a lie.
+  const notePickerOpened = (which: 'camera' | 'gallery') => {
+    pickerRespondedRef.current = false
+    if (pickerWatchRef.current) clearTimeout(pickerWatchRef.current)
+    pickerWatchRef.current = setTimeout(() => {
+      pickerWatchRef.current = null
+      if (pickerRespondedRef.current) return
+      void reportError('app', 'photo picker did not open', { which, touch: isTouchDevice })
+    }, 4000)
+  }
+  const notePickerResponded = () => {
+    pickerRespondedRef.current = true
+    if (pickerWatchRef.current) { clearTimeout(pickerWatchRef.current); pickerWatchRef.current = null }
+  }
+
   // Safety net: always release this mount's reload block (and its timer) when the
   // component unmounts, so a deferral can never get stuck open. Uses the full-clear
   // variant, not unblockSWReload — if two captures were overlapping when this unmounts,
@@ -280,6 +313,7 @@ export function PhotoUpload({ onUpload, maxFiles = 3, label = 'Add Photos', buck
   // stuck at a positive count since nothing can call unblock for it after unmount.
   useEffect(() => () => {
     if (releaseTimerRef.current) clearTimeout(releaseTimerRef.current)
+    if (pickerWatchRef.current) clearTimeout(pickerWatchRef.current)
     clearSWReloadReason(reloadReasonRef.current)
   }, [])
 
@@ -306,7 +340,12 @@ export function PhotoUpload({ onUpload, maxFiles = 3, label = 'Add Photos', buck
   // for the mount check above.
   useEffect(() => {
     const onVisible = () => {
-      if (document.visibilityState !== 'visible') return
+      if (document.visibilityState !== 'visible') {
+        // Tab went to the background — the native camera/file chooser is up, so the
+        // picker is alive and the watchdog above has nothing to report.
+        notePickerResponded()
+        return
+      }
       clearCameraPending()
       // Returned from the camera/gallery. If a file was chosen, handleFiles holds
       // the reload block and releases it when the upload finishes. If the user
@@ -323,6 +362,8 @@ export function PhotoUpload({ onUpload, maxFiles = 3, label = 'Add Photos', buck
   }, [])
 
   async function handleFiles(files: FileList | null) {
+    // A file came back, so the picker plainly worked.
+    notePickerResponded()
     // A capture (or cancel) returned to a live page — the interruption guard no longer applies.
     clearCameraPending()
     // A file arrived, so cancel the visibility-based fallback release; the reload
@@ -414,44 +455,46 @@ export function PhotoUpload({ onUpload, maxFiles = 3, label = 'Add Photos', buck
     <div className="space-y-3">
       {remaining > 0 && (
         isTouchDevice ? (
-          /* ── Mobile: Camera + Gallery buttons ── */
+          /* ── Mobile: Camera + Gallery tiles ──
+             PHOTO-PICKER-01: each tile is a <label> with the real <input type="file">
+             stretched invisibly across it, so the user's finger lands on the INPUT
+             itself. The previous version hid the inputs with `display:none` and opened
+             them from a <button> via `ref.click()` — Samsung Internet (and several
+             Android WebViews) ignore a programmatic click on a display:none file input
+             entirely, so both tiles were dead: no picker, no camera, no error. Never
+             reintroduce `hidden` here; `opacity-0` keeps the input rendered and
+             hit-testable, which is what makes the tap work everywhere.
+             The input is nested inside the label, so a tap on the padding activates it
+             via label forwarding and a tap on the input activates it directly — the HTML
+             spec suppresses label forwarding when the tap already hit the control, so
+             this can't double-open the picker. */
           <div className="grid grid-cols-2 gap-3">
-            {/* Take Photo button */}
-            <button
-              type="button"
-              onClick={() => { markCameraPending(); cameraInputRef.current?.click() }}
-              className="flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-gray-300 py-5 active:bg-gray-50 transition-colors"
-            >
+            {/* Take Photo — opens the rear camera directly */}
+            <label className="relative flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-gray-300 py-5 active:bg-gray-50 transition-colors cursor-pointer">
               <Camera className="h-7 w-7 text-gray-400" />
               <span className="text-xs font-medium text-gray-500">{lang === 'th' ? 'ถ่ายรูป' : 'Take Photo'}</span>
-            </button>
-            {/* Choose from Library button */}
-            <button
-              type="button"
-              onClick={() => { markCameraPending(); galleryInputRef.current?.click() }}
-              className="flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-gray-300 py-5 active:bg-gray-50 transition-colors"
-            >
+              <input
+                type="file"
+                accept={PICKER_ACCEPT}
+                capture="environment"
+                className="absolute inset-0 h-full w-full opacity-0"
+                onClick={() => { markCameraPending(); notePickerOpened('camera') }}
+                onChange={(e) => { handleFiles(e.target.files); e.target.value = '' }}
+              />
+            </label>
+            {/* Choose from Library — opens the photo library / file picker */}
+            <label className="relative flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-gray-300 py-5 active:bg-gray-50 transition-colors cursor-pointer">
               <ImageIcon className="h-7 w-7 text-gray-400" />
               <span className="text-xs font-medium text-gray-500">{lang === 'th' ? 'เลือกจากคลังภาพ' : 'Choose from Library'}</span>
-            </button>
-            {/* Hidden camera input — opens rear camera directly */}
-            <input
-              ref={cameraInputRef}
-              type="file"
-              accept="image/*"
-              capture="environment"
-              className="hidden"
-              onChange={(e) => { handleFiles(e.target.files); e.target.value = '' }}
-            />
-            {/* Hidden gallery input — opens photo library */}
-            <input
-              ref={galleryInputRef}
-              type="file"
-              accept="image/*"
-              multiple
-              className="hidden"
-              onChange={(e) => { handleFiles(e.target.files); e.target.value = '' }}
-            />
+              <input
+                type="file"
+                accept={PICKER_ACCEPT}
+                multiple
+                className="absolute inset-0 h-full w-full opacity-0"
+                onClick={() => { markCameraPending(); notePickerOpened('gallery') }}
+                onChange={(e) => { handleFiles(e.target.files); e.target.value = '' }}
+              />
+            </label>
           </div>
         ) : (
           /* ── Desktop: drag & drop zone ── */
@@ -471,7 +514,7 @@ export function PhotoUpload({ onUpload, maxFiles = 3, label = 'Add Photos', buck
             <input
               ref={desktopInputRef}
               type="file"
-              accept="image/*"
+              accept={PICKER_ACCEPT}
               multiple
               className="hidden"
               onChange={(e) => { handleFiles(e.target.files); e.target.value = '' }}
