@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, Loader2, RefreshCw } from 'lucide-react'
+import { ArrowLeft, Loader2, RefreshCw, User, ChevronDown, ChevronUp } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useCompany } from '@/contexts/CompanyContext'
 import { useLanguage } from '@/contexts/LanguageContext'
@@ -12,8 +12,8 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { PhotoUpload, CAMERA_PENDING_KEY, CAMERA_PENDING_MAX_AGE_MS } from '@/components/PhotoUpload'
 import { generateCaseNumber, CATEGORIES, LOCATIONS, formatDueBy, toDateTimeLocal, fromDateTimeLocal, bangkokDate, photoStoragePathFromUrl } from '@/lib/utils'
-import { CATEGORY_LABELS_EN, categoryLabel, deptLabel } from '@/types'
-import type { CasePriority, Department } from '@/types'
+import { CATEGORY_LABELS_EN, categoryLabel, deptLabel, DEPARTMENT_LABELS } from '@/types'
+import type { CasePriority, Department, KaizenProfile } from '@/types'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { useDepartments } from '@/hooks/useDepartments'
@@ -64,6 +64,10 @@ interface CaseDraft {
   locationOther: string
   isRecurring: boolean
   photoUrls: string[]
+  // Ids only — the candidate profiles are re-fetched on mount, so a restored
+  // draft never carries stale names/departments for someone who has since
+  // moved department or been deactivated. Unknown ids are dropped on submit.
+  selectedPics?: string[]
 }
 
 function loadDraft(key: string): CaseDraft | null {
@@ -120,6 +124,16 @@ export function CreateCasePage() {
   const [photoUrls, setPhotoUrls] = useState<string[]>(draft?.photoUrls ?? [])
   const [loading, setLoading] = useState(false)
 
+  // ── Person in Charge (optional, available to everyone) ────────────────────
+  // Naming a PIC here does exactly what the case page's "Edit In Charge" does:
+  // it sets pic_ids/person_in_charge, opens the case as 'assigned' instead of
+  // 'open', and notifies the people named. Left empty, the case behaves exactly
+  // as before — a manager assigns it later from the case page.
+  const [selectedPics, setSelectedPics] = useState<string[]>(draft?.selectedPics ?? [])
+  const [picCandidates, setPicCandidates] = useState<KaizenProfile[]>([])
+  const [showPicPicker, setShowPicPicker] = useState(false)
+  const [picQuery, setPicQuery] = useState('')
+
   // Was the OS killing/reloading this tab while a native camera or gallery picker was open?
   // If so, this mount is an expected return-from-capture, not a cold re-open of an abandoned
   // draft — so we suppress the "Restored your unsaved draft" toast below (it reads as an error
@@ -147,7 +161,7 @@ export function CreateCasePage() {
   }, [])
 
   useEffect(() => {
-    const hasContent = title || description || category || location || photoUrls.length > 0
+    const hasContent = title || description || category || location || photoUrls.length > 0 || selectedPics.length > 0
     // CC-BUG-04: this used to just return here, leaving whatever draft was
     // already in sessionStorage untouched. Clearing every field then leaves a
     // now-stale draft sitting there — the NEXT visit to this page restores
@@ -155,10 +169,10 @@ export function CreateCasePage() {
     if (!hasContent) { clearDraft(dKey); return }
     const d: CaseDraft = {
       caseNumber, title, description, priority, department, dueDate,
-      category, categoryOther, location, locationOther, isRecurring, photoUrls,
+      category, categoryOther, location, locationOther, isRecurring, photoUrls, selectedPics,
     }
     try { sessionStorage.setItem(dKey, JSON.stringify(d)) } catch { /* storage full/unavailable */ }
-  }, [caseNumber, title, description, priority, department, dueDate, category, categoryOther, location, locationOther, isRecurring, photoUrls])
+  }, [caseNumber, title, description, priority, department, dueDate, category, categoryOther, location, locationOther, isRecurring, photoUrls, selectedPics])
 
   // Load company's custom categories + locations from settings
   const [customCategories, setCustomCategories] = useState<{ slug: string; label: string }[]>(
@@ -170,6 +184,27 @@ export function CreateCasePage() {
   useEffect(() => {
     if (profile?.department && profile.role !== 'super_admin') setDepartment(profile.department as Department)
   }, [profile?.department, profile?.role])
+
+  // Assignable people for the In Charge picker — same query as the case page's
+  // loadPicCandidates (active, non-deleted, this company, Owner excluded) so the
+  // two lists can never disagree about who may be assigned.
+  useEffect(() => {
+    if (!activeCompany?.id) return
+    let cancelled = false
+    ;(async () => {
+      const { data, error } = await supabase
+        .from('kaizen_profiles').select('*')
+        .eq('is_active', true)
+        .is('deleted_at', null)
+        .eq('company_id', activeCompany.id)
+        .in('role', ['staff', 'manager', 'super_admin'])
+        .order('department').order('role', { ascending: false }).order('full_name')
+      if (cancelled) return
+      if (error) { console.error('pic candidate lookup failed', error); return }
+      setPicCandidates(((data || []) as KaizenProfile[]).filter(p => p.job_title !== 'Owner'))
+    })()
+    return () => { cancelled = true }
+  }, [activeCompany?.id])
 
   useEffect(() => {
     if (!activeCompany?.id) return
@@ -234,6 +269,17 @@ export function CreateCasePage() {
       // on that very first, retryable failure.
       let usedCaseNumber = caseNumber
       let newCase: { id: string } | null = null
+      // Drop any id that no longer resolves to a selectable person (a draft
+      // restored after someone was deactivated), so we never write a dead
+      // person_in_charge and violate the FK.
+      const validPics = selectedPics.filter(pid => picCandidates.some(c => c.id === pid))
+      // Mirror savePic on the case page: naming a PIC up front assigns the case
+      // immediately, and the PICs' own departments (other than Top Management,
+      // which has no operational department, and the case's own) get badged.
+      const picDepts = validPics
+        .map(pid => picCandidates.find(c => c.id === pid)?.department)
+        .filter((d): d is Department => !!d && d !== 'top_management' && d !== department)
+      const newDepts = [...new Set(picDepts)]
       for (let attempt = 0; attempt < MAX_CASE_NUMBER_ATTEMPTS; attempt++) {
         const { data, error } = await supabase
           .from('kaizen_cases')
@@ -244,7 +290,10 @@ export function CreateCasePage() {
             department,
             created_by: profile.id,
             priority,
-            status: 'open',
+            status: validPics.length > 0 ? 'assigned' : 'open',
+            pic_ids: validPics.length > 0 ? validPics : null,
+            person_in_charge: validPics[0] ?? null,
+            assigned_departments: newDepts.length > 0 ? newDepts : null,
             company_id: activeCompany?.id ?? null,
             due_date: dueDate || null,
             category: category || null,
@@ -300,6 +349,63 @@ export function CreateCasePage() {
         performed_by: profile.id,
       })
       if (timelineErr) console.error('case timeline insert failed', timelineErr)
+
+      // ── In Charge assigned at creation ──────────────────────────────────────
+      // Everything below mirrors savePic() on the case page so a case assigned
+      // here is indistinguishable from one assigned afterwards: assignment rows
+      // (which drive the department badges), the same two timeline actions, and
+      // the same 'Assigned as In Charge' notification. All of it is best-effort
+      // — the case row is already committed, so a failure here is logged rather
+      // than thrown, which would otherwise trigger the catch block's photo
+      // cleanup and destroy the reporter's evidence for an already-saved case.
+      if (validPics.length > 0) {
+        const { error: asnErr } = await supabase.from('kaizen_case_assignments').upsert(
+          [department, ...newDepts].map((dept) => ({
+            case_id: newCase.id,
+            department: dept,
+            assigned_by: profile.id,
+            status: 'pending',
+          })),
+          { onConflict: 'case_id,department' }
+        )
+        if (asnErr) console.error('case assignment upsert failed', asnErr)
+
+        const picNames = validPics
+          .map(pid => picCandidates.find(c => c.id === pid)?.full_name || 'Unknown')
+          .join(', ')
+        const { error: picTlErr } = await supabase.from('kaizen_case_timeline').insert([
+          {
+            case_id: newCase.id,
+            action: 'case_assigned',
+            description: `Case assigned to ${DEPARTMENT_LABELS[department] ?? department}`,
+            performed_by: profile.id,
+          },
+          {
+            case_id: newCase.id,
+            action: 'pic_changed',
+            description: `In Charge set to: ${picNames}`,
+            performed_by: profile.id,
+          },
+        ])
+        if (picTlErr) console.error('pic timeline insert failed', picTlErr)
+
+        // Don't notify the reporter about their own case when they named themselves.
+        const picNotifyIds = validPics.filter(pid => pid !== profile.id)
+        if (picNotifyIds.length > 0) {
+          const { error: picNotifErr } = await supabase.from('kaizen_notifications').insert(
+            picNotifyIds.map((pid) => ({
+              user_id: pid,
+              case_id: newCase.id,
+              title: 'Assigned as In Charge',
+              message: `You have been assigned as In Charge for case ${usedCaseNumber}: "${title.trim()}"`,
+              notification_type: 'assignment',
+              title_key: 'case_assigned_pic',
+              body_params: { caseNo: usedCaseNumber },
+            }))
+          )
+          if (picNotifErr) console.error('pic notification insert failed', picNotifErr)
+        }
+      }
 
       // CC-BUG-01: managed_departments is a Postgres TEXT[] column, not jsonb
       // (20260616000005_profiles_managed_departments.sql). PostgREST's `cs`
@@ -444,6 +550,116 @@ export function CreateCasePage() {
               </Select>
             </div>
           )}
+
+          {/* Person in Charge — optional, open to every reporter. Collapsed by
+              default so the form still reads as a two-field quick report. */}
+          <div className="space-y-1.5">
+            <Label>{lang === 'th' ? 'ผู้รับผิดชอบ' : 'Person in Charge'} <span className="text-gray-400 font-normal">({lang === 'th' ? 'ไม่บังคับ' : 'optional'})</span></Label>
+            <button
+              type="button"
+              onClick={() => setShowPicPicker((v) => !v)}
+              className="flex h-10 w-full items-center justify-between rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-left transition-colors hover:border-gray-400"
+            >
+              <span className="flex items-center gap-2 min-w-0">
+                <User className="h-4 w-4 flex-shrink-0 text-gray-400" />
+                <span className={cn('truncate', selectedPics.length === 0 && 'text-gray-400')}>
+                  {selectedPics.length === 0
+                    ? (lang === 'th' ? 'ยังไม่ได้มอบหมาย — ผู้จัดการจะมอบหมายภายหลัง' : 'Unassigned — a manager can assign later')
+                    : selectedPics
+                        .map((pid) => picCandidates.find((c) => c.id === pid)?.full_name)
+                        .filter(Boolean)
+                        .join(', ')}
+                </span>
+              </span>
+              {showPicPicker
+                ? <ChevronUp className="h-4 w-4 flex-shrink-0 text-gray-400" />
+                : <ChevronDown className="h-4 w-4 flex-shrink-0 text-gray-400" />}
+            </button>
+
+            {showPicPicker && (
+              <div className="border border-gray-200 rounded-lg bg-white shadow-sm overflow-hidden">
+                <div className="p-2 border-b border-gray-100">
+                  <Input
+                    value={picQuery}
+                    onChange={(e) => setPicQuery(e.target.value)}
+                    placeholder={lang === 'th' ? 'ค้นหาชื่อ…' : 'Search by name…'}
+                    className="h-8 text-xs"
+                  />
+                </div>
+                <div className="max-h-56 overflow-y-auto p-2 space-y-1">
+                  {(() => {
+                    const q = picQuery.trim().toLowerCase()
+                    // Never filter out an already-selected person: otherwise typing a
+                    // search term hides them and the summary line above lists names the
+                    // user can no longer find or untick.
+                    const shown = picCandidates.filter(
+                      (p) => selectedPics.includes(p.id) || !q || (p.full_name ?? '').toLowerCase().includes(q)
+                    )
+                    if (shown.length === 0) {
+                      return <p className="px-2 py-3 text-xs text-gray-400">{lang === 'th' ? 'ไม่พบบุคคลที่สามารถมอบหมายได้' : 'No assignable people found.'}</p>
+                    }
+                    const topMgmt = shown.filter((p) => p.role === 'super_admin')
+                    const managers = shown.filter((p) => p.role === 'manager')
+                    const staffByDept: Record<string, KaizenProfile[]> = {}
+                    shown.filter((p) => p.role === 'staff').forEach((p) => {
+                      const dept = p.department || 'other'
+                      ;(staffByDept[dept] ??= []).push(p)
+                    })
+                    const Row = ({ p }: { p: KaizenProfile }) => (
+                      <label className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          className="h-3.5 w-3.5 rounded border-gray-300 accent-[var(--brand-primary)]"
+                          checked={selectedPics.includes(p.id)}
+                          onChange={() => setSelectedPics((prev) =>
+                            prev.includes(p.id) ? prev.filter((x) => x !== p.id) : [...prev, p.id]
+                          )}
+                        />
+                        <span className="text-xs text-gray-800 flex-1">{p.full_name}</span>
+                        {p.role === 'manager' && (
+                          <span className="text-[10px] text-gray-400">{deptLabel(p.department, lang)}</span>
+                        )}
+                      </label>
+                    )
+                    return (
+                      <>
+                        {topMgmt.length > 0 && (
+                          <div>
+                            <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide px-2 mb-0.5">{lang === 'th' ? 'ผู้บริหารระดับสูง' : 'Top Management'}</p>
+                            {topMgmt.map((p) => <Row key={p.id} p={p} />)}
+                          </div>
+                        )}
+                        {managers.length > 0 && (
+                          <div>
+                            {topMgmt.length > 0 && <div className="my-1 border-t border-gray-100" />}
+                            <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide px-2 mb-0.5">{lang === 'th' ? 'ผู้จัดการ' : 'Managers'}</p>
+                            {managers.map((p) => <Row key={p.id} p={p} />)}
+                          </div>
+                        )}
+                        {Object.entries(staffByDept).map(([dept, members], idx) => (
+                          <div key={dept}>
+                            {(topMgmt.length > 0 || managers.length > 0 || idx > 0) && <div className="my-1 border-t border-gray-100" />}
+                            <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide px-2 mb-0.5">{deptLabel(dept, lang)}</p>
+                            {members.map((p) => <Row key={p.id} p={p} />)}
+                          </div>
+                        ))}
+                      </>
+                    )
+                  })()}
+                </div>
+                <div className="border-t border-gray-100 px-3 py-2 flex items-center justify-between">
+                  <span className="text-[10px] text-gray-400">
+                    {lang === 'th' ? `เลือกแล้ว ${selectedPics.length} รายการ` : `${selectedPics.length} selected`}
+                  </span>
+                  {selectedPics.length > 0 && (
+                    <button type="button" onClick={() => setSelectedPics([])} className="text-xs text-gray-400 hover:text-gray-600">
+                      {lang === 'th' ? 'ล้าง' : 'Clear'}
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
 
           <div className="space-y-1.5">
             <Label>{t.createCase.problemTitle} <span className="text-red-500">*</span></Label>

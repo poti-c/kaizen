@@ -728,8 +728,21 @@ export function CaseDetailPage() {
       setResolutionNote('')
       setResolutionPhotos([])
       fetchCase()
-    } catch {
-      toast.error(lang === 'th' ? 'ส่งการแก้ไขไม่สำเร็จ' : 'Failed to submit resolution.')
+    } catch (err) {
+      // CDP-RESOLVE-DIAG-01: this used to be a bare `catch` that discarded the
+      // error entirely, so every failure below looked identical to the user AND
+      // left no trace anywhere. That made a real report undiagnosable: the proof
+      // photos are already in Storage by this point (PhotoUpload uploads on pick,
+      // not on submit), so a failure here leaves an orphaned object, an unresolved
+      // case, and a generic toast with nothing to go on — which is exactly the
+      // state one user's "I can't upload photos to cases" turned out to be.
+      // Log the real error and put its message in the toast so the next occurrence
+      // can be identified from a screenshot alone.
+      const detail = err instanceof Error
+        ? err.message
+        : (typeof err === 'object' && err && 'message' in err ? String((err as { message: unknown }).message) : String(err))
+      console.error('[handleResolve]', err)
+      toast.error((lang === 'th' ? 'ส่งการแก้ไขไม่สำเร็จ: ' : 'Failed to submit resolution: ') + (detail || 'unknown error'))
     } finally {
       setSubmitting(false)
     }
