@@ -3,7 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom'
 import {
   ArrowLeft, Clock, CheckCircle2, XCircle, RefreshCw, Loader2,
   User, Calendar, Building2, AlertTriangle, MessageSquare, MessageCircle, Pencil, Printer,
-  RotateCcw, X, ChevronDown, ChevronUp,
+  RotateCcw, X, ChevronDown, ChevronUp, Info,
 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
@@ -1250,6 +1250,11 @@ export function CaseDetailPage() {
     ['open', 'in_progress', 'assigned', 'reopened'].includes(kcase.status)
   const canManagerApprove = (profile?.role === 'super_admin' || isPicDeptManager) &&
     kcase.status === 'pending_manager_approval'
+  // A staff member who can see a still-open case but is not named In Charge gets
+  // NO resolve form and, until this, no explanation either — it reads as "the app
+  // is broken" rather than "you were not assigned" (real support ticket, Aug 2026).
+  const showNotAssignedHint = profile?.role === 'staff' && !canStaffResolve &&
+    ['open', 'in_progress', 'assigned', 'reopened'].includes(kcase.status)
   const canAdminApprove   = profile?.role === 'super_admin' && kcase.status === 'pending_admin_approval'
   const canReopen         = profile?.role === 'super_admin' && kcase.status === 'closed'
   // Case deletion (enforced by the kzn_cases_delete RLS policy):
@@ -1884,6 +1889,17 @@ export function CaseDetailPage() {
                   {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : t.caseDetail.submitResolution}
                 </Button>
               </div>
+            </div>
+          )}
+
+          {/* Staff who is not In Charge: explain why there is no resolve form */}
+          {showNotAssignedHint && (
+            <div className="bg-gray-50 border border-gray-200 rounded-xl p-5">
+              <div className="flex items-center gap-2 mb-2">
+                <Info className="h-4 w-4 text-gray-400" />
+                <h3 className="font-semibold text-gray-700">{t.caseDetail.notAssignedTitle}</h3>
+              </div>
+              <p className="text-sm text-gray-500 leading-relaxed">{t.caseDetail.notAssignedDesc}</p>
             </div>
           )}
 
