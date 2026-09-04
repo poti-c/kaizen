@@ -45,6 +45,14 @@ function hhmm(t: string | null | undefined): string {
 }
 /** Variant breakdown like "V1×4 · V2×6 · V3×19" from order items. */
 function variantBreakdown(items: RrOrderItem[], variants: RrVariant[] | null, lang: 'en' | 'th'): string {
+  // RR-VARIANT-01: a per_room_variants routine whose template never defined a choice
+  // list stores no code on any item — RoomGrid only assigns one when variants exist.
+  // Those items keyed as '—' and then had their count appended, so the report printed
+  // "—×1", which reads like a real variant named "—" with a quantity next to it. When
+  // nothing in the order carries a code there is no breakdown to show, so use the same
+  // plain dash every non-variant row uses. A partly-filled order still itemises, with
+  // the uncoded rooms shown as their own '—' group.
+  if (!items.some((it) => it.variant)) return '—'
   const counts = new Map<string, number>()
   for (const it of items) {
     const k = it.variant || '—'
@@ -2474,7 +2482,7 @@ function ReportView({ companyId, companyName, generatedBy, statusLabel, template
   const [previewHtml, setPreviewHtml] = useState<string | null>(null)
   const iframeRef = useRef<HTMLIFrameElement>(null)
   // Room-order data for the same period.
-  const [roomLines, setRoomLines] = useState<{ item: string | null; fulfill_department: string; status: string }[]>([])
+  const [roomLines, setRoomLines] = useState<{ item: string | null; slot: string | null; fulfill_department: string; status: string }[]>([])
   const [roomStatusCounts, setRoomStatusCounts] = useState<Record<string, number>>({})
   const [roomDays, setRoomDays] = useState(0)
 
@@ -2508,10 +2516,10 @@ function ReportView({ companyId, companyName, generatedBy, statusLabel, template
       const oList = (orders as { id: string; room_statuses: Record<string, string> | null }[]) ?? []
       const sc: Record<string, number> = { checkin: 0, occupied: 0, empty: 0, oo: 0 }
       oList.forEach((o) => Object.values(o.room_statuses ?? {}).forEach((s) => { if (sc[s] !== undefined) sc[s]++ }))
-      let lines: { item: string | null; fulfill_department: string; status: string }[] = []
+      let lines: { item: string | null; slot: string | null; fulfill_department: string; status: string }[] = []
       if (oList.length > 0) {
         const { data } = await supabase.from('kaizen_rr_room_lines')
-          .select('item, fulfill_department, status').in('room_order_id', oList.map((o) => o.id))
+          .select('item, slot, fulfill_department, status').in('room_order_id', oList.map((o) => o.id))
           .eq('active', true).in('approval_status', ['approved', 'auto'])
         lines = (data as typeof lines) ?? []
       }
@@ -2555,7 +2563,13 @@ function ReportView({ companyId, companyName, generatedBy, statusLabel, template
   // Room-order aggregation: items per department (with delivered count) + status names.
   const roomItemsTmp: Record<string, Record<string, { total: number; done: number }>> = {}
   roomLines.forEach((l) => {
-    const item = (l.item && l.item.trim()) || '—'
+    // RR-REPORT-01: a room line often has no free-text `item` — a turndown gift or a
+    // birthday cake is identified by its `slot` instead. Falling straight through to a
+    // dash collapsed every one of them into a single anonymous row that named nothing
+    // and could not be reconciled against the daily room sheet (327 Housekeeping lines
+    // in a 31-day window landed there). Prefer the slot, which is the item's name in
+    // all but name, and keep the dash only for a line that truly carries neither.
+    const item = (l.item && l.item.trim()) || (l.slot && l.slot.trim()) || '—'
     const byItem = (roomItemsTmp[l.fulfill_department] ||= {})
     const cell = (byItem[item] ||= { total: 0, done: 0 })
     cell.total++
