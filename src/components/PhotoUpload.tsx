@@ -18,6 +18,16 @@ const isTouchDevice = typeof window !== 'undefined' && ('ontouchstart' in window
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024 // 10 MB
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
 
+// PHOTO-PICKER-02: how long to wait after a picker tap before deciding it never
+// opened. The original 4s was far too eager — 179 of the first 188 reports (95%)
+// were followed by a successful upload within ten minutes, i.e. the picker had
+// opened fine and the user was simply browsing. Two things made 4s wrong: choosing
+// from a large photo library routinely takes longer, and an in-page picker sheet
+// never backgrounds the tab, so the visibilitychange cancel signal never arrived.
+// The noise buried the real failures it was added to catch. 45s still reports a
+// genuinely dead picker while ordinary browsing no longer trips it.
+const PICKER_WATCH_MS = 45_000
+
 // `image/*` alone is enough for Chrome and Safari, but some Android file pickers
 // (Samsung's "My Files", several vendor gallery apps) match the filter against the
 // file EXTENSION rather than the MIME type and then show an empty, unselectable
@@ -299,7 +309,7 @@ export function PhotoUpload({ onUpload, maxFiles = 3, label = 'Add Photos', buck
       pickerWatchRef.current = null
       if (pickerRespondedRef.current) return
       void reportError('app', 'photo picker did not open', { which, touch: isTouchDevice })
-    }, 4000)
+    }, PICKER_WATCH_MS)
   }
   const notePickerResponded = () => {
     pickerRespondedRef.current = true
@@ -357,8 +367,17 @@ export function PhotoUpload({ onUpload, maxFiles = 3, label = 'Add Photos', buck
         unblockSWReload(reloadReasonRef.current)
       }, 5000)
     }
+    // A picker that opens as an in-page sheet (iOS Safari, several Android WebViews)
+    // never hides the tab, so visibilitychange alone misses it — but it does take focus
+    // off the page. Treat that as proof the picker is alive too, otherwise the watchdog
+    // reports a working picker as dead. See PHOTO-PICKER-02.
+    const onBlur = () => notePickerResponded()
     document.addEventListener('visibilitychange', onVisible)
-    return () => document.removeEventListener('visibilitychange', onVisible)
+    window.addEventListener('blur', onBlur)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('blur', onBlur)
+    }
   }, [])
 
   async function handleFiles(files: FileList | null) {
@@ -391,6 +410,14 @@ export function PhotoUpload({ onUpload, maxFiles = 3, label = 'Add Photos', buck
         toast.error(lang === 'th'
           ? 'อัปโหลดรูปนี้ไม่ได้ — ไฟล์ใหญ่เกินไปหรือไม่รองรับ (ลองถ่ายใหม่หรือเลือกจากคลังภาพ)'
           : "Couldn't use this photo — it's too large or an unsupported format (try retaking it or picking from your library).")
+        // PHOTO-REPORT-01: a toast dies with the page. Without a log row this failure is
+        // invisible to us, which is exactly how a staff member went 24 days unable to
+        // attach photos before reporting it by hand. Record the file that defeated us.
+        void reportError('app', 'photo could not be prepared for upload', {
+          name: item.file.name,
+          bytes: item.file.size,
+          type: item.file.type || 'unknown',
+        })
         continue
       }
       const { blob, ext } = compressed
@@ -425,6 +452,14 @@ export function PhotoUpload({ onUpload, maxFiles = 3, label = 'Add Photos', buck
         try { URL.revokeObjectURL(item.preview) } catch { /* already revoked */ }
         setPreviews((prev) => prev.filter((p) => p.preview !== item.preview))
         toast.error((lang === 'th' ? 'อัปโหลดรูปไม่สำเร็จ: ' : 'Photo upload failed: ') + (error?.message ?? 'unknown error'))
+        // PHOTO-REPORT-01: as above — the reason Storage rejected this (RLS denial, size,
+        // MIME) is the single most useful fact for diagnosis, and it was being thrown away.
+        void reportError('app', 'photo upload failed', {
+          reason: error?.message ?? 'unknown error',
+          path,
+          bytes: blob.size,
+          type: blob.type || 'unknown',
+        })
       }
     }
     } finally {
