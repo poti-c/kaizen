@@ -47,6 +47,25 @@ function clearAppBadge() {
   if ('clearAppBadge' in navigator) (navigator as any).clearAppBadge().catch(() => {})
 }
 
+// Stop this device receiving the signing-out user's pushes: delete their
+// kaizen_push_subscriptions row for this browser's endpoint. Must run while the
+// session is still valid (RLS: user_id = auth.uid(), so it only ever removes the
+// caller's own row). The browser subscription itself is kept, so the next person
+// to sign in is re-registered without a new permission prompt. Bounded, so a
+// missing or slow service worker can never hold up sign-out; expired sessions and
+// older leftovers are cleaned by kaizen_claim_push_endpoint on the next subscribe.
+async function releaseDevicePush() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return
+  const work = (async () => {
+    const reg = await navigator.serviceWorker.getRegistration()
+    const sub = await reg?.pushManager.getSubscription()
+    if (!sub) return
+    const { error } = await supabase.from('kaizen_push_subscriptions').delete().eq('endpoint', sub.endpoint)
+    if (error) console.warn('[push] could not release device subscription on sign-out', error.message)
+  })().catch((e) => console.warn('[push] release on sign-out failed', e))
+  await Promise.race([work, new Promise((r) => setTimeout(r, 2500))])
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [profile, setProfile] = useState<KaizenProfile | null>(null)
@@ -275,6 +294,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     companyRef.current = null
     loadedProfileIdRef.current = null
     clearAppBadge() // before the await so it runs even if signOut rejects
+    await releaseDevicePush() // needs the session, so before auth.signOut()
     await supabase.auth.signOut()
     setProfile(null)
   }
