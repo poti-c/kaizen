@@ -15,7 +15,7 @@ interface TaskRow { due_date: string; status: string; performed_at: string | nul
 export function PMSummaryCard() {
   const { profile } = useAuth()
   const { activeCompany } = useCompany()
-  const { t } = useLanguage()
+  const { t, lang } = useLanguage()
   const companyId = activeCompany?.id ?? null
   const isStaff = profile?.role === 'staff'
   const isApprover = profile?.role === 'super_admin' || profile?.role === 'manager'
@@ -31,6 +31,9 @@ export function PMSummaryCard() {
   // approval can sit far outside the due_date window).
   const [pendingTasks, setPendingTasks] = useState<TaskRow[]>([])
   const [dueSoonDays, setDueSoonDays] = useState(7)
+  // supabase-js returns {data: null, error} instead of throwing, so a failed read
+  // would otherwise fall through to [] and render "no assets — set up scheduler".
+  const [loadError, setLoadError] = useState(false)
 
   useEffect(() => {
     if (!companyId) return
@@ -41,8 +44,10 @@ export function PMSummaryCard() {
       // Fetch settings first so we know the actual due_soon_days before computing
       // the task window — hardcoding 35 days misses tasks that fall beyond it when
       // the setting is larger.
-      const { data: sData } = await supabase.from('kaizen_pm_settings').select('due_soon_days').eq('company_id', companyId).maybeSingle()
+      const { data: sData, error: sErr } = await supabase.from('kaizen_pm_settings').select('due_soon_days').eq('company_id', companyId).maybeSingle()
       if (cancelled) return
+      // A failed settings read falls back safely to 7 days; log it rather than block the card.
+      if (sErr) console.error('PMSummaryCard: settings load failed', sErr)
       const effectiveDueSoon = sData?.due_soon_days ?? 7
       setDueSoonDays(effectiveDueSoon)
       const to = bangkokDate(new Date(Date.now() + Math.max(35, effectiveDueSoon) * 86400000))
@@ -55,6 +60,15 @@ export function PMSummaryCard() {
         supabase.from('kaizen_pm_tasks').select('due_date, status, performed_at, asset:kaizen_pm_assets(department, departments)').eq('company_id', companyId).eq('status', 'pending_approval'),
       ])
       if (cancelled) return
+      const err = a.error || tk.error || mt.error || pa.error
+      if (err) {
+        // Keep the last good data (if any) and show an error instead of a misleading empty state.
+        console.error('PMSummaryCard: load failed', err)
+        setLoadError(true)
+        setLoading(false)
+        return
+      }
+      setLoadError(false)
       let aRows = (a.data as AssetRow[]) ?? []
       let tRows = (tk.data as unknown as TaskRow[]) ?? []
       let mRows = (mt.data as unknown as TaskRow[]) ?? []
@@ -93,7 +107,10 @@ export function PMSummaryCard() {
     else if (s === 'overdue') overdueAssets++
   }
   const scheduledActive = active.filter(a => a.next_maintenance_date)
-  const compliance = scheduledActive.length === 0 ? null : Math.round((good / scheduledActive.length) * 100)
+  // Compliance = scheduled assets that are not overdue. 'due_soon' assets are not late —
+  // every asset passes through that window each cycle — so counting them against
+  // compliance made an up-to-date weekly fleet (7-day window) read ~0%.
+  const compliance = scheduledActive.length === 0 ? null : Math.round(((good + dueSoon) / scheduledActive.length) * 100)
 
   const todayKey = bangkokDate(new Date())
   const weekKey = bangkokDate(new Date(Date.now() + dueSoonDays * 86400000))
@@ -117,7 +134,11 @@ export function PMSummaryCard() {
         <Link to="/maintenance" className="flex items-center gap-0.5 text-xs font-medium text-[var(--brand-primary)] hover:opacity-75">{t.pm.open}<ChevronRight className="h-3.5 w-3.5" /></Link>
       </div>
 
-      {active.length === 0 ? (
+      {loadError && active.length === 0 ? (
+        <div className="text-center py-3">
+          <p className="text-xs text-red-600">{lang === 'th' ? 'โหลดข้อมูลการบำรุงรักษาไม่สำเร็จ กรุณาลองใหม่' : 'Could not load maintenance data. Please try again.'}</p>
+        </div>
+      ) : active.length === 0 ? (
         <div className="text-center py-3">
           <p className="text-xs text-gray-500">{t.pm.noAssets} <Link to="/maintenance" className="font-medium text-[var(--brand-primary)]">{t.pm.setupScheduler}</Link></p>
         </div>

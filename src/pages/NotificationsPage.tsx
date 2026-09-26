@@ -90,10 +90,17 @@ export function NotificationsPage() {
 
   async function refreshUnread() {
     if (!profile) return
-    const { count } = await supabase
+    const { count, error } = await supabase
       .from('kaizen_notifications')
       .select('id', { count: 'exact', head: true })
       .eq('user_id', profile.id).eq('is_read', false)
+    // Mirrors Header HS-BUG-01: supabase-js resolves on failure, so a failed
+    // count gives null, which `?? 0` would turn into "0 unread" and clear the
+    // app-icon badge. Leave the last known count untouched instead.
+    if (error) {
+      console.error('[NotificationsPage] unread count fetch failed', error.message)
+      return
+    }
     const n = count ?? 0
     setUnread(n)
     syncBadge(n)

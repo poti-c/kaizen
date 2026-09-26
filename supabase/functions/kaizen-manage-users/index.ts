@@ -81,7 +81,7 @@ serve(async (req) => {
   }
 
   async function assertCanManage(userId: string): Promise<{ ok: boolean; error?: string; target?: any }> {
-    const { data: target } = await supabaseAdmin.from("kaizen_profiles").select("role, department, company_id, full_name, username, deleted_at").eq("id", userId).maybeSingle();
+    const { data: target } = await supabaseAdmin.from("kaizen_profiles").select("role, department, company_id, full_name, username, email, position, must_change_password, deleted_at").eq("id", userId).maybeSingle();
     if (!target) return { ok: false, error: "User not found" };
     if (target.deleted_at) return { ok: false, error: "Cannot modify a deleted user" };
     if (callerRole === "super_admin") {
@@ -247,6 +247,31 @@ serve(async (req) => {
     } else {
       authEmail = email?.trim().toLowerCase();
       if (!authEmail) return json({ error: "email is required for manager/admin" }, 400);
+
+      // MU-CLASH-02: soft delete keeps (and bans) the auth user, so its email stays
+      // registered and createUser below would reject a re-hire with the same work
+      // email forever — nothing in this function can free it once deleted_at is set
+      // (assertCanManage refuses deleted targets). Mirror the staff release above:
+      // move a SOFT-DELETED manager/admin's auth + profile email in this company to
+      // a tombstone address, keeping full_name so historical cases still show who it was.
+      const { data: removedAdmins } = await supabaseAdmin
+        .from("kaizen_profiles")
+        .select("id, email")
+        .eq("company_id", createCompany)
+        .neq("role", "staff")
+        .not("deleted_at", "is", null);
+      const clash = (removedAdmins ?? []).find(
+        (r: any) => String(r.email ?? "").trim().toLowerCase() === authEmail
+      );
+      if (clash) {
+        const local = authEmail.split("@")[0].replace(/[^a-z0-9._-]/g, "").slice(0, 32) || "user";
+        const freedEmail = `${local}.removed.${Math.floor(Date.now() / 1000)}.${Math.random().toString(36).slice(2, 7)}@removed.kaizen.internal`;
+        // Auth email first — only rename the profile if the auth side succeeds.
+        const { error: freeAuthErr } = await supabaseAdmin.auth.admin.updateUserById(clash.id, { email: freedEmail, email_confirm: true });
+        if (!freeAuthErr) {
+          await supabaseAdmin.from("kaizen_profiles").update({ email: freedEmail }).eq("id", clash.id).eq("email", clash.email);
+        }
+      }
     }
 
     const { data: newUser, error: createErr } = await supabaseAdmin.auth.admin.createUser({
@@ -470,7 +495,15 @@ serve(async (req) => {
     if (allowed.role !== undefined && allowed.role !== target.role) {
       const overLimitErr = await roleLimitError(target.company_id, allowed.role as string, userId);
       if (overLimitErr) {
-        await supabaseAdmin.from("kaizen_profiles").update({ role: target.role }).eq("id", userId);
+        // Roll back EVERYTHING this call committed, not just `role`: a boundary
+        // change also cleared username (promotion) or email (demotion) and switched
+        // the auth email, so restoring role alone left the account unable to log in.
+        const restore: Record<string, unknown> = {};
+        for (const k of Object.keys(allowed)) restore[k] = target[k] ?? null;
+        await supabaseAdmin.from("kaizen_profiles").update(restore).eq("id", userId);
+        if (didUpdateAuthEmail && oldAuthEmail !== null) {
+          await supabaseAdmin.auth.admin.updateUserById(userId, { email: oldAuthEmail, email_confirm: true }).catch(() => {});
+        }
         return json({ error: overLimitErr }, 400);
       }
     }

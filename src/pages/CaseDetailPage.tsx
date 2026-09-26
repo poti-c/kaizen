@@ -23,7 +23,7 @@ import { ResolutionCard } from '@/components/case/ResolutionCard'
 import { TranslatableSection } from '@/components/TranslatableSection'
 import { CaseTimeline } from '@/components/case/CaseTimeline'
 import { formatDateTime, formatDuration, LOCATIONS, CATEGORIES, formatDueBy, toDateTimeLocal, fromDateTimeLocal, bangkokDate } from '@/lib/utils'
-import { DEPARTMENTS, DEPARTMENT_LABELS, categoryLabel } from '@/types'
+import { DEPARTMENTS, DEPARTMENT_LABELS, categoryLabel, getEffectiveDepts } from '@/types'
 import type { KaizenCase, KaizenProfile, KaizenCaseTimeline, KaizenCasePhoto, Department, CasePriority, CaseStatus } from '@/types'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
@@ -35,6 +35,11 @@ import { buildCasePrintHtml } from '@/lib/casePrint'
 const TITLE_STOP = new Set(['the', 'and', 'for', 'with', 'not', 'was', 'are', 'has', 'this', 'that', 'room', 'area', 'guest', 'guests', 'issue', 'problem', 'again', 'broken'])
 function titleTokens(t?: string | null): Set<string> {
   return new Set(String(t || '').toLowerCase().split(/[^a-z0-9]+/).filter(w => w.length >= 3 && !TITLE_STOP.has(w)))
+}
+// PostgREST array-literal for a TEXT[] filter (`ov`/`cs`): {"a","b"} — the same
+// escaped {"..."} form CreateCasePage (CC-BUG-01) and rrNotify use.
+function pgTextArray(values: string[]): string {
+  return `{${values.map(v => `"${v.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`).join(',')}}`
 }
 function titlesRelated(a?: string | null, b?: string | null): boolean {
   const ta = titleTokens(a), tb = titleTokens(b)
@@ -398,6 +403,15 @@ export function CaseDetailPage() {
     setNewDueDate('')
     setShowDueDateEditor(false)
     setNotifyDepts([])
+    // CaseDetailPage-002: drop case A's data too, so a case B that fails to load
+    // (deleted, RLS-hidden, stale link) renders "not found" instead of A under B's URL.
+    setKcase(null)
+    setRecurringCases([])
+    setPicProfiles([])
+    setTimeline([])
+    setPhotos([])
+    setAssignments([])
+    setComments([])
     fetchCase()
   }, [id])
 
@@ -418,7 +432,14 @@ export function CaseDetailPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kcase?.id, pmPromptDismissed])
 
+  // CaseDetailPage-001: fetchCase has several awaits and this component is not
+  // remounted on :id change, so a slow response for case A can land after case B's.
+  // Each call takes a sequence number; a response is dropped if a newer fetch began.
+  const fetchSeqRef = useRef(0)
+
   async function fetchCase() {
+    const seq = ++fetchSeqRef.current
+    const isStale = () => seq !== fetchSeqRef.current
     setLoading(true)
     try {
     const { data, error: caseErr } = await supabase
@@ -426,6 +447,7 @@ export function CaseDetailPage() {
       .select('*, creator:kaizen_profiles!kaizen_cases_created_by_fkey(*)')
       .eq('id', id!)
       .single()
+    if (isStale()) return
     if (caseErr) throw caseErr
 
     if (data) {
@@ -444,6 +466,7 @@ export function CaseDetailPage() {
           .neq('id', data.id)
         q = data.category ? q.eq('category', data.category) : q.is('category', null)
         const { data: recurring } = await q.order('created_at', { ascending: false }).limit(20)
+        if (isStale()) return
         setRecurringCases((recurring || []) as KaizenCase[])
       } else {
         setRecurringCases([])
@@ -462,6 +485,7 @@ export function CaseDetailPage() {
       const ids: string[] = data.pic_ids?.length ? data.pic_ids : (data.person_in_charge ? [data.person_in_charge] : [])
       if (ids.length) {
         const { data: pics } = await supabase.from('kaizen_profiles').select('*').in('id', ids)
+        if (isStale()) return
         const validProfiles = (pics || []) as KaizenProfile[]
         setPicProfiles(validProfiles)
         setSelectedPics(ids.filter(id => validProfiles.some(p => p.id === id)))
@@ -477,6 +501,7 @@ export function CaseDetailPage() {
       supabase.from('kaizen_case_assignments').select('*, staff:kaizen_profiles!kaizen_case_assignments_assigned_staff_fkey(id, full_name)').eq('case_id', id!),
       supabase.from('kaizen_case_comments').select('*, user:kaizen_profiles!kaizen_case_comments_user_id_fkey(id,full_name,role)').eq('case_id', id!).order('created_at', { ascending: true }),
     ])
+    if (isStale()) return
 
     if (tl.error) console.error('[fetchCase:timeline]', tl.error.message)
     if (ph.error) console.error('[fetchCase:photos]', ph.error.message)
@@ -493,8 +518,9 @@ export function CaseDetailPage() {
       // instead of letting it surface as an unhandled rejection.
       console.error('[fetchCase]', err)
     } finally {
-      // CDP-002: always clear loading even on network error
-      setLoading(false)
+      // CDP-002: always clear loading even on network error — but only for the
+      // latest fetch, or a stale one would hide the newer fetch's spinner.
+      if (!isStale()) setLoading(false)
     }
   }
 
@@ -539,6 +565,19 @@ export function CaseDetailPage() {
       if (depts.length > 0) query = query.in('department', depts)
       const { data } = await query
       ;(data || []).forEach((u: { id: string }) => ids.add(u.id))
+      // CaseDetailPage-005: managers who cover a department via managed_departments
+      // are responsible for it too (same as CreateCasePage's CC-BUG-01 lookup).
+      if (depts.length > 0 && opts.roles.includes('manager')) {
+        const { data: covering, error: covErr } = await supabase
+          .from('kaizen_profiles')
+          .select('id')
+          .eq('role', 'manager')
+          .eq('is_active', true)
+          .eq('company_id', kcase?.company_id ?? '')
+          .filter('managed_departments', 'ov', pgTextArray(depts))
+        if (covErr) console.error('[fetchRecipientIds:managed_departments]', covErr.message)
+        ;(covering || []).forEach((u: { id: string }) => ids.add(u.id))
+      }
     }
     (opts.extraIds || []).forEach((uid) => { if (uid) ids.add(uid) })
     return Array.from(ids).filter((uid) => uid !== profile?.id)
@@ -689,10 +728,18 @@ export function CaseDetailPage() {
       const approverDepts = ((picDepts.length ? picDepts : [kcase?.department].filter(Boolean)) as string[])
       let hasDeptManager = false
       if (!resolverManagerial && approverDepts.length) {
-        const { data: mgrs } = await supabase.from('kaizen_profiles')
-          .select('id').eq('role', 'manager').eq('is_active', true).in('department', approverDepts)
-          .eq('company_id', kcase?.company_id ?? '')
-        hasDeptManager = !!mgrs && mgrs.length > 0
+        // CaseDetailPage-005: a manager covering the department via
+        // managed_departments counts as its manager too.
+        const [{ data: mgrs }, { data: covering }] = await Promise.all([
+          supabase.from('kaizen_profiles')
+            .select('id').eq('role', 'manager').eq('is_active', true).in('department', approverDepts)
+            .eq('company_id', kcase?.company_id ?? ''),
+          supabase.from('kaizen_profiles')
+            .select('id').eq('role', 'manager').eq('is_active', true)
+            .filter('managed_departments', 'ov', pgTextArray(approverDepts))
+            .eq('company_id', kcase?.company_id ?? ''),
+        ])
+        hasDeptManager = (mgrs?.length ?? 0) + (covering?.length ?? 0) > 0
       }
       const goesToManager = !resolverManagerial && hasDeptManager
       const stampManagerApproval = resolverManagerial // managerial resolver implicitly signs off the manager step
@@ -897,11 +944,25 @@ export function CaseDetailPage() {
         const commentLower = newComment.toLowerCase()
         const preview = newComment.trim().length > 80 ? newComment.trim().slice(0, 80) + '…' : newComment.trim()
 
+        // Individual @name mentions. Word-boundary match (not plain .includes) —
+        // otherwise a shorter name that prefixes a longer one (e.g. "Ann" inside
+        // "@Anna Lee") gets spuriously notified, the same class of bug fixed for
+        // @all vs "@Allan" below.
+        const mentionedUserIds = mentionUsers
+          .filter(u => new RegExp(`@${u.full_name.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?!\\w)`, 'i').test(commentLower))
+          .map(u => u.id)
+          .filter(uid => uid !== profile.id)
+
         // @all — notify every person in charge + assigned staff on this case.
         // CDP-BUG-04: substring .includes('@all') also matched "@Allan",
         // "@allison", etc. — a comment mentioning a real person named Allan
         // fired the notify-EVERYONE path instead of (or in addition to) an
         // individual mention. Word-boundary match instead.
+        // CaseDetailPage-006: @all used to be an either/or with the @name branch,
+        // so "@all … @Somchai" never notified Somchai when he wasn't a PIC or
+        // assigned. Both sets are sent now; someone named individually gets the
+        // "mentioned you" notification rather than a duplicate "mentioned everyone".
+        let allIds: string[] = []
         if (/@all\b/i.test(commentLower)) {
           const picIds = kcase?.pic_ids?.length
             ? kcase.pic_ids
@@ -911,43 +972,32 @@ export function CaseDetailPage() {
           // silently drop every assigned staff member from the @all notification.
           const assignedIds = assignments
             .map(a => a.assigned_staff).filter(Boolean) as string[]
-          const allIds = [...new Set([...picIds, ...assignedIds])].filter(uid => uid !== profile.id)
-          if (allIds.length > 0) {
-            await supabase.from('kaizen_notifications').insert(
-              allIds.map((uid) => ({
-                user_id: uid,
-                case_id: id!,
-                title: `${profile.full_name} mentioned everyone in ${kcase?.case_number}`,
-                message: preview,
-                notification_type: 'mention',
-                title_key: 'case_mentioned_all',
-                body_params: { actor: profile.full_name, caseNo: kcase?.case_number ?? '', text: preview },
-              }))
-            )
-          }
-        } else {
-          // Individual @name mentions. Word-boundary match (not plain .includes) —
-          // otherwise a shorter name that prefixes a longer one (e.g. "Ann" inside
-          // "@Anna Lee") gets spuriously notified, the same class of bug fixed for
-          // @all vs "@Allan" above.
-          const mentionedUserIds = mentionUsers
-            .filter(u => new RegExp(`@${u.full_name.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?!\\w)`, 'i').test(commentLower))
-            .map(u => u.id)
-            .filter(uid => uid !== profile.id)
+          allIds = [...new Set([...picIds, ...assignedIds])]
+            .filter(uid => uid !== profile.id && !mentionedUserIds.includes(uid))
+        }
 
-          if (mentionedUserIds.length > 0) {
-            await supabase.from('kaizen_notifications').insert(
-              mentionedUserIds.map((uid) => ({
-                user_id: uid,
-                case_id: id!,
-                title: `${profile.full_name} mentioned you in ${kcase?.case_number}`,
-                message: preview,
-                notification_type: 'mention',
-                title_key: 'case_mentioned',
-                body_params: { actor: profile.full_name, caseNo: kcase?.case_number ?? '', text: preview },
-              }))
-            )
-          }
+        const rows = [
+          ...allIds.map((uid) => ({
+            user_id: uid,
+            case_id: id!,
+            title: `${profile.full_name} mentioned everyone in ${kcase?.case_number}`,
+            message: preview,
+            notification_type: 'mention',
+            title_key: 'case_mentioned_all',
+            body_params: { actor: profile.full_name, caseNo: kcase?.case_number ?? '', text: preview },
+          })),
+          ...mentionedUserIds.map((uid) => ({
+            user_id: uid,
+            case_id: id!,
+            title: `${profile.full_name} mentioned you in ${kcase?.case_number}`,
+            message: preview,
+            notification_type: 'mention',
+            title_key: 'case_mentioned',
+            body_params: { actor: profile.full_name, caseNo: kcase?.case_number ?? '', text: preview },
+          })),
+        ]
+        if (rows.length > 0) {
+          await supabase.from('kaizen_notifications').insert(rows)
         }
       }
 
@@ -1017,12 +1067,15 @@ export function CaseDetailPage() {
     }
     setSubmitting(true)
     try {
+      // CaseDetailPage-003: see the status comment below.
+      const isSuperAdmin = profile?.role === 'super_admin'
+      const targetStatus: CaseStatus | '' = editStatus === 'closed' && !isSuperAdmin ? 'pending_admin_approval' : editStatus
       const changes: string[] = []
       if (editTitle.trim() !== kcase?.title) changes.push(`title: "${kcase?.title}" → "${editTitle.trim()}"`)
       if (editDescription.trim() !== kcase?.description) changes.push('description updated')
       if (canManagerAssign && editDepartment !== kcase?.department) changes.push(`department: ${DEPARTMENT_LABELS[kcase?.department as Department] ?? kcase?.department} → ${DEPARTMENT_LABELS[editDepartment as Department] ?? editDepartment}`)
       if (editDueDate !== (kcase?.due_date || '')) changes.push(`due date: ${editDueDate || 'removed'}`)
-      if (canManagerAssign && editStatus && editStatus !== kcase?.status) changes.push(`status: ${kcase?.status} → ${editStatus}`)
+      if (canManagerAssign && targetStatus && targetStatus !== kcase?.status) changes.push(`status: ${kcase?.status} → ${targetStatus}`)
 
       const openFamilyStatuses = ['open', 'assigned', 'in_progress', 'reopened']
       // CDP-BUG-02: the status field used to be writable by anyone who could open
@@ -1033,9 +1086,17 @@ export function CaseDetailPage() {
       // or evidence photos. The UI now hides the status field for non-managers
       // (see the Select below); this is the server-side backstop in case a
       // status somehow arrives in state anyway.
-      const statusChanged = canManagerAssign && editStatus && editStatus !== kcase?.status
-      const rollingBackToOpen = statusChanged && openFamilyStatuses.includes(editStatus!)
-      const movingToClosed = statusChanged && editStatus === 'closed'
+      //
+      // CaseDetailPage-003: canManagerAssign also covers department managers, and
+      // "closed" here stamped admin_approved_by with THEIR id — a Top Management
+      // approval that never happened. Final closure is super_admin only (same as
+      // handleManagerApprove); a manager picking "closed" is routed to
+      // pending_admin_approval instead. DB backstop: the
+      // kaizen_cases_close_requires_super_admin trigger.
+      const statusChanged = canManagerAssign && targetStatus && targetStatus !== kcase?.status
+      const rollingBackToOpen = statusChanged && openFamilyStatuses.includes(targetStatus!)
+      const movingToClosed = statusChanged && targetStatus === 'closed' && isSuperAdmin
+      const sentForClosure = statusChanged && editStatus === 'closed' && !isSuperAdmin
       const nowIso = new Date().toISOString()
       const { error: editErr } = await supabase.from('kaizen_cases').update({
         title: editTitle.trim(),
@@ -1045,7 +1106,7 @@ export function CaseDetailPage() {
         // here too in case editDepartment somehow arrives stale/mutated in state.
         department: canManagerAssign ? editDepartment : (kcase?.department ?? editDepartment),
         due_date: editDueDate || null,
-        ...(statusChanged ? { status: editStatus } : {}),
+        ...(statusChanged ? { status: targetStatus } : {}),
         // CDP-005: clear resolution/approval fields when status is rolled back to an open state
         ...(rollingBackToOpen ? {
           closed_at: null, resolved_at: null,
@@ -1064,6 +1125,13 @@ export function CaseDetailPage() {
           manager_approved_at: kcase?.manager_approved_at ?? nowIso,
           admin_approved_by: kcase?.admin_approved_by ?? profile?.id,
           admin_approved_at: kcase?.admin_approved_at ?? nowIso,
+        } : {}),
+        // A manager's "closed" is their approval: stamp the manager step only.
+        ...(sentForClosure ? {
+          resolved_at: kcase?.resolved_at ?? nowIso,
+          resolved_by: kcase?.resolved_by ?? profile?.id,
+          manager_approved_by: kcase?.manager_approved_by ?? profile?.id,
+          manager_approved_at: kcase?.manager_approved_at ?? nowIso,
         } : {}),
         updated_at: nowIso,
       }).eq('id', id!)
@@ -1084,8 +1152,18 @@ export function CaseDetailPage() {
           { key: 'case_closed', params: { caseNo: kcase?.case_number ?? '' } },
         )
       }
+      if (sentForClosure) {
+        await notifyByDeptRole(
+          { roles: ['super_admin'] },
+          'Case Awaiting Final Closure',
+          `Case ${kcase?.case_number} approved by ${profile?.full_name} — ready for Top Management review and closure.`,
+          { key: 'case_awaiting_closure', params: { caseNo: kcase?.case_number ?? '', actor: profile?.full_name ?? '' } },
+        )
+      }
 
-      toast.success(lang === 'th' ? 'อัปเดตเคสสำเร็จแล้ว' : 'Case updated successfully.')
+      toast.success(sentForClosure
+        ? (lang === 'th' ? 'อนุมัติแล้ว แจ้งผู้บริหารระดับสูงเพื่อปิดเคสขั้นสุดท้ายแล้ว' : 'Approved. Top Management has been notified for final closure.')
+        : (lang === 'th' ? 'อัปเดตเคสสำเร็จแล้ว' : 'Case updated successfully.'))
       setShowEditCase(false)
       fetchCase()
     } catch {
@@ -1212,9 +1290,11 @@ export function CaseDetailPage() {
   // routing can find HR approvers for HR-department cases.
   const isHRManager = profile?.role === 'manager' && profile?.department === 'human_resource'
   // A manager acts on a case when it belongs to their department — or, for an
-  // HR manager, on any department's case.
+  // HR manager, on any department's case. CaseDetailPage-005: "their department"
+  // includes any they cover via managed_departments (getEffectiveDepts).
+  const myDepts: string[] = profile ? getEffectiveDepts(profile) : []
   const isActingDeptManager = profile?.role === 'manager' &&
-    (isHRManager || profile?.department === kcase.department)
+    (isHRManager || myDepts.includes(kcase.department))
 
   const canManagerAssign  = profile?.role === 'super_admin' || isActingDeptManager
   const canEditDueDate    = kcase.status !== 'closed' && (
@@ -1242,7 +1322,7 @@ export function CaseDetailPage() {
   // Department(s) of the people in charge — their department manager may act.
   const picDepartments = new Set(picProfiles.map(p => p.department).filter(Boolean) as string[])
   const isPicDeptManager = profile?.role === 'manager' &&
-    (isHRManager || picDepartments.has(profile.department as string) || (picDepartments.size === 0 && profile.department === kcase.department))
+    (isHRManager || myDepts.some(d => picDepartments.has(d)) || (picDepartments.size === 0 && myDepts.includes(kcase.department)))
   // Solve + propose resolution photos: Super Admin, the Person in Charge, or the
   // PIC's department manager (incl. HR manager) — NOT every staff member.
   const canStaffResolve   =

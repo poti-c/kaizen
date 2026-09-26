@@ -46,6 +46,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true)
   const [profileError, setProfileError] = useState(false)
   const lastBeatRef = useRef(0)
+  const lastBeatUserRef = useRef<string | null>(null)
+  // Id of the user whose profile is currently loaded. auth-js emits SIGNED_IN on every
+  // hidden → visible tab switch; without this, each return to the app re-ran the
+  // full-screen loading spinner and unmounted the open page (losing unsaved form state).
+  const loadedProfileIdRef = useRef<string | null>(null)
   const companyRef = useRef<string | null>(null)
   const signingInRef = useRef(false)
   const initialFetchRef = useRef(false)
@@ -68,11 +73,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // suspended mid-session would keep full access until they manually logged out.
       if (!p.is_active) {
         await supabase.auth.signOut()
+        loadedProfileIdRef.current = null
         setProfile(null)
         setProfileError(false)
         return
       }
       companyRef.current = p.company_id
+      loadedProfileIdRef.current = p.id
       setProfile(p)
       setProfileError(false)
       return
@@ -105,12 +112,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       setUser(session?.user ?? null)
       if (session?.user) {
-        // Skip re-fetch on token refresh or when initial getSession fetch is in progress
-        if (!signingInRef.current && !initialFetchRef.current && event !== 'TOKEN_REFRESHED' && event !== 'INITIAL_SESSION') {
+        // Skip re-fetch on token refresh, when initial getSession fetch is in progress,
+        // or when this user's profile is already loaded (tab-refocus SIGNED_IN).
+        if (!signingInRef.current && !initialFetchRef.current && event !== 'TOKEN_REFRESHED' && event !== 'INITIAL_SESSION'
+          && loadedProfileIdRef.current !== session.user.id) {
           setLoading(true)
           fetchProfile(session.user.id).finally(() => setLoading(false))
         }
       } else {
+        loadedProfileIdRef.current = null
         setProfile(null)
         setProfileError(false)
       }
@@ -129,6 +139,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // persisted row for the day and corrupts per-company engagement scoring.
     const companyId = profile?.company_id ?? null
     if (!companyId) return
+    // Reset the throttle when a different user signs in on the same device, so the
+    // previous user's recent beat doesn't swallow this user's first active-day row.
+    if (lastBeatUserRef.current !== user.id) {
+      lastBeatUserRef.current = user.id
+      lastBeatRef.current = 0
+    }
     const beat = () => {
       const now = Date.now()
       if (now - lastBeatRef.current < 3 * 60 * 1000) return
@@ -168,6 +184,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     await assertCompanyActive(p.company_id)
     companyRef.current = p.company_id
+    loadedProfileIdRef.current = p.id
     setProfile(p)
     stampLogin(p.id)
   }
@@ -247,6 +264,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   async function signOut() {
     companyRef.current = null
+    loadedProfileIdRef.current = null
     await supabase.auth.signOut()
     setProfile(null)
   }

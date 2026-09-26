@@ -95,6 +95,9 @@ export function CasesPage() {
   // PMS-subscribed clients. (Avoids the hardcoded generic "Maintenance" option.)
   const categoryOptions = useMemo(() => {
     const opts = validCategorySlugs.filter((s) => s !== 'preventive_maintenance')
+    // 'other' is always offered at case creation (CreateCasePage) even when the
+    // company removed "Other" from its custom list, so it must stay filterable.
+    if (!opts.includes('other')) opts.push('other')
     if (companyHasAddon(activeCompany, 'pms')) opts.push('preventive_maintenance')
     return opts
   }, [validCategorySlugs, activeCompany])
@@ -190,6 +193,7 @@ export function CasesPage() {
     if (validCategorySlugs.length === 0) return
     const valid = new Set(validCategorySlugs.map(s => s.toLowerCase()))
     valid.add('preventive_maintenance') // PM cases' category is never a pickable option, but is always valid (see incompleteCases above)
+    valid.add('other') // always offered at case creation, even when removed from the custom list
     setAdvFilters(prev => {
       const pruned = prev.categories.filter(c => valid.has(c.toLowerCase()))
       if (pruned.length === prev.categories.length) return prev
@@ -219,6 +223,10 @@ export function CasesPage() {
   // Translate a Dashboard deep-link (?status=/?group=/?priority=/?category=) into the
   // advanced filters once on arrival, so the matching boxes tick and the list actually
   // filters even with advanced search on (which otherwise ignores the URL params).
+  // The link REPLACES the saved filters (not merged into them): a department/priority
+  // saved from an earlier session would otherwise narrow the list below the count on
+  // the Dashboard card that was clicked. Not persisted, so the saved set returns on a
+  // plain visit.
   useEffect(() => {
     if (!advancedSearchEnabled) return
     const statuses: (CaseStatus | 'overdue')[] =
@@ -232,12 +240,7 @@ export function CasesPage() {
     const priorities = priorityFilter !== 'all' ? [priorityFilter] : []
     const categories = categoryFilter !== 'all' ? [categoryFilter] : []
     if (statuses.length || priorities.length || categories.length) {
-      setAdvFilters(prev => ({
-        ...prev,
-        ...(statuses.length ? { statuses } : {}),
-        ...(priorities.length ? { priorities } : {}),
-        ...(categories.length ? { categories } : {}),
-      }))
+      setAdvFilters({ statuses, departments: [], priorities, categories })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -278,7 +281,8 @@ export function CasesPage() {
   function monthKey(year: number, month: number) { return `${year}-${month}` }
   const MONTH_SHORT_LABELS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
 
-  // Build month list from actual case data
+  // Build month list from actual case data, plus any selected month (a ?months=
+  // deep-link or "This Month" can select one with no cases) so it can be untoggled.
   const caseMonthList = React.useMemo(() => {
     const keys = new Set<string>()
     cases.forEach(c => {
@@ -286,10 +290,11 @@ export function CasesPage() {
       const [y, mm] = bkk.split('-').map(Number)
       keys.add(monthKey(y, mm - 1))
     })
+    selectedMonths.forEach(k => { if (/^\d{4}-(\d|1[01])$/.test(k)) keys.add(k) })
     return Array.from(keys)
       .map(k => { const [y, m] = k.split('-').map(Number); return { year: y, month: m, label: MONTH_SHORT_LABELS[m], key: k } })
       .sort((a, b) => a.year !== b.year ? a.year - b.year : a.month - b.month)
-  }, [cases])
+  }, [cases, selectedMonths])
 
   const caseByYear = React.useMemo(() => {
     const map: Record<number, typeof caseMonthList> = {}
@@ -313,7 +318,7 @@ export function CasesPage() {
   const dateLabel = selectedMonths.size === 0
     ? (lang === 'th' ? 'ทุกช่วงเวลา' : 'All time')
     : selectedMonths.size === 1
-      ? (() => { const [k] = selectedMonths; const m = caseMonthList.find(x => x.key === k); return m ? `${m.label} ${m.year}` : '' })()
+      ? (() => { const [k] = selectedMonths; const [y, m] = k.split('-').map(Number); return MONTH_SHORT_LABELS[m] ? `${MONTH_SHORT_LABELS[m]} ${y}` : k })()
       : (lang === 'th' ? `เลือกแล้ว ${selectedMonths.size} เดือน` : `${selectedMonths.size} months`)
   // ──────────────────────────────────────────────────────────────────────────
 
