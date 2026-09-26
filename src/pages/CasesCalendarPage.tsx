@@ -245,7 +245,7 @@ export function CasesCalendarPage() {
         if (error) throw error
         const list = (data as RrOrder[]) ?? []
         _rr = list
-        _rrActorIds = list.flatMap(o => [o.sent_by, o.accepted_by, o.delivered_by, o.confirmed_by])
+        _rrActorIds = list.flatMap(o => [o.sent_by, o.accepted_by, o.ready_by, o.delivered_by, o.confirmed_by])
       })())
       jobs.push((async () => {
         const { data, error } = await supabase.from('kaizen_rr_room_orders')

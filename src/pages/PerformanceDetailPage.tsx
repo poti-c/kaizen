@@ -20,6 +20,25 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 
 
 const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
+// PerformanceDetail-001: PostgREST caps every response at max_rows (1000), so a
+// .limit(5000) silently truncates to an arbitrary 1000 rows. Page with .range()
+// (the caller must ORDER BY a unique column so pages don't overlap) until a short
+// page comes back. On error, log and return what was fetched so far.
+const PAGE_SIZE = 1000
+async function fetchAllPages<T>(
+  label: string,
+  page: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>,
+): Promise<T[]> {
+  const out: T[] = []
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await page(from, from + PAGE_SIZE - 1)
+    if (error) { console.error(`[PerformanceDetail] ${label} failed`, error.message); break }
+    out.push(...(data ?? []))
+    if (!data || data.length < PAGE_SIZE) break
+  }
+  return out
+}
+
 export function PerformanceDetailPage() {
   const { userId } = useParams<{ userId: string }>()
   const navigate = useNavigate()
@@ -35,6 +54,7 @@ export function PerformanceDetailPage() {
   const [scoreCases, setScoreCases] = useState<KaizenCase[]>([])  // scoring caseload (staff: own; manager: dept)
   const [reopenedIds, setReopenedIds] = useState<Set<string>>(new Set())  // scoring-caseload case ids EVER reopened (durable, from timeline)
   const [resolvedAtMap, setResolvedAtMap] = useState<Map<string, string[]>>(new Map())  // case id -> all 'resolved' timestamps sorted asc (durable; survives reopen clearing resolved_at)
+  const [approvedAtMap, setApprovedAtMap] = useState<Map<string, string>>(new Map())  // case id -> latest 'manager_approved' timeline time BY THIS USER (durable; survives reopen clearing manager_approved_*)
   const [activity, setActivity] = useState<(KaizenCaseTimeline & { case_number?: string; case_title?: string })[]>([])
   const [activeDays, setActiveDays] = useState(0)                 // distinct active days in last 30
   const [cfg, setCfg] = useState<PerfConfig>(DEFAULT_PERF_CONFIG) // configurable indicator weights
@@ -75,12 +95,17 @@ export function PerformanceDetailPage() {
 
     // Role-specific scoring caseload: managers are scored on every department they cover
     // (primary + managed_departments, PERF-001), not just their primary one; others on
-    // their own work.
-    const scoreCasesQuery = u.role === 'manager'
-      ? supabase.from('kaizen_cases').select('*').eq('company_id', companyId).in('department', getEffectiveDepts(u)).limit(5000)
-      : supabase.from('kaizen_cases').select('*').eq('company_id', companyId).or(`created_by.eq.${userId},pic_ids.cs.{${userId}}`).limit(5000)
+    // their own work. Paged + ordered by id (PerformanceDetail-001) so a big department
+    // is scored on its whole caseload, not an arbitrary 1000-row slice.
+    const scoreCasesQuery = fetchAllPages<KaizenCase>('scoring caseload', (from, to) => {
+      const q = supabase.from('kaizen_cases').select('*').eq('company_id', companyId)
+      return (u.role === 'manager'
+        ? q.in('department', getEffectiveDepts(u))
+        : q.or(`created_by.eq.${userId},pic_ids.cs.{${userId}}`)
+      ).order('id').range(from, to)
+    })
 
-    const [ownCasesRes, activityRes, activeDaysRes, scoreCasesRes] = await Promise.all([
+    const [ownCasesRes, activityRes, activeDaysRes, scList] = await Promise.all([
       supabase.from('kaizen_cases').select('*').eq('created_by', userId!).eq('company_id', companyId).order('created_at', { ascending: false }).limit(5000),
       supabase.from('kaizen_case_timeline').select('*, case:kaizen_cases(case_number, title, company_id)').eq('performed_by', userId!).order('created_at', { ascending: false }).limit(5000),
       supabase.from('kaizen_user_activity').select('active_date').eq('user_id', userId!).gte('active_date', since30).limit(5000),
@@ -92,7 +117,6 @@ export function PerformanceDetailPage() {
       .filter((a: any) => !a.case || (a.case as any).company_id === companyId)
       .map((a: any) => ({ ...a, case_number: a.case?.case_number, case_title: a.case?.title })))
     setActiveDays((activeDaysRes.data || []).length)
-    const scList = (scoreCasesRes.data || []) as KaizenCase[]
     setScoreCases(scList)
 
     // Durable "ever reopened" signal: count distinct scoring-caseload cases with a 'reopened'
@@ -111,6 +135,7 @@ export function PerformanceDetailPage() {
       }
       const roIds = new Set<string>()
       const rmap = new Map<string, string[]>()
+      const amap = new Map<string, string>()
       for (const ids of chunk(scIds, 200)) {
         const { data: ro, error: roErr } = await supabase
           .from('kaizen_case_timeline').select('case_id').eq('action', 'reopened').in('case_id', ids)
@@ -129,13 +154,29 @@ export function PerformanceDetailPage() {
           list.push(e.created_at)
           rmap.set(e.case_id, list)
         }
+
+        // PerformanceDetail-002: a reopen also nulls manager_approved_at/by, so the
+        // case row forgets this manager's approval. The 'manager_approved' timeline
+        // event is durable — keep the latest one per case as the approval fallback.
+        if (u.role === 'manager') {
+          const { data: apEv, error: apErr } = await supabase
+            .from('kaizen_case_timeline').select('case_id, created_at')
+            .eq('action', 'manager_approved').eq('performed_by', userId!).in('case_id', ids)
+          if (apErr) console.error('[PerformanceDetail] approval lookup failed', apErr.message)
+          for (const e of (apEv || []) as { case_id: string; created_at: string }[]) {
+            const prev = amap.get(e.case_id)
+            if (!prev || e.created_at > prev) amap.set(e.case_id, e.created_at)
+          }
+        }
       }
       rmap.forEach((v, k) => rmap.set(k, v.sort()))
       setReopenedIds(roIds)
       setResolvedAtMap(rmap)
+      setApprovedAtMap(amap)
     } else {
       setReopenedIds(new Set())
       setResolvedAtMap(new Map())
+      setApprovedAtMap(new Map())
     }
 
     if (isCancelled()) return
@@ -149,20 +190,21 @@ export function PerformanceDetailPage() {
     // Mirrors the all-time window the scoring caseload uses.
     if (perfCfg.includePms && companyHasAddon(activeCompany, 'pms')) {
       let pmRows: { status: string; due_date: string; performed_at: string | null }[] = []
+      // PerformanceDetail-001: paged — an unpaged select stops at max_rows (1000).
       if (u.role === 'manager') {
-        const { data } = await supabase
+        pmRows = await fetchAllPages<typeof pmRows[number]>('PMS tasks', (from, to) => supabase
           .from('kaizen_pm_tasks')
           .select('status, due_date, performed_at, asset:kaizen_pm_assets!inner(department)')
           .eq('company_id', companyId)
           .in('asset.department', getEffectiveDepts(u))
-        pmRows = (data || []) as typeof pmRows
+          .order('id').range(from, to))
       } else {
-        const { data } = await supabase
+        pmRows = await fetchAllPages<typeof pmRows[number]>('PMS tasks', (from, to) => supabase
           .from('kaizen_pm_tasks')
           .select('status, due_date, performed_at')
           .eq('company_id', companyId)
           .or(`performed_by.eq.${userId},assigned_to.eq.${userId}`)
-        pmRows = (data || []) as typeof pmRows
+          .order('id').range(from, to))
       }
       if (isCancelled()) return
       // Only judge tasks that have actually been completed — counting not-yet-done
@@ -188,25 +230,33 @@ export function PerformanceDetailPage() {
       let rrRows: { status: string; due_at: string | null; delivered_at: string | null; confirmed_at: string | null }[] = []
       const rrSel = 'status, due_at, delivered_at, confirmed_at'
       if (u.role === 'manager') {
-        // PERF-001: score every department the manager covers (primary + managed), and
-        // filter client-side — a raw .or() over custom dept LABELS would break on labels
-        // containing commas/parens. RLS already scopes to the company.
+        // PERF-001: score every department the manager covers (primary + managed).
+        // PerformanceDetail-001: filter on the SERVER (was: fetch the whole company,
+        // capped at 1000 arbitrary rows, then filter client-side). A raw .or() over
+        // custom dept LABELS would break on commas/parens, so run one .in() per side
+        // (.in() quotes such values) and merge by id; both are paged.
         const depts = getEffectiveDepts(u)
-        const { data } = await supabase
-          .from('kaizen_rr_orders')
-          .select(rrSel + ', request_department, fulfill_department')
-          .eq('company_id', companyId)
-          .neq('status', 'cancelled')
-        rrRows = ((data ?? []) as unknown as Array<typeof rrRows[number] & { request_department: Department; fulfill_department: Department }>)
-          .filter(o => depts.includes(o.request_department) || depts.includes(o.fulfill_department))
+        type RrRow = typeof rrRows[number] & { id: string }
+        const bySide = (col: 'request_department' | 'fulfill_department') =>
+          fetchAllPages<RrRow>('RR orders', (from, to) => supabase
+            .from('kaizen_rr_orders')
+            .select('id, status, due_at, delivered_at, confirmed_at')
+            .eq('company_id', companyId)
+            .neq('status', 'cancelled')
+            .in(col, depts)
+            .order('id').range(from, to))
+        const [reqRows, fulRows] = await Promise.all([bySide('request_department'), bySide('fulfill_department')])
+        const merged = new Map<string, RrRow>()
+        for (const o of [...reqRows, ...fulRows]) merged.set(o.id, o)
+        rrRows = [...merged.values()]
       } else {
-        const { data } = await supabase
+        rrRows = await fetchAllPages<typeof rrRows[number]>('RR orders', (from, to) => supabase
           .from('kaizen_rr_orders')
           .select(rrSel)
           .eq('company_id', companyId)
           .neq('status', 'cancelled')
           .or(`sent_by.eq.${userId},accepted_by.eq.${userId},delivered_by.eq.${userId},confirmed_by.eq.${userId}`)
-        rrRows = (data || []) as typeof rrRows
+          .order('id').range(from, to))
       }
       if (isCancelled()) return
       // Denominator = only orders that reached a fulfilled state with a due time
@@ -430,12 +480,28 @@ export function PerformanceDetailPage() {
             }
             return tsList[tsList.length - 1]
           }
-          const approved = sc.filter(c =>
-            c.manager_approved_by === userId && c.manager_approved_at && resolvedTs(c) &&
-            differenceInHours(new Date(c.manager_approved_at), new Date(resolvedTs(c)!)) >= 0
-          )
-          const avgApprovalH = approved.length
-            ? approved.reduce((s, c) => s + differenceInHours(new Date(c.manager_approved_at!), new Date(resolvedTs(c)!)), 0) / approved.length
+          // PerformanceDetail-002: a reopen nulls manager_approved_at/by along with
+          // resolved_at, so the row alone drops every approved-then-reopened case. Use
+          // the row's approval when it is this manager's, else the durable timeline
+          // 'manager_approved' event by this manager (approvedAtMap).
+          const approvedAt = (c: KaizenCase) =>
+            c.manager_approved_by === userId && c.manager_approved_at ? c.manager_approved_at : approvedAtMap.get(c.id) ?? null
+          const approvalLagH = (c: KaizenCase): number | null => {
+            const at = approvedAt(c)
+            if (!at) return null
+            // When the row no longer carries this approval, the row's resolved_at (if any)
+            // belongs to a LATER resolution — pair with the latest resolved event at/before it.
+            const fromRow = c.manager_approved_by === userId && c.manager_approved_at
+            const res = fromRow
+              ? resolvedTs(c)
+              : (resolvedAtMap.get(c.id) ?? []).filter(ts => ts <= at).pop() ?? null
+            if (!res) return null
+            const h = differenceInHours(new Date(at), new Date(res))
+            return h >= 0 ? h : null
+          }
+          const approvalLags = sc.map(approvalLagH).filter((h): h is number => h != null)
+          const avgApprovalH = approvalLags.length
+            ? approvalLags.reduce((s, h) => s + h, 0) / approvalLags.length
             : null
           const approvalScore = avgApprovalH == null ? null : avgApprovalH <= 24 ? 100 : Math.max(0, Math.round((24 / avgApprovalH) * 100))
           const teamTotal = sc.length
@@ -445,7 +511,7 @@ export function PerformanceDetailPage() {
           const overdueRate = teamTotal ? (scOverdue.length / teamTotal) * 100 : 0
           const leadershipScore = teamTotal ? Math.round(((100 - reopenRate) + (100 - overdueRate)) / 2) : null
           criteria = [
-            { key: 'approval', label: t.perf.approval, value: approvalScore, weight: cfg.manager.approval, color: '#3b82f6', note: approved.length ? `~${formatRes(avgApprovalH)} ${t.perf.avg}` : t.perf.noApprovals, info: t.perf.approvalInfo },
+            { key: 'approval', label: t.perf.approval, value: approvalScore, weight: cfg.manager.approval, color: '#3b82f6', note: approvalLags.length ? `~${formatRes(avgApprovalH)} ${t.perf.avg}` : t.perf.noApprovals, info: t.perf.approvalInfo },
             { key: 'teamres', label: t.perf.teamRes, value: teamResRate, weight: cfg.manager.teamres, color: '#22c55e', note: `${scClosed.length}/${teamTotal} ${t.perf.closed}`, info: t.perf.teamResInfo },
             { key: 'teamsla', label: t.perf.teamSla, value: teamSlaScore, weight: cfg.manager.teamsla, color: '#0ea5e9', note: `${scOverdue.length} ${t.perf.overdue}`, info: t.perf.teamSlaInfo },
             { key: 'leadership', label: t.perf.leadership, value: leadershipScore, weight: cfg.manager.leadership, color: '#a855f7', note: `${reopenedCount} ${t.perf.reopened}`, info: t.perf.leadershipInfo },

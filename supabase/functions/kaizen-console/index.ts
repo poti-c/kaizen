@@ -421,9 +421,14 @@ Deno.serve(async (req) => {
     const resolved = body.resolved !== false;
     const group = (await loadErrorGroups()).find((g) => g.code === code);
     if (!group) return json({ error: "Unknown error code." }, 404);
-    const { error } = await admin.from("kaizen_error_log")
-      .update({ resolved }).in("id", group.ids);
-    if (error) return json({ error: error.message }, 400);
+    // supabase-js puts .in() filters in the URL (id=in.(uuid,…), ~37 chars per
+    // id), so one call over a noisy group of hundreds of rows overflows the
+    // gateway's URL limit and the whole resolve failed. Chunk the ids.
+    for (let i = 0; i < group.ids.length; i += 200) {
+      const { error } = await admin.from("kaizen_error_log")
+        .update({ resolved }).in("id", group.ids.slice(i, i + 200));
+      if (error) return json({ error: error.message }, 400);
+    }
     await audit("resolve_error_group", { code, count: group.ids.length, resolved }, ip, true);
     return json({ success: true, count: group.ids.length });
   }
@@ -816,7 +821,7 @@ Deno.serve(async (req) => {
     const owner_id = String(body.owner_id ?? "");
     const is_active = body.is_active === true;
     if (!owner_id) return json({ error: "owner_id required" }, 400);
-    const { data: prof } = await admin.from("kaizen_profiles").select("email, role").eq("id", owner_id).maybeSingle();
+    const { data: prof } = await admin.from("kaizen_profiles").select("email, role, company_id, is_active").eq("id", owner_id).maybeSingle();
     if (prof?.email === FOUNDER && !is_active) return json({ error: "The founder account cannot be disabled." }, 403);
     // The update below is scoped by role so it silently matches zero rows when
     // owner_id isn't a super_admin — but the auth ban/unban call after it is NOT
@@ -824,6 +829,23 @@ Deno.serve(async (req) => {
     // belongs to even when the profile write was a no-op. Verify the role up front
     // instead of letting the two calls fall out of sync.
     if (!prof || prof.role !== "super_admin") return json({ error: "Not an owner account." }, 400);
+    // Only active owners hold a seat, so a deactivated owner's seat can be filled
+    // by someone else. Reactivating must pass the same max_super_admins check as
+    // create/link, on the home company and every cross-linked company — otherwise
+    // deactivate A → add B → reactivate A leaves the company over its cap.
+    if (is_active && prof.is_active !== true) {
+      const { data: links } = await admin.from("kaizen_super_admin_companies").select("company_id").eq("super_admin_id", owner_id);
+      const cids = [...new Set([prof.company_id, ...(links ?? []).map((l) => l.company_id)].filter(Boolean))];
+      for (const cid of cids) {
+        const { data: limCo } = await admin.from("kaizen_companies").select("name, max_super_admins").eq("id", cid).maybeSingle();
+        if (limCo?.max_super_admins !== null && limCo?.max_super_admins !== undefined) {
+          const count = (await activeSuperAdminIdsForCompany(cid, owner_id)).size;
+          if (count >= limCo.max_super_admins) {
+            return json({ error: `${limCo.name ?? "This company"} already has ${count} of ${limCo.max_super_admins} Top Management seat(s) in use. Free a seat or upgrade the package before reactivating this owner.` }, 400);
+          }
+        }
+      }
+    }
     const { error } = await admin.from("kaizen_profiles").update({ is_active }).eq("id", owner_id).eq("role", "super_admin");
     if (error) return json({ error: error.message }, 400);
     // Revoke (or restore) the auth session so a suspended super_admin can't keep using
@@ -884,8 +906,17 @@ Deno.serve(async (req) => {
     const owner_id = String(body.owner_id ?? "");
     const company_id = String(body.company_id ?? "");
     if (!owner_id || !company_id) return json({ error: "owner_id and company_id required" }, 400);
-    const { error } = await admin.from("kaizen_super_admin_companies").delete().eq("super_admin_id", owner_id).eq("company_id", company_id);
+    // The home company lives in profiles.company_id, not in the link table, so
+    // deleting a link row can't remove it — this used to report success (and
+    // audit an unlink) while the owner kept full access.
+    const { data: prof } = await admin.from("kaizen_profiles").select("company_id").eq("id", owner_id).maybeSingle();
+    if (prof?.company_id === company_id) {
+      return json({ error: "This is the owner's home company and can't be unlinked. Suspend or delete the owner instead." }, 400);
+    }
+    const { data: removed, error } = await admin.from("kaizen_super_admin_companies").delete()
+      .eq("super_admin_id", owner_id).eq("company_id", company_id).select("super_admin_id");
     if (error) return json({ error: error.message }, 400);
+    if (!removed || removed.length === 0) return json({ error: "This owner is not linked to that company." }, 404);
     await audit("unlink_owner_company", { owner_id, company_id }, ip, true);
     return json({ success: true });
   }
@@ -1249,6 +1280,27 @@ Deno.serve(async (req) => {
     if (!sub) return json({ error: "Submission not found" }, 404);
     if (sub.status !== "pending") return json({ error: "Already reviewed." }, 400);
 
+    // Claim the submission atomically (compare-and-set on status) BEFORE applying
+    // anything. The pending check above is a separate read, so two approvals
+    // (two admins, two tabs, a retry after a timeout) both passed it and each
+    // extended the term and logged an invoice — two terms for one payment.
+    const reviewed_at = new Date().toISOString();
+    const { data: claimed, error: claimErr } = await admin.from("kaizen_payment_submissions")
+      .update({ status: "approved", reviewed_at }).eq("id", id).eq("status", "pending").select("id");
+    if (claimErr) return json({ error: claimErr.message }, 400);
+    if (!claimed || claimed.length === 0) return json({ error: "Already reviewed." }, 400);
+    // Nothing applied yet → hand the row back to the queue so it can be retried.
+    const unclaim = async (msg) => {
+      await admin.from("kaizen_payment_submissions").update({ status: "pending", reviewed_at: null }).eq("id", id).eq("status", "approved");
+      return json({ error: msg }, 400);
+    };
+    // The entitlement is applied, so the claim must stand (un-claiming would let a
+    // retry grant it twice); only the revenue row is missing.
+    const invoiceFailed = (msg) => {
+      console.error("approve_payment: plan applied but invoice insert failed", id, msg);
+      return json({ error: `Payment approved and applied, but the invoice could not be recorded (${msg}). Add it manually under Invoices.` }, 500);
+    };
+
     if (sub.kind === "subscription") {
       // Apply the plan + its package defaults, set subscription end, log an invoice.
       const pkg = await packageDefaults(sub.target);
@@ -1262,26 +1314,32 @@ Deno.serve(async (req) => {
       const baseEnd = (curCo?.subscription_end && curCo.subscription_end > today) ? curCo.subscription_end : today;
       const pe = new Date(baseEnd + "T00:00:00+07:00"); pe.setUTCDate(pe.getUTCDate() + term);
       const period_end = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok', year: 'numeric', month: '2-digit', day: '2-digit' }).format(pe);
-      await admin.from("kaizen_companies").update({
+      const { error: coErr } = await admin.from("kaizen_companies").update({
         plan: sub.target, subscription_end: period_end,
         max_super_admins: pkg?.max_super_admins ?? null,
         max_managers: pkg?.max_managers ?? null, max_staff: pkg?.max_staff ?? null,
         multi_company: !!pkg?.multi_company, features: pkg?.features ?? {},
       }).eq("id", sub.company_id);
+      if (coErr) return await unclaim("Could not apply the plan: " + coErr.message);
       if (fromPlan !== sub.target) {
-        await admin.from("kaizen_plan_changes").insert({ company_id: sub.company_id, from_plan: fromPlan, to_plan: sub.target, source: "payment" });
+        const { error: pcErr } = await admin.from("kaizen_plan_changes").insert({ company_id: sub.company_id, from_plan: fromPlan, to_plan: sub.target, source: "payment" });
+        if (pcErr) console.error("approve_payment: plan_changes insert failed", id, pcErr.message);
       }
-      await admin.from("kaizen_invoices").insert({
+      // period_start = where the purchased term begins (baseEnd), not today, so an
+      // early renewal's receipt covers exactly the term that was paid for.
+      const { error: invErr } = await admin.from("kaizen_invoices").insert({
         company_id: sub.company_id, payee: sub.target_label ?? sub.target, amount: sub.amount,
-        currency: sub.currency ?? "THB", payment_date: today, period_start: today, period_end,
+        currency: sub.currency ?? "THB", payment_date: today, period_start: baseEnd, period_end,
         notes: "Client PromptPay payment (approved)", submission_id: sub.id,
       });
+      if (invErr) return invoiceFailed(invErr.message);
     } else {
       // Add-on: enable it on the company's addons map.
       const { data: co } = await admin.from("kaizen_companies").select("addons").eq("id", sub.company_id).maybeSingle();
       const addons = (co?.addons && typeof co.addons === "object") ? co.addons : {};
       addons[sub.target] = true;
-      await admin.from("kaizen_companies").update({ addons }).eq("id", sub.company_id);
+      const { error: coErr } = await admin.from("kaizen_companies").update({ addons }).eq("id", sub.company_id);
+      if (coErr) return await unclaim("Could not enable the add-on: " + coErr.message);
       // Log an invoice so the add-on appears in confirmed revenue — mirrors what kaizen-pay
       // does for auto-verified add-on payments via SlipOK.
       const today = bangkokToday();
@@ -1292,13 +1350,13 @@ Deno.serve(async (req) => {
         const pe = new Date(today + "T00:00:00+07:00"); pe.setUTCDate(pe.getUTCDate() + addonDays);
         addonEnd = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok", year: "numeric", month: "2-digit", day: "2-digit" }).format(pe);
       }
-      await admin.from("kaizen_invoices").insert({
+      const { error: invErr } = await admin.from("kaizen_invoices").insert({
         company_id: sub.company_id, payee: sub.target_label ?? sub.target, amount: sub.amount,
         currency: sub.currency ?? "THB", payment_date: today, period_start: today, period_end: addonEnd,
         notes: "Client PromptPay payment (approved) — addon", submission_id: sub.id,
       });
+      if (invErr) return invoiceFailed(invErr.message);
     }
-    await admin.from("kaizen_payment_submissions").update({ status: "approved", reviewed_at: new Date().toISOString() }).eq("id", id);
     await audit("approve_payment", { id, kind: sub.kind, target: sub.target, company_id: sub.company_id }, ip, true);
     return json({ success: true });
   }
@@ -1325,8 +1383,10 @@ Deno.serve(async (req) => {
     const { data: co } = await admin.from("kaizen_companies").select("plan, subscription_end").eq("id", company_id).maybeSingle();
     const durations = await planDurations();
     const term = Number(durations[co?.plan]) || 365;
-    const baseDate = (co?.subscription_end && co.subscription_end > payment_date)
-      ? new Date(co.subscription_end + "T00:00:00+07:00") : pd;
+    // Early renewal: the purchased term starts where the current one ends, so
+    // the invoice's period_start must too (matches kaizen-pay's old_end).
+    const period_start = (co?.subscription_end && co.subscription_end > payment_date) ? co.subscription_end : payment_date;
+    const baseDate = new Date(period_start + "T00:00:00+07:00");
     const pe = new Date(baseDate); pe.setUTCDate(pe.getUTCDate() + term);
     const period_end = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok', year: 'numeric', month: '2-digit', day: '2-digit' }).format(pe);
     const payee = body.payee ? String(body.payee).trim() : null;
@@ -1344,7 +1404,7 @@ Deno.serve(async (req) => {
       proof_path = path;
     }
     const { error } = await admin.from("kaizen_invoices").insert({
-      company_id, payee, amount, currency, payment_date, period_start: payment_date, period_end, proof_path, notes,
+      company_id, payee, amount, currency, payment_date, period_start, period_end, proof_path, notes,
     });
     if (error) return json({ error: error.message }, 400);
     // Denormalise the LATEST period end onto the company for the app countdown.

@@ -83,16 +83,35 @@ function clearDraft(key: string) {
   try { sessionStorage.removeItem(key) } catch { /* storage unavailable */ }
 }
 
+// CC-DRAFT-COMPANY: the draft key (and every lazy initializer below) is fixed at
+// mount and includes the company id. Layout only waits for auth, not for
+// CompanyContext — so after an Android tab-kill reload straight onto /cases/new
+// the form could mount before activeCompany arrived, key itself ':none', miss the
+// real ':<companyId>' draft and show a blank form (then orphan the real draft).
+// Hold the form until the company has resolved, and remount it if the company id
+// changes so the key can never go stale.
 export function CreateCasePage() {
+  const { loading: companyLoading, activeCompany } = useCompany()
+  if (companyLoading) {
+    return (
+      <div className="flex justify-center p-10">
+        <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
+      </div>
+    )
+  }
+  return <CreateCaseForm key={activeCompany?.id ?? 'none'} />
+}
+
+function CreateCaseForm() {
   const navigate = useNavigate()
   const { profile } = useAuth()
   const { activeCompany } = useCompany()
   const { t, lang } = useLanguage()
 
   // Computed once at mount, matching the lazy draft/caseNumber initializers
-  // below — CreateCasePage is only reachable behind a route guard that
-  // already requires `profile` to be resolved, so this is stable by the time
-  // the page renders.
+  // below — Layout already requires `profile` to be resolved, and the
+  // CreateCasePage wrapper above waits for the company, so both are stable by
+  // the time the form renders.
   const [dKey] = useState(() => draftKey(profile?.id, activeCompany?.id))
   const [draft] = useState(() => {
     const found = loadDraft(dKey)
@@ -114,7 +133,15 @@ export function CreateCasePage() {
   const [title, setTitle] = useState(draft?.title ?? '')
   const [description, setDescription] = useState(draft?.description ?? '')
   const [priority, setPriority] = useState<CasePriority>(draft?.priority ?? 'medium')
-  const [department, setDepartment] = useState<Department>(draft?.department ?? (profile?.department || 'front_office'))
+  // CC-DEPT-TOPMGMT: every super_admin's own department is 'top_management', which
+  // is not a case department — the picker hides it (so the trigger showed blank)
+  // and CasesPage assumes no case carries it. Start a super admin (or a restored
+  // draft holding it) on an empty value so they must pick one; handleSubmit
+  // rejects an empty/'top_management' department.
+  const [department, setDepartment] = useState<Department>(() => {
+    const d = draft?.department ?? (profile?.department || 'front_office')
+    return d === 'top_management' ? ('' as Department) : d
+  })
   const [dueDate, setDueDate] = useState(draft?.dueDate ?? '')
   const [category, setCategory] = useState<string>(draft?.category ?? '')
   const [categoryOther, setCategoryOther] = useState<string>(draft?.categoryOther ?? '')
@@ -131,6 +158,11 @@ export function CreateCasePage() {
   // as before — a manager assigns it later from the case page.
   const [selectedPics, setSelectedPics] = useState<string[]>(draft?.selectedPics ?? [])
   const [picCandidates, setPicCandidates] = useState<KaizenProfile[]>([])
+  // CC-PIC-DROP: lets handleSubmit tell "list not loaded / query failed" apart
+  // from "not a valid person" — see the guard there.
+  const [picCandidatesLoaded, setPicCandidatesLoaded] = useState(false)
+  const [picCandidatesError, setPicCandidatesError] = useState(false)
+  const [picReloadTick, setPicReloadTick] = useState(0)
   const [showPicPicker, setShowPicPicker] = useState(false)
   const [picQuery, setPicQuery] = useState('')
 
@@ -200,11 +232,13 @@ export function CreateCasePage() {
         .in('role', ['staff', 'manager', 'super_admin'])
         .order('department').order('role', { ascending: false }).order('full_name')
       if (cancelled) return
-      if (error) { console.error('pic candidate lookup failed', error); return }
+      if (error) { console.error('pic candidate lookup failed', error); setPicCandidatesError(true); return }
       setPicCandidates(((data || []) as KaizenProfile[]).filter(p => p.job_title !== 'Owner'))
+      setPicCandidatesError(false)
+      setPicCandidatesLoaded(true)
     })()
     return () => { cancelled = true }
-  }, [activeCompany?.id])
+  }, [activeCompany?.id, picReloadTick])
 
   useEffect(() => {
     if (!activeCompany?.id) return
@@ -254,6 +288,23 @@ export function CreateCasePage() {
       toast.error(t.createCase.fillRequired)
       return
     }
+    // CC-DEPT-TOPMGMT: see the department initializer above.
+    if (!department || department === 'top_management') {
+      toast.error(t.createCase.fillRequired)
+      return
+    }
+    // CC-PIC-DROP: validPics below keeps only ids found in picCandidates. If that
+    // list has not loaded (or its query failed) while a restored draft carries
+    // selected PICs, every one of them would be silently dropped and the case
+    // saved unassigned. Refuse instead of guessing.
+    // (With no company the query never runs; keep the old drop-unknowns path.)
+    if (selectedPics.length > 0 && !picCandidatesLoaded && activeCompany?.id) {
+      toast.error(lang === 'th'
+        ? 'ยังโหลดรายชื่อผู้รับผิดชอบไม่สำเร็จ — กรุณาลองอีกครั้ง'
+        : 'The Person in Charge list has not loaded yet — please try again.')
+      if (picCandidatesError) setPicReloadTick((n) => n + 1)
+      return
+    }
 
     setLoading(true)
 
@@ -273,6 +324,11 @@ export function CreateCasePage() {
       // restored after someone was deactivated), so we never write a dead
       // person_in_charge and violate the FK.
       const validPics = selectedPics.filter(pid => picCandidates.some(c => c.id === pid))
+      if (validPics.length < selectedPics.length) {
+        toast.warning(lang === 'th'
+          ? 'ผู้รับผิดชอบบางคนไม่สามารถมอบหมายได้แล้ว จึงถูกนำออก'
+          : 'Some selected people can no longer be assigned and were removed as Person in Charge.')
+      }
       // Mirror savePic on the case page: naming a PIC up front assigns the case
       // immediately, and the PICs' own departments (other than Top Management,
       // which has no operational department, and the case's own) get badged.
@@ -330,9 +386,8 @@ export function CreateCasePage() {
         if (photoErr) {
           console.error('case photo insert failed', photoErr)
           // CC-002: the photos were uploaded to storage BEFORE submit, but their DB rows
-          // didn't commit — remove the now-orphaned objects so they don't leak. The catch
-          // block's cleanup only runs when the CASE insert throws, which this swallowed
-          // error never reaches. The user is told to re-add (which re-uploads), so the
+          // didn't commit — remove the now-orphaned objects so they don't leak (the case is already
+          // saved, so nothing else will ever reference them). The user is told to re-add (which re-uploads), so the
           // dangling objects would otherwise never be referenced.
           const orphanPaths = photoUrls.map(photoStoragePathFromUrl)
           supabase.storage.from('kaizen-photos').remove(orphanPaths).catch((rmErr) =>
@@ -356,8 +411,8 @@ export function CreateCasePage() {
       // (which drive the department badges), the same two timeline actions, and
       // the same 'Assigned as In Charge' notification. All of it is best-effort
       // — the case row is already committed, so a failure here is logged rather
-      // than thrown, which would otherwise trigger the catch block's photo
-      // cleanup and destroy the reporter's evidence for an already-saved case.
+      // than thrown, which would otherwise show "failed" for an already-saved
+      // case and invite a duplicate resubmit.
       if (validPics.length > 0) {
         const { error: asnErr } = await supabase.from('kaizen_case_assignments').upsert(
           [department, ...newDepts].map((dept) => ({
@@ -485,12 +540,12 @@ export function CreateCasePage() {
       toast.success(t.createCase.created(usedCaseNumber))
       navigate(`/cases/${newCase.id}`)
     } catch (err) {
-      if (photoUrls.length > 0) {
-        const paths = photoUrls.map(photoStoragePathFromUrl)
-        supabase.storage.from('kaizen-photos').remove(paths).catch((rmErr) =>
-          console.error('photo cleanup after failed insert failed', rmErr)
-        )
-      }
+      // CC-PHOTO-RETRY: do NOT delete the uploaded photos here. This used to remove
+      // every photoUrls object while leaving the URLs in state and in the draft, so
+      // the form still showed the thumbnails, the user pressed Submit again, and the
+      // retry saved kaizen_case_photos rows pointing at deleted objects. The form
+      // stays filled in for a retry; cancelAndLeave (and each thumbnail's remove)
+      // still clean up storage when the photos are actually abandoned.
       toast.error(t.createCase.failed)
       console.error(err)
     } finally {
@@ -500,7 +555,7 @@ export function CreateCasePage() {
 
   // CC-PHOTO-LEAK-CANCEL: PhotoUpload uploads to storage immediately but the DB
   // rows are only written on submit. If the reporter cancels/goes back, remove the
-  // now-orphaned objects (mirrors the submit-failure cleanup) so they don't leak.
+  // now-orphaned objects so they don't leak. A failed submit keeps them for a retry (CC-PHOTO-RETRY).
   function cancelAndLeave() {
     if (photoUrls.length > 0) {
       const paths = photoUrls.map(photoStoragePathFromUrl)
@@ -540,7 +595,7 @@ export function CreateCasePage() {
               <Label>{t.createCase.department} <span className="text-red-500">*</span></Label>
               <Select value={department} onValueChange={(v) => setDepartment(v as Department)}>
                 <SelectTrigger>
-                  <SelectValue />
+                  <SelectValue placeholder={lang === 'th' ? 'เลือกแผนก' : 'Select a department'} />
                 </SelectTrigger>
                 <SelectContent>
                   {deptOptions.filter((d) => d.value !== 'top_management').map((d) => (

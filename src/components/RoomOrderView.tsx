@@ -212,45 +212,89 @@ function eventLabel(e: RoomEvent, lang: string): string {
 }
 
 /**
+ * Alert the departments a just-released special request (approved or auto-released)
+ * now concerns, mirroring notifyFulfillers' work/incoming split: a handoff line's
+ * PREPARER gets the "start this" message (it must begin the work), its deliverer only
+ * an "incoming" heads-up; a single-stage line alerts its fulfilling department.
+ */
+async function notifyReleasedSpecials(
+  companyId: string, actorId: string | undefined, date: string, lang: string, title: string,
+  workMessage: (n: number) => string,
+  lines: { fulfill_department: string; prepare_department: string | null }[],
+) {
+  const work = new Map<string, number>()
+  const incoming = new Map<string, number>()
+  for (const l of lines) {
+    if (l.prepare_department) {
+      work.set(l.prepare_department, (work.get(l.prepare_department) ?? 0) + 1)
+      incoming.set(l.fulfill_department, (incoming.get(l.fulfill_department) ?? 0) + 1)
+    } else {
+      work.set(l.fulfill_department, (work.get(l.fulfill_department) ?? 0) + 1)
+    }
+  }
+  const rows: { user_id: string; title: string; message: string; notification_type: string }[] = []
+  const seenWork = new Set<string>()
+  const seenIncoming = new Set<string>()
+  for (const [dept, n] of work) {
+    const message = workMessage(n)
+    for (const p of await resolveDeptRecipients(companyId, dept)) {
+      if (p.id === actorId || seenWork.has(p.id)) continue
+      seenWork.add(p.id)
+      rows.push({ user_id: p.id, title, message, notification_type: 'rr' })
+    }
+  }
+  for (const [dept, n] of incoming) {
+    const message = lang === 'th'
+      ? `คำขอพิเศษ ${n} รายการสำหรับวันที่ ${date} กำลังถูกเตรียมโดยอีกแผนก แล้วจะส่งให้คุณจัดส่ง`
+      : `${n} special request${n === 1 ? '' : 's'} for ${date} ${n === 1 ? 'is' : 'are'} being prepared by another dept — you'll deliver once ready.`
+    for (const p of await resolveDeptRecipients(companyId, dept)) {
+      if (p.id === actorId || seenIncoming.has(p.id)) continue
+      seenIncoming.add(p.id)
+      rows.push({ user_id: p.id, title, message, notification_type: 'rr' })
+    }
+  }
+  if (rows.length > 0) await supabase.from('kaizen_notifications').insert(rows)
+}
+
+/**
  * Lazily auto-release any pending special requests whose approval cutoff has
  * passed (submitted orders only). Returns the number auto-released. Mirrors how
  * the board materializes orders on view — no scheduled job required.
+ * When approval is no longer REQUIRED, every pending special is released at once
+ * (no cutoff): rows left pending when the gate was switched off would otherwise be
+ * invisible on every board and unapprovable (the Approvals tab is hidden).
  */
 async function escalateOverdueSpecials(companyId: string, date: string, cfg: ApprovalConfig, lang: string): Promise<number> {
-  if (!cfg.enabled) return 0
+  if (cfg.require && !cfg.enabled) return 0
   const { data } = await supabase.from('kaizen_rr_room_lines')
     .select('id, serving_at, slot, item, kaizen_rr_room_orders!inner(status)')
     .eq('company_id', companyId).eq('order_date', date).eq('source', 'special').eq('active', true).eq('approval_status', 'pending')
   const now = Date.now()
   const overdue = ((data as unknown as { id: string; serving_at: string | null; kaizen_rr_room_orders: { status: string } | { status: string }[] }[]) ?? [])
     .filter((l) => { const o = Array.isArray(l.kaizen_rr_room_orders) ? l.kaizen_rr_room_orders[0] : l.kaizen_rr_room_orders; return o?.status === 'submitted' })
-    .filter((l) => { const c = cutoffTs(l.serving_at, date, cfg); return c != null && now > c })
+    .filter((l) => { if (!cfg.require) return true; const c = cutoffTs(l.serving_at, date, cfg); return c != null && now > c })
     .map((l) => l.id)
   if (overdue.length === 0) return 0
   // Atomic release: only flip rows still 'pending' and act solely on the ones THIS call
   // changed, so concurrent loads don't double-notify.
   const { data: released } = await supabase.from('kaizen_rr_room_lines')
     .update({ approval_status: 'auto' }).in('id', overdue).eq('approval_status', 'pending')
-    .select('id, fulfill_department')
-  const rows = (released as { id: string; fulfill_department: string }[]) ?? []
+    .select('id, fulfill_department, prepare_department')
+  const rows = (released as { id: string; fulfill_department: string; prepare_department: string | null }[]) ?? []
   if (rows.length === 0) return 0
   const n = rows.length
   const title = lang === 'th' ? 'ออเดอร์ห้อง — ปล่อยคำขอพิเศษอัตโนมัติ' : 'Room order — special requests auto-released'
-  const message = lang === 'th'
-    ? `คำขอพิเศษ ${n} รายการสำหรับวันที่ ${date} ไม่ได้รับการอนุมัติก่อนกำหนด จึงถูกส่งไปยังแผนกผู้ดำเนินการแล้ว`
-    : `${n} special request${n === 1 ? '' : 's'} for ${date} ${n === 1 ? 'was' : 'were'} not approved before the cutoff and ${n === 1 ? 'has' : 'have'} been sent to the fulfilling departments.`
-  await notifyManagers(companyId, undefined, title, message)
-  // Also alert the fulfilling departments — the released items now appear on their board.
-  const deptNotify: { user_id: string; title: string; message: string; notification_type: string }[] = []
-  const seen = new Set<string>()
-  for (const dept of [...new Set(rows.map((r) => r.fulfill_department))]) {
-    for (const p of await resolveDeptRecipients(companyId, dept)) {
-      if (seen.has(p.id)) continue
-      seen.add(p.id)
-      deptNotify.push({ user_id: p.id, title, message, notification_type: 'rr' })
-    }
-  }
-  if (deptNotify.length > 0) await supabase.from('kaizen_notifications').insert(deptNotify)
+  const message = (k: number) => !cfg.require
+    ? (lang === 'th'
+      ? `คำขอพิเศษ ${k} รายการสำหรับวันที่ ${date} ไม่ต้องรออนุมัติแล้ว จึงถูกส่งไปยังแผนกผู้ดำเนินการ`
+      : `${k} special request${k === 1 ? '' : 's'} for ${date} no longer need${k === 1 ? 's' : ''} approval and ${k === 1 ? 'has' : 'have'} been sent to the fulfilling departments.`)
+    : (lang === 'th'
+      ? `คำขอพิเศษ ${k} รายการสำหรับวันที่ ${date} ไม่ได้รับการอนุมัติก่อนกำหนด จึงถูกส่งไปยังแผนกผู้ดำเนินการแล้ว`
+      : `${k} special request${k === 1 ? '' : 's'} for ${date} ${k === 1 ? 'was' : 'were'} not approved before the cutoff and ${k === 1 ? 'has' : 'have'} been sent to the fulfilling departments.`)
+  await notifyManagers(companyId, undefined, title, message(n))
+  // Also alert the departments — the preparer of a handoff must start the work; the
+  // deliverer (or single-stage fulfiller) now sees the items on its board.
+  await notifyReleasedSpecials(companyId, undefined, date, lang, title, message, rows)
   return n
 }
 
@@ -374,7 +418,9 @@ export function RoomOrderView({ companyId, initialDate, initialMode }: { company
     if (!companyId) return
     const cfg = await loadApprovalConfig(companyId)
     setRequireApproval(cfg.require)
-    if (!canManage || !cfg.require) { setPendingApprovals(0); return }
+    if (!canManage) { setPendingApprovals(0); return }
+    // Still runs when approval is NOT required: escalateOverdueSpecials then releases
+    // any special left pending from before the gate was switched off (RO-4).
     // The Place-order navigator lets a requester pick ANY future date, not just
     // today/tomorrow, so a special request further out used to sit pending
     // forever — never escalated, never counted in the badge. Discover every
@@ -384,7 +430,9 @@ export function RoomOrderView({ companyId, initialDate, initialMode }: { company
       .select('order_date')
       .eq('company_id', companyId).eq('source', 'special').eq('active', true).eq('approval_status', 'pending')
     const dates = [...new Set((pendingDates ?? []).map((r) => r.order_date as string))]
-    await Promise.all(dates.map((d) => escalateOverdueSpecials(companyId, d, cfg, lang)))
+    // A failed notification must not stop the badge from refreshing (RO-5).
+    await Promise.all(dates.map((d) => escalateOverdueSpecials(companyId, d, cfg, lang).catch((e) => console.warn('escalateOverdueSpecials failed', e))))
+    if (!cfg.require) { setPendingApprovals(0); return }
     const { count } = await supabase.from('kaizen_rr_room_lines')
       .select('id', { count: 'exact', head: true })
       .eq('company_id', companyId).eq('source', 'special').eq('active', true).eq('approval_status', 'pending')
@@ -475,17 +523,31 @@ function RoomOrderBuild({ companyId, unit, requireApproval, date: controlledDate
   const [events, setEvents] = useState<RoomEvent[]>([])
   const [showHistory, setShowHistory] = useState(false)
   const [loading, setLoading] = useState(true)
+  // RO-1: set when the order/lines read failed. Gates the whole grid (no Save/Submit)
+  // until a successful reload, so nothing can be written against stale state.
+  const [loadError, setLoadError] = useState(false)
   const [busy, setBusy] = useState(false)
   const [openRoom, setOpenRoom] = useState<string | null>(null)
+  // RO-2: request token — only the NEWEST load may write state, so a slow response for
+  // a date the user already navigated away from can't overwrite the current date's order.
+  const loadSeq = useRef(0)
 
   const load = useCallback(async () => {
     if (!companyId) return
+    const seq = ++loadSeq.current
+    const isStale = () => seq !== loadSeq.current
     setLoading(true)
+    setLoadError(false)
+    // Drop the previous date's order state up front: until this load succeeds nothing
+    // may be saved/submitted against another date's order (RO-1).
+    setOrderId(null); setOrderStatus(null); setSubmittedAt(null)
+    setSavedRooms({}); setRoomStatuses({}); setEvents([])
     const [cfgRes, recipesRes, orderRes] = await Promise.all([
       supabase.from('kaizen_settings').select('value').eq('company_id', companyId).eq('key', 'rr_room_config').maybeSingle(),
       supabase.from('kaizen_settings').select('value').eq('company_id', companyId).eq('key', 'rr_room_recipes').maybeSingle(),
       supabase.from('kaizen_rr_room_orders').select('*').eq('company_id', companyId).eq('order_date', date).maybeSingle(),
     ])
+    if (isStale()) return
     const cfg = cfgRes.data?.value as { categories?: RoomCategory[]; types?: RoomType[]; rooms?: Room[] } | undefined
     setCategories((cfg?.categories ?? []).slice().sort((a, b) => a.order - b.order))
     setTypes(cfg?.types ?? [])
@@ -500,6 +562,7 @@ function RoomOrderBuild({ companyId, unit, requireApproval, date: controlledDate
     // already-submitted order, and re-notifies every fulfilling department.
     if (orderRes.error) {
       toast.error(orderRes.error.message)
+      setLoadError(true)
       setLoading(false)
       return
     }
@@ -513,6 +576,7 @@ function RoomOrderBuild({ companyId, unit, requireApproval, date: controlledDate
 
     if (order?.submitted_by) {
       const { data: sub } = await supabase.from('kaizen_profiles').select('full_name').eq('id', order.submitted_by).maybeSingle()
+      if (isStale()) return
       setSubmittedByName((sub as { full_name: string } | null)?.full_name ?? null)
     } else {
       setSubmittedByName(null)
@@ -520,12 +584,17 @@ function RoomOrderBuild({ companyId, unit, requireApproval, date: controlledDate
 
     if (order) {
       const { data: lines, error: linesErr } = await supabase.from('kaizen_rr_room_lines').select('*').eq('room_order_id', order.id)
+      if (isStale()) return
       // RO-BUG-01: same failure mode as the order read above — an unchecked
       // error here fell through to setSavedRooms({}) with orderId/orderStatus
       // still populated, so the UI showed a normal "Submitted" order that
       // performSubmit believed had zero saved rooms.
       if (linesErr) {
         toast.error(linesErr.message)
+        // orderId is already the new order's but its lines are unknown — don't let a
+        // save seed/insert over them (RO-1).
+        setOrderId(null); setOrderStatus(null)
+        setLoadError(true)
         setLoading(false)
         return
       }
@@ -562,7 +631,8 @@ function RoomOrderBuild({ companyId, unit, requireApproval, date: controlledDate
         })
       }
       setSavedRooms(byRoom)
-      await loadEvents(order.id)
+      await loadEvents(order.id, isStale)
+      if (isStale()) return
     } else {
       setSavedRooms({})
       setEvents([])
@@ -572,7 +642,7 @@ function RoomOrderBuild({ companyId, unit, requireApproval, date: controlledDate
   useEffect(() => { load() }, [load])
 
   // Load the change history for an order, resolving actor names.
-  const loadEvents = useCallback(async (oid: string) => {
+  const loadEvents = useCallback(async (oid: string, isStale?: () => boolean) => {
     const { data } = await supabase.from('kaizen_rr_room_events')
       .select('id, action, detail, created_at, actor_id').eq('room_order_id', oid).order('created_at', { ascending: false })
     const list = (data as { id: string; action: string; detail: string | null; created_at: string; actor_id: string | null }[]) ?? []
@@ -582,6 +652,7 @@ function RoomOrderBuild({ companyId, unit, requireApproval, date: controlledDate
       const { data: profs } = await supabase.from('kaizen_profiles').select('id, full_name').in('id', ids)
       ;((profs as { id: string; full_name: string }[]) ?? []).forEach((p) => { names[p.id] = p.full_name })
     }
+    if (isStale?.()) return
     setEvents(list.map((e) => ({ id: e.id, action: e.action, detail: e.detail, created_at: e.created_at,
       actorName: e.actor_id ? (names[e.actor_id] ?? '—') : (lang === 'th' ? 'ระบบ' : 'System') })))
   }, [lang])
@@ -748,7 +819,14 @@ function RoomOrderBuild({ companyId, unit, requireApproval, date: controlledDate
     // Store the raw status KEY (not an English label) so the History panel can localize it.
     await logRoomEvent(companyId, oid, date, profile?.id, 'room_saved', `${roomNo} · ${status}`)
     // Alert any dept left holding a now-cancelled handoff item (only matters once submitted).
-    if (orderResult.status === 'submitted' && cancels.length > 0) await notifyHandoffCancellations(companyId, profile?.id, lang, cancels)
+    // RO-5: the save has already committed — a failed notification must not leave busy
+    // stuck and the sheet open, so warn instead of throwing.
+    if (orderResult.status === 'submitted' && cancels.length > 0) {
+      try { await notifyHandoffCancellations(companyId, profile?.id, lang, cancels) } catch (e) {
+        console.warn('notifyHandoffCancellations failed', e)
+        toast.warning(lang === 'th' ? 'บันทึกแล้ว แต่ส่งการแจ้งเตือนการยกเลิกไม่สำเร็จ' : 'Saved, but the cancellation alert could not be sent')
+      }
+    }
     // Re-read this room's rows so local state carries the real DB ids (prevents a second
     // edit from re-inserting the just-added lines as duplicates).
     const { data: fresh } = await supabase.from('kaizen_rr_room_lines').select('*').eq('room_order_id', oid).eq('room_no', roomNo)
@@ -846,23 +924,35 @@ function RoomOrderBuild({ companyId, unit, requireApproval, date: controlledDate
       .update({ status: 'submitted', submitted_by: profile.id, submitted_at: new Date().toISOString() }).eq('id', oid)
     if (e2) { setBusy(false); toast.error(e2.message); return }
     await logRoomEvent(companyId, oid, date, profile.id, wasSubmitted ? 'resubmitted' : 'submitted', null)
-    // Alert managers if special requests are awaiting approval for this date.
-    const { count } = await supabase.from('kaizen_rr_room_lines')
-      .select('id', { count: 'exact', head: true })
-      .eq('room_order_id', oid).eq('source', 'special').eq('active', true).eq('approval_status', 'pending')
-    if ((count ?? 0) > 0) {
-      await notifyManagers(companyId, profile?.id,
-        lang === 'th' ? 'ออเดอร์ห้อง — มีคำขอพิเศษรออนุมัติ' : 'Room order — special requests need approval',
-        lang === 'th'
-          ? `มีคำขอพิเศษ ${count} รายการสำหรับวันที่ ${date} รอการอนุมัติจากคุณ`
-          : `${count} special request${count === 1 ? '' : 's'} for ${date} need your approval.`)
+    // RO-5: the order is already submitted in the DB — a failed notification query must
+    // not strand busy=true with a stale Draft banner. Warn and still refresh.
+    let notifyFailed = false
+    try {
+      // RO-4: approval no longer required but this order still holds specials left
+      // pending from before the gate was switched off — release them now.
+      if (!requireApproval) await escalateOverdueSpecials(companyId, date, await loadApprovalConfig(companyId), lang)
+      // Alert managers if special requests are awaiting approval for this date.
+      const { count } = await supabase.from('kaizen_rr_room_lines')
+        .select('id', { count: 'exact', head: true })
+        .eq('room_order_id', oid).eq('source', 'special').eq('active', true).eq('approval_status', 'pending')
+      if ((count ?? 0) > 0) {
+        await notifyManagers(companyId, profile?.id,
+          lang === 'th' ? 'ออเดอร์ห้อง — มีคำขอพิเศษรออนุมัติ' : 'Room order — special requests need approval',
+          lang === 'th'
+            ? `มีคำขอพิเศษ ${count} รายการสำหรับวันที่ ${date} รอการอนุมัติจากคุณ`
+            : `${count} special request${count === 1 ? '' : 's'} for ${date} need your approval.`)
+      }
+      // Notify the fulfilling departments: on first submit, all of them; on a re-submit, only
+      // departments that gained new lines since the previous submit (so edits still reach a
+      // newly-involved department without re-blasting everyone).
+      await notifyFulfillers(companyId, oid, date, profile.id, lang, wasSubmitted ? prevSubmittedAt : null)
+    } catch (e) {
+      console.warn('room order notifications failed', e)
+      notifyFailed = true
     }
-    // Notify the fulfilling departments: on first submit, all of them; on a re-submit, only
-    // departments that gained new lines since the previous submit (so edits still reach a
-    // newly-involved department without re-blasting everyone).
-    await notifyFulfillers(companyId, oid, date, profile.id, lang, wasSubmitted ? prevSubmittedAt : null)
     setBusy(false)
     toast.success(lang === 'th' ? 'ส่งใบสั่งห้องแล้ว' : 'Room order submitted')
+    if (notifyFailed) toast.warning(lang === 'th' ? 'ส่งการแจ้งเตือนถึงแผนกไม่สำเร็จบางส่วน — โปรดแจ้งแผนกโดยตรง' : 'Some department notifications could not be sent — please let them know directly')
     load()
   }
 
@@ -907,6 +997,24 @@ function RoomOrderBuild({ companyId, unit, requireApproval, date: controlledDate
   const savedCount = Object.keys(savedRooms).length
 
   if (loading) return <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-gray-400" /></div>
+
+  // RO-1: the order couldn't be read — show no grid (nothing to save/submit) until a retry succeeds.
+  if (loadError) return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-2">
+        <button onClick={() => setDate(shiftDate(date, -1))} className="h-9 w-9 flex items-center justify-center rounded-lg border border-gray-300 bg-white text-gray-600 hover:border-gray-400"><ChevronLeft className="h-4 w-4" /></button>
+        <p className="flex-1 text-center text-sm font-semibold text-gray-900">{dateLabel}</p>
+        <button onClick={() => setDate(shiftDate(date, 1))} className="h-9 w-9 flex items-center justify-center rounded-lg border border-gray-300 bg-white text-gray-600 hover:border-gray-400"><ChevronRight className="h-4 w-4" /></button>
+      </div>
+      <div className="text-center py-12 bg-white rounded-xl border border-gray-200 px-6">
+        <AlertTriangle className="h-8 w-8 text-amber-400 mx-auto mb-2" />
+        <p className="text-sm text-gray-600">{lang === 'th' ? 'โหลดใบสั่งไม่สำเร็จ' : "Couldn't load this order."}</p>
+        <button onClick={() => load()} className="mt-3 inline-flex items-center gap-1.5 h-9 px-4 rounded-lg border border-gray-300 bg-white text-sm text-gray-700 hover:border-gray-400">
+          <RotateCcw className="h-4 w-4" />{lang === 'th' ? 'ลองอีกครั้ง' : 'Retry'}
+        </button>
+      </div>
+    </div>
+  )
 
   if (rooms.length === 0) return (
     <div className="text-center py-16 bg-white rounded-xl border border-gray-200 px-6">
@@ -1434,20 +1542,30 @@ function RoomFulfilBoard({ companyId, dept, unit, initialDate, date: controlledD
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [docModal, setDocModal] = useState<{ line: FulfilLine; mode: 'upload' | 'view'; canConfirm: boolean; canReplace: boolean } | null>(null)
+  // RO-2: request token — a slow load for a date/dept the user already left must not
+  // overwrite the board now on screen.
+  const loadSeq = useRef(0)
 
   const load = useCallback(async () => {
     if (!companyId) return
+    const seq = ++loadSeq.current
+    const isStale = () => seq !== loadSeq.current
     setLoading(true)
     const { data: order } = await supabase.from('kaizen_rr_room_orders').select('id, status, submitted_by')
       .eq('company_id', companyId).eq('order_date', date).maybeSingle()
+    if (isStale()) return
     const o = order as { id: string; status: string; submitted_by: string | null } | null
     if (!o || o.status !== 'submitted') { setOrderId(null); setLines([]); setOrderExists(false); setSubmittedBy(null); setLoading(false); return }
     setOrderId(o.id)
     setSubmittedBy(o.submitted_by ?? null)
     // Fire the auto-release safety net for the VIEWED date so an un-approved overdue special
     // surfaces on the fulfilling dept's board instead of silently staying hidden as 'pending'.
+    // Also runs when approval is NOT required, releasing specials stranded 'pending' from
+    // before the gate was switched off (RO-4). A notification failure must not leave the
+    // board on its spinner forever (RO-5).
     const cfg = await loadApprovalConfig(companyId)
-    if (cfg.require) await escalateOverdueSpecials(companyId, date, cfg, lang)
+    await escalateOverdueSpecials(companyId, date, cfg, lang).catch((e) => console.warn('escalateOverdueSpecials failed', e))
+    if (isStale()) return
     // This dept sees a line if it DELIVERS it (fulfill_department) OR PREPARES it
     // (prepare_department, two-stage handoff). Two filtered queries merged by id — avoids
     // PostgREST .or() parsing issues with custom department labels that contain punctuation.
@@ -1457,6 +1575,7 @@ function RoomFulfilBoard({ companyId, dept, unit, initialDate, date: controlledD
       base().eq('fulfill_department', dept),
       base().eq('prepare_department', dept),
     ])
+    if (isStale()) return
     const merged = new Map<string, FulfilLine>()
     ;[...((delRes.data as FulfilLine[]) ?? []), ...((prepRes.data as FulfilLine[]) ?? [])].forEach((l) => merged.set(l.id, l))
     const list = [...merged.values()]
@@ -1465,11 +1584,13 @@ function RoomFulfilBoard({ companyId, dept, unit, initialDate, date: controlledD
     // Prep-by hint buffer (serving time − N minutes), configured with the recipes.
     const { data: bufRow } = await supabase.from('kaizen_settings').select('value')
       .eq('company_id', companyId).eq('key', 'rr_prep_buffer_min').maybeSingle()
+    if (isStale()) return
     const buf = bufRow?.value as number | undefined
     setPrepBufferMin(typeof buf === 'number' && buf >= 0 ? buf : DEFAULT_PREP_BUFFER_MIN)
     const ids = [...new Set(list.flatMap((l) => [l.delivered_by, l.prepared_by]).filter(Boolean))] as string[]
     if (ids.length > 0) {
       const { data: profs } = await supabase.from('kaizen_profiles').select('id, full_name').in('id', ids)
+      if (isStale()) return
       const m: Record<string, string> = {}
       ;((profs as { id: string; full_name: string }[]) ?? []).forEach((p) => { m[p.id] = p.full_name })
       setNames(m)
@@ -1600,15 +1721,20 @@ function RoomFulfilBoard({ companyId, dept, unit, initialDate, date: controlledD
   // superseded object if the replacement has a different path.
   async function onDocUploaded(l: FulfilLine, path: string, name: string) {
     if (!profile) return
-    if (l.document_path && l.document_path !== path) {
-      await supabase.storage.from('kaizen-invoices').remove([l.document_path])
-    }
     const at = new Date().toISOString()
     const patch = isPrep(l)
       ? { status: 'ready' as const, prepared_by: profile.id, prepared_at: at, document_path: path, document_name: name }
       : { status: 'done' as const, delivered_by: profile.id, delivered_at: at, prepared_by: profile.id, prepared_at: at, document_path: path, document_name: name }
+    // RO-6: repoint the row FIRST, then drop the superseded object (a replacement with a
+    // different extension lands at a new path). Removing first left the row pointing at a
+    // deleted file whenever this update failed; on failure, drop the new upload instead.
+    const replaced = l.document_path && l.document_path !== path ? l.document_path : null
     const { error } = await supabase.from('kaizen_rr_room_lines').update(patch).eq('id', l.id)
-    if (error) { toast.error(error.message); return }
+    if (error) {
+      if (l.document_path !== path) await supabase.storage.from('kaizen-invoices').remove([path])
+      toast.error(error.message); return
+    }
+    if (replaced) await supabase.storage.from('kaizen-invoices').remove([replaced])
     if (profile.full_name) setNames((m) => ({ ...m, [profile.id]: profile.full_name }))
     setLines((prev) => prev.map((x) => x.id === l.id ? { ...x, ...patch } : x))
     if (isPrep(l)) await notifyReady(l)
@@ -1803,22 +1929,28 @@ function RoomMonitorBoard({ companyId, unit, initialDate, date: controlledDate, 
   const [orderExists, setOrderExists] = useState(false)
   const [loading, setLoading] = useState(true)
   const [viewDoc, setViewDoc] = useState<MonitorLine | null>(null)
+  const loadSeq = useRef(0) // RO-2: only the newest load may write state
 
   const load = useCallback(async () => {
     if (!companyId) return
+    const seq = ++loadSeq.current
+    const isStale = () => seq !== loadSeq.current
     setLoading(true)
     const { data: order } = await supabase.from('kaizen_rr_room_orders').select('id, status')
       .eq('company_id', companyId).eq('order_date', date).maybeSingle()
+    if (isStale()) return
     const o = order as { id: string; status: string } | null
     if (!o || o.status !== 'submitted') { setLines([]); setOrderExists(false); setLoading(false); return }
     setOrderExists(true)
     const { data } = await supabase.from('kaizen_rr_room_lines').select('*')
       .eq('room_order_id', o.id).eq('active', true).in('approval_status', ['approved', 'auto'])
+    if (isStale()) return
     const list = (data as MonitorLine[]) ?? []
     setLines(list)
     const ids = [...new Set(list.flatMap((l) => [l.delivered_by, l.prepared_by]).filter(Boolean))] as string[]
     if (ids.length > 0) {
       const { data: profs } = await supabase.from('kaizen_profiles').select('id, full_name').in('id', ids)
+      if (isStale()) return
       const m: Record<string, string> = {}
       ;((profs as { id: string; full_name: string }[]) ?? []).forEach((p) => { m[p.id] = p.full_name })
       setNames(m)
@@ -2014,7 +2146,7 @@ function RoomApprovalsView({ companyId, onChanged }: { companyId: string; onChan
     setLoading(true)
     const c = await loadApprovalConfig(companyId)
     setCfg(c)
-    await escalateOverdueSpecials(companyId, date, c, lang)
+    await escalateOverdueSpecials(companyId, date, c, lang).catch((e) => console.warn('escalateOverdueSpecials failed', e))
     const { data: order } = await supabase.from('kaizen_rr_room_orders').select('id, status')
       .eq('company_id', companyId).eq('order_date', date).maybeSingle()
     const o = order as { id: string; status: string } | null
@@ -2031,32 +2163,25 @@ function RoomApprovalsView({ companyId, onChanged }: { companyId: string; onChan
   async function decide(ids: string[], status: 'approved' | 'rejected') {
     if (ids.length === 0) return
     setBusy(true)
-    const { data: updated, error } = await supabase.from('kaizen_rr_room_lines').update({ approval_status: status }).in('id', ids).eq('approval_status', 'pending').select('id, fulfill_department')
+    const { data: updated, error } = await supabase.from('kaizen_rr_room_lines').update({ approval_status: status }).in('id', ids).eq('approval_status', 'pending').select('id, fulfill_department, prepare_department')
     setBusy(false)
     if (error) { toast.error(error.message); return }
-    const updatedRows = (updated ?? []) as { id: string; fulfill_department: string }[]
+    const updatedRows = (updated ?? []) as { id: string; fulfill_department: string; prepare_department: string | null }[]
     if (orderId) await logRoomEvent(companyId, orderId, date, profile?.id, status, `${ids.length} special request${ids.length === 1 ? '' : 's'}`)
     const updatedIds = new Set(updatedRows.map((r) => r.id))
     setLines((prev) => prev.map((l) => updatedIds.has(l.id) ? { ...l, approval_status: status } : l))
-    // RO-APPROVE-NO-NOTIFY: an approved special is now on the fulfilling department's
-    // board, which has no realtime subscription — alert them exactly like the auto-release
-    // path does, otherwise the work is invisible until they happen to reload.
+    // RO-APPROVE-NO-NOTIFY: an approved special is now on the boards, which have no realtime
+    // subscription — alert the departments like the auto-release path does. RO-3: a handoff's
+    // PREPARER is told to start the work; its deliverer only gets an "incoming" heads-up.
     if (status === 'approved' && updatedRows.length > 0) {
-      const n = updatedRows.length
       const title = lang === 'th' ? 'ออเดอร์ห้อง — อนุมัติคำขอพิเศษ' : 'Room order — special requests approved'
-      const message = lang === 'th'
+      const message = (n: number) => lang === 'th'
         ? `คำขอพิเศษ ${n} รายการสำหรับวันที่ ${date} ได้รับการอนุมัติแล้ว และปรากฏบนกระดานของแผนกผู้ดำเนินการ`
         : `${n} special request${n === 1 ? '' : 's'} for ${date} ${n === 1 ? 'has' : 'have'} been approved and now appear${n === 1 ? 's' : ''} on the fulfilling department board.`
-      const deptNotify: { user_id: string; title: string; message: string; notification_type: string }[] = []
-      const seen = new Set<string>()
-      for (const dept of [...new Set(updatedRows.map((r) => r.fulfill_department))]) {
-        for (const p of await resolveDeptRecipients(companyId, dept)) {
-          if (seen.has(p.id)) continue
-          seen.add(p.id)
-          deptNotify.push({ user_id: p.id, title, message, notification_type: 'rr' })
-        }
+      try { await notifyReleasedSpecials(companyId, undefined, date, lang, title, message, updatedRows) } catch (e) {
+        console.warn('notifyReleasedSpecials failed', e)
+        toast.warning(lang === 'th' ? 'อนุมัติแล้ว แต่ส่งการแจ้งเตือนถึงแผนกไม่สำเร็จ' : 'Approved, but the department notification could not be sent')
       }
-      if (deptNotify.length > 0) await supabase.from('kaizen_notifications').insert(deptNotify)
     }
     onChanged()
   }
