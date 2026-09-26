@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Wrench, ChevronRight, ShieldCheck } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
@@ -34,6 +34,9 @@ export function PMSummaryCard() {
   // supabase-js returns {data: null, error} instead of throwing, so a failed read
   // would otherwise fall through to [] and render "no assets — set up scheduler".
   const [loadError, setLoadError] = useState(false)
+  // Company the data in state belongs to — "keep the last good data" on error only
+  // holds for a refetch of the same company, never after a company switch.
+  const loadedCompanyRef = useRef<string | null>(null)
 
   useEffect(() => {
     if (!companyId) return
@@ -64,6 +67,11 @@ export function PMSummaryCard() {
       if (err) {
         // Keep the last good data (if any) and show an error instead of a misleading empty state.
         console.error('PMSummaryCard: load failed', err)
+        if (loadedCompanyRef.current !== companyId) {
+          // Stale data from another company — drop it so the error shows instead of its numbers.
+          setAssets([]); setTasks([]); setMonthTasks([]); setPendingTasks([])
+          loadedCompanyRef.current = null
+        }
         setLoadError(true)
         setLoading(false)
         return
@@ -89,6 +97,7 @@ export function PMSummaryCard() {
         pRows = pRows.filter(r => assetDepartments(r.asset).some(d => deptSet.has(d)))
       }
       setAssets(aRows); setTasks(tRows); setMonthTasks(mRows); setPendingTasks(pRows)
+      loadedCompanyRef.current = companyId
       setLoading(false)
     })()
     return () => { cancelled = true }

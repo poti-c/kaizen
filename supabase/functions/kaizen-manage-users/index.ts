@@ -151,6 +151,78 @@ serve(async (req) => {
     return labels.includes(department);
   }
 
+  // Companies whose soft-deleted accounts this caller may tombstone to free a login
+  // identity: every company a super admin manages (auth emails are global, so a
+  // manager removed in property A still blocks a re-hire into sister property B),
+  // otherwise just the caller's own company. Never wider than what the caller manages.
+  async function releaseScope(): Promise<string[]> {
+    if (callerRole === "super_admin") return [...(await accessibleCompanies())];
+    return callerCompany ? [callerCompany] : [];
+  }
+
+  // Soft delete keeps (and bans) the auth user, so its login identity stays
+  // registered and createUser / updateUserById would reject a re-hire, promotion or
+  // rename onto it forever — nothing else in this function can free it once
+  // deleted_at is set (assertCanManage refuses deleted targets). Move a SOFT-DELETED
+  // holder's auth + profile identity to a tombstone, keeping full_name so historical
+  // cases still show who it was. Shared by create and update_profile.
+  //  - kind "username": staff login emails embed the company code, so only a
+  //    soft-deleted staff row in `staffCompany` can clash.
+  //  - kind "email": manager/admin work emails are global, so search `companyIds`.
+  async function releaseSoftDeletedIdentity(
+    kind: "username" | "email", value: string, companyIds: string[], staffCompany?: string | null,
+  ): Promise<void> {
+    if (kind === "username") {
+      if (!staffCompany) return;
+      // MU-CLASH-01: usernames are stored RAW-trimmed (not normalized), so we must
+      // NOT pre-filter the query by normUser(username) — that would exclude any
+      // soft-deleted row whose username has uppercase/spaces (e.g. "John Smith"),
+      // leaving its login-email slot occupied and producing a misleading
+      // "already taken by an active account" error. Fetch all soft-deleted staff
+      // for the company and compare in JS on the normalized form instead.
+      const { data: removedStaff } = await supabaseAdmin
+        .from("kaizen_profiles")
+        .select("id, username, company_id")
+        .eq("company_id", staffCompany)
+        .eq("role", "staff")
+        .not("deleted_at", "is", null);
+      const clash = (removedStaff ?? []).find(
+        (r: any) => normUser(r.username ?? "") === normUser(value)
+      );
+      if (!clash) return;
+      const tomb = `.removed.${Math.floor(Date.now() / 1000)}.${Math.random().toString(36).slice(2, 7)}`;
+      const freedUsername = `${clash.username ?? "removed"}${tomb}`;
+      const freedEmail = await staffLoginEmail(freedUsername, clash.company_id);
+      if (!freedEmail) return;
+      // Auth email first — only rename the profile if the auth side succeeds.
+      const { error: freeAuthErr } = await supabaseAdmin.auth.admin.updateUserById(clash.id, { email: freedEmail });
+      if (!freeAuthErr) {
+        await supabaseAdmin.from("kaizen_profiles").update({ username: freedUsername }).eq("id", clash.id).eq("username", clash.username);
+      }
+      return;
+    }
+    // MU-CLASH-02 / ManageUsersV2-001: search every company in scope, not only the
+    // target one — the removed account's home company may be a sister property.
+    if (companyIds.length === 0) return;
+    const { data: removedAdmins } = await supabaseAdmin
+      .from("kaizen_profiles")
+      .select("id, email")
+      .in("company_id", companyIds)
+      .neq("role", "staff")
+      .not("deleted_at", "is", null);
+    const clash = (removedAdmins ?? []).find(
+      (r: any) => String(r.email ?? "").trim().toLowerCase() === value
+    );
+    if (!clash) return;
+    const local = value.split("@")[0].replace(/[^a-z0-9._-]/g, "").slice(0, 32) || "user";
+    const freedEmail = `${local}.removed.${Math.floor(Date.now() / 1000)}.${Math.random().toString(36).slice(2, 7)}@removed.kaizen.internal`;
+    // Auth email first — only rename the profile if the auth side succeeds.
+    const { error: freeAuthErr } = await supabaseAdmin.auth.admin.updateUserById(clash.id, { email: freedEmail, email_confirm: true });
+    if (!freeAuthErr) {
+      await supabaseAdmin.from("kaizen_profiles").update({ email: freedEmail }).eq("id", clash.id).eq("email", clash.email);
+    }
+  }
+
   // ── CREATE ──────────────────────────────────────────────────────────────────
   if (action === "create") {
     const { role, full_name, position, username, email, department, password, company_id } = body;
@@ -214,64 +286,16 @@ serve(async (req) => {
       authEmail = built;
 
       // If a SOFT-DELETED staff account already holds this login email, release
-      // it so the username can be reused for a new hire. We keep the old row's
-      // full_name (so historical cases still show who it was) but rename its
-      // username + auth email to a tombstone, freeing the slot.
-      // MU-CLASH-01: usernames are stored RAW-trimmed (not normalized), so we must
-      // NOT pre-filter the query by normUser(username) — that would exclude any
-      // soft-deleted row whose username has uppercase/spaces (e.g. "John Smith"),
-      // leaving its login-email slot occupied and producing a misleading
-      // "already taken by an active account" error. Fetch all soft-deleted staff
-      // for the company and compare in JS on the normalized form instead.
-      const { data: removedStaff } = await supabaseAdmin
-        .from("kaizen_profiles")
-        .select("id, username, company_id")
-        .eq("company_id", targetCompany)
-        .eq("role", "staff")
-        .not("deleted_at", "is", null);
-      const clash = (removedStaff ?? []).find(
-        (r: any) => normUser(r.username ?? "") === normUser(username)
-      );
-      if (clash) {
-        const tomb = `.removed.${Math.floor(Date.now() / 1000)}.${Math.random().toString(36).slice(2, 7)}`;
-        const freedUsername = `${clash.username ?? "removed"}${tomb}`;
-        const freedEmail = await staffLoginEmail(freedUsername, clash.company_id);
-        if (freedEmail) {
-          // Auth email first — only rename the profile if the auth side succeeds.
-          const { error: freeAuthErr } = await supabaseAdmin.auth.admin.updateUserById(clash.id, { email: freedEmail });
-          if (!freeAuthErr) {
-            await supabaseAdmin.from("kaizen_profiles").update({ username: freedUsername }).eq("id", clash.id).eq("username", clash.username);
-          }
-        }
-      }
+      // it so the username can be reused for a new hire.
+      await releaseSoftDeletedIdentity("username", username, [], targetCompany);
     } else {
       authEmail = email?.trim().toLowerCase();
       if (!authEmail) return json({ error: "email is required for manager/admin" }, 400);
 
-      // MU-CLASH-02: soft delete keeps (and bans) the auth user, so its email stays
-      // registered and createUser below would reject a re-hire with the same work
-      // email forever — nothing in this function can free it once deleted_at is set
-      // (assertCanManage refuses deleted targets). Mirror the staff release above:
-      // move a SOFT-DELETED manager/admin's auth + profile email in this company to
-      // a tombstone address, keeping full_name so historical cases still show who it was.
-      const { data: removedAdmins } = await supabaseAdmin
-        .from("kaizen_profiles")
-        .select("id, email")
-        .eq("company_id", createCompany)
-        .neq("role", "staff")
-        .not("deleted_at", "is", null);
-      const clash = (removedAdmins ?? []).find(
-        (r: any) => String(r.email ?? "").trim().toLowerCase() === authEmail
-      );
-      if (clash) {
-        const local = authEmail.split("@")[0].replace(/[^a-z0-9._-]/g, "").slice(0, 32) || "user";
-        const freedEmail = `${local}.removed.${Math.floor(Date.now() / 1000)}.${Math.random().toString(36).slice(2, 7)}@removed.kaizen.internal`;
-        // Auth email first — only rename the profile if the auth side succeeds.
-        const { error: freeAuthErr } = await supabaseAdmin.auth.admin.updateUserById(clash.id, { email: freedEmail, email_confirm: true });
-        if (!freeAuthErr) {
-          await supabaseAdmin.from("kaizen_profiles").update({ email: freedEmail }).eq("id", clash.id).eq("email", clash.email);
-        }
-      }
+      // MU-CLASH-02: free the work email from a soft-deleted manager/admin in any
+      // company this caller manages (not only createCompany — see releaseScope).
+      // createCompany is always inside that scope (checked above for super_admin).
+      await releaseSoftDeletedIdentity("email", authEmail, await releaseScope());
     }
 
     const { data: newUser, error: createErr } = await supabaseAdmin.auth.admin.createUser({
@@ -465,6 +489,14 @@ serve(async (req) => {
       const { data: authU } = await supabaseAdmin.auth.admin.getUserById(userId);
       oldAuthEmail = authU?.user?.email ?? null;
       if (authU?.user?.email !== targetAuthEmail) {
+        // ManageUsersV2-002: like create, free the identity from a soft-deleted
+        // holder first — otherwise promoting/renaming onto a removed account's
+        // email or username always fails as "already registered".
+        if (finalRole === "staff") {
+          await releaseSoftDeletedIdentity("username", newUsername, [], target.company_id);
+        } else {
+          await releaseSoftDeletedIdentity("email", targetAuthEmail, await releaseScope());
+        }
         const { error: emailErr } = await supabaseAdmin.auth.admin.updateUserById(userId, { email: targetAuthEmail, email_confirm: true });
         if (emailErr) {
           const taken = /already.*registered|already.*exists|email.*taken|duplicate/i.test(emailErr.message);

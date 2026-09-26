@@ -28,6 +28,44 @@ const STATUS_FILTER_LABELS_TH: Partial<Record<CaseStatus | 'all', string>> = {
   pending_admin_approval: 'รอผู้บริหารอนุมัติ',
 }
 
+type AdvFilters = {
+  statuses: (CaseStatus | 'overdue')[]
+  departments: Department[]
+  priorities: CasePriority[]
+  categories: string[]
+}
+type CasesTab = 'active' | 'pms' | 'pending' | 'closed'
+
+// A Dashboard filter deep-link (?status=/?group=/?priority=/?category=) — forces advanced search on.
+function hasFilterLink(sp: URLSearchParams) {
+  return !!(sp.get('group') || sp.get('status') || sp.get('priority') || sp.get('category'))
+}
+function savedAdvancedEnabled(): boolean {
+  const saved = localStorage.getItem('kaizen-advanced-search-enabled')
+  return saved ? (() => { try { return JSON.parse(saved) } catch { return false } })() : false
+}
+// Saved advanced filters are keyed PER COMPANY: with one global key, the prune effects
+// dropped Company A's custom dept/category values while the user was on Company B and
+// wrote the pruned set back, so A's saved filters were gone on return.
+function advKeyFor(companyId: string | undefined) {
+  return companyId ? `kaizen-adv-filters:${companyId}` : 'kaizen-adv-filters'
+}
+function loadSavedAdvFilters(key: string): AdvFilters {
+  // Falls back to the pre-scoping global key so an existing saved set survives the upgrade.
+  const saved = localStorage.getItem(key) ?? localStorage.getItem('kaizen-adv-filters')
+  const _def: AdvFilters = { statuses: [], departments: [], priorities: [], categories: [] }
+  return saved ? (() => { try { return JSON.parse(saved) } catch { return _def } })() : _def
+}
+// Select the matching tab for deep-links (e.g. Dashboard's "Waiting Approval" card =>
+// ?group=pending), otherwise pending/closed cases land on the empty Active tab.
+function tabFromParams(sp: URLSearchParams): CasesTab {
+  const group = sp.get('group')
+  const status = sp.get('status')
+  if (group === 'pending') return 'pending'
+  if (group === 'resolved' || status === 'closed') return 'closed'
+  return 'active'
+}
+
 type SortKey = 'priority' | 'status' | 'duration' | 'date' | 'due'
 type SortDir = 'asc' | 'desc'
 
@@ -172,7 +210,7 @@ export function CasesPage() {
       const pruned = prev.departments.filter(d => valid.has(d))
       if (pruned.length === prev.departments.length) return prev
       const next = { ...prev, departments: pruned }
-      localStorage.setItem('kaizen-adv-filters', JSON.stringify(next))
+      localStorage.setItem(advKeyRef.current, JSON.stringify(next))
       return next
     })
   // CP-BUG-02: settingsLoaded was missing here. A company with no
@@ -198,52 +236,20 @@ export function CasesPage() {
       const pruned = prev.categories.filter(c => valid.has(c.toLowerCase()))
       if (pruned.length === prev.categories.length) return prev
       const next = { ...prev, categories: pruned }
-      localStorage.setItem('kaizen-adv-filters', JSON.stringify(next))
+      localStorage.setItem(advKeyRef.current, JSON.stringify(next))
       return next
     })
   }, [validCategorySlugs, settingsLoaded])
 
   // Advanced search state — auto-enable when navigated here with URL filters (e.g. from Dashboard)
-  const [advancedSearchEnabled, setAdvancedSearchEnabled] = useState<boolean>(() => {
-    if (searchParams.get('group') || searchParams.get('status') || searchParams.get('priority') || searchParams.get('category')) return true
-    const saved = localStorage.getItem('kaizen-advanced-search-enabled')
-    return saved ? (() => { try { return JSON.parse(saved) } catch { return false } })() : false
-  })
-  const [advFilters, setAdvFilters] = useState<{
-    statuses: (CaseStatus | 'overdue')[]
-    departments: Department[]
-    priorities: CasePriority[]
-    categories: string[]
-  }>(() => {
-    const saved = localStorage.getItem('kaizen-adv-filters')
-    const _def = { statuses: [], departments: [], priorities: [], categories: [] }
-    return saved ? (() => { try { return JSON.parse(saved) } catch { return _def } })() : _def
-  })
-
-  // Translate a Dashboard deep-link (?status=/?group=/?priority=/?category=) into the
-  // advanced filters once on arrival, so the matching boxes tick and the list actually
-  // filters even with advanced search on (which otherwise ignores the URL params).
-  // The link REPLACES the saved filters (not merged into them): a department/priority
-  // saved from an earlier session would otherwise narrow the list below the count on
-  // the Dashboard card that was clicked. Not persisted, so the saved set returns on a
-  // plain visit.
-  useEffect(() => {
-    if (!advancedSearchEnabled) return
-    const statuses: (CaseStatus | 'overdue')[] =
-      groupFilter === 'open' ? ['open', 'reopened']
-      : groupFilter === 'in_progress' ? ['assigned', 'in_progress']
-      : groupFilter === 'pending' ? ['pending_manager_approval', 'pending_admin_approval']
-      : groupFilter === 'resolved' ? ['closed']
-      : groupFilter === 'overdue' ? ['overdue']
-      : statusFilter !== 'all' ? [statusFilter]
-      : []
-    const priorities = priorityFilter !== 'all' ? [priorityFilter] : []
-    const categories = categoryFilter !== 'all' ? [categoryFilter] : []
-    if (statuses.length || priorities.length || categories.length) {
-      setAdvFilters({ statuses, departments: [], priorities, categories })
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  const [advancedSearchEnabled, setAdvancedSearchEnabled] = useState<boolean>(
+    () => hasFilterLink(searchParams) || savedAdvancedEnabled(),
+  )
+  // Storage key of the company whose filters advFilters currently holds. A ref (not
+  // derived per render) so the prune updaters above always write under the company
+  // whose filters they pruned; it moves only when the URL/company seed below reloads them.
+  const advKeyRef = React.useRef(advKeyFor(activeCompany?.id))
+  const [advFilters, setAdvFilters] = useState<AdvFilters>(() => loadSavedAdvFilters(advKeyRef.current))
 
   // Compact filter pills: which group's dropdown is open + outside-click close.
   const [openFilter, setOpenFilter] = useState<'status' | 'department' | 'priority' | 'category' | null>(null)
@@ -262,12 +268,12 @@ export function CasesPage() {
     const next = checked ? [...cur, value] : cur.filter((x) => x !== value)
     const nf = { ...advFilters, [key]: next } as typeof advFilters
     setAdvFilters(nf)
-    localStorage.setItem('kaizen-adv-filters', JSON.stringify(nf))
+    localStorage.setItem(advKeyRef.current, JSON.stringify(nf))
   }
   function clearAdvFilters() {
     const empty = { statuses: [], departments: [], priorities: [], categories: [] }
     setAdvFilters(empty)
-    localStorage.setItem('kaizen-adv-filters', JSON.stringify(empty))
+    localStorage.setItem(advKeyRef.current, JSON.stringify(empty))
   }
 
   // ── Date filter ───────────────────────────────────────────────────────────
@@ -499,7 +505,7 @@ export function CasesPage() {
   function clearFilters() {
     const empty = { statuses: [], departments: [], priorities: [], categories: [] }
     setAdvFilters(empty)
-    localStorage.setItem('kaizen-adv-filters', JSON.stringify(empty))
+    localStorage.setItem(advKeyRef.current, JSON.stringify(empty))
     setStatusFilter('all'); setGroupFilter(''); setPriorityFilter('all'); setCategoryFilter('all')
     setOverdueOnly(false)
     setSelectedMonths(new Set())
@@ -720,13 +726,7 @@ export function CasesPage() {
   // Tab state — select the matching tab for deep-links (e.g. Dashboard's
   // "Waiting Approval" card => ?group=pending), otherwise the pending/closed
   // cases land on the default Active tab and render an empty "no cases" state.
-  const [activeTab, setActiveTab] = useState<'active' | 'pms' | 'pending' | 'closed'>(() => {
-    const group = searchParams.get('group')
-    const status = searchParams.get('status')
-    if (group === 'pending') return 'pending'
-    if (group === 'resolved' || status === 'closed') return 'closed'
-    return 'active'
-  })
+  const [activeTab, setActiveTab] = useState<CasesTab>(() => tabFromParams(searchParams))
   const pendingTotal = pendingMgrCases.length + pendingAdminCases.length
 
   // Category deep-link (Dashboard "Cases by Category" → ?category=safety) counts
@@ -737,7 +737,10 @@ export function CasesPage() {
   // jump to whichever tab actually holds them. One-shot so it never fights manual tabs.
   const categoryDeepLinkRef = React.useRef(false)
   useEffect(() => {
-    if (loading || categoryDeepLinkRef.current) return
+    // AdvancedFilters-02: the category filter itself waits for settingsLoaded. If cases
+    // arrive first, `filtered` still spans every category, so Active looks non-empty and
+    // the latch would spend itself before the category filter applies.
+    if (loading || !settingsLoaded || categoryDeepLinkRef.current) return
     if (!searchParams.get('category') || searchParams.get('group') || searchParams.get('status')) return
     // Wait for the filtered buckets to actually populate: loading flips false a render
     // before the counts settle, and latching on that empty render would leave us stuck
@@ -749,7 +752,56 @@ export function CasesPage() {
       if (closedCases.length > 0) setActiveTab('closed')
       else if (pendingTotal > 0) setActiveTab('pending')
     }
-  }, [loading, searchParams, activeCases.length, closedCases.length, pendingTotal])
+  }, [loading, settingsLoaded, searchParams, activeCases.length, closedCases.length, pendingTotal])
+
+  // (Re)seed every URL-driven filter whenever the query string or company changes — not
+  // only at mount. React Router keeps this page mounted when the nav's plain /cases link
+  // is clicked from /cases?group=…, so mount-only seeding left the deep-link filters
+  // applied after the URL was cleared. A Dashboard deep-link is also translated into the
+  // advanced filters, so the matching boxes tick and the list actually filters even with
+  // advanced search on (which otherwise ignores the URL params). The link — including
+  // the months-only "Total Cases" tile — REPLACES the saved filters (not merged into
+  // them): a department/priority saved earlier would otherwise narrow the list below
+  // the count on the Dashboard card that was clicked. Not persisted, so the saved set
+  // returns on a plain visit. (An "All time" Total Cases link is plain /cases and can't
+  // be told apart from a normal visit.)
+  const urlKey = searchParams.toString()
+  useEffect(() => {
+    const group = searchParams.get('group') || ''
+    const status = (searchParams.get('status') as CaseStatus | null) || 'all'
+    const priority = (searchParams.get('priority') as CasePriority | null) || 'all'
+    const category = searchParams.get('category') || 'all'
+    const months = searchParams.get('months') || ''
+    setSearch(searchParams.get('q') || '')
+    setStatusFilter(status); setGroupFilter(group); setPriorityFilter(priority); setCategoryFilter(category)
+    setOverdueOnly(group === 'overdue')
+    setSelectedMonths(new Set(months.split(',').filter(Boolean)))
+    setActiveTab(tabFromParams(searchParams))
+    categoryDeepLinkRef.current = false
+    const filterLink = hasFilterLink(searchParams)
+    const advOn = filterLink || savedAdvancedEnabled()
+    setAdvancedSearchEnabled(advOn)
+    advKeyRef.current = advKeyFor(activeCompany?.id)
+    if (advOn && (filterLink || months)) {
+      const statuses: (CaseStatus | 'overdue')[] =
+        group === 'open' ? ['open', 'reopened']
+        : group === 'in_progress' ? ['assigned', 'in_progress']
+        : group === 'pending' ? ['pending_manager_approval', 'pending_admin_approval']
+        : group === 'resolved' ? ['closed']
+        : group === 'overdue' ? ['overdue']
+        : status !== 'all' ? [status]
+        : []
+      setAdvFilters({
+        statuses,
+        departments: [],
+        priorities: priority !== 'all' ? [priority] : [],
+        categories: category !== 'all' ? [category] : [],
+      })
+    } else {
+      setAdvFilters(loadSavedAdvFilters(advKeyRef.current))
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlKey, activeCompany?.id])
 
   // ── PMS tab: preventive-maintenance tasks (active + overdue) ───────────────
   const pmsEnabled = companyHasAddon(activeCompany, 'pms')

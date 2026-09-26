@@ -14,7 +14,7 @@ interface RTask {
   performed_by: string | null; asset_id: string | null
   checklist_results: { item: string; result: string }[] | null
   approved_at: string | null
-  asset?: { name: string; location: string | null; department: string | null; type?: { name: string; category: string | null } | null } | null
+  asset?: { name: string; location: string | null; department: string | null; is_active?: boolean; type?: { name: string; category: string | null } | null } | null
 }
 interface RAsset {
   id: string; name: string; location: string | null; department: string | null
@@ -65,18 +65,43 @@ function isStillOpen(t: { status: string; performed_at: string | null }) {
   return t.status === 'scheduled' || t.status === 'in_progress'
 }
 
+// PMReport-003: work that was performed and is either signed off or awaiting
+// sign-off. The rest of the report (periodPerformed → Completed tile,
+// technician bars, pass/fail donut) already counted 'pending_approval' as
+// completed work, but the on-time numerator only credited done/approved while
+// every due task sat in the denominator — so on-time work stuck in the approval
+// queue read as "not on time", understating the current compliance ring (the
+// backlog is always in the most recent window) and tilting vs-1M/3M/6M toward
+// "worse". Rejected tasks (back in 'in_progress') are still excluded.
+function isCompletedWork(t: { status: string }) {
+  return FINISHED.has(t.status) || t.status === 'pending_approval'
+}
+// PMReport-002: deactivating an asset does not cancel its outstanding task
+// (nothing writes status='cancelled' for PM tasks and kaizen_pm_sync only looks
+// at active assets), so the leftover scheduled/in_progress row stayed "N days
+// overdue" in the report forever, inflating the overdue list, forecasts and Top
+// Problem Assets — while the PM page and PMSummaryCard treat an inactive asset
+// as not overdue (assetStatus(..., is_active)). Exclude those orphaned open
+// tasks from every open-work figure.
+function isOrphanedOpen(t: RTask) {
+  return isStillOpen(t) && t.asset?.is_active === false
+}
+function isLiveOpen(t: RTask) {
+  return isStillOpen(t) && !isOrphanedOpen(t)
+}
+
 function isFail(r: string) { const v = String(r).toLowerCase(); return v === 'fail' || v === 'failed' || v === 'false' }
 function isPass(r: string) { const v = String(r).toLowerCase(); return v === 'pass' || v === 'passed' || v === 'ok' || v === 'true' }
 
 // A metric computed over a trailing window ending at an anchor date.
 interface Metric { compliancePct: number; due: number; onTime: number; overdue: number; fails: number }
-function computeMetric(tasks: RTask[], windowStartKey: string, anchorKey: string): Metric {
+function computeMetric(tasks: RTask[], windowStartKey: string, anchorKey: string, isCurrent = false): Metric {
   let due = 0, onTime = 0, overdue = 0, fails = 0
   for (const t of tasks) {
     const dueInWindow = t.due_date >= windowStartKey && t.due_date <= anchorKey
     if (dueInWindow) {
       due++
-      if (FINISHED.has(t.status) && t.performed_at && perfKey(t.performed_at) <= t.due_date) onTime++
+      if (isCompletedWork(t) && t.performed_at && perfKey(t.performed_at) <= t.due_date) onTime++
       // PMRPT-OVERDUE-DELTA: isStillOpen(t) reflects the task's status RIGHT NOW,
       // not at anchorKey, so a task overdue three months ago that has since been
       // performed always contributed 0 to the historical anchor — the vs-1M/3M/6M
@@ -90,13 +115,23 @@ function computeMetric(tasks: RTask[], windowStartKey: string, anchorKey: string
       // (This can't perfectly account for a later rejection sending a
       // once-"done" task back to rework, since performed_at isn't versioned; a
       // straight status-based read has no chance of that either.)
-      const overdueAtAnchor = t.due_date < anchorKey &&
-        (!t.performed_at || perfKey(t.performed_at) > anchorKey) &&
-        t.status !== 'cancelled'
+      // PMReport-005: for the CURRENT anchor (today) the live status is known, so
+      // use it. A rejected task keeps its performed_at (<= today) while back in
+      // 'in_progress', so the reconstruction below dropped it from cur.overdue
+      // even though isStillOpen lists it in the overdue headline right above.
+      const overdueAtAnchor = isCurrent
+        ? t.due_date < anchorKey && isLiveOpen(t)
+        : t.due_date < anchorKey &&
+          (!t.performed_at || perfKey(t.performed_at) > anchorKey) &&
+          t.status !== 'cancelled' && !isOrphanedOpen(t)
       if (overdueAtAnchor) overdue++
     }
-    // checklist fails for tasks performed within the window
-    if (t.performed_at && perfKey(t.performed_at) >= windowStartKey && perfKey(t.performed_at) <= anchorKey) {
+    // checklist fails for tasks performed within the window.
+    // PMReport-004: same status gate as periodPerformed — a rejected rework task
+    // (the kind most likely to carry a fail) keeps performed_at, so without it the
+    // historical side counted tasks the current side excluded, biasing the fails
+    // arrow toward "improving".
+    if (isCompletedWork(t) && t.performed_at && perfKey(t.performed_at) >= windowStartKey && perfKey(t.performed_at) <= anchorKey) {
       if ((t.checklist_results ?? []).some(r => isFail(r.result))) fails++
     }
   }
@@ -122,11 +157,33 @@ export function PMReport({ companyName, onClose }: { companyName: string; onClos
     if (!companyId) return
     const mySeq = ++loadSeqRef.current
     setLoading(true)
+    // PMReport-001: PostgREST silently caps every response at max_rows (1000,
+    // supabase/config.toml and the hosted default) with no error, so a company with
+    // more task rows in the window got an arbitrary unordered subset and every
+    // figure in the printed report was computed from it. Page through with a stable
+    // order until a short page comes back. Nothing due beyond today+30 is used
+    // (forecast30 is the furthest-out figure), so bound the upper end too.
+    const fetchTasks = async () => {
+      const PAGE = 1000
+      const fromKey = bangkokDate(new Date(Date.now() - 20 * 30 * 86400000))
+      const toKey = bangkokDate(new Date(Date.now() + 31 * 86400000))
+      const rows: RTask[] = []
+      for (let from = 0; ; from += PAGE) {
+        const res = await supabase.from('kaizen_pm_tasks')
+          .select('id, status, due_date, performed_at, performed_by, asset_id, checklist_results, approved_at, asset:kaizen_pm_assets(name, location, department, is_active, type:kaizen_pm_equipment_types(name, category))')
+          .eq('company_id', companyId)
+          .gte('due_date', fromKey)
+          .lte('due_date', toKey)
+          .order('due_date').order('id')
+          .range(from, from + PAGE - 1)
+        if (res.error) return { data: null, error: res.error }
+        const page = (res.data as unknown as RTask[]) ?? []
+        rows.push(...page)
+        if (page.length < PAGE) return { data: rows, error: null }
+      }
+    }
     const [tRes, aRes, pRes] = await Promise.all([
-      supabase.from('kaizen_pm_tasks')
-        .select('id, status, due_date, performed_at, performed_by, asset_id, checklist_results, approved_at, asset:kaizen_pm_assets(name, location, department, type:kaizen_pm_equipment_types(name, category))')
-        .eq('company_id', companyId)
-        .gte('due_date', bangkokDate(new Date(Date.now() - 20 * 30 * 86400000))),
+      fetchTasks(),
       supabase.from('kaizen_pm_assets')
         .select('id, name, location, department, is_active, last_maintenance_date, next_maintenance_date, type:kaizen_pm_equipment_types(name, category)')
         .eq('company_id', companyId),
@@ -153,7 +210,7 @@ export function PMReport({ companyName, onClose }: { companyName: string; onClos
       return
     }
     setLoadError(false)
-    setTasks((tRes.data as unknown as RTask[]) ?? [])
+    setTasks(tRes.data ?? [])
     setAssets((aRes.data as unknown as RAsset[]) ?? [])
     const names: Record<string, string> = {}
     for (const p of (pRes.data as { id: string; full_name: string }[] ?? [])) names[p.id] = p.full_name
@@ -172,7 +229,7 @@ export function PMReport({ companyName, onClose }: { companyName: string; onClos
     const periodStartKey = keyOf(new Date(now.getTime() - period * 86400000))
 
     // Current period headline
-    const cur = computeMetric(tasks, periodStartKey, todayKey)
+    const cur = computeMetric(tasks, periodStartKey, todayKey, true)
 
     // vs 1M / 3M / 6M: same window length ending at each anchor in the past
     const anchors: { label: string; months: number }[] = [
@@ -186,7 +243,7 @@ export function PMReport({ companyName, onClose }: { companyName: string; onClos
     })
 
     // Overdue list (current open overdue tasks, regardless of period window)
-    const overdueTasks = tasks.filter(t => isStillOpen(t) && t.due_date < todayKey)
+    const overdueTasks = tasks.filter(t => isLiveOpen(t) && t.due_date < todayKey)
     // PMRPT-004: "ever performed" must consider the asset's full history, not just the
     // windowed task list — an asset last serviced before the ~600-day fetch window has no
     // performed row in memory and would be wrongly labelled "never performed". Fall back to
@@ -212,7 +269,7 @@ export function PMReport({ companyName, onClose }: { companyName: string; onClos
     // reconciled with the rest of the report.
     const periodPerformed = tasks.filter(t =>
       t.performed_at && perfKey(t.performed_at) >= periodStartKey && perfKey(t.performed_at) <= todayKey &&
-      (FINISHED.has(t.status) || t.status === 'pending_approval'))
+      isCompletedWork(t))
     let passItems = 0, failItems = 0, naItems = 0, tasksWithFail = 0
     for (const t of periodPerformed) {
       let hasFail = false
@@ -250,7 +307,7 @@ export function PMReport({ companyName, onClose }: { companyName: string; onClos
         const k = keyFn(t) ?? '—'
         g[k] ??= { due: 0, onTime: 0 }
         g[k].due++
-        if (FINISHED.has(t.status) && t.performed_at && perfKey(t.performed_at) <= t.due_date) g[k].onTime++
+        if (isCompletedWork(t) && t.performed_at && perfKey(t.performed_at) <= t.due_date) g[k].onTime++
       }
       return Object.entries(g).map(([k, v]) => ({ key: k, pct: v.due ? Math.round((v.onTime / v.due) * 100) : 0, due: v.due }))
         .sort((a, b) => a.pct - b.pct)
@@ -261,8 +318,8 @@ export function PMReport({ companyName, onClose }: { companyName: string; onClos
     // Extra insights
     const in7 = new Date(); in7.setDate(in7.getDate() + 7); const in7Key = keyOf(in7)
     const in30 = new Date(); in30.setDate(in30.getDate() + 30); const in30Key = keyOf(in30)
-    const dueThisWeek = tasks.filter(t => isStillOpen(t) && t.due_date >= todayKey && t.due_date <= in7Key).length
-    const forecast30 = tasks.filter(t => isStillOpen(t) && t.due_date >= todayKey && t.due_date <= in30Key).length
+    const dueThisWeek = tasks.filter(t => isLiveOpen(t) && t.due_date >= todayKey && t.due_date <= in7Key).length
+    const forecast30 = tasks.filter(t => isLiveOpen(t) && t.due_date >= todayKey && t.due_date <= in30Key).length
     const neverMaintained = assets.filter(a => a.is_active && !a.last_maintenance_date).length
 
     const avgDaysLate = (() => {
@@ -396,7 +453,7 @@ export function PMReport({ companyName, onClose }: { companyName: string; onClos
                   <Legend color="#ef4444" label={`${r.failItems} ${data.failItems}`} />
                   <Legend color="#d1d5db" label={`${r.naItems} ${data.naItems}`} />
                 </div>
-                <DeltaRow invert deltas={data.deltas.map(d => ({ label: d.label, cur: data.tasksWithFail, prev: d.metric.fails, suffix: '' }))} />
+                <DeltaRow invert deltas={data.deltas.map(d => ({ label: d.label, cur: data.cur.fails, prev: d.metric.fails, suffix: '' }))} />
               </Card>
             </div>
 
