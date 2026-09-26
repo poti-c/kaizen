@@ -40,6 +40,13 @@ async function assertCompanyActive(companyId: string | null) {
   }
 }
 
+// Clear the installed-PWA icon badge. Header sets it to the signed-in user's unread
+// count; without this, a shared device kept showing the previous user's count after
+// sign-out until someone else signed in.
+function clearAppBadge() {
+  if ('clearAppBadge' in navigator) (navigator as any).clearAppBadge().catch(() => {})
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [profile, setProfile] = useState<KaizenProfile | null>(null)
@@ -120,6 +127,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           fetchProfile(session.user.id).finally(() => setLoading(false))
         }
       } else {
+        // Session ended by any path (sign-out, expiry, suspension, another tab).
+        clearAppBadge()
         loadedProfileIdRef.current = null
         setProfile(null)
         setProfileError(false)
@@ -265,6 +274,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   async function signOut() {
     companyRef.current = null
     loadedProfileIdRef.current = null
+    clearAppBadge() // before the await so it runs even if signOut rejects
     await supabase.auth.signOut()
     setProfile(null)
   }

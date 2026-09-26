@@ -1549,9 +1549,19 @@ Deno.serve(async (req) => {
     const kind = ["package", "addon", "custom"].includes(p.kind) ? p.kind : "custom";
     const name = cleanStr(p.name);
     if (!name) return json({ error: "Product name is required." }, 400);
+    // `key` is the stable slug that plans, add-ons and payments match on. Accept it
+    // on insert only (slug-validated); on update it is never touched, since renaming
+    // it would orphan every company whose plan/addons already reference the old key.
+    let key = null;
+    if (!p.id) {
+      key = cleanStr(p.key);
+      if (key) {
+        key = key.toLowerCase();
+        if (!/^[a-z0-9][a-z0-9_-]{0,39}$/.test(key)) return json({ error: "Key must be a short slug: lowercase letters, digits, '-' or '_' (e.g. gold, pms). / คีย์ต้องเป็นตัวอักษรภาษาอังกฤษพิมพ์เล็ก ตัวเลข '-' หรือ '_' เท่านั้น" }, 400);
+      }
+    }
     const row = {
       kind, name,
-      key: cleanStr(p.key),
       description: cleanStr(p.description),
       price: Number(p.price) || 0,
       currency: cleanStr(p.currency) ?? "THB",
@@ -1568,7 +1578,7 @@ Deno.serve(async (req) => {
     };
     let res;
     if (p.id) res = await admin.from("kaizen_products").update(row).eq("id", String(p.id)).select("*").single();
-    else res = await admin.from("kaizen_products").insert(row).select("*").single();
+    else res = await admin.from("kaizen_products").insert({ ...row, key }).select("*").single();
     if (res.error) return json({ error: res.error.message }, 400);
     // Do NOT blanket-sync limits back to companies on every product edit —
     // companies can have per-company overrides (set via update_company) and a blind
@@ -1581,6 +1591,16 @@ Deno.serve(async (req) => {
   if (action === "delete_product") {
     const product_id = String(body.product_id ?? "");
     if (!product_id) return json({ error: "product_id required" }, 400);
+    // A keyed package/add-on still in use must not be hard-deleted: payments,
+    // packageDefaults() and planDurations() all look products up by key and would
+    // silently get nothing. Deactivating keeps those lookups working.
+    const { data: prod } = await admin.from("kaizen_products").select("key").eq("id", product_id).maybeSingle();
+    if (prod?.key) {
+      const { data: cos, error: coErr } = await admin.from("kaizen_companies").select("plan, addons");
+      if (coErr) return json({ error: coErr.message }, 400);
+      const inUse = (cos ?? []).filter(c => c.plan === prod.key || (c.addons && typeof c.addons === "object" && Object.prototype.hasOwnProperty.call(c.addons, prod.key))).length;
+      if (inUse > 0) return json({ error: `"${prod.key}" is used by ${inUse} compan${inUse === 1 ? "y" : "ies"}. Deactivate it instead of deleting. / "${prod.key}" ถูกใช้งานอยู่โดย ${inUse} บริษัท กรุณาปิดการใช้งานแทนการลบ` }, 400);
+    }
     const { error } = await admin.from("kaizen_products").delete().eq("id", product_id);
     if (error) return json({ error: error.message }, 400);
     await audit("delete_product", { product_id }, ip, true);
@@ -1597,11 +1617,14 @@ Deno.serve(async (req) => {
     const p = body.promo ?? {};
     const code = cleanStr(p.code);
     if (!code) return json({ error: "Promo code is required." }, 400);
+    const validFrom = cleanStr(p.valid_from), validTo = cleanStr(p.valid_to);
+    // YYYY-MM-DD strings compare correctly as strings.
+    if (validFrom && validTo && validFrom > validTo) return json({ error: "Valid From must be on or before Valid To. / วันที่เริ่มต้องไม่อยู่หลังวันที่สิ้นสุด" }, 400);
     const row = {
       code: code.toUpperCase(),
       discount_percent: Math.max(0, Math.min(100, Number(p.discount_percent) || 0)),
-      valid_from: cleanStr(p.valid_from),
-      valid_to: cleanStr(p.valid_to),
+      valid_from: validFrom,
+      valid_to: validTo,
       is_active: p.is_active === undefined ? true : !!p.is_active,
       notes: cleanStr(p.notes),
       updated_at: new Date().toISOString(),
@@ -1735,6 +1758,10 @@ Deno.serve(async (req) => {
   if (action === "delete_form") {
     const form_id = String(body.form_id ?? "");
     if (!form_id) return json({ error: "form_id required" }, 400);
+    // receipt_form_id has no FK: unlink any payment that link_receipt_form tied to
+    // this form first, so it goes back to "not issued" and can be re-issued.
+    const { error: unlinkErr } = await admin.from("kaizen_invoices").update({ receipt_form_id: null, receipt_issued: false, receipt_issued_at: null }).eq("receipt_form_id", form_id);
+    if (unlinkErr) return json({ error: unlinkErr.message }, 400);
     const { error } = await admin.from("kaizen_generated_forms").delete().eq("id", form_id);
     if (error) return json({ error: error.message }, 400);
     await audit("delete_form", { form_id }, ip, true);

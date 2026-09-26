@@ -122,7 +122,9 @@ function bahtText(amount: number): string {
 // Thai amount-in-words (อ่านจำนวนเงินเป็นตัวอักษร)
 const TH_NUM = ['', 'หนึ่ง', 'สอง', 'สาม', 'สี่', 'ห้า', 'หก', 'เจ็ด', 'แปด', 'เก้า']
 const TH_POS = ['', 'สิบ', 'ร้อย', 'พัน', 'หมื่น', 'แสน']
-function thaiReadGroup(n: number): string {
+// hasHigher: a millions part precedes this group, so a lone trailing 1 still reads
+// 'เอ็ด' (1,000,001 = หนึ่งล้านเอ็ด, as BAHTTEXT) even though the group itself is 1 digit.
+function thaiReadGroup(n: number, hasHigher = false): string {
   const str = String(n)
   const len = str.length
   let s = ''
@@ -132,7 +134,7 @@ function thaiReadGroup(n: number): string {
     if (d === 0) continue
     if (pos === 1 && d === 1) s += 'สิบ'
     else if (pos === 1 && d === 2) s += 'ยี่สิบ'
-    else if (pos === 0 && d === 1 && len > 1) s += 'เอ็ด'
+    else if (pos === 0 && d === 1 && (len > 1 || hasHigher)) s += 'เอ็ด'
     else s += TH_NUM[d] + TH_POS[pos]
   }
   return s
@@ -143,7 +145,7 @@ function thaiReadNumber(n: number): string {
   const rest = n % 1000000
   let s = ''
   if (million > 0) s += thaiReadNumber(million) + 'ล้าน'
-  if (rest > 0) s += thaiReadGroup(rest)
+  if (rest > 0) s += thaiReadGroup(rest, million > 0)
   return s
 }
 function bahtTextTh(amount: number): string {
@@ -213,7 +215,21 @@ export function FormGeneratorView({ call, onBack, initialPreviewId, onPreviewCon
     setConfirming(true)
     try {
       const { form } = await call<{ form: GeneratedForm }>('create_form', draftPayload)
-      if (linkInvoiceId) { try { await call('link_receipt_form', { invoice_id: linkInvoiceId, form_id: form.id }) } catch (e) { console.error(e) } }
+      // The document is already recorded (its number consumed) — a failed link must not
+      // pass silently, or the payment keeps its "Issue" button and a second press makes a
+      // duplicate tax document. Offer a retry; if declined, tell the admin how to recover.
+      if (linkInvoiceId) {
+        for (;;) {
+          try { await call('link_receipt_form', { invoice_id: linkInvoiceId, form_id: form.id }); break }
+          catch (e) {
+            console.error(e)
+            if (!window.confirm(`${form.doc_number} was recorded but could not be linked to the payment. Retry linking?\n${form.doc_number} บันทึกแล้ว แต่เชื่อมกับรายการชำระเงินไม่สำเร็จ ลองเชื่อมอีกครั้งหรือไม่?`)) {
+              alert(`${form.doc_number} is NOT linked to the payment. Do not press "Issue" again — use "Mark issued" on the payment instead.\n${form.doc_number} ยังไม่ได้เชื่อมกับรายการชำระเงิน อย่ากด "Issue" ซ้ำ — ให้ใช้ "Mark issued" ที่รายการชำระเงินแทน`)
+              break
+            }
+          }
+        }
+      }
       setLinkInvoiceId(null); setDraftPayload(null); setPreview(null); setConfirmSignal(s => s + 1); load()
     } catch (e) { alert(e instanceof Error ? e.message : 'Failed to record the document.') }
     finally { setConfirming(false) }
@@ -246,10 +262,15 @@ export function FormGeneratorView({ call, onBack, initialPreviewId, onPreviewCon
 
   // Deep-link: open a specific form's preview when navigated from the Calendar.
   useEffect(() => {
-    if (!initialPreviewId || !forms.length) return
+    // Wait for the list to load (not for it to be non-empty — the target may be the
+    // only form and have been deleted), then always consume the deep link: a payment's
+    // "Issued" button can point at a receipt that no longer exists.
+    if (!initialPreviewId || loading) return
     const target = forms.find(f => f.id === initialPreviewId)
-    if (target) { setDraftPayload(null); setLinkInvoiceId(null); setFilterType(target.form_type); setPreview(target); onPreviewConsumed?.() }
-  }, [initialPreviewId, forms, onPreviewConsumed])
+    if (target) { setDraftPayload(null); setLinkInvoiceId(null); setFilterType(target.form_type); setPreview(target) }
+    else alert('This document no longer exists — it may have been deleted.\nไม่พบเอกสารนี้ — อาจถูกลบไปแล้ว')
+    onPreviewConsumed?.()
+  }, [initialPreviewId, forms, loading, onPreviewConsumed])
 
   const filtered = filterType === 'all' ? forms : forms.filter(f => f.form_type === filterType)
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize))
@@ -277,7 +298,7 @@ export function FormGeneratorView({ call, onBack, initialPreviewId, onPreviewCon
       {/* Tabs */}
       <div className="flex gap-1 border-b border-slate-800 mb-5 overflow-x-auto">
         {FORM_TYPES.map(ft => (
-          <button key={ft.key} onClick={() => { setTab(ft.key); setLinkInvoiceId(null) }}
+          <button key={ft.key} onClick={() => { if (ft.key !== tab) { setTab(ft.key); setLinkInvoiceId(null) } }}
             className={`px-3 py-2.5 text-xs font-medium border-b-2 whitespace-nowrap transition-colors ${tab === ft.key ? 'border-amber-500 text-amber-400' : 'border-transparent text-slate-400 hover:text-slate-300'}`}>
             {ft.label}
           </button>
@@ -346,8 +367,11 @@ export function FormGeneratorView({ call, onBack, initialPreviewId, onPreviewCon
                             linkInvoiceId from a PREVIOUS unrelated draft session in place,
                             so PrintPreview's `unconfirmed={!!draftPayload}` could show a
                             Confirm button on a historic document and, if clicked, apply the
-                            stale draft/invoice link to it. Clear both before opening. */}
-                        <button onClick={() => { setDraftPayload(null); setLinkInvoiceId(null); setPreview(f) }} title="View / Print" className="p-1.5 rounded-lg text-slate-400 hover:text-amber-400 hover:bg-slate-800"><Printer className="h-4 w-4" /></button>
+                            stale draft/invoice link to it. Clearing draftPayload is enough:
+                            confirmDraft returns early without it. linkInvoiceId is kept, since
+                            it is the only record of the payment an open "Issue" draft is for
+                            (FG-BUG-02) — viewing an old receipt mid-draft must not drop it. */}
+                        <button onClick={() => { setDraftPayload(null); setPreview(f) }} title="View / Print" className="p-1.5 rounded-lg text-slate-400 hover:text-amber-400 hover:bg-slate-800"><Printer className="h-4 w-4" /></button>
                         <DeleteFormBtn form={f} call={call} onDeleted={load} />
                       </div>
                     </td>

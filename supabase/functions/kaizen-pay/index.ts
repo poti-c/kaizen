@@ -34,7 +34,9 @@ async function sha256Hex(s: string): Promise<string> {
   return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-// Best-effort SlipOK verification. Returns { verified, amount } or { verified:false }.
+// Best-effort SlipOK verification. Returns { verified, amount, transRef } or { verified:false }.
+// transRef is the bank transaction reference SlipOK reads from the slip's QR — the same
+// for every re-encoding of one slip, so it (not the image hash) identifies the payment.
 // expectAmount is the SERVER-derived plan price (never the client's declared amount):
 // when set, the slip MUST report a matching amount, so an absent/zero SlipOK amount
 // can no longer auto-pass.
@@ -63,12 +65,13 @@ async function verifySlip(proofDataUrl: string, expectAmount: number | null) {
     const ok = !!(inner && typeof inner === "object" ? inner.success === true : data?.success === true);
     const amount = Number(data?.data?.amount ?? data?.amount ?? 0) || null;
     if (!ok) return { verified: false };
+    const transRef = inner && typeof inner === "object" && inner.transRef ? String(inner.transRef).trim() : "";
     // If we know the expected price, the slip MUST carry a matching amount. A missing
     // amount or a mismatch is NOT auto-verifiable — fall through to manual review.
     if (expectAmount != null) {
       if (!amount || Math.abs(amount - expectAmount) > 1) return { verified: false };
     }
-    return { verified: true, amount };
+    return { verified: true, amount, transRef: transRef || null };
   } catch (_) { return { verified: false }; }
 }
 
@@ -169,11 +172,12 @@ Deno.serve(async (req) => {
   // Only auto-verify when the expected price is known and > 0. A null expectedPrice
   // means price=0 (seeded placeholder) or no product row — in that case skip SlipOK
   // entirely so an unchecked amount can never auto-activate a plan.
-  const slip = expectedPrice != null ? await verifySlip(proof_url, expectedPrice) : { verified: false };
+  const slip: { verified: boolean; amount?: number | null; transRef?: string | null } =
+    expectedPrice != null ? await verifySlip(proof_url, expectedPrice) : { verified: false };
 
-  // Always (re)set the row to 'pending' first — we update to 'approved' only after ALL side
-  // effects succeed. This prevents an approved-but-unactivated orphan record if any
-  // downstream step (product lookup, company update, invoice) fails after the insert.
+  // Always (re)set the row to 'pending' first — it is claimed 'approved' only just before
+  // activation (KaizenPay-3, below) and handed back as activation_failed if that fails, so
+  // an approved-but-unactivated orphan record can't be left behind.
   let sub: { id: string } | null = null;
   if (reuseId) {
     // KP-DBLEXT-01: claim the activation_failed row atomically (compare-and-set on status)
@@ -237,7 +241,58 @@ Deno.serve(async (req) => {
   }
   if (!sub) return json({ error: "Submission could not be recorded." }, 500);
 
-  if (slip.verified) {
+  // KaizenPay-2: proof_hash only catches byte-identical slips within one company. A
+  // re-encoded slip, or the same slip sent for another company, still verifies against
+  // the same bank transaction. Record SlipOK's transRef under a GLOBAL unique index; if
+  // it is missing, already used by another submission, or can't be recorded, don't
+  // auto-activate — leave the row pending for manual review with a note instead of
+  // rejecting (it may be a legitimate retry an admin can reconcile).
+  let autoActivate = slip.verified;
+  if (autoActivate) {
+    let holdNote: string | null = null;
+    if (!slip.transRef) {
+      holdNote = "SlipOK returned no transaction reference — verify manually. / SlipOK ไม่ส่งเลขอ้างอิงธุรกรรม — กรุณาตรวจสอบด้วยตนเอง";
+    } else {
+      const { error: refErr } = await admin.from("kaizen_payment_submissions")
+        .update({ trans_ref: slip.transRef }).eq("id", sub.id);
+      if (refErr) {
+        const dupRef = refErr.code === "23505" || /duplicate key|unique/i.test(refErr.message);
+        if (!dupRef) console.error("[kaizen-pay] could not record trans_ref", sub.id, refErr.message);
+        holdNote = dupRef
+          ? `Slip transaction ${slip.transRef} was already used by another submission — possible duplicate payment. / สลิปเลขอ้างอิง ${slip.transRef} ถูกใช้กับรายการอื่นแล้ว — อาจเป็นการชำระซ้ำ`
+          : "Could not record the slip transaction reference — verify manually. / บันทึกเลขอ้างอิงสลิปไม่สำเร็จ — กรุณาตรวจสอบด้วยตนเอง";
+      }
+    }
+    if (holdNote) {
+      autoActivate = false;
+      const { error: noteErr } = await admin.from("kaizen_payment_submissions")
+        .update({ note: holdNote }).eq("id", sub.id).eq("status", "pending");
+      if (noteErr) console.error("[kaizen-pay] could not annotate held submission", sub.id, noteErr.message);
+    }
+  }
+
+  // KaizenPay-3: claim the row pending->approved (compare-and-set) BEFORE applying
+  // anything, mirroring the Console's approve_payment. Previously the plan was applied
+  // first and the row marked approved last and unconditionally: if that final update
+  // failed the row stayed 'pending', and a Console approval of it (or a concurrent
+  // Console approval racing this request) extended the term and invoiced a second time.
+  if (autoActivate) {
+    const { data: claimed, error: claimErr } = await admin.from("kaizen_payment_submissions")
+      .update({ status: "approved", reviewed_at: new Date().toISOString() })
+      .eq("id", sub.id).eq("status", "pending").select("id");
+    if (claimErr) {
+      // Nothing applied; the row is still pending in the Console review queue.
+      console.error("[kaizen-pay] could not claim submission for activation", sub.id, claimErr.message);
+      autoActivate = false;
+    } else if (!claimed || claimed.length === 0) {
+      // Someone else (a Console reviewer) already approved/rejected it — don't apply twice.
+      const { data: cur } = await admin.from("kaizen_payment_submissions").select("status").eq("id", sub.id).maybeSingle();
+      const st = cur?.status ?? "pending";
+      return json({ success: true, id: sub.id, status: st, verified: st === "approved", duplicate: true });
+    }
+  }
+
+  if (autoActivate) {
     let activationErr: string | null = null;
     if (kind === "subscription") {
       // Look up by key alone (matching the price lookup at the top). Filtering on
@@ -317,6 +372,9 @@ Deno.serve(async (req) => {
 
     if (activationErr) {
       // Mark as activation_failed so the slip-free dedup doesn't permanently block retries.
+      // KaizenPay-3: the row was claimed 'approved' above but nothing was applied, so hand
+      // it back — conditional on still being our 'approved' claim. activation_failed (not
+      // pending) keeps it retryable with the same slip (KP-001 reuse path).
       //
       // KP-006: this previously ended in `.catch(() => {})`. A PostgrestFilterBuilder is a
       // bare PromiseLike — it implements then() but has no catch() — so that call threw
@@ -325,22 +383,13 @@ Deno.serve(async (req) => {
       // left having paid with no plan and no way to resubmit. supabase-js resolves with
       // { error } rather than rejecting, so the result is checked instead.
       const { error: markErr } = await admin.from("kaizen_payment_submissions")
-        .update({ status: "activation_failed" })
-        .eq("id", sub.id);
-      if (markErr) console.error("[kaizen-pay] could not mark submission activation_failed", sub.id, markErr.message);
+        .update({ status: "activation_failed", reviewed_at: null })
+        .eq("id", sub.id).eq("status", "approved");
+      if (markErr) console.error("[kaizen-pay] NOT ACTIVATED: could not hand back claimed submission (still 'approved')", sub.id, markErr.message);
       return json({ error: activationErr }, 500);
     }
-
-    // All side effects succeeded — mark as approved now. Surface (log) an update
-    // failure: the plan is already active, so a record left in 'pending' would be a
-    // misleading state in the Console review queue.
-    const { error: approveErr } = await admin.from("kaizen_payment_submissions")
-      .update({ status: "approved", reviewed_at: new Date().toISOString() })
-      .eq("id", sub.id);
-    if (approveErr) {
-      console.error("payment activated but status update to 'approved' failed", sub.id, approveErr.message);
-    }
+    // Already 'approved' via the claim above — no trailing status update needed.
   }
 
-  return json({ success: true, id: sub.id, status: slip.verified ? "approved" : "pending", verified: slip.verified });
+  return json({ success: true, id: sub.id, status: autoActivate ? "approved" : "pending", verified: autoActivate });
 });
