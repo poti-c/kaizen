@@ -345,7 +345,7 @@ Deno.serve(async (req) => {
           const { error: invErr } = await admin.from("kaizen_invoices").insert({
             company_id, payee: target_label ?? target, amount: storedAmount, currency,
             payment_date: bangkokDate(), period_start: periodStart, period_end: end,
-            notes: "Auto-verified PromptPay payment (SlipOK)",
+            notes: "Auto-verified PromptPay payment (SlipOK)", submission_id: sub.id,
           });
           if (invErr) console.error("[kaizen-pay] ACCOUNTING GAP: subscription invoice insert failed after activation", sub.id, company_id, target, storedAmount, invErr.message);
         }
@@ -362,7 +362,7 @@ Deno.serve(async (req) => {
         const { error: invErr } = await admin.from("kaizen_invoices").insert({
           company_id, payee: target_label ?? target, amount: storedAmount, currency,
           payment_date: bangkokDate(), period_start: bangkokDate(), period_end: addonEnd,
-          notes: "Auto-verified PromptPay payment (SlipOK) — addon",
+          notes: "Auto-verified PromptPay payment (SlipOK) — addon", submission_id: sub.id,
         });
         // KP-INVCHK-02: kaizen_merge_company_addon is an idempotent JSONB merge, so a retry
         // is safe — surface the missing invoice so it doesn't become a silent accounting gap.
