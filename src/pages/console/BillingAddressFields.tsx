@@ -90,31 +90,26 @@ export function BillingAddressFields({ officeType, branchCode, address, onChange
   const subOpts = useMemo(() => (dist ? dist.s.map((s) => ({ v: s.th, label: s.en })) : []), [dist])
 
   // Cascade: picking a level fills both languages and resets everything below it.
+  // Picking the placeholder ('') clears that level in BOTH languages (and everything below);
+  // the stored-value fallback is only for a non-empty legacy value missing from the dataset.
   const onProvince = (en: string) => {
+    if (!en) { setAddr({ province_en: '', province: '', district_en: '', district: '', subdistrict_en: '', subdistrict: '', postcode: '' }); return }
     const p = geo?.find((x) => x.en === en)
     // Fall back to existing stored Thai name so old records don't lose their province on re-save.
     setAddr({ province_en: p?.en ?? en, province: p?.th ?? a.province ?? '', district_en: '', district: '', subdistrict_en: '', subdistrict: '', postcode: '' })
   }
   const onDistrict = (thName: string) => {
+    if (!thName) { setAddr({ district_en: '', district: '', subdistrict_en: '', subdistrict: '', postcode: '' }); return }
     const d = prov?.d.find((x) => x.th === thName)
     setAddr({ district_en: d?.en ?? a.district_en ?? '', district: d?.th ?? thName, subdistrict_en: '', subdistrict: '', postcode: '' })
   }
   const onSubdistrict = (thName: string) => {
+    if (!thName) { setAddr({ subdistrict_en: '', subdistrict: '', postcode: '' }); return }
     const s = dist?.s.find((x) => x.th === thName)
     setAddr({ subdistrict_en: s?.en ?? a.subdistrict_en ?? '', subdistrict: s?.th ?? thName, postcode: s?.z ?? a.postcode ?? '', country: a.country ?? 'Thailand' })
   }
 
   const loading = !geo
-
-  if (geoError) {
-    return (
-      <div className="text-sm text-red-400 py-2">
-        Failed to load address data.{' '}
-        <button onClick={() => { setGeoError(false); loadGeo().then(setGeo).catch(() => setGeoError(true)) }}
-          className="underline hover:text-red-300">Retry</button>
-      </div>
-    )
-  }
 
   return (
     <div className="space-y-2.5">
@@ -145,11 +140,19 @@ export function BillingAddressFields({ officeType, branchCode, address, onChange
         <div><label className={lbl}>Road</label><input value={a.road ?? ''} onChange={(e) => setAddr({ road: e.target.value })} className={inp} placeholder="Road" /></div>
       </div>
 
-      {/* Cascading Province → District → Sub-district → postal code */}
+      {/* Cascading Province → District → Sub-district → postal code.
+          A failed geo load only affects these selects — keep the rest of the form usable. */}
+      {geoError && (
+        <div className="text-sm text-red-400">
+          Failed to load address data.{' '}
+          <button type="button" onClick={() => { setGeoError(false); loadGeo().then(setGeo).catch(() => setGeoError(true)) }}
+            className="underline hover:text-red-300">Retry</button>
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-2.5">
         <div>
           <label className={lbl}>Province <span className="text-amber-500/70">*</span></label>
-          <Select value={prov?.en ?? a.province_en ?? ''} onChange={onProvince} placeholder={loading ? 'Loading…' : 'Select province'} options={provinceOpts} disabled={loading} />
+          <Select value={prov?.en ?? a.province_en ?? ''} onChange={onProvince} placeholder={geoError ? 'Unavailable' : loading ? 'Loading…' : 'Select province'} options={provinceOpts} disabled={loading} />
         </div>
         <div>
           <label className={lbl}>District <span className="text-amber-500/70">*</span></label>

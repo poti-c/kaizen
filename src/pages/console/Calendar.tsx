@@ -93,20 +93,23 @@ export function CalendarView({ call, onOpenForm }: { call: Call; onOpenForm: (fo
   const events = useMemo<CalEvent[]>(() => {
     const out: CalEvent[] = []
     for (const f of forms) {
+      // Status gates: a cancelled form is dead (no events), a draft was never
+      // sent (no 'delivered'), and settled/closed forms get no amber reminders.
+      if (f.status === 'cancelled') continue
       const label = FORM_LABEL[f.form_type]
-      out.push({
+      if (f.status !== 'draft') out.push({
         key: `f-${f.id}-d`, date: f.issue_date, sort: 1, source: 'form', form: f, variant: 'delivered',
         label: `${label} ${f.doc_number} delivered`,
         color: 'bg-sky-500/15 text-sky-300 border-sky-500/30', dot: 'bg-sky-400',
       })
-      if (f.form_type === 'quotation' && f.due_date) {
+      if (f.form_type === 'quotation' && f.due_date && !['accepted', 'expired', 'paid'].includes(f.status)) {
         out.push({
           key: `f-${f.id}-e`, date: f.due_date, sort: 0, source: 'form', form: f, variant: 'expiry',
           label: `${label} ${f.doc_number} expires`,
           color: 'bg-amber-500/15 text-amber-300 border-amber-500/30', dot: 'bg-amber-400',
         })
       }
-      if ((f.form_type === 'invoice' || f.form_type === 'tax_invoice_receipt') && f.due_date) {
+      if ((f.form_type === 'invoice' || f.form_type === 'tax_invoice_receipt') && f.due_date && f.status !== 'paid') {
         out.push({
           key: `f-${f.id}-due`, date: f.due_date, sort: 0, source: 'form', form: f, variant: 'expiry',
           label: `${label} ${f.doc_number} payment due`,
@@ -358,7 +361,12 @@ function AppointmentEditor({ call, companies, appt, onClose, onSaved }: {
   // Auto-fill contact from chosen client
   function pickCompany(id: string) {
     const c = companies.find(x => x.id === id)
-    set({ company_id: id, contact_name: c?.contact_person ?? f.contact_name, contact_phone: c?.contact_phone ?? f.contact_phone })
+    // A chosen company replaces the contact outright ('' when it has none), so a
+    // previous company's auto-filled contact can't ride along; '— none —' keeps
+    // whatever is typed.
+    set(c
+      ? { company_id: id, contact_name: c.contact_person ?? '', contact_phone: c.contact_phone ?? '' }
+      : { company_id: id })
   }
 
   async function save() {
@@ -383,8 +391,11 @@ function AppointmentEditor({ call, companies, appt, onClose, onSaved }: {
       // destroyed a free-text client name — a shape the type explicitly
       // allows independent of company_id — on any save that touched nothing
       // but the status or notes. Preserve the existing value when no company
-      // is (or was ever) linked.
-      const client_name = client?.name ?? appt?.client_name ?? null
+      // is (or was ever) linked. But if the appointment WAS linked and the user
+      // picked '— none —', the stored name is the unlinked company's snapshot —
+      // write null rather than keep showing it as the client.
+      const unlinked = !f.company_id && !!appt?.company_id
+      const client_name = client?.name ?? (unlinked ? null : appt?.client_name ?? null)
       await call('upsert_appointment', {
         appointment: {
           id: appt?.id, kind: f.kind, title: f.title.trim(), company_id: f.company_id || null,

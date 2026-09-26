@@ -125,7 +125,10 @@ export function LoginPage() {
   // the app root rather than render a working login form. Re-submitting it against a
   // live session can sign the user out (wrong-role tab) or silently swap accounts
   // without resetting company/query state.
-  if (!authLoading && user) return <Navigate to="/" replace />
+  // Not while our own submit is in flight: signInWithPassword sets `user` (SIGNED_IN)
+  // before the role/suspension/company checks run, and bouncing then would unmount the
+  // page and drop the error those checks throw. `profile` is only set once they pass.
+  if (!authLoading && !loading && user && profile) return <Navigate to="/" replace />
 
   return (
     <div

@@ -53,6 +53,13 @@ const DURATIONS: { label: string; days: number | null }[] = [
   { label: 'Lifetime', days: null },
 ]
 
+// Packages and add-ons are looked up everywhere by `key` (plan/addons values,
+// kaizen-pay price lookup, packageDefaults), so new ones need a stable slug.
+const KEY_RE = /^[a-z0-9_]+$/
+function slugify(name: string): string {
+  return name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40)
+}
+
 const inputCls = 'w-full h-9 rounded-lg bg-slate-800 border border-slate-700 px-3 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-amber-500/50'
 const selectCls = 'h-9 rounded-lg bg-slate-800 border border-slate-700 px-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-amber-500/50'
 
@@ -90,13 +97,14 @@ export function ProductsView({ call, onBack }: { call: Call; onBack: () => void 
   const packages = products.filter(p => p.kind === 'package')
   const addons = products.filter(p => p.kind === 'addon')
   const customs = products.filter(p => p.kind === 'custom')
+  const takenKeys = products.map(p => p.key).filter((k): k is string => !!k)
 
   function addDraft(kind: Product['kind']) {
     const key = `draft-${draftKeyRef.current++}`
-    // Compute sort order at draft-creation time based on the highest saved sort_order,
-    // not the count — so discarding a draft doesn't create a duplicate slot number.
+    // Next slot = highest sort_order across saved products AND pending drafts of this
+    // kind. Adding the draft count instead let a discard-then-add reuse a live draft's slot.
     const maxSaved = products.filter(p => p.kind === kind).reduce((m, p) => Math.max(m, p.sort_order), 0)
-    setDrafts(prev => { const pending = prev.filter(d => d.data.kind === kind).length; return [...prev, { key, data: blankProduct(kind, maxSaved + pending + 1) }] })
+    setDrafts(prev => { const max = prev.filter(d => d.data.kind === kind).reduce((m, d) => Math.max(m, d.data.sort_order), maxSaved); return [...prev, { key, data: blankProduct(kind, max + 1) }] })
   }
   function removeDraft(key: string) { setDrafts(prev => prev.filter(d => d.key !== key)) }
 
@@ -118,21 +126,21 @@ export function ProductsView({ call, onBack }: { call: Call; onBack: () => void 
           {/* Packages */}
           <Section icon={Crown} title="Packages" desc="Subscription tiers — user limits, multi-company access, features, price & duration." onAdd={() => addDraft('package')} addLabel="Add Package">
             {packages.map(p => <ProductCard key={p.id} product={p} call={call} onSaved={load} onDeleted={load} />)}
-            {drafts.filter(d => d.data.kind === 'package').map(({ key, data }) => <ProductCard key={key} product={data} call={call} isNew onSaved={() => { removeDraft(key); load() }} onDeleted={() => removeDraft(key)} />)}
+            {drafts.filter(d => d.data.kind === 'package').map(({ key, data }) => <ProductCard key={key} product={data} call={call} takenKeys={takenKeys} isNew onSaved={() => { removeDraft(key); load() }} onDeleted={() => removeDraft(key)} />)}
             {packages.length === 0 && !drafts.some(d => d.data.kind === 'package') && <Empty>No packages yet.</Empty>}
           </Section>
 
           {/* Add-ons */}
           <Section icon={Tag} title="Additional Costs" desc="One-time or recurring add-ons such as Setup Cost." onAdd={() => addDraft('addon')} addLabel="Add Cost">
             {addons.map(p => <ProductCard key={p.id} product={p} call={call} onSaved={load} onDeleted={load} />)}
-            {drafts.filter(d => d.data.kind === 'addon').map(({ key, data }) => <ProductCard key={key} product={data} call={call} isNew onSaved={() => { removeDraft(key); load() }} onDeleted={() => removeDraft(key)} />)}
+            {drafts.filter(d => d.data.kind === 'addon').map(({ key, data }) => <ProductCard key={key} product={data} call={call} takenKeys={takenKeys} isNew onSaved={() => { removeDraft(key); load() }} onDeleted={() => removeDraft(key)} />)}
             {addons.length === 0 && !drafts.some(d => d.data.kind === 'addon') && <Empty>No add-ons yet.</Empty>}
           </Section>
 
           {/* Custom products */}
           <Section icon={Box} title="Other Products" desc="Add any other billable product or service." onAdd={() => addDraft('custom')} addLabel="Add Product">
             {customs.map(p => <ProductCard key={p.id} product={p} call={call} onSaved={load} onDeleted={load} />)}
-            {drafts.filter(d => d.data.kind === 'custom').map(({ key, data }) => <ProductCard key={key} product={data} call={call} isNew onSaved={() => { removeDraft(key); load() }} onDeleted={() => removeDraft(key)} />)}
+            {drafts.filter(d => d.data.kind === 'custom').map(({ key, data }) => <ProductCard key={key} product={data} call={call} takenKeys={takenKeys} isNew onSaved={() => { removeDraft(key); load() }} onDeleted={() => removeDraft(key)} />)}
             {customs.length === 0 && !drafts.some(d => d.data.kind === 'custom') && <Empty>No custom products yet.</Empty>}
           </Section>
 
@@ -168,7 +176,7 @@ function Empty({ children }: { children: React.ReactNode }) {
 }
 
 // ── Product card ─────────────────────────────────────────────────────────────
-function ProductCard({ product, call, onSaved, onDeleted, isNew }: { product: Product; call: Call; onSaved: () => void; onDeleted: () => void; isNew?: boolean }) {
+function ProductCard({ product, call, onSaved, onDeleted, isNew, takenKeys = [] }: { product: Product; call: Call; onSaved: () => void; onDeleted: () => void; isNew?: boolean; takenKeys?: string[] }) {
   const [d, setD] = useState<Product>(product)
   const [busy, setBusy] = useState(false)
   const [confirmDel, setConfirmDel] = useState(false)
@@ -178,6 +186,11 @@ function ProductCard({ product, call, onSaved, onDeleted, isNew }: { product: Pr
   const [locked, setLocked] = useState(!isNew)
   const togglingRef = useRef(false)
   const isPackage = d.kind === 'package'
+  const needsKey = d.kind === 'package' || d.kind === 'addon'
+  // Key is editable only before the first save — companies' plan/addons reference it.
+  const keyEditable = isNew && !d.id
+  // Auto-suggest the key from the name until the admin types a key themselves.
+  const keyTouchedRef = useRef(false)
 
   // Sync local state from the parent prop whenever the card is locked — this picks up
   // server-normalised values after a successful save + parent reload.
@@ -196,6 +209,12 @@ function ProductCard({ product, call, onSaved, onDeleted, isNew }: { product: Pr
   async function save() {
     const nameErr = validateRequired(d.name, 'Name')
     if (nameErr) { alert(nameErr); return }
+    if (needsKey && keyEditable) {
+      const k = (d.key ?? '').trim()
+      if (!k) { alert('Key is required for packages and add-ons.'); return }
+      if (!KEY_RE.test(k)) { alert('Key may only contain lowercase letters, digits and underscores.'); return }
+      if (takenKeys.includes(k)) { alert(`Key "${k}" is already used by another product.`); return }
+    }
     // Allow a 0 price — free packages and zero-cost placeholder add-ons are legitimate.
     const priceErr = validateNonNegativeAmount(d.price, 'Price')
     if (priceErr) { alert(priceErr); return }
@@ -234,8 +253,19 @@ function ProductCard({ product, call, onSaved, onDeleted, isNew }: { product: Pr
     <div className={`rounded-lg border p-3 ${d.is_active ? 'bg-slate-800/40 border-slate-700' : 'bg-slate-800/20 border-slate-800'}`}>
       <fieldset disabled={locked} className={locked ? 'opacity-80 transition-opacity' : 'transition-opacity'}>
       <div className="flex items-center gap-2 mb-2.5">
-        <input value={d.name} onChange={e => set({ name: e.target.value })} className={inputCls + ' flex-1 font-semibold'} placeholder={isPackage ? 'Package name' : 'Product name'} />
+        <input value={d.name} onChange={e => set(needsKey && keyEditable && !keyTouchedRef.current ? { name: e.target.value, key: slugify(e.target.value) || null } : { name: e.target.value })} className={inputCls + ' flex-1 font-semibold'} placeholder={isPackage ? 'Package name' : 'Product name'} />
       </div>
+      {needsKey && (
+        <div className="mb-2.5">
+          {keyEditable ? (
+            <L label="Key (lowercase a-z, 0-9, _ — cannot be changed after creation)">
+              <input value={d.key ?? ''} onChange={e => { keyTouchedRef.current = true; set({ key: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '') || null }) }} className={inputCls + ' font-mono'} placeholder="e.g. platinum" />
+            </L>
+          ) : (
+            <p className="text-[11px] text-slate-500">Key: <span className="font-mono text-slate-300">{d.key ?? '—'}</span></p>
+          )}
+        </div>
+      )}
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mb-2.5">
         <L label="Price"><input value={priceText} onChange={e => { const v = e.target.value.replace(/[^0-9.]/g, '').replace(/^(\d*\.?\d*).*$/, '$1'); setPriceText(v); const n = parseFloat(v); if (!isNaN(n)) set({ price: Math.max(0, n) }) }} onBlur={() => setPriceText(String(d.price ?? 0))} className={inputCls} placeholder="0" inputMode="decimal" /></L>
@@ -292,8 +322,15 @@ function ProductCard({ product, call, onSaved, onDeleted, isNew }: { product: Pr
       </fieldset>
       <div className="flex items-center gap-2 mt-3 pt-2.5 border-t border-slate-800">
         {confirmDel ? (
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-slate-400">Delete this {d.kind}?</span>
+          <div className="flex flex-wrap items-center gap-2">
+            {/* A keyed package/add-on is referenced by companies' plan/addons, payments and
+                plan defaults — deleting it breaks those silently. Steer to deactivation. */}
+            {d.key ? (
+              <span className="text-xs text-amber-300">Companies on "{d.key}" lose pricing and plan defaults if it is deleted. Deactivate instead?</span>
+            ) : (
+              <span className="text-xs text-slate-400">Delete this {d.kind}?</span>
+            )}
+            {d.key && d.is_active && <button onClick={() => { setConfirmDel(false); toggleActive() }} disabled={busy} className="text-xs px-2 py-1 rounded bg-slate-700 text-white hover:bg-slate-600">Deactivate</button>}
             <button onClick={del} disabled={busy} className="text-xs px-2 py-1 rounded bg-red-500/15 text-red-400 hover:bg-red-500/25">{busy ? '…' : 'Delete'}</button>
             <button onClick={() => setConfirmDel(false)} className="text-xs px-2 py-1 rounded text-slate-400 hover:bg-slate-800">Cancel</button>
           </div>
@@ -366,6 +403,8 @@ function PromoRow({ promo, call, onSaved, onDeleted, isNew }: { promo: Promo; ca
     if (!d.code.trim()) { alert('Code is required.'); return }
     const discErr = validatePercentDiscount(d.discount_percent)
     if (discErr) { alert(discErr); return }
+    // YYYY-MM-DD strings compare correctly; an inverted range never matches any issue date.
+    if (d.valid_from && d.valid_to && d.valid_from > d.valid_to) { alert('Valid To must be on or after Valid From.'); return }
     setBusy(true)
     try {
       const result = await call<{ promo: Promo }>('upsert_promo', { promo: d })

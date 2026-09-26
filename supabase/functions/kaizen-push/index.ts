@@ -99,7 +99,7 @@ const TEMPLATES: Record<string, { title: (p: P, l: Lang) => string; body: (p: P,
         : String(p.kind);
       return th(l)
         ? `มี ${p.count} เคสที่เปิดอยู่ซึ่งมี${kind}ที่ถูกลบ: ${p.items} กรุณาอัปเดตเคสที่เกี่ยวข้อง`
-        : `${p.count} open case${Number(p.count) > 1 ? "s" : ""} have a ${kind} that was removed: ${p.items}. Please update the affected cases.`;
+        : `${p.count} open case${Number(p.count) > 1 ? "s" : ""} ${Number(p.count) > 1 ? "have" : "has"} a ${kind} that was removed: ${p.items}. Please update the affected cases.`;
     },
   },
 };
