@@ -278,6 +278,9 @@ export function UsersPage() {
     // logging in with a username the profile no longer shows. Staff need a
     // non-blank username the same way manager/admin need a non-blank email.
     if (editRole === 'staff' && !editUsername.trim()) { toast.error(t.users.usernameRequired); return }
+    // A 1–7 char reset password used to be silently skipped while the save still
+    // reported "User updated." — reject it like the create path does.
+    if (editNewPassword.trim() && editNewPassword.trim().length < 8) { toast.error(t.users.minPwd); return }
     setSaving(true)
     try {
       const updates: Record<string, unknown> = {
@@ -309,22 +312,44 @@ export function UsersPage() {
       // reset_password itself, for every authorized caller, so it's never sent here.
       await callManageUsers({ action: 'update_profile', userId: editUser.id, updates })
 
+      // update_profile is already committed at this point, so a failed reset must not
+      // skip the activity log / list refresh below for the changes that did apply.
+      let resetError: string | null = null
       if (resettingPassword) {
-        await callManageUsers({ action: 'reset_password', userId: editUser.id, password: editNewPassword })
+        try {
+          await callManageUsers({ action: 'reset_password', userId: editUser.id, password: editNewPassword })
+        } catch (err) {
+          resetError = err instanceof Error ? err.message : 'Request failed'
+          console.error('Reset password error:', err)
+        }
       }
+      const passwordReset = resettingPassword && !resetError
 
       const changes: string[] = []
       if (editFullName.trim() !== editUser.full_name) changes.push(`Name → ${editFullName.trim()}`)
       if (editPosition.trim() !== (editUser.position || '')) changes.push(`Position → ${editPosition.trim() || '(cleared)'}`)
       if (profile?.role === 'super_admin' && editUsername.trim() !== (editUser.username || '')) changes.push(`Username → @${editUsername.trim()}`)
       if (emailLogin && editEmail.trim() !== (editUser.email || '')) changes.push(`Login email → ${editEmail.trim()}`)
-      if (resettingPassword) changes.push('Password reset (must change on login)')
+      if (passwordReset) changes.push('Password reset (must change on login)')
       if (profile?.role === 'super_admin' && editRole !== editUser.role) changes.push(`Role → ${editRole}`)
       if (profile?.role === 'super_admin' && editDepartment !== editUser.department) changes.push(`Department → ${editDepartment}`)
 
       // AUTH-005: log 'reset_password' when only a password reset occurred, not 'edit_profile'
-      const onlyPasswordReset = resettingPassword && changes.length === 1 && changes[0] === 'Password reset (must change on login)'
-      await logActivity({ ...editUser, ...updates }, onlyPasswordReset ? 'reset_password' : 'edit_profile', changes.join(', ') || 'No changes')
+      const onlyPasswordReset = passwordReset && changes.length === 1 && changes[0] === 'Password reset (must change on login)'
+      if (changes.length > 0 || !resetError) {
+        await logActivity({ ...editUser, ...updates }, onlyPasswordReset ? 'reset_password' : 'edit_profile', changes.join(', ') || 'No changes')
+      }
+
+      if (resetError) {
+        // Keep the dialog open so the password can be retried, but rebase it on the
+        // saved profile so a retry doesn't log the same changes a second time.
+        setEditUser({ ...editUser, ...updates } as KaizenProfile)
+        fetchUsers()
+        toast.error(lang === 'th'
+          ? `บันทึกข้อมูลผู้ใช้แล้ว แต่รีเซ็ตรหัสผ่านไม่สำเร็จ: ${resetError}`
+          : `User details saved, but the password reset failed: ${resetError}`)
+        return
+      }
 
       toast.success(lang === 'th' ? 'อัปเดตผู้ใช้แล้ว' : 'User updated.')
       setShowEdit(false); fetchUsers()

@@ -130,6 +130,15 @@ export function DashboardPage() {
     if (catStatus === 'pending') return filteredCases.filter(c => ['pending_manager_approval', 'pending_admin_approval'].includes(c.status))
     return filteredCases.filter(c => c.status === catStatus)
   }, [filteredCases, catStatus])
+  // Carry the status dropdown into the category row deep-links so the Cases
+  // page lists the same subset the row counted (CasesPage reads these params).
+  const catStatusParam =
+    catStatus === 'open'        ? '&status=open'
+    : catStatus === 'reopened'  ? '&status=reopened'
+    : catStatus === 'in_progress' ? '&group=in_progress'
+    : catStatus === 'pending'   ? '&group=pending'
+    : catStatus === 'closed'    ? '&group=resolved'
+    : ''
 
   // ── Stats (from filteredCases) ─────────────────────────────────────────────
   const stats = useMemo(() => ({
@@ -322,22 +331,22 @@ export function DashboardPage() {
   // pointed the deep-link at `/cases?category=other`, so whichever row
   // survived showed a count (the orphan count) that did not match what
   // clicking through to that filtered case list actually contained (the real
-  // "Other"-category cases). Give the orphan bucket its own identity: merge
-  // into an existing real "Other" row's count if there is one, otherwise add a
+  // "Other"-category cases). Give the orphan bucket its own identity: a
   // distinct, non-navigating row (the render below skips the Link for it,
   // since `/cases?category=__other__` is not a filter CasesPage understands).
   if ((categoryData.__other__ ?? 0) > 0) {
-    const existingOther = catPieData.find(d => d.category === 'other')
-    if (existingOther) {
-      existingOther.value += categoryData.__other__
-    } else {
-      catPieData.push({
-        name:     t.categories?.other ?? 'Other',
-        value:    categoryData.__other__,
-        color:    CAT_FALLBACK[effectiveCats.length % CAT_FALLBACK.length],
-        category: '__other__',
-      })
-    }
+    // Always keep the orphans in their own row. Merging them into a real
+    // "Other" row made that row's count exceed what `/cases?category=other`
+    // (an exact slug match) actually lists — the same count-vs-link mismatch.
+    // When a real "Other" row exists, label this one apart from it.
+    const hasRealOther = catPieData.some(d => d.category === 'other')
+    const otherLabel = t.categories?.other ?? 'Other'
+    catPieData.push({
+      name:     hasRealOther ? (lang === 'th' ? `${otherLabel} (หมวดที่ถูกลบ)` : `${otherLabel} (removed categories)`) : otherLabel,
+      value:    categoryData.__other__,
+      color:    CAT_FALLBACK[effectiveCats.length % CAT_FALLBACK.length],
+      category: '__other__',
+    })
   }
   const catTotal = catPieData.reduce((s, d) => s + d.value, 0)
   const catPieSlices = catPieData.filter(d => d.value > 0)
@@ -545,7 +554,7 @@ export function DashboardPage() {
                 return d.category === '__other__' ? (
                   <div key={d.category} className={rowClass}>{inner}</div>
                 ) : (
-                  <Link key={d.category} to={`/cases?category=${d.category}${monthsParam ? `&months=${monthsParam}` : ''}`} className={rowClass}>{inner}</Link>
+                  <Link key={d.category} to={`/cases?category=${encodeURIComponent(d.category)}${catStatusParam}${monthsParam ? `&months=${monthsParam}` : ''}`} className={rowClass}>{inner}</Link>
                 )
               })}
             </div>

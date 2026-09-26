@@ -27,8 +27,11 @@ import { useDepartments } from '@/hooks/useDepartments'
 
 const WEEKDAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const
 
+// Add whole days in milliseconds — Bangkok has no DST, so every day is exactly
+// 86400000 ms. Local setDate on a Bangkok-midnight instant lands a day short
+// when the step crosses a DST change in the device's timezone.
 function shiftDate(key: string, days: number): string {
-  const d = parseDateOnlyBkk(key); d.setDate(d.getDate() + days); return bangkokDate(d)
+  return bangkokDate(new Date(parseDateOnlyBkk(key).getTime() + days * 86400000))
 }
 /** Item for a template on a given date: weekday override, else the default. */
 function itemFor(tpl: RrTemplate, date: string): string | null {
@@ -742,25 +745,29 @@ function PlaceOrderModal({ template: tp, companyId, profile, today, tomorrow, ro
     // An add-up MUST read as extra work, not as a repeat of the order the kitchen
     // already has — that ambiguity is what the phone call used to resolve.
     const dueTag = ` · ${lang === 'th' ? 'ต้องการ' : 'ready by'} ${time}`
-    await notifyDept(tp.fulfill_department,
-      isAddUp
-        ? (lang === 'th' ? 'มีออเดอร์สั่งเพิ่ม' : 'Add-up order received')
-        : (lang === 'th' ? 'มีออเดอร์ประจำเข้ามาใหม่' : 'Routine order received'),
-      lang === 'th'
-        ? `${seqTag}"${tp.name}"${itemSuffix} — ${qtyLabel} จากแผนก ${deptLabel(tp.request_department, lang)}${isAddUp ? dueTag : ''}`
-        : `${seqTag}"${tp.name}"${itemSuffix} — ${qtyLabel} requested by ${deptLabel(tp.request_department, lang)}${isAddUp ? dueTag : ''}`,
-      { templateId: tp.id, picMode: fulfillPic.mode, picIds: fulfillPic.ids, useDeptConfig: true })
-    // Three-stage: delivery is told up front that work is coming, so they can plan —
-    // but it isn't actionable for them until fulfilling hands it over.
-    if (tp.deliver_department) {
-      const deliverPic = stagePic(tp, 'deliver')
-      await notifyDept(tp.deliver_department,
-        lang === 'th' ? 'มีงานจัดส่งเข้ามาใหม่' : 'Delivery incoming',
+    // The order is already saved: a notify failure must not leave the modal stuck
+    // on its spinner with no board reload, which invites a duplicate add-up.
+    try {
+      await notifyDept(tp.fulfill_department,
+        isAddUp
+          ? (lang === 'th' ? 'มีออเดอร์สั่งเพิ่ม' : 'Add-up order received')
+          : (lang === 'th' ? 'มีออเดอร์ประจำเข้ามาใหม่' : 'Routine order received'),
         lang === 'th'
-          ? `${seqTag}"${tp.name}"${itemSuffix} — ${qtyLabel} · รอแผนก ${deptLabel(tp.fulfill_department, lang)} ส่งต่อ`
-          : `${seqTag}"${tp.name}"${itemSuffix} — ${qtyLabel} · awaiting handover from ${deptLabel(tp.fulfill_department, lang)}`,
-        { templateId: tp.id, picMode: deliverPic.mode, picIds: deliverPic.ids, useDeptConfig: true })
-    }
+          ? `${seqTag}"${tp.name}"${itemSuffix} — ${qtyLabel} จากแผนก ${deptLabel(tp.request_department, lang)}${isAddUp ? dueTag : ''}`
+          : `${seqTag}"${tp.name}"${itemSuffix} — ${qtyLabel} requested by ${deptLabel(tp.request_department, lang)}${isAddUp ? dueTag : ''}`,
+        { templateId: tp.id, picMode: fulfillPic.mode, picIds: fulfillPic.ids, useDeptConfig: true })
+      // Three-stage: delivery is told up front that work is coming, so they can plan —
+      // but it isn't actionable for them until fulfilling hands it over.
+      if (tp.deliver_department) {
+        const deliverPic = stagePic(tp, 'deliver')
+        await notifyDept(tp.deliver_department,
+          lang === 'th' ? 'มีงานจัดส่งเข้ามาใหม่' : 'Delivery incoming',
+          lang === 'th'
+            ? `${seqTag}"${tp.name}"${itemSuffix} — ${qtyLabel} · รอแผนก ${deptLabel(tp.fulfill_department, lang)} ส่งต่อ`
+            : `${seqTag}"${tp.name}"${itemSuffix} — ${qtyLabel} · awaiting handover from ${deptLabel(tp.fulfill_department, lang)}`,
+          { templateId: tp.id, picMode: deliverPic.mode, picIds: deliverPic.ids, useDeptConfig: true })
+      }
+    } catch (err) { console.error('[place:notifyDept]', err) }
     toast.success(isAddUp ? tr.rr.addUpSent : tr.rr.orderSent)
     onPlaced()
     onClose()
@@ -997,11 +1004,21 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
 
   async function update(patch: Partial<RrOrder>, okMsg: string, ev: { action: string; detail: string | null },
     notify?: { dept: Department; title: string; message: string; useDeptConfig?: boolean; stage?: RrStage },
-    noToast?: boolean) {
-    if (!profile) return
+    noToast?: boolean): Promise<boolean> {
+    if (!profile) return false
     setBusy(true)
-    const { error } = await supabase.from('kaizen_rr_orders').update(patch).eq('id', o.id)
-    if (error) { setBusy(false); toast.error(error.message); return }
+    // Guard on the status this card was showing. The Orders board has no realtime
+    // feed, so a stale card could otherwise resurrect a cancelled order or move a
+    // finished one backwards (the stage trigger checks the actor, not OLD.status).
+    const { data: changed, error } = await supabase.from('kaizen_rr_orders')
+      .update(patch).eq('id', o.id).eq('status', o.status).select('id')
+    if (error) { setBusy(false); toast.error(error.message); return false }
+    if (!changed || changed.length === 0) {
+      setBusy(false)
+      toast.error(lang === 'th' ? 'ออเดอร์นี้ถูกเปลี่ยนไปแล้ว — กำลังโหลดใหม่' : 'This order has changed — refreshing.')
+      onChanged()
+      return false
+    }
     await logEvent(ev.action, ev.detail)
     if (notify) {
       try {
@@ -1015,6 +1032,7 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
     }
     setBusy(false)
     if (!noToast) { toast.success(okMsg); onChanged() }
+    return true
   }
 
   async function sendOrder() {
@@ -1022,7 +1040,7 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
     if (o.order_type === 'bulk') {
       const n = Number(qty)
       if (!qty.trim() || !Number.isFinite(n) || n <= 0) { toast.error(tr.rr.quantityRequired); return }
-      await update(
+      const ok = await update(
         { status: 'sent', quantity: n, note: note.trim() || null, sent_by: profile.id, sent_at: now() },
         tr.rr.orderSent,
         { action: 'sent', detail: `${unitOf(n)}${itemSuffix}` },
@@ -1032,7 +1050,7 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
             ? `"${o.title}"${itemSuffix} — ${unitOf(n)} จากแผนก ${deptLabel(o.request_department, lang)}`
             : `"${o.title}"${itemSuffix} — ${unitOf(n)} requested by ${deptLabel(o.request_department, lang)}` },
       )
-      await notifyDeliveryIncoming(unitOf(n))
+      if (ok) await notifyDeliveryIncoming(unitOf(n))
     } else if (isPerRoom) {
       // Room grid: keys present in `grid` are the selected rooms; value is the variant code.
       const picked = Object.keys(grid)
@@ -1041,13 +1059,15 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
       const detail = hasVariants ? `${variantBreakdown(picked.map((r) => ({ variant: grid[r] } as RrOrderItem)), variants, lang)} · ${picked.length} ${roomsWord}` : `${picked.length} ${roomsWord}`
       // Update status first so a failed items insert can be safely retried without duplicating the status update.
       // noToast=true: success toast and notify fire only after the items insert succeeds.
-      await update(
+      // A failed status update must stop here — otherwise the items are inserted and
+      // the fulfilling department is notified for an order still 'pending'.
+      if (!await update(
         { status: 'sent', quantity: picked.length, note: note.trim() || null, sent_by: profile.id, sent_at: now() },
         tr.rr.orderSent,
         { action: 'sent', detail },
         undefined,
         true,
-      )
+      )) return
       setBusy(true)
       const ins = await supabase.from('kaizen_rr_order_items').insert(
         picked.map((room) => ({
@@ -1108,7 +1128,7 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
   // Three-stage only: fulfilling has finished and is passing the order to delivery,
   // who now owes the last leg to the customer.
   async function handOver() {
-    await update(
+    const ok = await update(
       { status: 'ready', ready_by: profile!.id, ready_at: now() },
       lang === 'th' ? 'ส่งต่อให้ฝ่ายจัดส่งแล้ว' : 'Handed over to delivery',
       { action: 'ready', detail: null },
@@ -1118,6 +1138,16 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
           ? `"${o.title}"${itemSuffix} พร้อมแล้วจากแผนก ${deptLabel(o.fulfill_department, lang)} — กรุณาจัดส่งให้ลูกค้า`
           : `"${o.title}"${itemSuffix} is ready from ${deptLabel(o.fulfill_department, lang)} — deliver it to the customer` },
     )
+    if (ok && isPerRoom) await resetRoomTicks()
+  }
+
+  // Fulfilment and delivery tick the same per-room `delivered` flag. On handover
+  // to delivery, clear the fulfilment ticks so the delivery department starts from
+  // an empty checklist instead of one already complete with fulfil staff's names.
+  async function resetRoomTicks() {
+    const { error } = await supabase.from('kaizen_rr_order_items')
+      .update({ delivered: false, delivered_by: null, delivered_at: null }).eq('order_id', o.id)
+    if (error) console.error('[resetRoomTicks]', error)
   }
 
   async function markDelivered() {
@@ -1203,6 +1233,7 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
       else if (promoted && promoted.length > 0) {
         // RR-006: use DB row count rather than stale closure items.length
         const dbCount = dbRows?.length ?? items.length
+        if (nextStatus === 'ready') await resetRoomTicks()
         await logEvent(nextStatus, null)
         try {
           if (nextStatus === 'ready') {
@@ -1497,13 +1528,13 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
     if (parsed.length === 0) { toast.error(tr.rr.roomsRequired); return }
     // Update status first so a failed items insert can be safely retried without duplicates.
     // noToast=true: success toast and notify fire only after the items insert succeeds.
-    await update(
+    if (!await update(
       { status: 'sent', quantity: parsed.length, note: note.trim() || null, sent_by: profile.id, sent_at: now() },
       tr.rr.orderSent,
       { action: 'sent', detail: `${parsed.length} ${lang === 'th' ? 'ห้อง' : 'rooms'}` },
       undefined,
       true,
-    )
+    )) return
     setBusy(true)
     const ins = await supabase.from('kaizen_rr_order_items').insert(
       parsed.map((r) => ({ order_id: o.id, company_id: o.company_id, room_no: r.room_no, item_label: r.item_label, variant: null }))
@@ -2123,6 +2154,7 @@ function TemplateEditor({ companyId, template, sortNext, onClose, onSaved, allDe
   })
   const [rrItems, setRrItems] = useState<RrItem[]>([])
   const [catalogItems, setCatalogItems] = useState<{ label: string; unit: string }[]>(template?.catalog_items ?? [])
+  const legacyItem = !!template && template.catalog_items == null
   const set = (patch: Partial<typeof f>) => setF((prev) => ({ ...prev, ...patch }))
 
   // Load RR item catalog from settings once.
@@ -2160,11 +2192,14 @@ function TemplateEditor({ companyId, template, sortNext, onClose, onSaved, allDe
       // A bulk routine is one item ordered in a quantity; the picked catalog item drives the
       // daily order's item label + unit (previously these were hardcoded null, so the picker
       // did nothing and every order was item-less/unit-less).
-      default_item: catalogItems[0]?.label ?? null,
+      // A legacy template (saved before catalog_items existed) keeps its item in
+      // default_item/unit_label only; with nothing picked, preserve those rather
+      // than silently nulling them on an unrelated save (rename, PIC toggle).
+      default_item: catalogItems[0]?.label ?? (legacyItem ? template!.default_item : null),
       catalog_items: catalogItems.length > 0 ? catalogItems : null,
       item_by_weekday: template?.item_by_weekday ?? null,
       active: f.active, sort_order: template?.sort_order ?? sortNext,
-      unit_label: catalogItems[0]?.unit || null,
+      unit_label: catalogItems[0]?.unit || (legacyItem ? template!.unit_label : null),
       variants: template?.variants ?? null,
       request_pic_mode: f.request_pic_mode,
       request_pic_ids: f.request_pic_mode === 'users' ? f.request_pic_ids : null,
@@ -2451,8 +2486,7 @@ function DeptItemPicker({ items, catalogItems, onAdd, onRemove, onUnitChange, la
 function startOfWeek(key: string): string {
   const d = parseDateOnlyBkk(key)
   const dow = bangkokDayOfWeek(d) === 0 ? 6 : bangkokDayOfWeek(d) - 1 // Monday-first
-  d.setDate(d.getDate() - dow)
-  return bangkokDate(d)
+  return shiftDate(key, -dow)
 }
 
 function startOfMonth(key: string): string {

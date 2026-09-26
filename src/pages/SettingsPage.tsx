@@ -147,14 +147,12 @@ export function SettingsPage() {
   // Profile edit state
   const [editingProfile, setEditingProfile] = useState(false)
   const [editName, setEditName] = useState('')
-  const [editUsername, setEditUsername] = useState('')
   const [savingProfile, setSavingProfile] = useState(false)
   // Editable-lists tab (declared at top level — hooks must not live inside the JSX IIFE below)
   const [activeListTab, setActiveListTab] = useState<'dept' | 'cat' | 'loc'>('dept')
 
   function openProfileEdit() {
     setEditName(profile?.full_name ?? '')
-    setEditUsername(profile?.username ?? '')
     setEditingProfile(true)
   }
 
@@ -168,9 +166,11 @@ export function SettingsPage() {
     if (!trimmedName) { toast.error(lang === 'th' ? 'กรุณากรอกชื่อ' : 'Name cannot be empty.'); return }
     setSavingProfile(true)
     try {
-      const updates: { full_name: string; username?: string } = { full_name: trimmedName }
-      if (profile.role === 'staff') updates.username = editUsername.trim() || profile.username || ''
-      const { error } = await supabase.from('kaizen_profiles').update(updates).eq('id', profile.id)
+      // Username is NOT self-editable: staff sign in with an auth email derived
+      // from it (staffEmail), and only kaizen-manage-users rewrites that email
+      // alongside the username. Changing it here locked the user out of the
+      // name they were shown.
+      const { error } = await supabase.from('kaizen_profiles').update({ full_name: trimmedName }).eq('id', profile.id)
       if (error) throw error
       await refreshProfile()
       toast.success(lang === 'th' ? 'อัปเดตโปรไฟล์แล้ว' : 'Profile updated.')
@@ -299,6 +299,9 @@ export function SettingsPage() {
     try {
       await saveList(key, updated)
       setList(updated)
+      // An open inline edit is keyed by index; removing a row shifts every later
+      // index, so it would silently retarget (and rename) a different item.
+      setEditingItem(null)
       toast.success(lang === 'th' ? 'ลบแล้ว' : 'Removed.')
     } catch {
       toast.error(lang === 'th' ? 'บันทึกไม่สำเร็จ' : 'Failed to save.')
@@ -324,11 +327,35 @@ export function SettingsPage() {
     const oldLabel = list[editingItem.index]
     const updated = list.map((item, i) => i === editingItem.index ? trimmed : item)
     try {
+      if (key === 'custom_departments') {
+        // SP-DEPT-RENAME-RPC: a department value is stored in many places —
+        // cases (department + assigned_departments), case assignments, profiles
+        // (department + managed_departments), PM assets and Routine Roster
+        // templates/orders/room lines and settings. Migrating them from here as
+        // separate PostgREST calls missed most of them (renamed departments lost
+        // sight of every case they were tagged on as an involved department) and
+        // could fail halfway. kaizen_rename_department saves the list and
+        // rewrites every one of them in a single transaction, so there is nothing
+        // to roll back by hand: on error, nothing changed.
+        if (!companyId) throw new Error('No active company')
+        // Built-in depts store a slug; custom depts store the label as the value.
+        const oldVal = DEPARTMENTS.find(d => d.label === oldLabel)?.value ?? oldLabel
+        const newVal = DEPARTMENTS.find(d => d.label === trimmed)?.value ?? trimmed
+        const { error } = await supabase.rpc('kaizen_rename_department', {
+          p_company_id: companyId, p_old: oldVal, p_new: newVal, p_departments: updated,
+        })
+        if (error) { console.error('[confirmEdit:rename_department]', error.message); throw error }
+        setList(updated)
+        setEditingItem(null)
+        toast.success(lang === 'th' ? 'อัปเดตแล้ว' : 'Updated.')
+        return
+      }
       await saveList(key, updated)
       // SP-EDIT-ORPHAN-01: cases store the taxonomy value by content (category
-      // slug / raw location / dept label→value), so a rename would orphan every
-      // existing case still referencing the old value. Migrate them in the same
-      // operation so no case is left pointing at a value that no longer exists.
+      // slug / raw location), so a rename would orphan every existing case still
+      // referencing the old value. Migrate them in the same operation so no case
+      // is left pointing at a value that no longer exists. (Departments go
+      // through kaizen_rename_department above.)
       if (companyId && oldLabel && oldLabel !== trimmed) {
         // supabase-js RESOLVES with { error } rather than rejecting, so the
         // try/catch around this block never sees a failed migration. Left
@@ -336,10 +363,6 @@ export function SettingsPage() {
         // pointing at the old value, and still reported "Updated." — the cases
         // then showed up under "Other" with nothing to explain why.
         let migrateError: { message: string } | null = null
-        // Populated only in the custom_departments branch below; hoisted so the
-        // migrateError rollback branch (which runs after that branch's own
-        // block scope has closed) can still see which managers were touched.
-        const migratedManagerIds: string[] = []
         if (key === 'custom_categories') {
           const oldSlug = oldLabel.toLowerCase().replace(/ /g, '_')
           const newSlug = trimmed.toLowerCase().replace(/ /g, '_')
@@ -352,87 +375,10 @@ export function SettingsPage() {
           const { error } = await supabase.from('kaizen_cases').update({ location: trimmed })
             .eq('company_id', companyId).eq('location', oldLabel)
           migrateError = error
-        } else if (key === 'custom_departments') {
-          // Built-in depts store a slug; custom depts store the label as the value.
-          const oldVal = DEPARTMENTS.find(d => d.label === oldLabel)?.value ?? oldLabel
-          const newVal = DEPARTMENTS.find(d => d.label === trimmed)?.value ?? trimmed
-          if (oldVal !== newVal) {
-            const { error: caseErr } = await supabase.from('kaizen_cases').update({ department: newVal })
-              .eq('company_id', companyId).eq('department', oldVal)
-            // SP-DEPT-ORPHAN-01: cases were migrated above, but kaizen_profiles
-            // stores the SAME identifier in two places — profiles.department
-            // (the user's home department) and profiles.managed_departments (a
-            // manager's extra granted departments) — and neither was touched.
-            // Renaming a custom department therefore split it in two: cases
-            // moved to the new label/slug while every profile still pointed at
-            // the old one, so `.in('department', getEffectiveDepts(profile))`
-            // filters throughout the app (UsersPage, PerformanceDetailPage, the
-            // dashboard) matched zero cases and the whole team lost visibility
-            // into work that was still theirs.
-            let profErr: { message: string } | null = null
-            let managedErr: { message: string } | null = null
-            if (!caseErr) {
-              ({ error: profErr } = await supabase
-                .from('kaizen_profiles').update({ department: newVal })
-                .eq('company_id', companyId).eq('department', oldVal))
-            }
-            if (!caseErr && !profErr) {
-              // managed_departments is a text[]; supabase-js has no array-replace
-              // update, so this is a scoped read-modify-write over the (small)
-              // set of managers who actually have oldVal granted.
-              const { data: mgrs, error: fetchErr } = await supabase
-                .from('kaizen_profiles').select('id, managed_departments')
-                .eq('company_id', companyId).contains('managed_departments', [oldVal])
-              if (fetchErr) {
-                managedErr = fetchErr
-              } else if (mgrs?.length) {
-                for (const m of mgrs) {
-                  const next = ((m.managed_departments as string[] | null) ?? [])
-                    .map((d) => d === oldVal ? newVal : d)
-                  const { error } = await supabase.from('kaizen_profiles')
-                    .update({ managed_departments: next }).eq('id', m.id)
-                  if (error) { managedErr = error; break }
-                  migratedManagerIds.push(m.id)
-                }
-              }
-            }
-            migrateError = caseErr || profErr || managedErr
-          }
         }
         if (migrateError) {
-          // SP-DEPT-ROLLBACK-01: the label list was already saved above, and
-          // saveList/toast used to just put the OLD label back — but that left
-          // any cases/profiles/managers already migrated in an earlier
-          // successful step still pointing at newVal, which no longer appears
-          // anywhere in the department list. "Reverted" was a lie in that case.
-          // Reverse every step that actually committed, in the opposite order,
-          // before restoring the label list.
-          if (key === 'custom_departments' && oldLabel) {
-            const oldVal = DEPARTMENTS.find(d => d.label === oldLabel)?.value ?? oldLabel
-            const newVal = DEPARTMENTS.find(d => d.label === trimmed)?.value ?? trimmed
-            for (const mgrId of migratedManagerIds) {
-              const { data: mgr } = await supabase.from('kaizen_profiles')
-                .select('managed_departments').eq('id', mgrId).maybeSingle()
-              const reverted = ((mgr?.managed_departments as string[] | null) ?? [])
-                .map((d) => d === newVal ? oldVal : d)
-              await supabase.from('kaizen_profiles')
-                .update({ managed_departments: reverted }).eq('id', mgrId)
-            }
-            // Only reachable if cases+profiles succeeded (managedErr path) — revert both.
-            // If profiles failed, cases were the only thing to revert.
-            await supabase.from('kaizen_profiles').update({ department: oldVal })
-              .eq('company_id', companyId).eq('department', newVal)
-            await supabase.from('kaizen_cases').update({ department: oldVal })
-              .eq('company_id', companyId).eq('department', newVal)
-          } else if (key === 'custom_categories' && oldLabel) {
-            const oldSlug = oldLabel.toLowerCase().replace(/ /g, '_')
-            const newSlug = trimmed.toLowerCase().replace(/ /g, '_')
-            await supabase.from('kaizen_cases').update({ category: oldSlug })
-              .eq('company_id', companyId).eq('category', newSlug)
-          } else if (key === 'custom_locations' && oldLabel) {
-            await supabase.from('kaizen_cases').update({ location: oldLabel })
-              .eq('company_id', companyId).eq('location', trimmed)
-          }
+          // Each branch above is a single update, so a failure left nothing
+          // migrated — putting the old label back is a complete revert.
           await saveList(key, list)
           setEditingItem(null)
           toast.error(lang === 'th'
@@ -536,6 +482,8 @@ export function SettingsPage() {
     try {
       await saveList(dbKey, updated)
       setList(updated)
+      // Same as removeItem: indices shifted, so drop any open inline edit.
+      setEditingItem(null)
 
       // Create a notification for super admin if cases are affected
       if (affectedCases > 0 && profile) {
@@ -730,20 +678,11 @@ export function SettingsPage() {
             <p className="font-medium text-gray-900">{profile ? (DEPARTMENT_LABELS[profile.department] ?? profile.department) : ''}</p>
           </div>
 
-          {/* Username — editable for staff */}
+          {/* Username — read only (it is the staff login; Top Management changes it in Users) */}
           {(profile?.username || profile?.role === 'staff') && (
             <div>
               <p className="text-gray-500 text-xs mb-1">{t.users.username}</p>
-              {editingProfile && profile?.role === 'staff' ? (
-                <Input
-                  value={editUsername}
-                  onChange={(e) => setEditUsername(e.target.value)}
-                  className="h-8 text-sm"
-                  placeholder={lang === 'th' ? 'ชื่อผู้ใช้' : 'username'}
-                />
-              ) : (
-                <p className="font-medium text-gray-900">@{profile?.username}</p>
-              )}
+              <p className="font-medium text-gray-900">@{profile?.username}</p>
             </div>
           )}
 
@@ -1470,7 +1409,10 @@ function MultiDeptManagersSection({ companyId }: { companyId: string | null }) {
       if (cancelled) return
       if (mgrsRes.error) { console.error('[MultiDeptManagers:managers]', mgrsRes.error.message); setLoadError(true); setLoading(false); return }
       setManagers((mgrsRes.data ?? []) as KaizenProfile[])
-      if (deptsRes.data?.value) {
+      // An empty saved list ([] — how new companies are seeded) means "not curated
+      // yet", and useDepartments then offers the built-ins everywhere else; treat
+      // it the same here or this picker is empty while managers hold built-in depts.
+      if (Array.isArray(deptsRes.data?.value) && (deptsRes.data.value as string[]).length > 0) {
         const labels = deptsRes.data.value as string[]
         // SP-003: filter out top_management from the assignable extra-depts list
         setAllDepts(labels.map((label) => ({ value: LABEL_TO_DEPT_VALUE[label] ?? label, label }))
