@@ -88,6 +88,14 @@ export function usePushNotifications(
         auth:     json.keys?.auth   ?? '',
         user_agent: navigator.userAgent.slice(0, 200),
       }, { onConflict: 'user_id,endpoint' })
+      // Shared device: a subscription belongs to the browser, not the person, so a
+      // previous user's row for this same endpoint would keep sending THEIR pushes
+      // here. RLS only lets us touch our own rows, so claim the endpoint via RPC,
+      // which drops every other user's row for it. Best-effort — never blocks.
+      if (!error) {
+        const { error: claimErr } = await supabase.rpc('kaizen_claim_push_endpoint', { p_endpoint: sub.endpoint })
+        if (claimErr) console.warn('[push] could not claim endpoint', claimErr.message)
+      }
       setStatus(error ? 'default' : 'granted')
       return !error
     } catch {
