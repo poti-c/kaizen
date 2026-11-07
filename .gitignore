@@ -9,3 +9,6 @@ npm-debug.log*
 .claude/
 memory/
 supabase/.temp/
+
+# Vite config-reload artifacts (left behind when the dev server is killed hard)
+vite.config.ts.timestamp-*.mjs
