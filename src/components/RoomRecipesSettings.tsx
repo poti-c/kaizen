@@ -4,7 +4,8 @@ import { supabase } from '@/lib/supabase'
 import { useCompany } from '@/contexts/CompanyContext'
 import { useAuth } from '@/contexts/AuthContext'
 import { useLanguage } from '@/contexts/LanguageContext'
-import { DEPARTMENTS, deptLabel, type Department } from '@/types'
+import { deptLabel } from '@/types'
+import { useDepartments, type DepartmentOption } from '@/hooks/useDepartments'
 import type { RrItem } from '@/components/RRSettings'
 import type { RoomCategory } from '@/components/RoomSetupSettings'
 import { DEFAULT_UNIT, unitOne, type UnitNoun } from '@/lib/roomUnit'
@@ -19,11 +20,11 @@ export interface RecipeLine {
   id: string
   slot: string                 // "Welcome fruit", "Turndown", "Minibar"
   item: string                 // catalog label, e.g. "F3 — 3 pieces"
-  fulfill_department: Department // the FINAL deliverer (single-stage: the only dept)
+  fulfill_department: string     // the FINAL deliverer (single-stage: the only dept)
   // Two-stage handoff: when set, this dept PREPARES the item and hands it to
   // fulfill_department to DELIVER (e.g. Kitchen prepares → Restaurant delivers).
   // null/absent = single-stage (fulfill_department both prepares and delivers).
-  prepare_department?: Department | null
+  prepare_department?: string | null
   serving_at: string           // "12:00" or ""
   line_type: LineType
   by_weekday?: Record<string, string> | null  // mon..sun item overrides (turndown-of-the-day)
@@ -34,7 +35,6 @@ export interface RecipeLine {
 /** Recipes keyed by RoomCategory.id. */
 export type RoomRecipes = Record<string, RecipeLine[]>
 
-const DEPT_OPTIONS = DEPARTMENTS.filter((d) => d.value !== 'top_management')
 const DEFAULT_PREP_BUFFER_MIN = 30
 const WEEKDAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const
 const WEEKDAY_LABELS: Record<string, string> = { mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat', sun: 'Sun' }
@@ -54,7 +54,11 @@ export function RoomRecipesSettings() {
   const { activeCompany } = useCompany()
   const { profile } = useAuth()
   const { lang } = useLanguage()
+  const { allOptions } = useDepartments()
   const companyId = activeCompany?.id ?? null
+
+  // The company's curated roster, custom departments included — not the built-in list.
+  const deptOptions = allOptions.filter((d) => d.value !== 'top_management')
 
   const [categories, setCategories] = useState<RoomCategory[]>([])
   const [unit, setUnit] = useState<UnitNoun>(DEFAULT_UNIT)
@@ -176,6 +180,7 @@ export function RoomRecipesSettings() {
           category={editing}
           lines={recipes[editing.id] ?? []}
           items={items}
+          deptOptions={deptOptions}
           lang={lang}
           onClose={() => setEditing(null)}
           onSave={saveCategory}
@@ -187,10 +192,11 @@ export function RoomRecipesSettings() {
 
 // ── per-category recipe modal ────────────────────────────────────────────────────
 
-function RecipeModal({ category, lines, items, lang, onClose, onSave }: {
+function RecipeModal({ category, lines, items, deptOptions, lang, onClose, onSave }: {
   category: RoomCategory
   lines: RecipeLine[]
   items: RrItem[]
+  deptOptions: DepartmentOption[]
   lang: 'en' | 'th'
   onClose: () => void
   onSave: (catId: string, lines: RecipeLine[]) => Promise<boolean>
@@ -205,7 +211,7 @@ function RecipeModal({ category, lines, items, lang, onClose, onSave }: {
   function addLine() {
     const id = newId()
     setLocal((prev) => [...prev, {
-      id, slot: '', item: '', fulfill_department: DEPT_OPTIONS[0]?.value ?? 'restaurant',
+      id, slot: '', item: '', fulfill_department: deptOptions[0]?.value ?? 'restaurant',
       serving_at: '', line_type: 'delivery', by_weekday: null,
     }])
     setTimeout(() => document.getElementById('recipe-list-bottom')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 50)
@@ -230,8 +236,8 @@ function RecipeModal({ category, lines, items, lang, onClose, onSave }: {
       // On: the current dept becomes the PREPARER; pick a different dept to DELIVER
       // (default Restaurant, else the first dept that isn't the preparer). Item catalog
       // stays keyed to the preparer, so the chosen item remains valid.
-      const deliverer = DEPT_OPTIONS.find((d) => d.value !== line.fulfill_department && d.value === 'restaurant')?.value
-        ?? DEPT_OPTIONS.find((d) => d.value !== line.fulfill_department)?.value
+      const deliverer = deptOptions.find((d) => d.value !== line.fulfill_department && d.value === 'restaurant')?.value
+        ?? deptOptions.find((d) => d.value !== line.fulfill_department)?.value
         ?? line.fulfill_department
       patch(id, { prepare_department: line.fulfill_department, fulfill_department: deliverer })
     }
@@ -295,14 +301,14 @@ function RecipeModal({ category, lines, items, lang, onClose, onSave }: {
                     <div className="grid grid-cols-2 gap-2">
                       <div>
                         <label className="text-[10px] font-medium text-gray-400 flex items-center gap-1 mb-0.5"><ChefHat className="h-3 w-3" />{lang === 'th' ? 'เตรียมโดย' : 'Prepared by'}</label>
-                        <select value={line.prepare_department ?? ''} onChange={(e) => patch(line.id, { prepare_department: e.target.value as Department, item: '' })} className={cell}>
-                          {DEPT_OPTIONS.map((d) => <option key={d.value} value={d.value}>{deptLabel(d.value, lang)}</option>)}
+                        <select value={line.prepare_department ?? ''} onChange={(e) => patch(line.id, { prepare_department: e.target.value, item: '' })} className={cell}>
+                          {deptOptions.map((d) => <option key={d.value} value={d.value}>{deptLabel(d.value, lang)}</option>)}
                         </select>
                       </div>
                       <div>
                         <label className="text-[10px] font-medium text-gray-400 flex items-center gap-1 mb-0.5"><Truck className="h-3 w-3" />{lang === 'th' ? 'ส่งโดย' : 'Delivered by'}</label>
-                        <select value={line.fulfill_department} onChange={(e) => patch(line.id, { fulfill_department: e.target.value as Department })} className={cell}>
-                          {DEPT_OPTIONS.map((d) => <option key={d.value} value={d.value}>{deptLabel(d.value, lang)}</option>)}
+                        <select value={line.fulfill_department} onChange={(e) => patch(line.id, { fulfill_department: e.target.value })} className={cell}>
+                          {deptOptions.map((d) => <option key={d.value} value={d.value}>{deptLabel(d.value, lang)}</option>)}
                         </select>
                       </div>
                     </div>
@@ -310,9 +316,9 @@ function RecipeModal({ category, lines, items, lang, onClose, onSave }: {
                   </div>
                 ) : (
                   <div className="grid grid-cols-2 gap-2">
-                    <select value={line.fulfill_department} onChange={(e) => patch(line.id, { fulfill_department: e.target.value as Department, item: '' })}
+                    <select value={line.fulfill_department} onChange={(e) => patch(line.id, { fulfill_department: e.target.value, item: '' })}
                       className={cell}>
-                      {DEPT_OPTIONS.map((d) => <option key={d.value} value={d.value}>{deptLabel(d.value, lang)}</option>)}
+                      {deptOptions.map((d) => <option key={d.value} value={d.value}>{deptLabel(d.value, lang)}</option>)}
                     </select>
                     <ItemField value={line.item} options={deptItems} lang={lang} onChange={(v) => patch(line.id, { item: v })} />
                   </div>

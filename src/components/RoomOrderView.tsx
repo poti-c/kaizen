@@ -8,7 +8,8 @@ import { RoomDocModal } from '@/components/RoomDocModal'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useLanguage } from '@/contexts/LanguageContext'
-import { DEPARTMENTS, deptLabel, type Department } from '@/types'
+import { deptLabel } from '@/types'
+import { useDepartments, type DepartmentOption } from '@/hooks/useDepartments'
 import type { RrItem } from '@/components/RRSettings'
 import { resolveDeliverer } from '@/lib/rrDeliverer'
 import type { RoomCategory, RoomType, Room } from '@/components/RoomSetupSettings'
@@ -19,7 +20,6 @@ import type { RecipeLine, RoomRecipes, LineType } from '@/components/RoomRecipes
 import { ItemField, itemLabel } from '@/components/RoomRecipesSettings'
 import { recipeSeedOff } from '@/lib/roomRecipe'
 
-const DEPT_OPTIONS = DEPARTMENTS.filter((d) => d.value !== 'top_management')
 const WEEKDAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const
 
 const DEPT_BADGE: Record<string, string> = {
@@ -204,7 +204,7 @@ function eventLabel(e: RoomEvent, lang: string): string {
       return lang === 'th' ? `แก้ไข ${room} · ${stLabel}` : `edited ${room} · ${stLabel}`
     }
     case 'emptied_rest': return lang === 'th' ? `ตั้ง ${d} ห้องเป็นว่าง` : `set ${d} rooms to Empty`
-    case 'order_received': return lang === 'th' ? `รับงาน (${deptLabel(d as Department, lang)})` : `acknowledged (${deptLabel(d as Department, lang)})`
+    case 'order_received': return lang === 'th' ? `รับงาน (${deptLabel(d, lang)})` : `acknowledged (${deptLabel(d, lang)})`
     case 'prepared': return lang === 'th' ? `เตรียมเสร็จ · ${d}` : `prepared · ${d}`
     case 'approved': return lang === 'th' ? `อนุมัติ ${d}` : `approved ${d}`
     case 'rejected': return lang === 'th' ? `ปฏิเสธ ${d}` : `rejected ${d}`
@@ -322,8 +322,11 @@ interface SheetLine {
   id: string
   slot: string
   item: string
-  fulfill_department: Department          // final deliverer (single-stage: the only dept)
-  prepare_department: Department | null   // preparer for two-stage handoff; null = single-stage
+  // Plain strings, not the built-in Department union: the DB columns are text and a
+  // company's curated roster may name custom departments (Spa, Owner) whose value IS
+  // the label. Narrowing here was the custom-department blind spot.
+  fulfill_department: string              // final deliverer (single-stage: the only dept)
+  prepare_department: string | null       // preparer for two-stage handoff; null = single-stage
   serving_at: string
   line_type: LineType
   source: 'default' | 'special'
@@ -367,8 +370,10 @@ interface DbLine {
 export function RoomOrderView({ companyId, initialDate, initialMode }: { companyId: string; initialDate?: string; initialMode?: 'build' | 'fulfil' | 'monitor' }) {
   const { profile } = useAuth()
   const { lang } = useLanguage()
+  const { allOptions } = useDepartments()
+  const deptKey = allOptions.map((d) => d.value).join(',')
   const canManage = profile?.role === 'super_admin' || profile?.role === 'manager'
-  const myDept = (profile?.department ?? null) as Department | null
+  const myDept: string | null = profile?.department ?? null
   const isRequester = canManage || myDept === 'front_office'
 
   const initMode = initialMode ?? (isRequester ? 'build' : 'fulfil')
@@ -376,8 +381,8 @@ export function RoomOrderView({ companyId, initialDate, initialMode }: { company
   // One shared service date across Place order / Fulfil / Monitor so switching tabs keeps it.
   // Seeded from the first tab's natural default (Place order → tomorrow; others → today).
   const [date, setDate] = useState<string>(() => initialDate ?? (initMode === 'build' ? shiftDate(bangkokDate(), 1) : bangkokDate()))
-  const [fulfilDept, setFulfilDept] = useState<Department>(myDept && myDept !== 'front_office' ? myDept : 'restaurant')
-  const [assignedDepts, setAssignedDepts] = useState<Department[]>([]) // depts actually used as a fulfilling dept in the recipes
+  const [fulfilDept, setFulfilDept] = useState<string>(myDept && myDept !== 'front_office' ? myDept : 'restaurant')
+  const [assignedDepts, setAssignedDepts] = useState<string[]>([]) // depts actually used as a fulfilling dept in the recipes
   const [monitorDepts, setMonitorDepts] = useState<string[]>([]) // extra depts granted the read-only Monitor tab
   const [pendingApprovals, setPendingApprovals] = useState(0)
   const [requireApproval, setRequireApproval] = useState(true) // master gate from settings
@@ -400,19 +405,22 @@ export function RoomOrderView({ companyId, initialDate, initialMode }: { company
       const u = (cfgRes.data?.value as { unit?: UnitNoun } | undefined)?.unit
       if (u) setUnit(u)
       const recipes = (recRes.data?.value as RoomRecipes) ?? {}
-      const set = new Set<Department>()
+      const set = new Set<string>()
       // Both roles route work to a department's board: the deliverer and, for handoff
       // lines, the preparer (e.g. Kitchen needs a board even if it only ever prepares).
       Object.values(recipes).forEach((lines) => (lines ?? []).forEach((l) => {
         set.add(l.fulfill_department)
         if (l.prepare_department) set.add(l.prepare_department)
       }))
-      const list = DEPT_OPTIONS.map((d) => d.value).filter((v) => set.has(v)) // canonical order, only assigned
+      // Canonical order from the company's roster, so a recipe assigned to a custom
+      // department (Spa, Owner) still gets its own fulfilment board.
+      const list = allOptions.filter((d) => d.value !== 'top_management')
+        .map((d) => d.value).filter((v) => set.has(v))
       setAssignedDepts(list)
       setFulfilDept((cur) => list.includes(cur) ? cur : (myDept && list.includes(myDept) ? myDept : (list[0] ?? cur)))
     })
     return () => { stale = true }
-  }, [companyId]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [companyId, deptKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Load the approval policy (require?) for everyone; managers also auto-release overdue specials + count pending.
   const refreshPending = useCallback(async () => {
@@ -472,7 +480,7 @@ export function RoomOrderView({ companyId, initialDate, initialMode }: { company
           )}
         </div>
         {mode === 'fulfil' && (isRequester ? (assignedDepts.length > 0 ? (
-          <select value={fulfilDept} onChange={(e) => setFulfilDept(e.target.value as Department)}
+          <select value={fulfilDept} onChange={(e) => setFulfilDept(e.target.value)}
             className="h-8 rounded-lg border border-gray-300 px-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/40">
             {assignedDepts.map((d) => <option key={d} value={d}>{deptLabel(d, lang)}</option>)}
           </select>
@@ -495,6 +503,9 @@ export function RoomOrderView({ companyId, initialDate, initialMode }: { company
 function RoomOrderBuild({ companyId, unit, requireApproval, date: controlledDate, onDateChange, initialDate }: { companyId: string; unit: UnitNoun; requireApproval: boolean; date?: string; onDateChange?: (d: string) => void; initialDate?: string }) {
   const { profile } = useAuth()
   const { lang } = useLanguage()
+  const { allOptions } = useDepartments()
+  // The company's curated roster drives every dept picker on the sheet.
+  const deptOptions = allOptions.filter((d) => d.value !== 'top_management')
   const canManage = profile?.role === 'super_admin' || profile?.role === 'manager'
   // Only Top Management and Front Office actually PLACE room orders. Other managers
   // (e.g. a fulfilling-dept manager like Restaurant) can view the order but not change it.
@@ -624,8 +635,8 @@ function RoomOrderBuild({ companyId, unit, requireApproval, date: controlledDate
       for (const l of (lines as DbLine[]) ?? []) {
         const slot = l.slot ?? '';
         (byRoom[l.room_no] ||= []).push({
-          id: l.id, slot, item: l.item ?? '', fulfill_department: l.fulfill_department as Department,
-          prepare_department: (l.prepare_department as Department | null) ?? null,
+          id: l.id, slot, item: l.item ?? '', fulfill_department: l.fulfill_department,
+          prepare_department: l.prepare_department ?? null,
           serving_at: l.serving_at ?? '', line_type: (l.line_type as LineType) ?? 'delivery',
           source: (l.source as 'default' | 'special') ?? 'default', note: l.note ?? '', active: l.active ?? true,
           default_off: recipeSeedOff(recipeLineFor(l.room_no, slot) ?? { slot }),
@@ -838,8 +849,8 @@ function RoomOrderBuild({ companyId, unit, requireApproval, date: controlledDate
     const savedRoom = rooms.find((r) => r.no === roomNo)
     const savedRecipe = savedRoom ? recipeForRoom(savedRoom) : []
     const freshLines: SheetLine[] = ((fresh as DbLine[]) ?? []).map((l) => ({
-      id: l.id, slot: l.slot ?? '', item: l.item ?? '', fulfill_department: l.fulfill_department as Department,
-      prepare_department: (l.prepare_department as Department | null) ?? null,
+      id: l.id, slot: l.slot ?? '', item: l.item ?? '', fulfill_department: l.fulfill_department,
+      prepare_department: l.prepare_department ?? null,
       serving_at: l.serving_at ?? '', line_type: (l.line_type as LineType) ?? 'delivery',
       source: (l.source as 'default' | 'special') ?? 'default', note: l.note ?? '', active: l.active ?? true,
       default_off: recipeSeedOff(savedRecipe.find((rl) => rl.slot === (l.slot ?? '')) ?? { slot: l.slot ?? '' }),
@@ -1160,7 +1171,7 @@ function RoomOrderBuild({ companyId, unit, requireApproval, date: controlledDate
         const room = rooms.find((r) => r.no === openRoom)!
         return (
           <RoomSheet
-            room={room} cat={catOf(room.type)} items={items} lang={lang} unit={unit}
+            room={room} cat={catOf(room.type)} items={items} deptOptions={deptOptions} lang={lang} unit={unit}
             initial={linesForRoom(room)} initialStatus={statusForRoom(room.no)}
             busy={busy} canManage={canManage} readOnly={!canPlace}
             nextRoomNo={nextRoom(openRoom)}
@@ -1249,10 +1260,11 @@ function RoomOrderBuild({ companyId, unit, requireApproval, date: controlledDate
 
 // ── per-room sheet ───────────────────────────────────────────────────────────
 
-function RoomSheet({ room, cat, items, lang, unit, initial, initialStatus, busy, readOnly, nextRoomNo, onClose, onSave }: {
+function RoomSheet({ room, cat, items, deptOptions, lang, unit, initial, initialStatus, busy, readOnly, nextRoomNo, onClose, onSave }: {
   room: Room
   cat: RoomCategory | undefined
   items: RrItem[]
+  deptOptions: DepartmentOption[]
   lang: 'en' | 'th'
   unit: UnitNoun
   initial: SheetLine[]
@@ -1276,7 +1288,7 @@ function RoomSheet({ room, cat, items, lang, unit, initial, initialStatus, busy,
   }
   function remove(id: string) { setLines((prev) => prev.filter((l) => l.id !== id)) }
   function addSpecial() {
-    setLines((prev) => [...prev, { id: newId(), slot: '', item: '', fulfill_department: DEPT_OPTIONS[0]?.value ?? 'restaurant', prepare_department: null, serving_at: '', line_type: 'delivery', source: 'special', note: '', active: status !== 'empty' && status !== 'oo', default_off: false }])
+    setLines((prev) => [...prev, { id: newId(), slot: '', item: '', fulfill_department: deptOptions[0]?.value ?? 'restaurant', prepare_department: null, serving_at: '', line_type: 'delivery', source: 'special', note: '', active: status !== 'empty' && status !== 'oo', default_off: false }])
   }
   // Changing the room status re-applies the default active preset to every line.
   function applyStatus(s: RoomStatus) {
@@ -1322,12 +1334,12 @@ function RoomSheet({ room, cat, items, lang, unit, initial, initialStatus, busy,
           {/* UXRG-1: key by room+line so LineRow (and its ItemField free-text/dropdown
               state) remounts on "Save & next" — recipe line ids collide across same-category
               rooms, which otherwise preserves the previous room's input mode. */}
-          {defaults.map((l) => <LineRow key={`${room.no}:${l.id}`} line={l} items={items} lang={lang} onPatch={patch} onRemove={remove} onToggle={(on) => patch(l.id, { active: on })} readOnly={readOnly} />)}
+          {defaults.map((l) => <LineRow key={`${room.no}:${l.id}`} line={l} items={items} deptOptions={deptOptions} lang={lang} onPatch={patch} onRemove={remove} onToggle={(on) => patch(l.id, { active: on })} readOnly={readOnly} />)}
 
           {(specials.length > 0 || !readOnly) && (
             <div className="pt-2">
               <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">{lang === 'th' ? 'คำขอพิเศษ' : 'Special requests'}</p>
-              {specials.map((l) => <LineRow key={`${room.no}:${l.id}`} line={l} items={items} lang={lang} onPatch={patch} onRemove={remove} onToggle={(on) => patch(l.id, { active: on })} special readOnly={readOnly} />)}
+              {specials.map((l) => <LineRow key={`${room.no}:${l.id}`} line={l} items={items} deptOptions={deptOptions} lang={lang} onPatch={patch} onRemove={remove} onToggle={(on) => patch(l.id, { active: on })} special readOnly={readOnly} />)}
               {!readOnly && (
                 <button onClick={addSpecial}
                   className="w-full flex items-center justify-center gap-1.5 h-9 rounded-lg border border-dashed border-gray-200 text-sm text-gray-400 hover:border-[var(--brand-primary)] hover:text-[var(--brand-primary)] transition-colors mt-1">
@@ -1365,9 +1377,10 @@ function RoomSheet({ room, cat, items, lang, unit, initial, initialStatus, busy,
   )
 }
 
-function LineRow({ line: l, items, lang, onPatch, onRemove, onToggle, special, readOnly }: {
+function LineRow({ line: l, items, deptOptions, lang, onPatch, onRemove, onToggle, special, readOnly }: {
   line: SheetLine
   items: RrItem[]
+  deptOptions: DepartmentOption[]
   lang: 'en' | 'th'
   onPatch: (id: string, fields: Partial<SheetLine>) => void
   onRemove: (id: string) => void
@@ -1391,8 +1404,8 @@ function LineRow({ line: l, items, lang, onPatch, onRemove, onToggle, special, r
       onPatch(l.id, { fulfill_department: l.prepare_department, prepare_department: null })
     } else {
       // On: current dept becomes the PREPARER; another delivers (Restaurant by default).
-      const deliverer = DEPT_OPTIONS.find((d) => d.value !== l.fulfill_department && d.value === 'restaurant')?.value
-        ?? DEPT_OPTIONS.find((d) => d.value !== l.fulfill_department)?.value
+      const deliverer = deptOptions.find((d) => d.value !== l.fulfill_department && d.value === 'restaurant')?.value
+        ?? deptOptions.find((d) => d.value !== l.fulfill_department)?.value
         ?? l.fulfill_department
       onPatch(l.id, { prepare_department: l.fulfill_department, fulfill_department: deliverer })
     }
@@ -1454,23 +1467,23 @@ function LineRow({ line: l, items, lang, onPatch, onRemove, onToggle, special, r
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <label className="text-[10px] font-medium text-gray-400 flex items-center gap-1 mb-0.5"><ChefHat className="h-3 w-3" />{lang === 'th' ? 'เตรียมโดย' : 'Prepared by'}</label>
-                <select value={l.prepare_department ?? ''} onChange={(e) => onPatch(l.id, { prepare_department: e.target.value as Department, item: '' })}
+                <select value={l.prepare_department ?? ''} onChange={(e) => onPatch(l.id, { prepare_department: e.target.value, item: '' })}
                   className="h-8 w-full rounded-md border border-gray-200 px-2 text-sm bg-white focus:outline-none focus:ring-1 focus:ring-[var(--brand-primary)]/40">
-                  {DEPT_OPTIONS.map((d) => <option key={d.value} value={d.value}>{deptLabel(d.value, lang)}</option>)}
+                  {deptOptions.map((d) => <option key={d.value} value={d.value}>{deptLabel(d.value, lang)}</option>)}
                 </select>
               </div>
               <div>
                 <label className="text-[10px] font-medium text-gray-400 flex items-center gap-1 mb-0.5"><Truck className="h-3 w-3" />{lang === 'th' ? 'ส่งโดย' : 'Delivered by'}</label>
-                <select value={l.fulfill_department} onChange={(e) => onPatch(l.id, { fulfill_department: e.target.value as Department })}
+                <select value={l.fulfill_department} onChange={(e) => onPatch(l.id, { fulfill_department: e.target.value })}
                   className="h-8 w-full rounded-md border border-gray-200 px-2 text-sm bg-white focus:outline-none focus:ring-1 focus:ring-[var(--brand-primary)]/40">
-                  {DEPT_OPTIONS.map((d) => <option key={d.value} value={d.value}>{deptLabel(d.value, lang)}</option>)}
+                  {deptOptions.map((d) => <option key={d.value} value={d.value}>{deptLabel(d.value, lang)}</option>)}
                 </select>
               </div>
             </div>
           ) : (
-            <select value={l.fulfill_department} onChange={(e) => onPatch(l.id, { fulfill_department: e.target.value as Department, item: '' })}
+            <select value={l.fulfill_department} onChange={(e) => onPatch(l.id, { fulfill_department: e.target.value, item: '' })}
               className="h-8 w-full rounded-md border border-gray-200 px-2 text-sm bg-white focus:outline-none focus:ring-1 focus:ring-[var(--brand-primary)]/40">
-              {DEPT_OPTIONS.map((d) => <option key={d.value} value={d.value}>{deptLabel(d.value, lang)}</option>)}
+              {deptOptions.map((d) => <option key={d.value} value={d.value}>{deptLabel(d.value, lang)}</option>)}
             </select>
           ))}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -1526,7 +1539,7 @@ interface FulfilLine {
 const isDocLine = (l: { prepare_department: string | null; fulfill_department: string }) =>
   l.prepare_department === 'accounting' || (!l.prepare_department && l.fulfill_department === 'accounting')
 
-function RoomFulfilBoard({ companyId, dept, unit, initialDate, date: controlledDate, onDateChange }: { companyId: string; dept: Department; unit: UnitNoun; initialDate?: string; date?: string; onDateChange?: (d: string) => void }) {
+function RoomFulfilBoard({ companyId, dept, unit, initialDate, date: controlledDate, onDateChange }: { companyId: string; dept: string; unit: UnitNoun; initialDate?: string; date?: string; onDateChange?: (d: string) => void }) {
   const { profile } = useAuth()
   const { lang } = useLanguage()
   const one = unitOne(unit, lang)
@@ -2219,7 +2232,7 @@ function RoomApprovalsView({ companyId, onChanged }: { companyId: string; onChan
         <div className="flex items-center gap-1.5 flex-wrap">
           <span className="text-sm font-semibold text-gray-900">{l.room_no}</span>
           <span className="text-sm text-gray-700">{l.slot || l.item || '—'}</span>
-          <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${deptBadge(l.fulfill_department)}`}>{deptLabel(l.fulfill_department as Department, lang)}</span>
+          <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${deptBadge(l.fulfill_department)}`}>{deptLabel(l.fulfill_department, lang)}</span>
           {!actions && statusPill(l.approval_status)}
         </div>
         <p className="text-[11px] text-gray-400 mt-0.5 truncate">
