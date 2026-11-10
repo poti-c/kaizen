@@ -4,11 +4,12 @@ import { supabase } from '@/lib/supabase'
 import { useCompany } from '@/contexts/CompanyContext'
 import { useAuth } from '@/contexts/AuthContext'
 import { useLanguage } from '@/contexts/LanguageContext'
-import { DEPARTMENT_LABELS, DEPARTMENTS, deptLabel, type Department } from '@/types'
+import { deptLabel } from '@/types'
+import { useDepartments, type DepartmentOption } from '@/hooks/useDepartments'
 import { toast } from 'sonner'
 
 export interface RrItem {
-  department: Department
+  department: string
   code: string
   description: string
   /** Catalog grouping: standard recipe items vs ad-hoc upsell/special requests. Missing = 'default'. */
@@ -20,10 +21,8 @@ export interface RrItem {
    * requester files one line instead of one per department.
    * Null/absent = the owning department both makes and delivers it.
    */
-  deliver_department?: Department | null
+  deliver_department?: string | null
 }
-
-const DEPT_OPTIONS = DEPARTMENTS.filter((d) => d.value !== 'top_management')
 
 // ── main component ────────────────────────────────────────────────────────────
 
@@ -31,12 +30,17 @@ export function RRSettings() {
   const { activeCompany } = useCompany()
   const { profile } = useAuth()
   const { lang } = useLanguage()
+  const { allOptions } = useDepartments()
   const companyId = activeCompany?.id ?? null
+
+  // Top Management never owns routine-roster items; everything else the company has
+  // configured in Settings → Departments is fair game, custom entries included.
+  const deptOptions = allOptions.filter((d) => d.value !== 'top_management')
 
   const [items, setItems] = useState<RrItem[]>([])
   const [loading, setLoading] = useState(true)
   const [canEdit, setCanEdit] = useState(false)
-  const [activeDept, setActiveDept] = useState<Department | null>(null)
+  const [activeDept, setActiveDept] = useState<string | null>(null)
   const [showDeptPicker, setShowDeptPicker] = useState(false)
   const pickerRef = useRef<HTMLDivElement>(null)
 
@@ -74,13 +78,13 @@ export function RRSettings() {
   }
 
   // Grouped departments
-  const grouped = items.reduce<Partial<Record<Department, RrItem[]>>>((acc, it) => {
+  const grouped = items.reduce<Record<string, RrItem[]>>((acc, it) => {
     if (!acc[it.department]) acc[it.department] = []
     acc[it.department]!.push(it)
     return acc
   }, {})
-  const activeDepts = (Object.keys(grouped) as Department[])
-    .sort((a, b) => DEPARTMENT_LABELS[a].localeCompare(DEPARTMENT_LABELS[b]))
+  const activeDepts = Object.keys(grouped)
+    .sort((a, b) => deptLabel(a, lang).localeCompare(deptLabel(b, lang)))
 
   if (loading) return <div className="flex justify-center py-6"><Loader2 className="h-5 w-5 animate-spin text-gray-400" /></div>
   if (!canEdit) return (
@@ -140,7 +144,7 @@ export function RRSettings() {
                 {lang === 'th' ? 'เลือกแผนก' : 'Select department'}
               </p>
               <div className="divide-y divide-gray-50">
-                {DEPT_OPTIONS.map((d) => (
+                {deptOptions.map((d) => (
                   <button key={d.value} onClick={() => { setActiveDept(d.value); setShowDeptPicker(false) }}
                     className="w-full flex items-center justify-between gap-2 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50 text-left transition-colors">
                     <span>{deptLabel(d.value, lang)}</span>
@@ -159,6 +163,7 @@ export function RRSettings() {
       {activeDept !== null && (
         <DeptModal
           dept={activeDept}
+          deptOptions={deptOptions}
           allItems={items}
           lang={lang}
           onClose={() => setActiveDept(null)}
@@ -171,8 +176,9 @@ export function RRSettings() {
 
 // ── department item modal ──────────────────────────────────────────────────────
 
-function DeptModal({ dept, allItems, lang, onClose, onSave }: {
-  dept: Department
+function DeptModal({ dept, deptOptions, allItems, lang, onClose, onSave }: {
+  dept: string
+  deptOptions: DepartmentOption[]
   allItems: RrItem[]
   lang: 'en' | 'th'
   onClose: () => void
@@ -183,7 +189,7 @@ function DeptModal({ dept, allItems, lang, onClose, onSave }: {
   const [transferIdx, setTransferIdx] = useState<number | null>(null)
   const transferRef = useRef<HTMLDivElement>(null)
 
-  const otherDepts = DEPT_OPTIONS.filter((d) => d.value !== dept)
+  const otherDepts = deptOptions.filter((d) => d.value !== dept)
 
   // Close transfer picker on outside click
   useEffect(() => {
@@ -211,14 +217,14 @@ function DeptModal({ dept, allItems, lang, onClose, onSave }: {
   /** "" = this department delivers its own item; any other dept = two-stage handoff. */
   function patchDeliverer(globalIdx: number, value: string) {
     setLocal((prev) => prev.map((it, i) => i === globalIdx
-      ? { ...it, deliver_department: value ? (value as Department) : null } : it))
+      ? { ...it, deliver_department: value || null } : it))
   }
 
   function remove(globalIdx: number) {
     setLocal((prev) => prev.filter((_, i) => i !== globalIdx))
   }
 
-  function transfer(globalIdx: number, targetDept: Department) {
+  function transfer(globalIdx: number, targetDept: string) {
     setLocal((prev) => prev.map((it, i) => i === globalIdx ? { ...it, department: targetDept } : it))
     setTransferIdx(null)
     toast.success(lang === 'th'

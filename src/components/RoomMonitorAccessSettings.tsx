@@ -4,19 +4,22 @@ import { supabase } from '@/lib/supabase'
 import { useCompany } from '@/contexts/CompanyContext'
 import { useAuth } from '@/contexts/AuthContext'
 import { useLanguage } from '@/contexts/LanguageContext'
-import { DEPARTMENTS, deptLabel, type Department } from '@/types'
+import { deptLabel } from '@/types'
+import { useDepartments } from '@/hooks/useDepartments'
 import { toast } from 'sonner'
-
-// Departments that can be granted the read-only Monitor tab. Front Office and managers /
-// Top Management always have it, so they're not listed here.
-const GRANTABLE = DEPARTMENTS.filter((d) => d.value !== 'top_management' && d.value !== 'front_office')
 
 /** Settings key `rr_monitor_depts`: extra departments allowed to see the Monitor tab. */
 export function RoomMonitorAccessSettings() {
   const { activeCompany } = useCompany()
   const { profile } = useAuth()
   const { lang } = useLanguage()
+  const { allOptions } = useDepartments()
   const companyId = activeCompany?.id ?? null
+
+  // Departments that can be granted the read-only Monitor tab, taken from the company's
+  // own roster so custom ones (Spa, Owner) are grantable too. Front Office and managers /
+  // Top Management always have it, so they're not listed here.
+  const grantable = allOptions.filter((d) => d.value !== 'top_management' && d.value !== 'front_office')
 
   const [depts, setDepts] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
@@ -34,7 +37,7 @@ export function RoomMonitorAccessSettings() {
   }, [companyId, profile])
   useEffect(() => { load() }, [load])
 
-  async function toggle(dept: Department) {
+  async function toggle(dept: string) {
     if (!companyId) return
     const next = depts.includes(dept) ? depts.filter((d) => d !== dept) : [...depts, dept]
     setDepts(next)
@@ -64,7 +67,7 @@ export function RoomMonitorAccessSettings() {
         </p>
       </div>
       <div className="flex flex-wrap gap-2">
-        {GRANTABLE.map((d) => {
+        {grantable.map((d) => {
           const on = depts.includes(d.value)
           return (
             <button key={d.value} onClick={() => toggle(d.value)}

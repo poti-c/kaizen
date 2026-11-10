@@ -11,7 +11,7 @@ import { useCompany } from '@/contexts/CompanyContext'
 import { useAuth } from '@/contexts/AuthContext'
 import { useLanguage } from '@/contexts/LanguageContext'
 import {
-  DEPARTMENTS, deptLabel,
+  deptLabel,
   type Department, type KaizenProfile, type RrTemplate, type RrOrder, type RrOrderItem, type RrOrderStatus,
   type RrOrderType, type RrVariant, type RrEvent, type RrStage, type RrPicMode,
 } from '@/types'

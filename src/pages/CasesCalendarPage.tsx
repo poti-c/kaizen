@@ -11,7 +11,7 @@ import { useLanguage } from '@/contexts/LanguageContext'
 import { cn, companyHasAddon, formatDueBy, bangkokDate, parseDateOnlyBkk, bangkokDayOfWeek } from '@/lib/utils'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import type { KaizenCase, Department, RrOrder } from '@/types'
-import { DEPARTMENTS, deptLabel } from '@/types'
+import { deptLabel } from '@/types'
 import { useDepartments } from '@/hooks/useDepartments'
 import { PMTaskModal, taskTone, taskStatusKey, type PMTask } from '@/components/pm/PMSchedule'
 
