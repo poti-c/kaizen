@@ -103,13 +103,45 @@ function stageDept(o: RrOrder, stage: RrStage): Department | null {
  * pic_mode/pic_ids pair, which was always scoped to the requesting department —
  * so templates saved before the delivery stage keep their existing PIC behaviour.
  */
-function stagePic(tpl: RrTemplate | null, stage: RrStage): { mode: RrPicMode; ids: string[] } {
+function stagePic(tpl: RrTemplate | null, stage: RrStage, o?: RrOrder | null): { mode: RrPicMode; ids: string[] } {
   if (!tpl) return { mode: 'department', ids: [] }
   if (stage === 'request') {
+    // An order is stamped with the department of whoever placed it, which may not
+    // be the template's default requester (an HR manager ordering a Sales routine).
+    // The template's request PICs are people in *that* default department, so on
+    // such an order the request side is simply the placing department as a whole.
+    if (o && o.request_department !== tpl.request_department) return { mode: 'department', ids: [] }
     return { mode: tpl.request_pic_mode ?? tpl.pic_mode, ids: tpl.request_pic_ids ?? tpl.pic_ids ?? [] }
   }
   if (stage === 'fulfill') return { mode: tpl.fulfill_pic_mode ?? 'department', ids: tpl.fulfill_pic_ids ?? [] }
   return { mode: tpl.deliver_pic_mode ?? 'department', ids: tpl.deliver_pic_ids ?? [] }
+}
+
+/**
+ * The department an order placed by `profile` is requested from: the orderer's
+ * own department, so the board and report say who actually asked. Falls back to
+ * the template's default only for an account with no department set.
+ */
+function requesterDept(profile: KaizenProfile | null | undefined, tp: RrTemplate): Department {
+  return (profile?.department as Department | null | undefined) || tp.request_department
+}
+
+/** id → full_name for the people who placed these orders (sent_by). */
+function useOrdererNames(orders: RrOrder[]): Record<string, string> {
+  const [names, setNames] = useState<Record<string, string>>({})
+  const key = [...new Set(orders.map((o) => o.sent_by).filter(Boolean) as string[])].sort().join(',')
+  useEffect(() => {
+    if (!key) { setNames({}); return }
+    let stale = false
+    supabase.from('kaizen_profiles').select('id, full_name').in('id', key.split(',')).then(({ data }) => {
+      if (stale) return
+      const m: Record<string, string> = {}
+      ;((data as { id: string; full_name: string }[]) ?? []).forEach((p) => { m[p.id] = p.full_name })
+      setNames(m)
+    })
+    return () => { stale = true }
+  }, [key])
+  return names
 }
 
 /** Whose turn is it? Maps a status to the stage that owes the next action. */
@@ -348,6 +380,7 @@ export function RoutineRosterPage() {
   }, [lang, templates])
 
   const tplOf = useCallback((o: RrOrder) => templates.find((tp) => tp.id === o.template_id) ?? null, [templates])
+  const ordererNames = useOrdererNames(orders)
 
   // Is the current user on `stage`'s side of this order? With PIC mode 'users', a
   // staff member only counts if they're assigned to that stage; managers always can act.
@@ -356,7 +389,7 @@ export function RoutineRosterPage() {
     if (canManage) return true
     const dept = stageDept(o, stage)
     if (!dept || profile.department !== dept) return false
-    const { mode, ids } = stagePic(tplOf(o), stage)
+    const { mode, ids } = stagePic(tplOf(o), stage, o)
     if (mode === 'users') return ids.includes(profile.id)
     return true
   }, [profile, canManage, tplOf])
@@ -527,7 +560,7 @@ export function RoutineRosterPage() {
                   const name = lang === 'th' && tp.name_th ? tp.name_th : tp.name
                   return (
                     <button key={tp.id} onClick={() => setPlaceTpl(tp)}
-                      title={`${deptLabel(tp.request_department, lang)} → ${deptLabel(tp.fulfill_department, lang)}${tp.due_time ? ` · ${hhmm(tp.due_time)}` : ''}`}
+                      title={`${deptLabel(requesterDept(profile, tp), lang)} → ${name} → ${deptLabel(tp.fulfill_department, lang)}${tp.due_time ? ` · ${hhmm(tp.due_time)}` : ''}`}
                       className="flex flex-col gap-0.5 rounded-lg border border-gray-200 bg-white px-2.5 py-2 text-left hover:border-[var(--brand-primary)]/50 hover:bg-gray-50 transition-colors">
                       <div className="flex items-start gap-1.5">
                         <ClipboardList className="h-3.5 w-3.5 flex-shrink-0 text-[var(--brand-primary)] mt-0.5" />
@@ -538,7 +571,7 @@ export function RoutineRosterPage() {
                           : <Plus className="h-3.5 w-3.5 flex-shrink-0 text-gray-300 mt-0.5" />}
                       </div>
                       <p className="text-[10px] text-gray-400 truncate pl-5">
-                        {deptLabel(tp.request_department, lang)} → {deptLabel(tp.fulfill_department, lang)}{tp.due_time ? ` · ${hhmm(tp.due_time)}` : ''}
+                        {deptLabel(requesterDept(profile, tp), lang)} → {deptLabel(tp.fulfill_department, lang)}{tp.due_time ? ` · ${hhmm(tp.due_time)}` : ''}
                       </p>
                     </button>
                   )
@@ -569,6 +602,7 @@ export function RoutineRosterPage() {
                           rooms={rooms} statusLabel={statusLabel} readOnly={false} canManage={canManage}
                           onRequestSide={onRequestSide(o)} muted={o.template_id ? mutes.has(o.template_id) : false}
                           onMuteToggle={loadMutes} notifyDept={notifyDept} onChanged={load}
+                          orderedBy={o.sent_by ? ordererNames[o.sent_by] : undefined}
                           addUpSeq={addUpSeqById.get(o.id)}
                           onAddUp={canAddUp(o) ? () => setAddUpTo(o) : undefined} />
                       ))}
@@ -588,6 +622,7 @@ export function RoutineRosterPage() {
                           rooms={rooms} statusLabel={statusLabel} readOnly={false} canManage={canManage}
                           onRequestSide={onRequestSide(o)} muted={o.template_id ? mutes.has(o.template_id) : false}
                           onMuteToggle={loadMutes} notifyDept={notifyDept} onChanged={load}
+                          orderedBy={o.sent_by ? ordererNames[o.sent_by] : undefined}
                           addUpSeq={addUpSeqById.get(o.id)}
                           onAddUp={canAddUp(o) ? () => setAddUpTo(o) : undefined} />
                       ))}
@@ -658,6 +693,9 @@ function PlaceOrderModal({ template: tp, companyId, profile, today, tomorrow, ro
   const hasVariants = tp.order_type === 'per_room_variants'
   const variants = tp.variants ?? null
   const name = lang === 'th' && tp.name_th ? tp.name_th : tp.name
+  // Recorded on the order as who asked for it — the orderer's own department,
+  // not the template's default requester.
+  const reqDept = requesterDept(profile, tp)
   const unitOf = (n: number) => (tp.unit_label ? `${n} ${tp.unit_label}` : String(n))
   const dateLabel = (d: string) => new Date(d + 'T00:00:00+07:00').toLocaleDateString(
     lang === 'th' ? 'th-TH' : 'en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'Asia/Bangkok' })
@@ -699,7 +737,7 @@ function PlaceOrderModal({ template: tp, companyId, profile, today, tomorrow, ro
     // destroy its kaizen_rr_events audit trail on every re-order.
     const { data: inserted, error } = await supabase.from('kaizen_rr_orders').insert({
       company_id: companyId, template_id: tp.id, order_date,
-      title: tp.name, request_department: tp.request_department, fulfill_department: tp.fulfill_department,
+      title: tp.name, request_department: reqDept, fulfill_department: tp.fulfill_department,
       deliver_department: tp.deliver_department ?? null,
       order_type: tp.order_type, item_label, unit_label: isBulk ? tp.unit_label : null,
       quantity, note: note.trim() || null, status: 'sent', due_at, sent_by: profile.id, sent_at: nowIso,
@@ -753,8 +791,8 @@ function PlaceOrderModal({ template: tp, companyId, profile, today, tomorrow, ro
           ? (lang === 'th' ? 'มีออเดอร์สั่งเพิ่ม' : 'Add-up order received')
           : (lang === 'th' ? 'มีออเดอร์ประจำเข้ามาใหม่' : 'Routine order received'),
         lang === 'th'
-          ? `${seqTag}"${tp.name}"${itemSuffix} — ${qtyLabel} จากแผนก ${deptLabel(tp.request_department, lang)}${isAddUp ? dueTag : ''}`
-          : `${seqTag}"${tp.name}"${itemSuffix} — ${qtyLabel} requested by ${deptLabel(tp.request_department, lang)}${isAddUp ? dueTag : ''}`,
+          ? `${seqTag}"${tp.name}"${itemSuffix} — ${qtyLabel} จากแผนก ${deptLabel(reqDept, lang)} (${profile.full_name})${isAddUp ? dueTag : ''}`
+          : `${seqTag}"${tp.name}"${itemSuffix} — ${qtyLabel} requested by ${deptLabel(reqDept, lang)} (${profile.full_name})${isAddUp ? dueTag : ''}`,
         { templateId: tp.id, picMode: fulfillPic.mode, picIds: fulfillPic.ids, useDeptConfig: true })
       // Three-stage: delivery is told up front that work is coming, so they can plan —
       // but it isn't actionable for them until fulfilling hands it over.
@@ -788,7 +826,7 @@ function PlaceOrderModal({ template: tp, companyId, profile, today, tomorrow, ro
                 </span>
               )}
             </div>
-            <p className="text-[11px] text-gray-400">{lang === 'th' ? 'ส่งไปยัง' : 'To'} {deptLabel(tp.fulfill_department, lang)}</p>
+            <p className="text-[11px] text-gray-400">{deptLabel(reqDept, lang)} → {name} → {deptLabel(tp.fulfill_department, lang)}</p>
           </div>
           <button onClick={onClose} className="p-1 rounded text-gray-400 hover:bg-gray-100"><X className="h-4 w-4" /></button>
         </div>
@@ -880,8 +918,10 @@ function PlaceOrderModal({ template: tp, companyId, profile, today, tomorrow, ro
 // ── order card ───────────────────────────────────────────────────────────────
 
 function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnly, canManage,
-  onRequestSide, muted, onMuteToggle, notifyDept, onChanged, addUpSeq, onAddUp }: {
+  onRequestSide, muted, onMuteToggle, notifyDept, onChanged, addUpSeq, onAddUp, orderedBy }: {
   order: RrOrder
+  /** Full name of the person who placed the order. */
+  orderedBy?: string
   title: string
   template: RrTemplate | null
   rooms: string[]
@@ -913,7 +953,7 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
   const variants = tpl?.variants ?? null
   const hasVariants = o.order_type === 'per_room_variants'
   const isPerRoom = o.order_type === 'per_room' || o.order_type === 'per_room_variants'
-  const { mode: picMode, ids: picIds } = stagePic(tpl, 'request')
+  const { mode: picMode, ids: picIds } = stagePic(tpl, 'request', o)
 
   // Three-stage orders route the last hop through a separate delivery department.
   const hasDelivery = !!o.deliver_department
@@ -1023,7 +1063,7 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
     if (notify) {
       try {
         // PICs are per stage, so a notification uses the PIC list of the stage it targets.
-        const pic = stagePic(tpl, notify.stage ?? 'request')
+        const pic = stagePic(tpl, notify.stage ?? 'request', o)
         await notifyDept(notify.dept, notify.title, notify.message,
           { templateId: o.template_id, picMode: pic.mode, picIds: pic.ids, useDeptConfig: notify.useDeptConfig })
       } catch (err) {
@@ -1035,20 +1075,23 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
     return true
   }
 
+  // Whoever sends the order is who asked for it (see requesterDept).
+  const sendDept = (profile?.department as Department | undefined) || o.request_department
+
   async function sendOrder() {
     if (!profile) return
     if (o.order_type === 'bulk') {
       const n = Number(qty)
       if (!qty.trim() || !Number.isFinite(n) || n <= 0) { toast.error(tr.rr.quantityRequired); return }
       const ok = await update(
-        { status: 'sent', quantity: n, note: note.trim() || null, sent_by: profile.id, sent_at: now() },
+        { status: 'sent', request_department: sendDept, quantity: n, note: note.trim() || null, sent_by: profile.id, sent_at: now() },
         tr.rr.orderSent,
         { action: 'sent', detail: `${unitOf(n)}${itemSuffix}` },
         { dept: o.fulfill_department, useDeptConfig: true, stage: 'fulfill',
           title: lang === 'th' ? 'มีออเดอร์ประจำเข้ามาใหม่' : 'Routine order received',
           message: lang === 'th'
-            ? `"${o.title}"${itemSuffix} — ${unitOf(n)} จากแผนก ${deptLabel(o.request_department, lang)}`
-            : `"${o.title}"${itemSuffix} — ${unitOf(n)} requested by ${deptLabel(o.request_department, lang)}` },
+            ? `"${o.title}"${itemSuffix} — ${unitOf(n)} จากแผนก ${deptLabel(sendDept, lang)} (${profile.full_name})`
+            : `"${o.title}"${itemSuffix} — ${unitOf(n)} requested by ${deptLabel(sendDept, lang)} (${profile.full_name})` },
       )
       if (ok) await notifyDeliveryIncoming(unitOf(n))
     } else if (isPerRoom) {
@@ -1062,7 +1105,7 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
       // A failed status update must stop here — otherwise the items are inserted and
       // the fulfilling department is notified for an order still 'pending'.
       if (!await update(
-        { status: 'sent', quantity: picked.length, note: note.trim() || null, sent_by: profile.id, sent_at: now() },
+        { status: 'sent', request_department: sendDept, quantity: picked.length, note: note.trim() || null, sent_by: profile.id, sent_at: now() },
         tr.rr.orderSent,
         { action: 'sent', detail },
         undefined,
@@ -1077,7 +1120,7 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
       )
       setBusy(false)
       if (ins.error) {
-        await supabase.from('kaizen_rr_orders').update({ status: 'pending', sent_by: null, sent_at: null, quantity: 0 }).eq('id', o.id)
+        await supabase.from('kaizen_rr_orders').update({ status: 'pending', request_department: o.request_department, sent_by: null, sent_at: null, quantity: 0 }).eq('id', o.id)
         toast.error(ins.error.message); return
       }
       // Items inserted — notify fulfilling department now that the order is complete
@@ -1085,8 +1128,8 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
         await notifyDept(o.fulfill_department,
           lang === 'th' ? 'มีออเดอร์ประจำเข้ามาใหม่' : 'Routine order received',
           lang === 'th'
-            ? `"${o.title}"${itemSuffix} — ${picked.length} ห้อง จากแผนก ${deptLabel(o.request_department, lang)}`
-            : `"${o.title}"${itemSuffix} — ${picked.length} rooms, requested by ${deptLabel(o.request_department, lang)}`,
+            ? `"${o.title}"${itemSuffix} — ${picked.length} ห้อง จากแผนก ${deptLabel(sendDept, lang)} (${profile.full_name})`
+            : `"${o.title}"${itemSuffix} — ${picked.length} rooms, requested by ${deptLabel(sendDept, lang)} (${profile.full_name})`,
           { templateId: o.template_id, ...stagePicOpts('fulfill'), useDeptConfig: true })
       } catch (err) { console.error('[sendOrder:notifyDept]', err) }
       await notifyDeliveryIncoming(`${picked.length} ${lang === 'th' ? 'ห้อง' : 'rooms'}`)
@@ -1095,7 +1138,7 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
   }
 
   const stagePicOpts = (stage: RrStage) => {
-    const p = stagePic(tpl, stage)
+    const p = stagePic(tpl, stage, o)
     return { picMode: p.mode, picIds: p.ids }
   }
 
@@ -1301,6 +1344,7 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
           </div>
           <p className="text-[11px] text-gray-500 mt-0.5 flex items-center gap-1 flex-wrap">
             <span>{deptArrow}</span>
+            {orderedBy && o.sent_at && <span>· {lang === 'th' ? 'สั่งโดย' : 'Ordered by'} {orderedBy}</span>}
             {picLabel && <span className="flex items-center gap-0.5">· <Users className="h-3 w-3" /> {picLabel}</span>}
             {o.quantity != null && o.order_type === 'bulk' && <span>· {tr.rr.qty} {unitOf(o.quantity)}</span>}
             {isPerRoom && items.length > 0 && (
@@ -1529,7 +1573,7 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
     // Update status first so a failed items insert can be safely retried without duplicates.
     // noToast=true: success toast and notify fire only after the items insert succeeds.
     if (!await update(
-      { status: 'sent', quantity: parsed.length, note: note.trim() || null, sent_by: profile.id, sent_at: now() },
+      { status: 'sent', request_department: sendDept, quantity: parsed.length, note: note.trim() || null, sent_by: profile.id, sent_at: now() },
       tr.rr.orderSent,
       { action: 'sent', detail: `${parsed.length} ${lang === 'th' ? 'ห้อง' : 'rooms'}` },
       undefined,
@@ -1541,7 +1585,7 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
     )
     setBusy(false)
     if (ins.error) {
-      await supabase.from('kaizen_rr_orders').update({ status: 'pending', sent_by: null, sent_at: null, quantity: 0 }).eq('id', o.id)
+      await supabase.from('kaizen_rr_orders').update({ status: 'pending', request_department: o.request_department, sent_by: null, sent_at: null, quantity: 0 }).eq('id', o.id)
       toast.error(ins.error.message); return
     }
     // Items inserted — notify fulfilling department now that the order is complete.
@@ -1552,8 +1596,8 @@ function OrderCard({ order: o, title, template: tpl, rooms, statusLabel, readOnl
       await notifyDept(o.fulfill_department,
         lang === 'th' ? 'มีออเดอร์ประจำเข้ามาใหม่' : 'Routine order received',
         lang === 'th'
-          ? `"${o.title}"${itemSuffix} — ${parsed.length} ห้อง จากแผนก ${deptLabel(o.request_department, lang)}`
-          : `"${o.title}"${itemSuffix} — ${parsed.length} rooms, requested by ${deptLabel(o.request_department, lang)}`,
+          ? `"${o.title}"${itemSuffix} — ${parsed.length} ห้อง จากแผนก ${deptLabel(sendDept, lang)} (${profile.full_name})`
+          : `"${o.title}"${itemSuffix} — ${parsed.length} rooms, requested by ${deptLabel(sendDept, lang)} (${profile.full_name})`,
         { templateId: o.template_id, ...stagePicOpts('fulfill'), useDeptConfig: true })
     } catch (err) { console.error('[sendOrderFromText:notifyDept]', err) }
     toast.success(tr.rr.orderSent); onChanged()
@@ -2566,6 +2610,10 @@ function ReportView({ companyId, companyName, generatedBy, statusLabel, template
   }, [companyId, from, to])
 
   const variantsOf = (o: RrOrder) => templates.find((tp) => tp.id === o.template_id)?.variants ?? null
+  // Who placed each order — read with the requesting department, so a row says
+  // "HR · Somchai → Sesame Cookie → Kitchen" rather than just a department.
+  const ordererNames = useOrdererNames(rows)
+  const ordererOf = (o: RrOrder) => (o.sent_by && ordererNames[o.sent_by]) || '—'
   // Add-ups are counted as their own line (they are their own order, and the item
   // totals below must include them) — the tag is what stops accounting reading two
   // lines of the same routine on the same day as a double entry.
@@ -2624,11 +2672,12 @@ function ReportView({ companyId, companyName, generatedBy, statusLabel, template
     const rowsHtml = rows.map((o) => `
       <tr>
         <td>${esc(fmtDay(o.order_date))}</td>
+        <td>${esc(deptLabel(o.request_department, lang))}</td>
+        <td>${esc(ordererOf(o))}</td>
         <td>${esc(rowTitle(o))}</td>
         <td>${esc(o.item_label ?? '—')}</td>
         <td style="text-align:right">${esc(qtyText(o))}</td>
         <td>${esc(variantText(o))}</td>
-        <td>${esc(deptLabel(o.request_department, lang))}</td>
         <td>${esc(deptLabel(o.fulfill_department, lang))}</td>
         <td>${esc(statusLabel(o.status))}</td>
       </tr>`).join('')
@@ -2638,8 +2687,9 @@ function ReportView({ companyId, companyName, generatedBy, statusLabel, template
       <h2>${esc(tr.rr.sectionRoutine)}</h2>
       <p class="note">${esc(tr.rr.sectionRoutineHelp)}</p>
       <table><thead><tr>
-        <th>${esc(tr.rr.reportDate)}</th><th>${esc(tr.rr.reportRoutine)}</th><th>${esc(tr.rr.reportItem)}</th>
-        <th style="text-align:right">${esc(tr.rr.reportQty)}</th><th>${esc(tr.rr.reportVariants)}</th><th>${esc(tr.rr.reportFrom)}</th>
+        <th>${esc(tr.rr.reportDate)}</th><th>${esc(tr.rr.reportFrom)}</th><th>${esc(tr.rr.reportOrderedBy)}</th>
+        <th>${esc(tr.rr.reportRoutine)}</th><th>${esc(tr.rr.reportItem)}</th>
+        <th style="text-align:right">${esc(tr.rr.reportQty)}</th><th>${esc(tr.rr.reportVariants)}</th>
         <th>${esc(tr.rr.reportTo)}</th><th>${esc(tr.rr.reportStatus)}</th>
       </tr></thead><tbody>${rowsHtml}</tbody></table>
       <h2>${esc(tr.rr.reportSummary)}</h2>
@@ -2719,15 +2769,16 @@ function ReportView({ companyId, companyName, generatedBy, statusLabel, template
             <p className="text-xs text-gray-500 mt-1 leading-relaxed">{tr.rr.sectionRoutineHelp}</p>
           </div>
           <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
-            <table className="w-full text-sm min-w-[560px]">
+            <table className="w-full text-sm min-w-[680px]">
               <thead>
                 <tr className="bg-gray-50 text-[11px] uppercase tracking-wide text-gray-500">
                   <th className="text-left px-3 py-2 font-semibold">{tr.rr.reportDate}</th>
+                  <th className="text-left px-3 py-2 font-semibold">{tr.rr.reportFrom}</th>
+                  <th className="text-left px-3 py-2 font-semibold">{tr.rr.reportOrderedBy}</th>
                   <th className="text-left px-3 py-2 font-semibold">{tr.rr.reportRoutine}</th>
                   <th className="text-left px-3 py-2 font-semibold">{tr.rr.reportItem}</th>
                   <th className="text-right px-3 py-2 font-semibold">{tr.rr.reportQty}</th>
                   <th className="text-left px-3 py-2 font-semibold">{tr.rr.reportVariants}</th>
-                  <th className="text-left px-3 py-2 font-semibold">{tr.rr.reportFrom}</th>
                   <th className="text-left px-3 py-2 font-semibold">{tr.rr.reportTo}</th>
                   <th className="text-left px-3 py-2 font-semibold">{tr.rr.reportStatus}</th>
                 </tr>
@@ -2736,11 +2787,12 @@ function ReportView({ companyId, companyName, generatedBy, statusLabel, template
                 {rows.map((o) => (
                   <tr key={o.id}>
                     <td className="px-3 py-2 whitespace-nowrap text-gray-600">{fmtDay(o.order_date)}</td>
+                    <td className="px-3 py-2 text-gray-600">{deptLabel(o.request_department, lang)}</td>
+                    <td className="px-3 py-2 text-gray-600">{ordererOf(o)}</td>
                     <td className="px-3 py-2 font-medium text-gray-900">{rowTitle(o)}</td>
                     <td className="px-3 py-2 text-gray-600">{o.item_label ?? '—'}</td>
                     <td className="px-3 py-2 text-right text-gray-900 font-medium">{qtyText(o)}</td>
                     <td className="px-3 py-2 text-gray-600">{variantText(o)}</td>
-                    <td className="px-3 py-2 text-gray-600">{deptLabel(o.request_department, lang)}</td>
                     <td className="px-3 py-2 text-gray-600">{deptLabel(o.fulfill_department, lang)}</td>
                     <td className="px-3 py-2">
                       <span className={`inline-block px-2 py-0.5 rounded-full border text-[11px] font-medium ${STATUS_PILL[o.status]}`}>{statusLabel(o.status)}</span>

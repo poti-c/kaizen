@@ -10,6 +10,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useLanguage } from '@/contexts/LanguageContext'
 import { DEPARTMENTS, deptLabel, type Department } from '@/types'
 import type { RrItem } from '@/components/RRSettings'
+import { resolveDeliverer } from '@/lib/rrDeliverer'
 import type { RoomCategory, RoomType, Room } from '@/components/RoomSetupSettings'
 import { DEFAULT_UNIT, unitOne, unitMany, type UnitNoun } from '@/lib/roomUnit'
 import { resolveDeptRecipients } from '@/lib/rrNotify'
@@ -1376,6 +1377,7 @@ function LineRow({ line: l, items, lang, onPatch, onRemove, onToggle, special, r
 }) {
   // Both regular and special-request lines pick from the item's owning dept catalog —
   // for a handoff line that's the PREPARER (who makes it), else the single dept.
+  const { profile } = useAuth()
   const catalogDept = l.prepare_department ?? l.fulfill_department
   const deptItems = items.filter((it) => it.department === catalogDept)
   const handoff = !!l.prepare_department
@@ -1405,7 +1407,8 @@ function LineRow({ line: l, items, lang, onPatch, onRemove, onToggle, special, r
    */
   function itemPatch(v: string): Partial<SheetLine> {
     if (!special) return { item: v }
-    const deliverer = deptItems.find((it) => itemLabel(it) === v)?.deliver_department
+    // "Whoever orders it" resolves to the department of the person filing this line.
+    const deliverer = resolveDeliverer(deptItems.find((it) => itemLabel(it) === v), profile?.department)
     if (!deliverer || deliverer === catalogDept) return { item: v }
     return { item: v, prepare_department: catalogDept, fulfill_department: deliverer }
   }

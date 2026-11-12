@@ -380,7 +380,7 @@ const en = {
     reportDaily: 'Daily', reportWeekly: 'Weekly', reportMonthly: 'Monthly', reportPeriod: 'Period',
     reportPrint: 'Print / Save PDF', reportNoData: 'No orders in this period.',
     reportDate: 'Date', reportRoutine: 'Routine', reportItem: 'Item', reportQty: 'Qty',
-    reportRooms: 'Rooms', reportFrom: 'Requested by', reportTo: 'Fulfilled by', reportStatus: 'Status',
+    reportRooms: 'Rooms', reportFrom: 'Requested by', reportTo: 'Fulfilled by', reportStatus: 'Status', reportOrderedBy: 'Ordered by',
     reportSummary: 'Summary by item', reportTotal: 'Total',
     // The report stitches together two separate records that share item names.
     // Without these labels the same item shows two very different totals under
@@ -834,7 +834,7 @@ const th: Translations = {
     reportDaily: 'รายวัน', reportWeekly: 'รายสัปดาห์', reportMonthly: 'รายเดือน', reportPeriod: 'ช่วงเวลา',
     reportPrint: 'พิมพ์ / บันทึก PDF', reportNoData: 'ไม่มีรายการในช่วงเวลานี้',
     reportDate: 'วันที่', reportRoutine: 'งานประจำ', reportItem: 'รายการ', reportQty: 'จำนวน',
-    reportRooms: 'ห้อง', reportFrom: 'แผนกผู้ขอ', reportTo: 'แผนกผู้จัดทำ', reportStatus: 'สถานะ',
+    reportRooms: 'ห้อง', reportFrom: 'แผนกผู้ขอ', reportTo: 'แผนกผู้จัดทำ', reportStatus: 'สถานะ', reportOrderedBy: 'ผู้สั่ง',
     reportSummary: 'สรุปตามรายการ', reportTotal: 'รวม',
     sectionRoutine: 'ใบสั่งงานประจำ',
     sectionRoutineHelp: 'ใบสั่งที่แผนกหนึ่งสั่งไปยังอีกแผนกหนึ่ง ยอดรวมนับตามใบสั่ง: แบบรวมนับตามจำนวนที่สั่ง ส่วนแบบรายห้องนับตามจำนวนห้อง',
