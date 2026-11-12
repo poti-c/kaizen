@@ -6,6 +6,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useLanguage } from '@/contexts/LanguageContext'
 import { DEPARTMENT_LABELS, DEPARTMENTS, deptLabel, type Department } from '@/types'
 import { toast } from 'sonner'
+import { DELIVER_TO_ORDERER } from '@/lib/rrDeliverer'
 
 export interface RrItem {
   department: Department
@@ -19,6 +20,7 @@ export interface RrItem {
    * special request routes the line as a two-stage handoff on its own, so the
    * requester files one line instead of one per department.
    * Null/absent = the owning department both makes and delivers it.
+   * DELIVER_TO_ORDERER = it goes back to whichever department placed the order.
    */
   deliver_department?: Department | null
 }
@@ -274,6 +276,8 @@ function DeptModal({ dept, allItems, lang, onClose, onSave }: {
                   title={lang === 'th' ? 'แผนกที่นำไปส่ง (ถ้าไม่ใช่แผนกนี้)' : 'Delivered by (if not this department)'}
                   className={`w-24 h-8 flex-shrink-0 rounded-md border px-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-[var(--brand-primary)]/40 ${it.deliver_department ? 'border-[var(--brand-primary)] text-[var(--brand-primary)]' : 'border-gray-200 text-gray-400'}`}>
                   <option value="">{lang === 'th' ? 'ส่งเอง' : 'self'}</option>
+                  {/* Short label: the closed select is ~10 characters wide. */}
+                  <option value={DELIVER_TO_ORDERER}>{lang === 'th' ? '→ ผู้สั่ง' : '→ Orderer'}</option>
                   {otherDepts.map((d) => <option key={d.value} value={d.value}>→ {deptLabel(d.value, lang)}</option>)}
                 </select>
 
