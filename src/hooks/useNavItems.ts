@@ -2,7 +2,7 @@
 // so adding/removing a route is a one-line change that propagates everywhere.
 import { useLanguage } from '@/contexts/LanguageContext'
 import {
-  Bell, CalendarDays, ClipboardList, FolderOpen, Hotel, LayoutDashboard,
+  Bell, CalendarDays, ClipboardList, FolderOpen, LayoutDashboard,
   PlusCircle, Settings, TrendingUp, Users, Wrench,
 } from 'lucide-react'
 import type { FeatureKey, AddonKey } from '@/lib/utils'
@@ -26,7 +26,6 @@ export function useNavItems(): NavItem[] {
     { to: '/maintenance',    icon: Wrench,          label: t.nav.maintenance,   roles: ['super_admin', 'manager', 'staff'], addon: 'pms' },
     { to: '/routine-roster', icon: ClipboardList,   label: t.nav.routineRoster, roles: ['super_admin', 'manager', 'staff'], addon: 'routine_roster' },
     { to: '/cases/new',      icon: PlusCircle,      label: t.nav.newCase,       roles: ['staff', 'manager', 'super_admin'] },
-    { to: '/hotel-reports',  icon: Hotel,           label: t.nav.hotelReports,  roles: ['super_admin', 'manager'] },
     { to: '/notifications',  icon: Bell,            label: t.nav.notifications, roles: ['super_admin', 'manager', 'staff'] },
     { to: '/users',          icon: Users,           label: t.nav.users,         roles: ['super_admin', 'manager'] },
     { to: '/settings',       icon: Settings,        label: t.nav.settings,      roles: ['super_admin', 'manager', 'staff'] },

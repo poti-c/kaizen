@@ -61,7 +61,6 @@ const PackagesExpansions = lazyPage(() => import('@/components/PackagesExpansion
 const PerformancePage = lazyPage(() => import('@/pages/PerformancePage'), 'PerformancePage')
 const PerformanceDetailPage = lazyPage(() => import('@/pages/PerformanceDetailPage'), 'PerformanceDetailPage')
 const DisplayPage = lazyPage(() => import('@/pages/DisplayPage'), 'DisplayPage')
-const HotelReportsPage = lazyPage(() => import('@/pages/HotelReportsPage'), 'HotelReportsPage')
 
 // Keeps the error reporter aware of the active company and installs global handlers.
 function ErrorReporterBridge() {
@@ -160,7 +159,8 @@ export default function App() {
                     <Route path="routine-roster" element={<ProtectedRoute roles={['super_admin', 'manager', 'staff']} addon="routine_roster"><RoutineRosterPage /></ProtectedRoute>} />
                     <Route path="cases/new" element={<CreateCasePage />} />
                     <Route path="cases/:id" element={<CaseDetailPage />} />
-                    <Route path="hotel-reports" element={<ProtectedRoute roles={['super_admin', 'manager']}><HotelReportsPage /></ProtectedRoute>} />
+                    {/* Moved onto the Dashboard as the "Upload Hotel Report" card. */}
+                    <Route path="hotel-reports" element={<Navigate to="/dashboard" replace />} />
                     <Route path="users" element={<UsersPage />} />
                     <Route path="notifications" element={<NotificationsPage />} />
                     <Route path="settings" element={<SettingsPage />} />

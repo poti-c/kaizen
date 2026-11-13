@@ -11,6 +11,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { formatRelativeTime, formatDuration, isSLABreached, CATEGORIES, companyHasAddon, bangkokDate } from '@/lib/utils'
 import { PMSummaryCard } from '@/components/PMSummaryCard'
 import { RRSummaryCard } from '@/components/RRSummaryCard'
+import { HotelReportUpload } from '@/components/HotelReportUpload'
+import { canUploadHotelReport } from '@/lib/hotelReports'
 import { deptLabel } from '@/types'
 import type { KaizenCase, Department } from '@/types'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, PieChart, Pie } from 'recharts'
@@ -694,6 +696,10 @@ export function DashboardPage() {
             )}
           </div>
         </div>
+
+        {/* Upload Hotel Report — feeds the wall-panel / ESP32 display board.
+            Front Office staff, managers and super admins only (RLS enforces it). */}
+        {canUploadHotelReport(profile) && <HotelReportUpload />}
       </div>
     </div>
   )
