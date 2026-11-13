@@ -35,6 +35,7 @@
     "framer-motion": "^11.11.7",
     "heic2any": "^0.0.4",
     "lucide-react": "^0.462.0",
+    "pdfjs-dist": "^6.5.438",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-hook-form": "^7.53.0",
