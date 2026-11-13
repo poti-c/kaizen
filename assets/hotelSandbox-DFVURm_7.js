@@ -1,0 +1,1 @@
+const a="kaizen-hotel-sandbox";function e(){try{const t=localStorage.getItem(a);return t?JSON.parse(t):null}catch(t){return null}}function n(t){try{localStorage.setItem(a,JSON.stringify(t))}catch(o){}}function c(){try{localStorage.removeItem(a)}catch(t){}}export{c,e as l,n as s};
