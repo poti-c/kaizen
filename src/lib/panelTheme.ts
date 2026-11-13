@@ -37,6 +37,8 @@ export interface PanelSettings {
   idleSecs: number
   touch: boolean
   // Device
+  /** Name in the board's header. Empty = the company's display title. */
+  boardTitle: string
   deviceName: string
   location: string
   soundOnCritical: boolean
@@ -52,6 +54,7 @@ export const DEFAULT_PANEL_SETTINGS: PanelSettings = {
   refreshSecs: 60,
   idleSecs: 30,
   touch: true,
+  boardTitle: '',
   deviceName: 'Panel 1',
   location: '',
   soundOnCritical: false,

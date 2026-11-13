@@ -410,7 +410,10 @@ export function DisplayPage() {
           <div className="min-w-0">
             <div className="flex items-center gap-2.5">
               <span className="text-[22px] font-bold leading-none truncate">
-                {activeCompany?.name ?? 'Kaizen'}
+                {/* This panel's own Board title (System Settings → Device) if set;
+                    otherwise the same rule as the sidebar/header: display title,
+                    then legal name. */}
+                {panel.boardTitle.trim() || activeCompany?.org_title || activeCompany?.name || 'Kaizen'}
               </span>
               <span className="px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider flex-shrink-0"
                     style={{ background: 'var(--brand-primary, #0891b2)', color: '#fff' }}>

@@ -2,6 +2,7 @@ import { useState, type ReactNode } from 'react'
 import { X, Monitor, RefreshCw, Wifi, Cpu, Info } from 'lucide-react'
 import { PANEL as P, type PanelSettings } from '@/lib/panelTheme'
 import { cn } from '@/lib/utils'
+import { useCompany } from '@/contexts/CompanyContext'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // System Settings for the wall panel.
@@ -175,6 +176,8 @@ export function DisplaySettings({ settings, onChange, onClose, lang, onActivity 
   onActivity?: () => void
 }) {
   const [section, setSection] = useState<SectionId>('display')
+  const { activeCompany } = useCompany()
+  const companyTitle = activeCompany?.org_title || activeCompany?.name || ''
   const [note, setNote] = useState<string | null>(null)
   const th = lang === 'th'
   const set = <K extends keyof PanelSettings>(k: K, v: PanelSettings[K]) => onChange({ ...settings, [k]: v })
@@ -337,6 +340,11 @@ export function DisplaySettings({ settings, onChange, onClose, lang, onActivity 
 
           {section === 'device' && (
             <>
+              <Row label={th ? 'ชื่อบนจอ' : 'Board title'}
+                   hint={th ? 'ชื่อที่แสดงบนหัวจอ เว้นว่างเพื่อใช้ชื่อบริษัท' : 'Shown in the header. Leave empty to use the company name.'}>
+                <Field value={settings.boardTitle} placeholder={companyTitle}
+                       onChange={v => set('boardTitle', v)} />
+              </Row>
               <Row label={th ? 'ชื่ออุปกรณ์' : 'Device name'}
                    hint={th ? 'ใช้ระบุจอนี้' : 'Identifies this panel'}>
                 <Field value={settings.deviceName} onChange={v => set('deviceName', v)} />
