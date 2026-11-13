@@ -10,7 +10,7 @@
 // The deploy workflow rewrites this line with the commit SHA — do NOT rely on
 // editing it by hand. It sat at 'kaizen-v3' for 184 commits and silently
 // disabled the update path for every release in between.
-const BUILD_ID = 'kaizen-fe9a0355befe5cc09c0c9c551b0c8fb0cb988217'
+const BUILD_ID = 'kaizen-e051334cf3d20f17df50198f0e8bd15a9e5bc85b'
 
 // Runtime cache for the app shell, keyed on BUILD_ID so each release starts a fresh cache
 // and old ones are pruned on activate. See the fetch handler for the caching strategy.
