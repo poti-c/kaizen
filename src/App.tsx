@@ -60,6 +60,8 @@ const RoutineRosterPage = lazyPage(() => import('@/pages/RoutineRosterPage'), 'R
 const PackagesExpansions = lazyPage(() => import('@/components/PackagesExpansions'), 'PackagesExpansions')
 const PerformancePage = lazyPage(() => import('@/pages/PerformancePage'), 'PerformancePage')
 const PerformanceDetailPage = lazyPage(() => import('@/pages/PerformanceDetailPage'), 'PerformanceDetailPage')
+const DisplayPage = lazyPage(() => import('@/pages/DisplayPage'), 'DisplayPage')
+const HotelReportsPage = lazyPage(() => import('@/pages/HotelReportsPage'), 'HotelReportsPage')
 
 // Keeps the error reporter aware of the active company and installs global handlers.
 function ErrorReporterBridge() {
@@ -140,6 +142,13 @@ export default function App() {
                 <Routes>
                   <Route path="/login" element={<LoginPage />} />
                   <Route path="/change-password" element={<ChangePasswordPage />} />
+                  {/* Wall-panel board: outside <Layout> on purpose — no sidebar, no
+                      header, no nav. Signed in once on the device, then left running. */}
+                  <Route path="/display" element={
+                    <Suspense fallback={<div className="fixed inset-0 bg-[#0b1220]" />}>
+                      <DisplayPage />
+                    </Suspense>
+                  } />
                   <Route path="/" element={<Layout />}>
                     <Route index element={<RoleRedirect />} />
                     <Route path="dashboard" element={<DashboardPage />} />
@@ -151,6 +160,7 @@ export default function App() {
                     <Route path="routine-roster" element={<ProtectedRoute roles={['super_admin', 'manager', 'staff']} addon="routine_roster"><RoutineRosterPage /></ProtectedRoute>} />
                     <Route path="cases/new" element={<CreateCasePage />} />
                     <Route path="cases/:id" element={<CaseDetailPage />} />
+                    <Route path="hotel-reports" element={<ProtectedRoute roles={['super_admin', 'manager']}><HotelReportsPage /></ProtectedRoute>} />
                     <Route path="users" element={<UsersPage />} />
                     <Route path="notifications" element={<NotificationsPage />} />
                     <Route path="settings" element={<SettingsPage />} />
