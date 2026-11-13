@@ -11,7 +11,7 @@ import { useCompany } from '@/contexts/CompanyContext'
 import { useAuth } from '@/contexts/AuthContext'
 import { useLanguage } from '@/contexts/LanguageContext'
 import {
-  DEPARTMENTS, deptLabel,
+  deptLabel,
   type Department, type KaizenProfile, type RrTemplate, type RrOrder, type RrOrderItem, type RrOrderStatus,
   type RrOrderType, type RrVariant, type RrEvent, type RrStage, type RrPicMode,
 } from '@/types'
@@ -20,6 +20,7 @@ import { RoomOrderView } from '@/components/RoomOrderView'
 import { unitOne, DEFAULT_UNIT, type UnitNoun } from '@/lib/roomUnit'
 import { resolveDeptRecipients } from '@/lib/rrNotify'
 import { bangkokDate, parseDateOnlyBkk, bangkokDayOfWeek } from '@/lib/utils'
+import { buildXlsx, downloadBlob, type XlsxCell, type XlsxSheet } from '@/lib/xlsx'
 import { useRrFoAccess } from '@/hooks/useRrFoAccess'
 import { useDepartments } from '@/hooks/useDepartments'
 
@@ -2734,6 +2735,64 @@ function ReportView({ companyId, companyName, generatedBy, statusLabel, template
     iframeRef.current?.contentWindow?.print()
   }
 
+  // Same data as the printed report, as a workbook accounting can filter and sum:
+  // quantity is a plain number with its unit in its own column, and dates are real
+  // Excel dates rather than formatted text.
+  function handleExportExcel() {
+    const th = lang === 'th'
+    const sheets: XlsxSheet[] = []
+    if (rows.length > 0) {
+      sheets.push({
+        name: tr.rr.sectionRoutine,
+        widths: [12, 18, 18, 26, 26, 8, 10, 28, 18, 14],
+        rows: [
+          [tr.rr.reportDate, tr.rr.reportFrom, tr.rr.reportOrderedBy, tr.rr.reportRoutine, tr.rr.reportItem,
+            tr.rr.reportQty, th ? 'หน่วย' : 'Unit', tr.rr.reportVariants, tr.rr.reportTo, tr.rr.reportStatus],
+          ...rows.map((o): XlsxCell[] => [
+            { date: o.order_date }, deptLabel(o.request_department, lang), ordererOf(o), rowTitle(o), o.item_label ?? '',
+            qtyOf(o), o.order_type === 'bulk' ? (o.unit_label ?? '') : (th ? 'ห้อง' : 'rooms'),
+            variantText(o) === '—' ? '' : variantText(o), deptLabel(o.fulfill_department, lang), statusLabel(o.status),
+          ]),
+        ],
+      })
+      sheets.push({
+        name: tr.rr.reportSummary,
+        widths: [32, 10],
+        rows: [[tr.rr.reportItem, tr.rr.reportTotal], ...Object.entries(summary)],
+      })
+    }
+    if (hasRoomData) {
+      sheets.push({
+        name: tr.rr.sectionRooms,
+        widths: [24, 32, 10, 10],
+        headerRows: [6], // the per-department items table below the status block
+        rows: [
+          [th ? 'สถานะห้อง' : 'Room status', '', tr.rr.reportTotal],
+          ...(['checkin', 'occupied', 'empty', 'oo'] as const).map((s): XlsxCell[] => [roomStatusName(s), '', roomStatusCounts[s] ?? 0]),
+          [],
+          [th ? 'แผนก' : 'Department', tr.rr.reportItem, tr.rr.reportTotal, th ? 'เสร็จ' : 'Done'],
+          ...roomDeptKeys.flatMap((dept) => roomItemsByDept[dept].map((it): XlsxCell[] => [deptLabel(dept, lang), it.item, it.total, it.done])),
+        ],
+      })
+    }
+    // A cover sheet carries what the print header says, so the file stands on its own.
+    sheets.unshift({
+      name: th ? 'รายงาน' : 'Report',
+      header: false,
+      widths: [22, 48],
+      rows: [
+        [`${companyName} — ${tr.rr.reportTitle}`],
+        [tr.rr.reportPeriod, periodLabel],
+        [tr.rr.reportGeneratedBy, generatedBy],
+        [tr.rr.reportGeneratedAt, new Date().toLocaleString(th ? 'th-TH' : 'en-GB', { timeZone: 'Asia/Bangkok' })],
+        [],
+        [tr.rr.reportForAccounting],
+      ],
+    })
+    const span = from === to ? from : `${from}_to_${to}`
+    downloadBlob(buildXlsx(sheets), `routine-roster-report_${span}.xlsx`)
+  }
+
   return (
     <div className="space-y-4">
       {/* Period controls */}
@@ -2872,6 +2931,12 @@ function ReportView({ companyId, companyName, generatedBy, statusLabel, template
                 className="h-8 px-4 rounded-lg bg-[var(--brand-primary)] text-white text-xs font-semibold hover:opacity-90 transition-opacity"
               >
                 {tr.rr.reportPrint}
+              </button>
+              <button
+                onClick={handleExportExcel}
+                className="h-8 px-4 rounded-lg border border-[var(--brand-primary)] text-[var(--brand-primary)] text-xs font-semibold hover:bg-gray-50 transition-colors"
+              >
+                {lang === 'th' ? 'ส่งออก Excel' : 'Export to Excel'}
               </button>
               <button
                 onClick={() => setPreviewHtml(null)}

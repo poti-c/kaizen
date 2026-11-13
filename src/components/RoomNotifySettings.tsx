@@ -4,12 +4,12 @@ import { supabase } from '@/lib/supabase'
 import { useCompany } from '@/contexts/CompanyContext'
 import { useAuth } from '@/contexts/AuthContext'
 import { useLanguage } from '@/contexts/LanguageContext'
-import { DEPARTMENTS, deptLabel, type Department } from '@/types'
+import { deptLabel } from '@/types'
+import { useDepartments } from '@/hooks/useDepartments'
 import type { RoomRecipes } from '@/components/RoomRecipesSettings'
 import type { NotifyMode, DeptNotifyCfg, NotifyRecipients } from '@/lib/rrNotify'
 import { toast } from 'sonner'
 
-const DEPT_ORDER = DEPARTMENTS.map((d) => d.value)
 
 /**
  * Who gets notified when an order (bulk routine or room order) is sent to a
@@ -21,9 +21,14 @@ export function RoomNotifySettings() {
   const { activeCompany } = useCompany()
   const { profile } = useAuth()
   const { lang } = useLanguage()
+  const { allOptions } = useDepartments()
   const companyId = activeCompany?.id ?? null
+  // Canonical order from the company's roster, so a recipe assigned to a custom
+  // department still gets a notify-recipients block.
+  const deptOrder = allOptions.map((d) => d.value)
+  const deptKey = deptOrder.join(',')
 
-  const [assignedDepts, setAssignedDepts] = useState<Department[]>([])
+  const [assignedDepts, setAssignedDepts] = useState<string[]>([])
   const [config, setConfig] = useState<NotifyRecipients>({})
   const [staff, setStaff] = useState<Record<string, { id: string; full_name: string }[]>>({})
   const [loading, setLoading] = useState(true)
@@ -41,9 +46,9 @@ export function RoomNotifySettings() {
         .in('role', ['staff', 'manager']).order('full_name'),
     ])
     const recipes = (recRes.data?.value as RoomRecipes) ?? {}
-    const set = new Set<Department>()
+    const set = new Set<string>()
     Object.values(recipes).forEach((lines) => (lines ?? []).forEach((l) => set.add(l.fulfill_department)))
-    setAssignedDepts(DEPT_ORDER.filter((d) => set.has(d)))
+    setAssignedDepts(deptOrder.filter((d) => set.has(d)))
     setConfig((cfgRes.data?.value as NotifyRecipients) ?? {})
     const byDept: Record<string, { id: string; full_name: string }[]> = {}
     ;((staffRes.data as { id: string; full_name: string; department: string | null }[]) ?? []).forEach((p) => {
@@ -52,12 +57,13 @@ export function RoomNotifySettings() {
     setStaff(byDept)
     setCanEdit(profile.role === 'super_admin' || profile.role === 'manager')
     setLoading(false)
-  }, [companyId, profile])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [companyId, profile, deptKey])
   useEffect(() => { load() }, [load])
 
-  const deptCfg = (d: Department): DeptNotifyCfg => config[d] ?? { mode: 'department', ids: [] }
-  const setMode = (d: Department, mode: NotifyMode) => setConfig((c) => ({ ...c, [d]: { ...deptCfg(d), mode } }))
-  const toggleUser = (d: Department, id: string) => setConfig((c) => {
+  const deptCfg = (d: string): DeptNotifyCfg => config[d] ?? { mode: 'department', ids: [] }
+  const setMode = (d: string, mode: NotifyMode) => setConfig((c) => ({ ...c, [d]: { ...deptCfg(d), mode } }))
+  const toggleUser = (d: string, id: string) => setConfig((c) => {
     const cur = config[d] ?? { mode: 'users' as const, ids: [] }
     const ids = cur.ids.includes(id) ? cur.ids.filter((x) => x !== id) : [...cur.ids, id]
     return { ...c, [d]: { ...cur, ids } }
