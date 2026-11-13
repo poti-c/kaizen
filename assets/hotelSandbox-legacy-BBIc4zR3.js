@@ -1,1 +1,0 @@
-System.register([],function(t,e){"use strict";return{execute:function(){t({c:function(){try{localStorage.removeItem(e)}catch(t){}},l:function(){try{var t=localStorage.getItem(e);return t?JSON.parse(t):null}catch(r){return null}},s:function(t){try{localStorage.setItem(e,JSON.stringify(t))}catch(r){}}});var e="kaizen-hotel-sandbox"}}});
