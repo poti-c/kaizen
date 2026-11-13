@@ -356,3 +356,13 @@ export function toHotelRow(m: ManagerReport, f: ForecastReport) {
 }
 
 export type HotelRowPayload = ReturnType<typeof toHotelRow>
+
+/**
+ * Who may upload. Mirrors the kzn_hotel_daily_insert/update RLS policies
+ * (migration 20261114000001) — the database is what actually enforces it.
+ */
+export function canUploadHotelReport(profile: { role: string; department: string } | null | undefined) {
+  if (!profile) return false
+  return profile.role === 'super_admin' || profile.role === 'manager'
+    || (profile.role === 'staff' && profile.department === 'front_office')
+}

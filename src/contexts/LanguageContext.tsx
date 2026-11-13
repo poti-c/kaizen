@@ -11,7 +11,6 @@ const en = {
     routineRoster: 'Routine Roster',
     notifications: 'Notifications', users: 'Users', settings: 'Settings',
     signOut: 'Sign Out', home: 'Home', alerts: 'Alerts',
-    hotelReports: 'Hotel Reports',
   },
   login: {
     title: 'Sign In', signInAs: 'Sign in as', superAdmin: 'Super Admin',
@@ -466,7 +465,6 @@ const th: Translations = {
     routineRoster: 'งานประจำวัน',
     notifications: 'การแจ้งเตือน', users: 'ผู้ใช้งาน', settings: 'การตั้งค่า',
     signOut: 'ออกจากระบบ', home: 'หน้าหลัก', alerts: 'แจ้งเตือน',
-    hotelReports: 'รายงานโรงแรม',
   },
   login: {
     title: 'เข้าสู่ระบบ', signInAs: 'เข้าสู่ระบบในฐานะ', superAdmin: 'ผู้ดูแลระบบ',
