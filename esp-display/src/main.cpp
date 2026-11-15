@@ -157,19 +157,28 @@ uint32_t pollMs() { return cfg.refreshSecs * 1000UL; }
 // World Clock cities. Keep in step with src/lib/worldClock.ts and CITIES in
 // supabase/functions/kaizen-ambient. The offset is the standard one, used only
 // until kaizen-ambient reports the current offset (which includes DST).
+// Cities of one country sit next to each other: the settings dropdown groups
+// consecutive entries under one country heading.
 struct CityDef {
-    const char *key, *name, *nameTh;
+    const char *key, *name, *nameTh, *country, *countryTh;
     int16_t stdOffset;  // minutes
 };
 constexpr CityDef CITY_LIST[] = {
-    {"chiangmai", "Chiang Mai", "เชียงใหม่", 420},   {"bangkok", "Bangkok", "กรุงเทพฯ", 420},
-    {"tokyo", "Tokyo", "โตเกียว", 540},              {"osaka", "Osaka", "โอซากา", 540},
-    {"taipei", "Taipei", "ไทเป", 480},               {"seoul", "Seoul", "โซล", 540},
-    {"hongkong", "Hong Kong", "ฮ่องกง", 480},        {"shanghai", "Shanghai", "เซี่ยงไฮ้", 480},
-    {"singapore", "Singapore", "สิงคโปร์", 480},      {"dubai", "Dubai", "ดูไบ", 240},
-    {"london", "London", "ลอนดอน", 0},               {"paris", "Paris", "ปารีส", 60},
-    {"newyork", "New York", "นิวยอร์ก", -300},        {"losangeles", "Los Angeles", "ลอสแอนเจลิส", -480},
-    {"sydney", "Sydney", "ซิดนีย์", 600},
+    {"chiangmai", "Chiang Mai", "เชียงใหม่", "Thailand", "ไทย", 420},
+    {"bangkok", "Bangkok", "กรุงเทพฯ", "Thailand", "ไทย", 420},
+    {"tokyo", "Tokyo", "โตเกียว", "Japan", "ญี่ปุ่น", 540},
+    {"osaka", "Osaka", "โอซากา", "Japan", "ญี่ปุ่น", 540},
+    {"taipei", "Taipei", "ไทเป", "Taiwan", "ไต้หวัน", 480},
+    {"seoul", "Seoul", "โซล", "South Korea", "เกาหลีใต้", 540},
+    {"hongkong", "Hong Kong", "ฮ่องกง", "Hong Kong", "ฮ่องกง", 480},
+    {"shanghai", "Shanghai", "เซี่ยงไฮ้", "China", "จีน", 480},
+    {"singapore", "Singapore", "สิงคโปร์", "Singapore", "สิงคโปร์", 480},
+    {"dubai", "Dubai", "ดูไบ", "UAE", "สหรัฐอาหรับเอมิเรตส์", 240},
+    {"london", "London", "ลอนดอน", "UK", "สหราชอาณาจักร", 0},
+    {"paris", "Paris", "ปารีส", "France", "ฝรั่งเศส", 60},
+    {"newyork", "New York", "นิวยอร์ก", "USA", "สหรัฐอเมริกา", -300},
+    {"losangeles", "Los Angeles", "ลอสแอนเจลิส", "USA", "สหรัฐอเมริกา", -480},
+    {"sydney", "Sydney", "ซิดนีย์", "Australia", "ออสเตรเลีย", 600},
 };
 constexpr int CITY_COUNT = sizeof(CITY_LIST) / sizeof(CITY_LIST[0]);
 
@@ -1813,8 +1822,10 @@ uint32_t armedUntil = 0;
 enum Ctl {
     C_CLOSE = 1, C_TAB, C_BRIGHT, C_NIGHT, C_FROM_M, C_FROM_P, C_TO_M, C_TO_P, C_NIGHT_LVL, C_ORIENT,
     C_LANG, C_REFRESH, C_TOUCH, C_IDLE, C_RECONNECT, C_FIELD, C_SOUND, C_REBOOT, C_RESET, C_OTA,
-    C_NET, C_SCAN, C_FORGET, C_SIGNIN, C_NET_UP, C_NET_DOWN, C_CYCLE, C_CYCLE_SECS, C_CITY_PREV, C_CITY_NEXT
+    C_NET, C_SCAN, C_FORGET, C_SIGNIN, C_NET_UP, C_NET_DOWN, C_CYCLE, C_CYCLE_SECS, C_CITY_OPEN, C_CITY_PICK, C_CITY_CLOSE
 };
+int cityDrop = -1;  // World clock dropdown open for slot 0-2 (clocks) or 3 (air quality); -1 closed
+
 struct Control { Rect r; int id, aux; };
 Control ctls[40];
 int ctlCount = 0;
@@ -2146,27 +2157,73 @@ void drawSettings() {
                  L("2.4 GHz networks only", "รองรับเฉพาะ 2.4 GHz"));
         label(CX0, OY + OH - 22, v, 1, MUTED);
     } else if (section == 5) {
-        // World clock: three cities and the air quality location, each picked
-        // with < and > (no dropdowns on a touch panel).
-        auto picker = [&](int cy, int index, int slot) {
-            const Rect prev = {CX1 - 236, cy - 15, 34, 30}, next = {CX1 - 34, cy - 15, 34, 30};
-            for (const Rect &r : {prev, next}) aaRoundRect(r.x, r.y, r.w, r.h, 7, blend(TEXT, BG, 22));
-            screen.fillTriangle(prev.x + 21, prev.y + 8, prev.x + 21, prev.y + 22, prev.x + 12, prev.y + 15, TEXT);
-            screen.fillTriangle(next.x + 13, next.y + 8, next.x + 13, next.y + 22, next.x + 22, next.y + 15, TEXT);
-            aaRoundRect(CX1 - 196, cy - 15, 156, 30, 7, blend(TEXT, BG, 15));
-            const char *name = L(CITY_LIST[index].name, CITY_LIST[index].nameTh);
-            utext(CX1 - 118 - uwidth(name) / 2, cy - 8, name, TEXT, 150);
-            addCtl(prev, C_CITY_PREV, slot);
-            addCtl(next, C_CITY_NEXT, slot);
+        // World clock: three cities and the air quality location. Each row is a
+        // dropdown button ("Chiang Mai · Thailand  v"); tapping it opens the
+        // list below, grouped by country.
+        auto dropButton = [&](int cy, int index, int slot) {
+            const Rect r = {CX1 - 260, cy - 16, 260, 32};
+            const bool open = cityDrop == slot;
+            aaRoundRect(r.x, r.y, r.w, r.h, 7, open ? BRAND : BORDER);
+            aaRoundRect(r.x + 1, r.y + 1, r.w - 2, r.h - 2, 6, blend(TEXT, BG, 15));
+            const CityDef &c = CITY_LIST[index];
+            const int w = utext(r.x + 12, cy - 8, L(c.name, c.nameTh), TEXT, 130);
+            char tail[96];
+            snprintf(tail, sizeof(tail), " · %s", L(c.country, c.countryTh));
+            utext(r.x + 12 + w, cy - 8, tail, MUTED, r.w - 44 - w);
+            const int ax = r.x + r.w - 20;  // down arrow
+            screen.fillTriangle(ax - 5, cy - 3, ax + 5, cy - 3, ax, cy + 3, MUTED);
+            addCtl(r, C_CITY_OPEN, slot);
         };
         for (int i = 0; i < 3; ++i) {
             snprintf(v, sizeof(v), thai ? "นาฬิกา %d" : "Clock %d", i + 1);
             const int cy = beginRow(v, i == 0 ? L("Time and temperature for each city", "เวลาและอุณหภูมิของแต่ละเมือง") : nullptr);
-            picker(cy, cfg.clockCity[i], i);
+            dropButton(cy, cfg.clockCity[i], i);
         }
         const int cy = beginRow(L("Air quality location", "ตำแหน่งวัดคุณภาพอากาศ"),
                                 L("Nearest Air4Thai station (in Thailand)", "สถานี Air4Thai ที่ใกล้ที่สุด (ในประเทศไทย)"));
-        picker(cy, cfg.airHome, 3);
+        dropButton(cy, cfg.airHome, 3);
+
+        if (cityDrop >= 0) {
+            // The open list covers the rows; only its own controls take taps,
+            // and a tap anywhere outside it closes it.
+            ctlCount = 0;
+            const int current = cityDrop == 3 ? cfg.airHome : cfg.clockCity[cityDrop];
+            const Rect p = {CX0 - 8, OY + 56, CX1 - CX0 + 16, OH - 62};
+            aaRoundRect(p.x, p.y, p.w, p.h, 10, BORDER);
+            aaRoundRect(p.x + 1, p.y + 1, p.w - 2, p.h - 2, 9, CARD);
+            if (cityDrop == 3) copyText(v, sizeof(v), L("Air quality location", "ตำแหน่งวัดคุณภาพอากาศ"));
+            else snprintf(v, sizeof(v), thai ? "นาฬิกา %d" : "Clock %d", cityDrop + 1);
+            utext(p.x + 14, p.y + 9, v, TEXT, 400);
+            const Rect x = {p.x + p.w - 40, p.y + 5, 32, 26};
+            aaRoundRect(x.x, x.y, x.w, x.h, 6, blend(TEXT, CARD, 18));
+            const int xc = x.x + x.w / 2, yc = x.y + x.h / 2;
+            for (int k = 0; k <= 1; ++k) {
+                screen.drawLine(xc - 5 + k, yc - 5, xc + 5 + k, yc + 5, TEXT);
+                screen.drawLine(xc - 5 + k, yc + 5, xc + 5 + k, yc - 5, TEXT);
+            }
+            addCtl(x, C_CITY_CLOSE);
+            screen.drawFastHLine(p.x + 1, p.y + 35, p.w - 2, BORDER);
+
+            // 11 countries x 30 px fit between the header and the bottom edge.
+            constexpr int LIST_ROW = 30, BTN_W = 160;
+            int ry = p.y + 41;
+            for (int i = 0; i < CITY_COUNT;) {
+                const char *country = CITY_LIST[i].country;
+                utext(p.x + 14, ry + (LIST_ROW - 16) / 2, L(country, CITY_LIST[i].countryTh), MUTED, 170);
+                int bx = p.x + 190;
+                for (; i < CITY_COUNT && strcmp(CITY_LIST[i].country, country) == 0; ++i) {
+                    const Rect b = {bx, ry + 2, BTN_W, LIST_ROW - 4};
+                    const bool on = i == current;
+                    aaRoundRect(b.x, b.y, b.w, b.h, 6, on ? BRAND : blend(TEXT, CARD, 15));
+                    const char *name = L(CITY_LIST[i].name, CITY_LIST[i].nameTh);
+                    utext(b.x + 12, b.y + (b.h - 16) / 2, name, TEXT, b.w - 20);
+                    addCtl(b, C_CITY_PICK, i);
+                    bx += BTN_W + 8;
+                }
+                ry += LIST_ROW;
+            }
+            addCtl({0, 0, 800, 480}, C_CITY_CLOSE);  // outside the list: close
+        }
     } else if (section == 3) {
         const char *title = hasData ? (details["title"] | "") : "";
         int cy = beginRow(L("Board title", "ชื่อบนจอ"), L("Shown in the header: the company name", "ชื่อที่แสดงบนหัวจอ: ชื่อบริษัท"));
@@ -2219,11 +2276,13 @@ void openSettings() {
     settingsOpen = true;
     settingsTouched = millis();
     armed = 0;
+    cityDrop = -1;
     drawSettings();
 }
 void closeSettings() {
     settingsOpen = false;
     kb.open = false;
+    cityDrop = -1;
     drawDashboard();
 }
 
@@ -2260,6 +2319,7 @@ void settingsTap(int x, int y) {
             case C_CLOSE: closeSettings(); return;
             case C_TAB:
                 section = c.aux;
+                cityDrop = -1;
                 if (section == 2 && (!scannedAt || millis() - scannedAt > 30000)) {
                     drawSettings();
                     busy(L("Scanning...", "กำลังสแกน..."));
@@ -2316,11 +2376,15 @@ void settingsTap(int x, int y) {
             case C_TOUCH: cfg.touch = !cfg.touch; break;
             case C_IDLE: cfg.idleSecs = c.aux; break;
             case C_CYCLE: cfg.rotate = !cfg.rotate; break;
-            case C_CITY_PREV:
-            case C_CITY_NEXT: {
-                int &idx = c.aux == 3 ? cfg.airHome : cfg.clockCity[c.aux];
-                idx = (idx + (c.id == C_CITY_NEXT ? 1 : CITY_COUNT - 1)) % CITY_COUNT;
-                ambientAt = 0;  // fetch the new city's weather / air quality now
+            case C_CITY_OPEN: cityDrop = c.aux; break;
+            case C_CITY_CLOSE: cityDrop = -1; break;
+            case C_CITY_PICK: {
+                int &idx = cityDrop == 3 ? cfg.airHome : cfg.clockCity[cityDrop];
+                if (idx != c.aux) {
+                    idx = c.aux;
+                    ambientAt = 0;  // fetch the new city's weather / air quality now
+                }
+                cityDrop = -1;
                 break;
             }
             case C_CYCLE_SECS: cfg.rotateSecs = c.aux; break;
@@ -3193,7 +3257,7 @@ void serialCommand(int cmd) {
     else if (cmd == 'K') showScreen(Screen::Kaizen);
     else if (cmd == 'H') { lastTouch = millis(); showScreen(Screen::Hotel); }
     else if (cmd == 'T') openSettings();
-    else if (cmd >= '1' && cmd <= '6' && settingsOpen) { section = cmd - '1'; settingsTouched = millis(); drawSettings(); }
+    else if (cmd >= '1' && cmd <= '6' && settingsOpen) { section = cmd - '1'; cityDrop = -1; settingsTouched = millis(); drawSettings(); }
     else if (cmd == 'C') { lastTouch = millis(); showScreen(Screen::Clock); }
     else if (cmd == 'N' && settingsOpen) { cfg.nightDim = !cfg.nightDim; saveSettings(); applyBrightness(); drawSettings(); }
     else if (cmd == 'L') setLanguage(!thai);
