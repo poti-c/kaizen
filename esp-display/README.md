@@ -56,10 +56,30 @@ firmware falls back to `device_config.example.h` when it is absent.
 "$HOME/.local/share/uv/tools/platformio/bin/pio" run -t upload --upload-port /dev/cu.usbserial-10
 ```
 
-Serial output (115200 baud) prints `Wi-Fi ok, RSSI …` on each poll and
-`Dashboard fetch failed (HTTP n)` on errors. On screen, the bottom line reads
-`Live | Refreshes every minute`. After three missed polls the header shows
+Serial output (115200 baud):
+- At boot, every access point broadcasting the configured SSID, and which
+  one it joins.
+- On each poll: `Wi-Fi ok, RSSI …, ch …, AP …, fetch ok|failed|waiting for clock`.
+- `Dashboard fetch failed (HTTP n)` on HTTP errors.
+
+On screen, the bottom line reads `Live | Refreshes every minute`, with the
+live Wi-Fi signal on the right. The signal refreshes every 10 s, so you can
+move the panel and watch it. After three missed polls the header shows
 `STALE`.
+
+## Wi-Fi behaviour
+
+"Qhouse Main_2.4G" is served by two access points on channel 6. Left alone,
+the ESP32 joined the far one (about −76 to −95 dBm) and never moved, so the
+firmware now:
+- scans at boot and joins the strongest access point by its MAC address
+  (BSSID);
+- rescans if the link stays down for 45 s;
+- checks every 5 minutes, when the signal is below −78 dBm, for another
+  access point at least 8 dB stronger;
+- keeps Wi-Fi power-saving off;
+- does not store Wi-Fi settings in flash;
+- restarts the clock sync (SNTP) each time Wi-Fi connects.
 
 ## Flash backup
 

@@ -322,6 +322,52 @@ void drawCategories() {
     }
 }
 
+// ── Wi-Fi ────────────────────────────────────────────────────────────────────
+constexpr uint32_t ROAM_CHECK_MS = 5 * 60 * 1000;
+constexpr int ROAM_BELOW_DBM = -78;
+constexpr int ROAM_MARGIN_DB = 8;
+constexpr uint32_t REJOIN_AFTER_MS = 45000;
+void connectStrongest();
+
+struct ApChoice {
+    uint8_t bssid[6];
+    int32_t channel;
+    int32_t rssi;
+};
+
+// Scans for the configured SSID only, logs each access point, returns the strongest.
+bool strongestAp(ApChoice &best) {
+    best.rssi = -127;
+    const int16_t n = WiFi.scanNetworks(false, false, false, 300, 0, WIFI_SSID);
+    for (int i = 0; i < n; ++i) {
+        Serial.printf("  AP %s  ch %ld  %ld dBm\n", WiFi.BSSIDstr(i).c_str(),
+                      (long)WiFi.channel(i), (long)WiFi.RSSI(i));
+        if (WiFi.RSSI(i) > best.rssi) {
+            best.rssi = WiFi.RSSI(i);
+            best.channel = WiFi.channel(i);
+            memcpy(best.bssid, WiFi.BSSID(i), 6);
+        }
+    }
+    Serial.printf("Scan: %d access point(s) broadcasting the configured network\n", n > 0 ? n : 0);
+    WiFi.scanDelete();
+    return n > 0;
+}
+
+const char *signalQuality(int rssi) {
+    return rssi >= -67 ? "good" : rssi >= -75 ? "fair" : rssi >= -85 ? "weak" : "very weak";
+}
+
+void drawStatus() {
+    screen.fillRect(0, 450, 800, 30, BG);
+    label(PAD, 458, screenStatus, 1, MUTED);
+    if (WiFi.getMode() == WIFI_STA && WiFi.status() == WL_CONNECTED) {
+        const int rssi = WiFi.RSSI();
+        char signal[48];
+        snprintf(signal, sizeof(signal), "Wi-Fi %d dBm  %s", rssi, signalQuality(rssi));
+        labelRight(800 - PAD, 458, signal, 1, rssi >= -75 ? MUTED : rssi >= -85 ? C_PENDING : C_CRITICAL);
+    }
+}
+
 void drawDashboard(const char *status) {
     screenStatus = status;
     screen.fillScreen(BG);
@@ -331,7 +377,7 @@ void drawDashboard(const char *status) {
     drawOverview();
     drawAttention();
     drawCategories();
-    label(PAD, 458, screenStatus, 1, MUTED);
+    drawStatus();
 }
 
 bool fetchDashboard() {
@@ -390,10 +436,69 @@ void setup() {
         drawDashboard("Waiting for device configuration");
         return;
     }
+    // Keep the Wi-Fi config out of NVS. Otherwise begin() sees the same
+    // SSID/password already stored there and skips applying the new config.
+    WiFi.persistent(false);
     WiFi.mode(WIFI_STA);
+    // Modem sleep makes the radio miss beacons, which on a marginal link turns
+    // into dropped connections and TLS timeouts. A wall panel is mains powered.
+    WiFi.setSleep(false);
+    WiFi.setScanMethod(WIFI_ALL_CHANNEL_SCAN);
+    WiFi.setSortMethod(WIFI_CONNECT_AP_BY_SIGNAL);
     WiFi.setAutoReconnect(true);
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-    configTime(0, 0, "pool.ntp.org", "time.google.com");
+    connectStrongest();
+}
+
+// "Qhouse Main_2.4G" is served by more than one access point. Left to itself
+// the ESP32 joins whichever it hears first and never roams, so pick the
+// strongest explicitly by BSSID.
+uint32_t joinStarted = 0;
+void connectStrongest() {
+    ApChoice best;
+    if (strongestAp(best)) {
+        Serial.printf("Joining strongest AP %02X:%02X:%02X:%02X:%02X:%02X  ch %ld  %ld dBm\n",
+                      best.bssid[0], best.bssid[1], best.bssid[2], best.bssid[3], best.bssid[4],
+                      best.bssid[5], (long)best.channel, (long)best.rssi);
+        WiFi.begin(WIFI_SSID, WIFI_PASSWORD, best.channel, best.bssid);
+    } else {
+        WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    }
+    WiFi.setTxPower(WIFI_POWER_19_5dBm);
+    joinStarted = millis();
+}
+
+// Pinning a BSSID means auto-reconnect only retries that one AP, so if the link
+// stays down, scan again and take whichever is strongest now. While connected
+// but weak, check every few minutes for a clearly stronger AP.
+void manageWifi() {
+    static uint32_t lastConnected = 0, lastRoamCheck = 0;
+    static bool wasConnected = false;
+    const bool connected = WiFi.status() == WL_CONNECTED;
+    if (connected) {
+        lastConnected = millis();
+        // SNTP started before the network was up can sit in back-off for
+        // minutes; restart it each time the link comes up.
+        if (!wasConnected) configTime(0, 0, "pool.ntp.org", "time.google.com", "time.cloudflare.com");
+    }
+    wasConnected = connected;
+
+    if (!connected && millis() - joinStarted > REJOIN_AFTER_MS && millis() - lastConnected > REJOIN_AFTER_MS) {
+        Serial.println("Wi-Fi down; rescanning");
+        WiFi.disconnect();
+        connectStrongest();
+        return;
+    }
+    if (!connected || millis() - lastRoamCheck < ROAM_CHECK_MS) return;
+    lastRoamCheck = millis();
+    const int current = WiFi.RSSI();
+    if (current >= ROAM_BELOW_DBM) return;
+    ApChoice best;
+    if (strongestAp(best) && best.rssi >= current + ROAM_MARGIN_DB && memcmp(best.bssid, WiFi.BSSID(), 6) != 0) {
+        Serial.printf("Roaming: %d dBm here, %ld dBm on ch %ld\n", current, (long)best.rssi, (long)best.channel);
+        WiFi.disconnect();
+        WiFi.begin(WIFI_SSID, WIFI_PASSWORD, best.channel, best.bssid);
+        joinStarted = millis();
+    }
 }
 
 void loop() {
@@ -405,7 +510,11 @@ void loop() {
         const bool connected = WiFi.status() == WL_CONNECTED;
         const bool clockReady = time(nullptr) > 1700000000;
         const bool success = connected && clockReady && fetchDashboard();
-        if (connected) Serial.printf("Wi-Fi ok, RSSI %d dBm\n", WiFi.RSSI());
+        if (connected) {
+            Serial.printf("Wi-Fi ok, RSSI %d dBm, ch %ld, AP %s, fetch %s\n", WiFi.RSSI(),
+                          (long)WiFi.channel(), WiFi.BSSIDstr().c_str(),
+                          success ? "ok" : !clockReady ? "waiting for clock" : "failed");
+        }
         drawDashboard(success ? "Live  |  Refreshes every minute"
                      : hasData ? "Showing last update  |  Retrying..."
                      : !connected ? "Waiting for Wi-Fi..."
@@ -416,7 +525,9 @@ void loop() {
     static uint32_t lastClockTick = 0;
     if (millis() - lastClockTick >= 10000) {
         drawHeader();
+        drawStatus();  // live signal readout, so the panel can be positioned by eye
         lastClockTick = millis();
     }
+    manageWifi();
     delay(100);
 }
