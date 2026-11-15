@@ -7,6 +7,9 @@
 #include <WiFiClientSecure.h>
 #include <Wire.h>
 #include <esp32s3/rom/cache.h>
+#include <driver/gpio.h>
+#include <soc/gpio_periph.h>
+#include <soc/io_mux_reg.h>
 
 #include "aa_fonts.h"
 
@@ -24,8 +27,49 @@
 // Guition JC8048W550 RGB wiring and timings from the Arduino_GFX board example.
 Arduino_ESP32RGBPanel panel(
     40, 41, 39, 42, 45, 48, 47, 21, 14, 5, 6, 7, 15, 16, 4,
-    8, 3, 46, 9, 1, 0, 8, 4, 8, 0, 8, 4, 8, 1, 16000000);
-Arduino_RGB_Display screen(800, 480, &panel);
+    8, 3, 46, 9, 1, 0, 8, 4, 8, 0, 8, 4, 8, 1,
+    // 12 MHz pixel clock (~29 Hz refresh), not 16: the LCD streams its frame from
+    // PSRAM, and at 16 MHz any burst of CPU or Wi-Fi PSRAM use starved it and showed
+    // as thin horizontal streaks. A static board gains nothing from the extra rate.
+    12000000);
+// Everything is drawn into an off-screen buffer (`back`); present() then copies
+// it, or cross-fades it, onto the buffer the LCD scans (`front`). So the board
+// never shows a half-drawn frame, and a data refresh fades instead of flashing.
+// Rows drawn since the last present(), in screen coordinates, so present()
+// compares only those instead of reading the whole frame twice.
+bool dirtyRow[480];
+bool anyDirty = false;
+inline void markRows(int y0, int y1) {
+    y0 = max(0, y0);
+    y1 = min(479, y1);
+    for (int y = y0; y <= y1; ++y) dirtyRow[y] = true;
+    if (y0 <= y1) anyDirty = true;
+}
+class PanelDisplay : public Arduino_RGB_Display {
+public:
+    using Arduino_RGB_Display::Arduino_RGB_Display;
+    void drawTo(uint16_t *buf) {
+        _framebuffer = buf;
+        _auto_flush = false;  // present() writes the LCD buffer back itself
+    }
+    void writePixelPreclipped(int16_t x, int16_t y, uint16_t color) override {
+        markRows(y, y);
+        Arduino_RGB_Display::writePixelPreclipped(x, y, color);
+    }
+    void writeFastVLine(int16_t x, int16_t y, int16_t h, uint16_t color) override {
+        markRows(y, y + h - 1);
+        Arduino_RGB_Display::writeFastVLine(x, y, h, color);
+    }
+    void writeFastHLine(int16_t x, int16_t y, int16_t w, uint16_t color) override {
+        markRows(y, y);
+        Arduino_RGB_Display::writeFastHLine(x, y, w, color);
+    }
+    void writeFillRectPreclipped(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t color) override {
+        markRows(y, y + h - 1);
+        Arduino_RGB_Display::writeFillRectPreclipped(x, y, w, h, color);
+    }
+};
+PanelDisplay screen(800, 480, &panel);
 constexpr int BACKLIGHT = 2;
 constexpr uint32_t RETRY_MS = 15000;
 
@@ -83,7 +127,7 @@ int values[METRIC_COUNT];
 JsonDocument details;
 bool hasData = false;
 uint32_t lastSuccess = 0;
-enum class Status { Connecting, Unconfigured, Live, Stale, NoWifi, NoClock, Unavailable };
+enum class Status { Connecting, Unconfigured, Live, Stale, NoWifi, NoClock, Unavailable, Portal };
 Status status = Status::Connecting;
 uint32_t nextPoll = 0;
 
@@ -142,23 +186,150 @@ int cpWidth(uint32_t cp) {
 // edge is blended into the framebuffer over whatever is already there, so text
 // is smooth on any background. Characters outside Latin and Thai fall back to
 // the hard-edged Unifont. Shapes get the same treatment below.
-uint16_t *fb = nullptr;      // the panel's framebuffer, set in setup()
+uint16_t *fb = nullptr;      // where drawing goes (the off-screen buffer), set in setup()
+uint16_t *front = nullptr;   // the buffer the LCD scans
+uint16_t *back = nullptr;    // the off-screen buffer
+bool needPresent = false;    // something was drawn since the last present()
+bool fadeNext = false;       // cross-fade the next present()
 bool rotated180 = false;     // Orientation 180°: framebuffer is drawn upside down
 inline uint16_t *fbAt(int x, int y) {
     return rotated180 ? fb + (479 - y) * 800 + (799 - x) : fb + y * 800 + x;
 }
 // The LCD reads the framebuffer from PSRAM; push our CPU-cache writes out to it.
 void flushRows(int y0, int y1) {
+    if (fb != front) return;  // off-screen: present() writes the LCD buffer back
     y0 = max(0, y0);
     y1 = min(479, y1);
     if (!fb || y1 < y0) return;
     const int r0 = rotated180 ? 479 - y1 : y0, r1 = rotated180 ? 479 - y0 : y1;
     Cache_WriteBack_Addr(reinterpret_cast<uint32_t>(fb + r0 * 800), (r1 - r0 + 1) * 800 * 2);
 }
+// ── Presenting frames ────────────────────────────────────────────────────────
+// Two things make on-screen changes look torn or streaky on this panel:
+//  - the LCD controller streams the frame from the same PSRAM the CPU uses, so
+//    long CPU passes over the framebuffer starve it and show as shifted lines;
+//  - writing while the LCD is mid-scan shows part of the old and part of the
+//    new image.
+// So present() finds the runs of pixels that actually changed (one compare
+// pass), touches only those, and writes each step right after VSYNC, while the
+// panel is between frames.
+constexpr int VSYNC_PIN = 41;
+int vsyncPulse = -1;  // level of the VSYNC pulse (1 or 0); -1 = unusable, use plain timing
+
+// Returns at the start of the next VSYNC pulse (or after ~30 ms if unreadable).
+void waitVsync() {
+    if (vsyncPulse < 0) { delay(25); return; }
+    const gpio_num_t pin = static_cast<gpio_num_t>(VSYNC_PIN);
+    const uint32_t t0 = micros();
+    while (gpio_get_level(pin) == vsyncPulse && micros() - t0 < 40000) {}  // leave a pulse in progress
+    while (gpio_get_level(pin) != vsyncPulse && micros() - t0 < 60000) {}  // wait for the next one
+}
+
+// The pulse is a few lines long and the idle level fills the rest of the
+// frame, so whichever level is rare over ~30 ms is the pulse.
+void vsyncInit() {
+    PIN_INPUT_ENABLE(GPIO_PIN_MUX_REG[VSYNC_PIN]);  // read back the pin the LCD drives
+    int highs = 0, total = 0, edges = 0, last = gpio_get_level(static_cast<gpio_num_t>(VSYNC_PIN));
+    const uint32_t t0 = micros();
+    while (micros() - t0 < 30000) {
+        const int v = gpio_get_level(static_cast<gpio_num_t>(VSYNC_PIN));
+        highs += v;
+        ++total;
+        if (v != last) { ++edges; last = v; }
+    }
+    if (edges >= 2) vsyncPulse = highs * 2 < total ? 1 : 0;
+    float hz = 0;
+    if (vsyncPulse >= 0) {  // time 10 frames to confirm the refresh rate
+        waitVsync();
+        const uint32_t s = micros();
+        for (int i = 0; i < 10; ++i) waitVsync();
+        hz = 10e6f / (micros() - s);
+    }
+    Serial.printf("VSYNC: pulse %s, %.1f Hz\n", vsyncPulse < 0 ? "not readable (plain timing)" : vsyncPulse ? "high" : "low", hz);
+}
+struct Span { uint32_t start; uint16_t len; };
+constexpr int MAX_SPANS = 4000;
+Span spans[MAX_SPANS];  // internal RAM: the fade loops never re-scan PSRAM
+
+// Runs of differing pixels in rows top..bottom; small gaps are merged.
+// Returns -1 if the change is too scattered to list (then: plain copy).
+int findSpans(int top, int bottom) {
+    int n = 0;
+    for (int y = top; y <= bottom; ++y) {
+        if ((y & 15) == 15) delayMicroseconds(60);  // let the LCD's reads through
+        const uint16_t *f = front + y * 800, *b = back + y * 800;
+        int x = 0;
+        while (x < 800) {
+            if (f[x] == b[x]) { ++x; continue; }
+            int end = x + 1, gap = 0;
+            while (end < 800 && gap <= 6) {
+                if (f[end] != b[end]) gap = 0; else ++gap;
+                ++end;
+            }
+            end -= gap;
+            if (n == MAX_SPANS) return -1;
+            spans[n++] = {static_cast<uint32_t>(y * 800 + x), static_cast<uint16_t>(end - x)};
+            x = end;
+        }
+    }
+    return n;
+}
+
+void present(bool fade) {
+    needPresent = false;
+    fadeNext = false;
+    if (!back || back == front || !anyDirty) return;
+    // Compare only rows that were drawn (framebuffer rows flip when rotated),
+    // pausing every few rows so the LCD's own PSRAM reads get through.
+    int top = -1, bottom = -1;
+    for (int y = 0; y < 480; ++y) {
+        if (!dirtyRow[y]) continue;
+        dirtyRow[y] = false;
+        const int r = rotated180 ? 479 - y : y;
+        if (memcmp(front + r * 800, back + r * 800, 1600)) {
+            top = top < 0 ? r : min(top, r);
+            bottom = max(bottom, r);
+        }
+        if ((y & 15) == 15) delayMicroseconds(60);
+    }
+    anyDirty = false;
+    if (top < 0) return;
+    const int n = findSpans(top, bottom);
+    const uint32_t lo = top * 800, bytes = (bottom - top + 1) * 1600;
+    if (n < 0) {  // a whole-screen change: copy between frames, in slices
+        waitVsync();
+        for (uint32_t off = 0; off < bytes; off += 32 * 1600) {
+            memcpy(reinterpret_cast<uint8_t *>(front + lo) + off, reinterpret_cast<uint8_t *>(back + lo) + off,
+                   min<uint32_t>(32 * 1600, bytes - off));
+            delayMicroseconds(60);
+        }
+        Cache_WriteBack_Addr(reinterpret_cast<uint32_t>(front + lo), bytes);
+        return;
+    }
+    constexpr int STEPS = 8;  // ~8 frames, about 0.2 s at this panel's ~39 Hz
+    const uint32_t started = millis();
+    for (int k = fade ? 0 : STEPS - 1; k < STEPS; ++k) {
+        const bool last = k == STEPS - 1;
+        const int a = 255 / (STEPS - k);  // a 1/(steps left) share of the remaining way
+        waitVsync();
+        for (int s = 0; s < n; ++s) {
+            uint16_t *f = front + spans[s].start;
+            const uint16_t *b = back + spans[s].start;
+            if (last) memcpy(f, b, spans[s].len * 2);
+            else
+                for (int i = 0; i < spans[s].len; ++i)
+                    if (f[i] != b[i]) f[i] = blend(b[i], f[i], a);
+        }
+        Cache_WriteBack_Addr(reinterpret_cast<uint32_t>(front + lo), bytes);
+    }
+    if (fade) Serial.printf("Faded %d runs of changed pixels in %lu ms\n", n, static_cast<unsigned long>(millis() - started));
+}
 inline void blendPx(int x, int y, uint16_t color, int alpha) {  // alpha 0..255
     if (x < 0 || x >= 800 || y < 0 || y >= 480 || alpha <= 0) return;
     uint16_t *p = fbAt(x, y);
     *p = alpha >= 255 ? color : blend(color, *p, alpha);
+    dirtyRow[y] = true;
+    anyDirty = true;
 }
 
 const AAGlyph *findGlyph(const AAFont &f, uint32_t cp) {
@@ -431,6 +602,7 @@ struct Rect {
 
 // ── Header ────────────────────────────────────────────────────────────────────
 void drawHeader() {
+    needPresent = true;
     screen.fillRect(0, 0, 800, HEADER_H + 2, BG);
     char title[64] = "Kaizen";
     if (hasData) copyText(title, sizeof(title), details["title"] | "Kaizen", 60);
@@ -745,7 +917,7 @@ void drawSwitcher() {
 // "KZSHOT", width u16, height u16, then (count u16, rgb565 u16) runs ending
 // with a zero count. Lets the layout be checked on a computer.
 void dumpScreen() {
-    const uint16_t *fb = screen.getFramebuffer();
+    const uint16_t *fb = front ? front : screen.getFramebuffer();  // what is on screen
     if (!fb) return;
     const uint8_t head[] = {'K', 'Z', 'S', 'H', 'O', 'T', 800 & 0xFF, 800 >> 8, 480 & 0xFF, 480 >> 8};
     Serial.write(head, sizeof(head));
@@ -766,34 +938,358 @@ void dumpScreen() {
     Serial.write(buf, n + 4);
 }
 
-// ── Wi-Fi ────────────────────────────────────────────────────────────────────
+// ── Wi-Fi: remembered networks ───────────────────────────────────────────────
+// Like a phone: a network joined from System Settings > Network is remembered
+// (NVS namespace "wifi", up to 6, most recent first) and the panel joins the
+// strongest remembered network in range, pinned to its strongest access point.
+// The network in device_config.h only seeds the list on first start and after
+// a factory reset. Passwords never go to the serial log.
 constexpr uint32_t ROAM_CHECK_MS = 5 * 60 * 1000;
 constexpr int ROAM_BELOW_DBM = -78;
 constexpr int ROAM_MARGIN_DB = 8;
 constexpr uint32_t REJOIN_AFTER_MS = 45000;
+constexpr int MAX_KNOWN = 6, MAX_NETS = 24;
+uint32_t joinStarted = 0;  // when the last join attempt started
 
-struct ApChoice {
-    uint8_t bssid[6];
-    int32_t channel;
-    int32_t rssi;
+Preferences wprefs;
+struct Known {
+    String ssid, pass;
+    bool portalSaved = false;     // signed in to this network's sign-in page before
+    String portalUser, portalPass;
 };
+Known known[MAX_KNOWN];
+int knownCount = 0;
+String currentSsid;
 
-// Scans for the configured SSID only, logs each access point, returns the strongest.
-bool strongestAp(ApChoice &best) {
-    best.rssi = -127;
-    const int16_t n = WiFi.scanNetworks(false, false, false, 300, 0, WIFI_SSID);
-    for (int i = 0; i < n; ++i) {
-        Serial.printf("  AP %s  ch %ld  %ld dBm\n", WiFi.BSSIDstr(i).c_str(),
-                      (long)WiFi.channel(i), (long)WiFi.RSSI(i));
-        if (WiFi.RSSI(i) > best.rssi) {
-            best.rssi = WiFi.RSSI(i);
-            best.channel = WiFi.channel(i);
-            memcpy(best.bssid, WiFi.BSSID(i), 6);
-        }
+void saveKnown() {
+    wprefs.clear();
+    wprefs.putUChar("n", knownCount);
+    char k[8];
+    for (int i = 0; i < knownCount; ++i) {
+        snprintf(k, sizeof(k), "s%d", i); wprefs.putString(k, known[i].ssid);
+        snprintf(k, sizeof(k), "p%d", i); wprefs.putString(k, known[i].pass);
+        snprintf(k, sizeof(k), "a%d", i); wprefs.putBool(k, known[i].portalSaved);
+        snprintf(k, sizeof(k), "u%d", i); wprefs.putString(k, known[i].portalUser);
+        snprintf(k, sizeof(k), "q%d", i); wprefs.putString(k, known[i].portalPass);
     }
-    Serial.printf("Scan: %d access point(s) broadcasting the configured network\n", n > 0 ? n : 0);
+}
+void loadKnown() {
+    knownCount = min<int>(MAX_KNOWN, wprefs.getUChar("n", 0));
+    char k[8];
+    for (int i = 0; i < knownCount; ++i) {
+        snprintf(k, sizeof(k), "s%d", i); known[i].ssid = wprefs.getString(k, "");
+        snprintf(k, sizeof(k), "p%d", i); known[i].pass = wprefs.getString(k, "");
+        snprintf(k, sizeof(k), "a%d", i); known[i].portalSaved = wprefs.getBool(k, false);
+        snprintf(k, sizeof(k), "u%d", i); known[i].portalUser = wprefs.getString(k, "");
+        snprintf(k, sizeof(k), "q%d", i); known[i].portalPass = wprefs.getString(k, "");
+    }
+    if (knownCount == 0 && WIFI_SSID[0]) {  // first start: seed from device_config.h
+        known[0].ssid = WIFI_SSID;
+        known[0].pass = WIFI_PASSWORD;
+        knownCount = 1;
+        saveKnown();
+    }
+}
+int knownIndex(const String &ssid) {
+    for (int i = 0; i < knownCount; ++i)
+        if (known[i].ssid == ssid) return i;
+    return -1;
+}
+void rememberNetwork(const String &ssid, const String &pass) {
+    Known k;
+    const int i = knownIndex(ssid);
+    if (i >= 0) {
+        k = known[i];
+        for (int j = i; j < knownCount - 1; ++j) known[j] = known[j + 1];
+        --knownCount;
+    }
+    k.ssid = ssid;
+    k.pass = pass;
+    for (int j = min(knownCount, MAX_KNOWN - 1); j > 0; --j) known[j] = known[j - 1];
+    known[0] = k;
+    knownCount = min(knownCount + 1, MAX_KNOWN);
+    saveKnown();
+}
+void forgetNetwork(const String &ssid) {
+    const int i = knownIndex(ssid);
+    if (i < 0) return;
+    for (int j = i; j < knownCount - 1; ++j) known[j] = known[j + 1];
+    --knownCount;
+    saveKnown();
+}
+
+// Networks in range, one entry per name (its strongest access point), strongest first.
+struct Net {
+    String ssid;
+    int32_t rssi = -127, channel = 0;
+    uint8_t bssid[6] = {0};
+    bool secure = true;
+};
+Net nets[MAX_NETS];
+int netCount = 0;
+uint32_t scannedAt = 0;
+
+void scanNetworks() {
+    const int16_t n = WiFi.scanNetworks(false, false, false, 300);
+    netCount = 0;
+    for (int i = 0; i < n; ++i) {
+        const String ssid = WiFi.SSID(i);
+        if (!ssid.length()) continue;  // hidden network
+        int j = 0;
+        while (j < netCount && nets[j].ssid != ssid) ++j;
+        if (j < netCount && nets[j].rssi >= WiFi.RSSI(i)) continue;
+        if (j == netCount) {
+            if (netCount == MAX_NETS) continue;
+            ++netCount;
+        }
+        nets[j].ssid = ssid;
+        nets[j].rssi = WiFi.RSSI(i);
+        nets[j].channel = WiFi.channel(i);
+        memcpy(nets[j].bssid, WiFi.BSSID(i), 6);
+        nets[j].secure = WiFi.encryptionType(i) != WIFI_AUTH_OPEN;
+    }
+    for (int a = 1; a < netCount; ++a)
+        for (int b = a; b > 0 && nets[b].rssi > nets[b - 1].rssi; --b) std::swap(nets[b], nets[b - 1]);
     WiFi.scanDelete();
-    return n > 0;
+    scannedAt = millis();
+    Serial.printf("Scan: %d networks in range\n", netCount);
+}
+int netIndex(const String &ssid) {
+    for (int i = 0; i < netCount; ++i)
+        if (nets[i].ssid == ssid) return i;
+    return -1;
+}
+
+// ── Internet check and sign-in pages (captive portals) ───────────────────────
+// Phones detect a sign-in page by fetching a "no content" URL: 204 means the
+// internet is reachable; a redirect or a page means something is in the way.
+// The panel then tries to sign in itself: it loads the portal, finds the login
+// form, fills in the username/password typed on the panel (hidden fields and
+// "accept terms" boxes as the page set them), and submits it. Portals that
+// need JavaScript can't be handled this way; for those the panel shows its
+// MAC address so IT can allow it on the network instead.
+const char CHECK_URL[] = "http://connectivitycheck.gstatic.com/generate_204";
+enum class Inet { Unknown, Online, Portal, Offline };
+Inet inet = Inet::Unknown;
+String portalUrl;
+bool portalFailed = false;
+uint32_t inetCheckedAt = 0;
+
+String attrOf(const String &tag, const char *name) {
+    String lower = tag;
+    lower.toLowerCase();
+    const String key = String(name) + "=";
+    for (int i = lower.indexOf(key); i >= 0; i = lower.indexOf(key, i + key.length())) {
+        if (i > 0 && !isspace(static_cast<unsigned char>(lower[i - 1]))) continue;
+        const int v = i + key.length();
+        if (v >= static_cast<int>(tag.length())) return "";
+        String out;
+        const char q = tag[v];
+        if (q == '"' || q == '\'') {
+            const int e = tag.indexOf(q, v + 1);
+            out = tag.substring(v + 1, e < 0 ? tag.length() : e);
+        } else {
+            int e = v;
+            while (e < static_cast<int>(tag.length()) && !isspace(static_cast<unsigned char>(tag[e])) && tag[e] != '>') ++e;
+            out = tag.substring(v, e);
+        }
+        out.replace("&amp;", "&");
+        out.replace("&quot;", "\"");
+        out.replace("&#39;", "'");
+        return out;
+    }
+    return "";
+}
+String urlEncode(const String &s) {
+    String o;
+    char b[4];
+    for (size_t i = 0; i < s.length(); ++i) {
+        const unsigned char c = s[i];
+        if (isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~') o += static_cast<char>(c);
+        else if (c == ' ') o += '+';
+        else { snprintf(b, sizeof(b), "%%%02X", c); o += b; }
+    }
+    return o;
+}
+String resolveUrl(const String &base, const String &ref) {
+    if (ref.startsWith("http://") || ref.startsWith("https://")) return ref;
+    const int scheme = base.indexOf("://");
+    if (scheme < 0) return ref;
+    const int hostEnd = base.indexOf('/', scheme + 3);
+    const String origin = hostEnd < 0 ? base : base.substring(0, hostEnd);
+    if (ref.startsWith("//")) return base.substring(0, scheme + 1) + ref;
+    if (ref.startsWith("/")) return origin + ref;
+    if (!ref.length()) return base;
+    const int q = base.indexOf('?');
+    const String path = q < 0 ? base : base.substring(0, q);
+    const int slash = path.lastIndexOf('/');
+    if (slash < scheme + 3) return origin + "/" + ref;
+    return path.substring(0, slash + 1) + ref;
+}
+// Meta refresh or a JavaScript location change: where a page sends the browser.
+String findRedirect(const String &html) {
+    String lower = html;
+    lower.toLowerCase();
+    for (int m = lower.indexOf("http-equiv"); m >= 0; m = lower.indexOf("http-equiv", m + 10)) {
+        const int end = lower.indexOf('>', m);
+        const int u = lower.indexOf("url=", m);
+        if (end < 0 || u < 0 || u > end || lower.substring(m, end).indexOf("refresh") < 0) continue;
+        int s = u + 4;
+        while (s < end && (html[s] == '\'' || html[s] == '"' || html[s] == ' ')) ++s;
+        int e = s;
+        while (e < end && html[e] != '"' && html[e] != '\'' && html[e] != '>') ++e;
+        return html.substring(s, e);
+    }
+    for (const char *pat : {"location.href", "window.location", "location.replace", "location.assign"}) {
+        const int p = lower.indexOf(pat);
+        if (p < 0) continue;
+        int q = p + strlen(pat);
+        while (q < static_cast<int>(html.length()) && html[q] != '"' && html[q] != '\'' && html[q] != ';' && html[q] != '\n') ++q;
+        if (q >= static_cast<int>(html.length()) || (html[q] != '"' && html[q] != '\'')) continue;
+        const int e = html.indexOf(html[q], q + 1);
+        if (e > q) return html.substring(q + 1, e);
+    }
+    return "";
+}
+// One request, no automatic redirects. Sign-in pages use their own (often
+// self-signed) certificates, so HTTPS here skips verification; only portal
+// pages go through this, never the Kaizen data.
+int portalRequest(const String &url, bool post, const String &body, String &page, String &location) {
+    WiFiClient plain;
+    WiFiClientSecure tls;
+    tls.setInsecure();
+    HTTPClient http;
+    http.setFollowRedirects(HTTPC_DISABLE_FOLLOW_REDIRECTS);
+    http.setConnectTimeout(6000);
+    http.setTimeout(8000);
+    const char *headers[] = {"Location"};
+    http.collectHeaders(headers, 1);
+    const bool ok = url.startsWith("https://") ? http.begin(tls, url) : http.begin(plain, url);
+    if (!ok) return -1;
+    http.addHeader("User-Agent", "Mozilla/5.0 (nnr_esp wall panel)");
+    int code;
+    if (post) {
+        http.addHeader("Content-Type", "application/x-www-form-urlencoded");
+        code = http.POST(body);
+    } else {
+        code = http.GET();
+    }
+    if (code > 0) {
+        location = http.header("Location");
+        page = http.getString();
+        if (page.length() > 60000) page.remove(60000);
+    }
+    http.end();
+    return code;
+}
+// GET, following HTTP redirects, meta refreshes and JS redirects (up to 6 hops).
+int fetchPage(String url, String &page, String &finalUrl) {
+    for (int hop = 0; hop < 6; ++hop) {
+        String location;
+        const int code = portalRequest(url, false, "", page, location);
+        if (code >= 300 && code < 400 && location.length()) { url = resolveUrl(url, location); continue; }
+        const String next = findRedirect(page);
+        String lower = page;
+        lower.toLowerCase();
+        if (code == 200 && next.length() && lower.indexOf("<form") < 0) { url = resolveUrl(url, next); continue; }
+        finalUrl = url;
+        return code;
+    }
+    finalUrl = url;
+    return -3;
+}
+Inet checkInternet() {
+    inetCheckedAt = millis();
+    WiFiClient client;
+    HTTPClient http;
+    http.setFollowRedirects(HTTPC_DISABLE_FOLLOW_REDIRECTS);
+    http.setConnectTimeout(5000);
+    http.setTimeout(6000);
+    const char *headers[] = {"Location"};
+    http.collectHeaders(headers, 1);
+    if (!http.begin(client, CHECK_URL)) return inet = Inet::Offline;
+    const int code = http.GET();
+    if (code == 204) {
+        inet = Inet::Online;
+        portalFailed = false;
+    } else if (code >= 300 && code < 400) {
+        portalUrl = http.header("Location");
+        inet = Inet::Portal;
+    } else if (code == 200) {
+        const String next = findRedirect(http.getString());
+        portalUrl = next.length() ? resolveUrl(CHECK_URL, next) : String(CHECK_URL);
+        inet = Inet::Portal;
+    } else {
+        inet = Inet::Offline;
+    }
+    http.end();
+    Serial.printf("Internet check: HTTP %d -> %s\n", code,
+                  inet == Inet::Online ? "online" : inet == Inet::Portal ? "sign-in page" : "offline");
+    return inet;
+}
+bool portalLogin(const String &user, const String &pass) {
+    String page, url;
+    const int code = fetchPage(portalUrl.length() ? portalUrl : String(CHECK_URL), page, url);
+    Serial.printf("Sign-in page: HTTP %d, %u bytes\n", code, static_cast<unsigned>(page.length()));
+    if (code != 200) return false;
+    String lower = page;
+    lower.toLowerCase();
+    int pw = lower.indexOf("type=\"password\"");
+    if (pw < 0) pw = lower.indexOf("type='password'");
+    if (pw < 0) pw = lower.indexOf("type=password");
+    const int form = pw >= 0 ? lower.lastIndexOf("<form", pw) : lower.indexOf("<form");
+    if (form < 0) return false;
+    int formEnd = lower.indexOf("</form>", form);
+    if (formEnd < 0) formEnd = lower.length();
+    const String formTag = page.substring(form, lower.indexOf('>', form) + 1);
+    const String action = attrOf(formTag, "action");
+    String method = attrOf(formTag, "method");
+    method.toLowerCase();
+    String body;
+    bool userSet = false;
+    for (int i = lower.indexOf("<input", form); i >= 0 && i < formEnd; i = lower.indexOf("<input", i + 6)) {
+        const String tag = page.substring(i, lower.indexOf('>', i) + 1);
+        String type = attrOf(tag, "type");
+        type.toLowerCase();
+        const String name = attrOf(tag, "name");
+        String value = attrOf(tag, "value");
+        if (!name.length()) continue;
+        if (type == "password") value = pass;
+        else if (!userSet && (type == "" || type == "text" || type == "email" || type == "tel" || type == "number")) {
+            value = user;
+            userSet = true;
+        } else if (type == "checkbox" || type == "radio") {
+            if (!value.length()) value = "on";
+        } else if (type == "button" || type == "reset" || type == "file" || type == "image") {
+            continue;
+        }
+        if (body.length()) body += '&';
+        body += urlEncode(name);
+        body += '=';
+        body += urlEncode(value);
+    }
+    const String target = resolveUrl(url, action);
+    String out, location;
+    const int sent = method == "get"
+        ? portalRequest(target + (target.indexOf('?') < 0 ? "?" : "&") + body, false, "", out, location)
+        : portalRequest(target, true, body, out, location);
+    Serial.printf("Sign-in form sent: HTTP %d\n", sent);
+    if (sent >= 300 && sent < 400 && location.length()) {
+        String out2, location2;
+        portalRequest(resolveUrl(target, location), false, "", out2, location2);
+    }
+    delay(1500);
+    return checkInternet() == Inet::Online;
+}
+// Sign in again with the details that worked last time on this network.
+void autoPortalLogin() {
+    static uint32_t lastTry = 0;
+    const int k = knownIndex(currentSsid);
+    if (k < 0 || !known[k].portalSaved || (lastTry && millis() - lastTry < 10 * 60 * 1000)) return;
+    lastTry = millis();
+    const bool ok = portalLogin(known[k].portalUser, known[k].portalPass);
+    portalFailed = !ok;
+    Serial.printf("Automatic sign-in: %s\n", ok ? "ok" : "failed");
 }
 
 const char *signalQuality(int rssi) {
@@ -815,11 +1311,14 @@ const char *statusText() {
         case Status::NoWifi: return L("Waiting for Wi-Fi...", "กำลังรอ Wi-Fi...");
         case Status::NoClock: return L("Synchronizing clock...", "กำลังตั้งเวลา...");
         case Status::Unavailable: return L("Kaizen data unavailable  |  Retrying...", "ดึงข้อมูลไม่ได้  |  กำลังลองใหม่...");
+        case Status::Portal: return L("This Wi-Fi needs sign-in  |  System Settings > Network",
+                                      "Wi-Fi นี้ต้องลงชื่อเข้าใช้  |  ตั้งค่าระบบ > เครือข่าย");
         default: return L("Connecting to Wi-Fi...", "กำลังเชื่อมต่อ Wi-Fi...");
     }
 }
 
 void drawStatus() {
+    needPresent = true;
     screen.fillRect(0, 450, 800, 30, BG);
     label(PAD, 458, statusText(), 1, MUTED);
     if (WiFi.getMode() == WIFI_STA && WiFi.status() == WL_CONNECTED) {
@@ -1040,6 +1539,7 @@ void filterDrill() {
 }
 
 void drawIdleBar() {
+    needPresent = true;
     const uint32_t idle = drillIdleMs();
     const uint32_t left = idle - min<uint32_t>(idle, millis() - drill.touched);
     const int w = static_cast<int>(static_cast<int64_t>(OW - 4) * left / idle);
@@ -1082,6 +1582,7 @@ int caseDetail(JsonObjectConst c, int x, int top, int w, bool draw, int bottom =
 }
 
 void drawDrill() {
+    needPresent = true;
     aaRoundRect(OX, OY, OW, OH, 12, BORDER);
     aaRoundRect(OX + 1, OY + 1, OW - 2, OH - 2, 11, BG);
     drawIdleBar();
@@ -1186,6 +1687,7 @@ void openDrill(char kind, const char *key, const char *title, uint16_t color, co
     if (!casesOk || millis() - casesAt > pollMs()) {
         casesOk = false;
         drawDrill();  // "Loading..."
+        present(false);
         String url = String(DISPLAY_URL) + "?view=cases";
         const int code = getJson(url.c_str(), casesDoc, nullptr);
         casesOk = code == HTTP_CODE_OK;
@@ -1233,6 +1735,21 @@ void drillTap(int x, int y) {
 }
 
 void connectStrongest();
+enum class KbFor { WifiPass, PortalUser, PortalPass };
+struct Keyboard {
+    bool open = false;
+    KbFor purpose = KbFor::WifiPass;
+    char title[200] = "";
+    char text[72] = "";
+    bool masked = true, reveal = false;
+    int layer = 0;  // 0 letters, 1 numbers, 2 symbols
+    int shift = 0;  // 0 off, 1 next letter, 2 caps lock
+    String ssid, portalUser;
+} kb;
+void openKeyboard(KbFor purpose, const String &ssid, const String &initial = "");
+void joinNetwork(const String &ssid, const String &pass);
+void busy(const char *message);
+int netPage = 0, netShown = 0;
 
 // ── System Settings: mirrors src/components/DisplaySettings.tsx ─────────────
 // Same overlay as the web: header with close, a tab rail (Display, Data,
@@ -1248,14 +1765,15 @@ constexpr int ROWS_TOP = OY + 54, ROW_H = 44;
 bool settingsOpen = false;
 int section = 0;  // 0 display, 1 data, 2 network, 3 device, 4 about
 uint32_t settingsTouched = 0;
-char note[96] = "";
+char note[200] = "";
 uint32_t noteUntil = 0;
 int armed = 0;            // control id waiting for its confirming second tap
 uint32_t armedUntil = 0;
 
 enum Ctl {
     C_CLOSE = 1, C_TAB, C_BRIGHT, C_NIGHT, C_FROM_M, C_FROM_P, C_TO_M, C_TO_P, C_NIGHT_LVL, C_ORIENT,
-    C_LANG, C_REFRESH, C_TOUCH, C_IDLE, C_RECONNECT, C_FIELD, C_SOUND, C_REBOOT, C_RESET, C_OTA
+    C_LANG, C_REFRESH, C_TOUCH, C_IDLE, C_RECONNECT, C_FIELD, C_SOUND, C_REBOOT, C_RESET, C_OTA,
+    C_NET, C_SCAN, C_FORGET, C_SIGNIN, C_NET_UP, C_NET_DOWN
 };
 struct Control { Rect r; int id, aux; };
 Control ctls[40];
@@ -1370,6 +1888,21 @@ void timeStepper(int x, int cy, int minutes, int minusId, int plusId) {
     labelCenter(x + 59, cy - 4, v, 1, TEXT);
 }
 
+// Wi-Fi signal as four bars, and a padlock for secured networks.
+void signalBars(int x, int cy, int rssi, uint16_t c) {
+    const int level = rssi >= -60 ? 4 : rssi >= -67 ? 3 : rssi >= -75 ? 2 : rssi >= -85 ? 1 : 0;
+    for (int b = 0; b < 4; ++b) {
+        const int h = 4 + b * 3;
+        aaRoundRect(x + b * 5, cy + 6 - h, 3, h, 1, b < level ? c : blend(c, BG, 60));
+    }
+}
+void lockIcon(int x, int cy, uint16_t c) {
+    aaRoundRect(x - 5, cy - 1, 10, 8, 2, c);
+    screen.drawFastVLine(x - 3, cy - 5, 4, c);
+    screen.drawFastVLine(x + 2, cy - 5, 4, c);
+    screen.drawFastHLine(x - 2, cy - 6, 4, c);
+}
+
 // One settings row: label (+ DEVICE chip), hint, bottom rule. Returns the
 // vertical centre for its control.
 int rowY = 0;
@@ -1410,6 +1943,7 @@ void tabIcon(int i, int x, int y, uint16_t c, uint16_t bg) {
 }
 
 void drawSettings() {
+    needPresent = true;
     ctlCount = 0;
     aaRoundRect(OX, OY, OW, OH, 12, BORDER);
     aaRoundRect(OX + 1, OY + 1, OW - 2, OH - 2, 11, BG);
@@ -1480,24 +2014,66 @@ void drawSettings() {
         const int idleV[] = {10, 30, 60, 120};
         segmented(CX1, cy, idle, idleV, 4, cfg.idleSecs, C_IDLE);
     } else if (section == 2) {
+        // Network, laid out like a phone's Wi-Fi screen: the current network,
+        // then every network in range; tap one to join it.
         const bool up = WiFi.status() == WL_CONNECTED;
-        char ssid[40];
-        copyText(ssid, sizeof(ssid), WIFI_SSID, 30);
-        int cy = beginRow(L("Connection", "การเชื่อมต่อ"), L("Wi-Fi on the ESP32-S3, 2.4 GHz", "Wi-Fi บน ESP32-S3 ความถี่ 2.4 GHz"), true);
-        snprintf(v, sizeof(v), "Wi-Fi - %s", up ? ssid : L("not connected", "ไม่ได้เชื่อมต่อ"));
-        readOnly(CX1, cy, v);
-        cy = beginRow(L("Signal", "ความแรงสัญญาณ"), nullptr, true);
-        if (up) snprintf(v, sizeof(v), "%d dBm  %s", WiFi.RSSI(), signalQuality(WiFi.RSSI()));
-        readOnly(CX1, cy, up ? v : "-");
-        cy = beginRow("IP", nullptr, true);
-        readOnly(CX1, cy, up ? WiFi.localIP().toString().c_str() : "-");
-        cy = beginRow("MAC", nullptr, true);
-        readOnly(CX1, cy, WiFi.macAddress().c_str());
-        cy = beginRow(L("Access point", "แอคเซสพอยต์"), L("Strongest one for this network", "ตัวที่สัญญาณแรงที่สุด"), true);
-        if (up) snprintf(v, sizeof(v), "%s  ch %ld", WiFi.BSSIDstr().c_str(), static_cast<long>(WiFi.channel()));
-        readOnly(CX1, cy, up ? v : "-");
-        cy = beginRow(L("Reconnect", "เชื่อมต่อใหม่"), L("Restart the network link", "รีสตาร์ทการเชื่อมต่อเครือข่าย"), true);
-        actionButton(CX1, cy, L("Reconnect", "เชื่อมต่อใหม่"), C_RECONNECT);
+        if (up) {
+            const char *state = inet == Inet::Portal ? L("Connected - sign-in required", "เชื่อมต่อแล้ว - ต้องลงชื่อเข้าใช้")
+                              : inet == Inet::Offline ? L("Connected - no internet", "เชื่อมต่อแล้ว - ไม่มีอินเทอร์เน็ต")
+                              : L("Connected", "เชื่อมต่อแล้ว");
+            snprintf(v, sizeof(v), "%s  |  IP %s  |  %d dBm", state, WiFi.localIP().toString().c_str(), WiFi.RSSI());
+            int cy = beginRow(currentSsid.c_str(), v);
+            actionButton(CX1, cy, L("Forget", "ลืม"), C_FORGET, true);
+            signalBars(CX1 - textWidth(L("Forget", "ลืม"), 1) - 28 - 34, cy, WiFi.RSSI(), TEXT);
+            aaCircle(CX0 - 7, cy - 6, 3, inet == Inet::Online ? C_RESOLVED : C_PENDING);
+        } else {
+            beginRow(L("Not connected", "ไม่ได้เชื่อมต่อ"),
+                     knownCount ? L("Looking for a remembered network...", "กำลังหาเครือข่ายที่บันทึกไว้...")
+                                : L("Choose a network below", "เลือกเครือข่ายด้านล่าง"));
+        }
+        if (up && inet == Inet::Portal) {
+            char hint[200];
+            snprintf(hint, sizeof(hint), portalFailed ? L("Couldn't sign in. Ask IT to allow MAC %s", "ลงชื่อเข้าใช้ไม่ได้ ให้ฝ่าย IT อนุญาต MAC %s")
+                                                      : L("The panel can sign in for you", "จอนี้ลงชื่อเข้าใช้ให้ได้"),
+                     WiFi.macAddress().c_str());
+            int cy = beginRow(L("This network has a sign-in page", "เครือข่ายนี้ต้องลงชื่อเข้าใช้ผ่านหน้าเว็บ"), hint);
+            actionButton(CX1, cy, L("Sign in", "ลงชื่อเข้าใช้"), C_SIGNIN);
+        }
+
+        // Networks in range
+        const int hy = rowY + 16;
+        label(CX0, hy - 4, L("NETWORKS", "เครือข่ายที่พบ"), 0, MUTED);
+        actionButton(CX1, hy, L("Scan", "สแกน"), C_SCAN);
+        const int scanW = textWidth(L("Scan", "สแกน"), 1) + 28;
+        rowY += 34;
+        const int listBottom = OY + OH - 28;
+        int i = netPage, shown = 0;
+        for (; i < netCount; ++i) {
+            if (up && nets[i].ssid == currentSsid) continue;
+            if (rowY + 34 > listBottom) break;
+            const int cy = rowY + 17;
+            signalBars(CX0, cy, nets[i].rssi, TEXT);
+            const int nw = utext(CX0 + 30, cy - 8, nets[i].ssid.c_str(), TEXT, 330);
+            if (knownIndex(nets[i].ssid) >= 0) pill(CX0 + 30 + nw + 10, cy - 7, L("Saved", "บันทึกแล้ว"), MUTED, blend(TEXT, BG, 18), 14, 0);
+            if (nets[i].secure) lockIcon(CX1 - 12, cy, MUTED);
+            screen.drawFastHLine(CX0, rowY + 33, CX1 - CX0, BORDER);
+            addCtl({CX0, rowY, CX1 - CX0, 34}, C_NET, i);
+            rowY += 34;
+            ++shown;
+        }
+        netShown = shown;
+        const bool more = i < netCount;
+        if (netPage > 0 || more) {  // page through a long list
+            const Rect upR = {CX1 - scanW - 76, hy - 13, 30, 26}, downR = {CX1 - scanW - 40, hy - 13, 30, 26};
+            arrowButton(upR, true, netPage > 0);
+            arrowButton(downR, false, more);
+            if (netPage > 0) addCtl(upR, C_NET_UP);
+            if (more) addCtl(downR, C_NET_DOWN, i);
+        }
+        if (netCount == 0) label(CX0, rowY + 10, L("No networks found yet - tap Scan", "ยังไม่พบเครือข่าย - แตะสแกน"), 1, MUTED);
+        snprintf(v, sizeof(v), "MAC %s  |  %s", WiFi.macAddress().c_str(),
+                 L("2.4 GHz networks only", "รองรับเฉพาะ 2.4 GHz"));
+        label(CX0, OY + OH - 22, v, 1, MUTED);
     } else if (section == 3) {
         const char *title = hasData ? (details["title"] | "") : "";
         int cy = beginRow(L("Board title", "ชื่อบนจอ"), L("Shown in the header: the company name", "ชื่อที่แสดงบนหัวจอ: ชื่อบริษัท"));
@@ -1554,6 +2130,7 @@ void openSettings() {
 }
 void closeSettings() {
     settingsOpen = false;
+    kb.open = false;
     drawDashboard();
 }
 
@@ -1567,6 +2144,7 @@ void setLanguage(bool th);
 int dragging = 0;
 Rect dragRect;
 void sliderDrag(int x) {
+    needPresent = true;
     const int v = sliderValue(dragRect, x);
     int &target = dragging == C_BRIGHT ? cfg.brightness : cfg.nightLevel;
     if (v == target) return;
@@ -1587,7 +2165,46 @@ void settingsTap(int x, int y) {
         if (c.id != C_REBOOT && c.id != C_RESET) armed = 0;
         switch (c.id) {
             case C_CLOSE: closeSettings(); return;
-            case C_TAB: section = c.aux; break;
+            case C_TAB:
+                section = c.aux;
+                if (section == 2 && (!scannedAt || millis() - scannedAt > 30000)) {
+                    drawSettings();
+                    busy(L("Scanning...", "กำลังสแกน..."));
+                    scanNetworks();
+                    netPage = 0;
+                }
+                break;
+            case C_SCAN:
+                busy(L("Scanning...", "กำลังสแกน..."));
+                scanNetworks();
+                netPage = 0;
+                break;
+            case C_NET_UP: netPage = max(0, netPage - max(1, netShown)); break;
+            case C_NET_DOWN: netPage = c.aux; break;
+            case C_NET: {
+                const String ssid = nets[c.aux].ssid;
+                const int k = knownIndex(ssid);
+                if (k >= 0) joinNetwork(ssid, known[k].pass);
+                else if (!nets[c.aux].secure) joinNetwork(ssid, "");
+                else openKeyboard(KbFor::WifiPass, ssid);
+                return;
+            }
+            case C_FORGET: {
+                char msg[160];
+                snprintf(msg, sizeof(msg), thai ? "ลืม %s แล้ว" : "Forgot %s", currentSsid.c_str());
+                forgetNetwork(currentSsid);
+                WiFi.disconnect();
+                currentSsid = "";
+                inet = Inet::Unknown;
+                setNote(msg);
+                connectStrongest();
+                break;
+            }
+            case C_SIGNIN: {
+                const int k = knownIndex(currentSsid);
+                openKeyboard(KbFor::PortalUser, currentSsid, k >= 0 ? known[k].portalUser : "");
+                return;
+            }
             case C_BRIGHT: case C_NIGHT_LVL:
                 dragging = c.id;
                 dragRect = c.r;
@@ -1616,10 +2233,14 @@ void settingsTap(int x, int y) {
             case C_OTA: setNote(L("Update over USB for now", "อัปเดตผ่าน USB เท่านั้น")); break;
             case C_REBOOT: case C_RESET:
                 if (confirm) {
-                    if (c.id == C_RESET) prefs.clear();
+                    if (c.id == C_RESET) {
+                        prefs.clear();
+                        wprefs.clear();  // remembered networks too; device_config.h seeds again
+                    }
                     else saveSettings();
                     screen.fillScreen(BG);
                     labelCenter(400, 236, L("Restarting...", "กำลังรีสตาร์ท..."), 2, TEXT);
+                    present(false);
                     delay(300);
                     ESP.restart();
                 }
@@ -1630,6 +2251,253 @@ void settingsTap(int x, int y) {
         saveSettings();
         applyBrightness();
         drawSettings();
+        return;
+    }
+}
+
+// ── On-screen keyboard ───────────────────────────────────────────────────────
+// iPhone-style: letters / numbers / symbols, shift (tap twice for caps lock),
+// Show/Hide for passwords, Cancel and Join. Used for Wi-Fi passwords and for
+// the username/password of a network's sign-in page.
+enum KeyAction { K_CHAR, K_SHIFT, K_BACK, K_LAYER, K_LAYER2, K_SPACE, K_DONE, K_CANCEL, K_REVEAL };
+struct Key { Rect r; char ch; int action; };
+Key keys[52];
+int keyCount = 0;
+constexpr int KEY_W = 70, KEY_H = 48, KEY_GAP = 6, KB_TOP = 200;
+
+void addKey(const Rect &r, char ch, int action) {
+    if (keyCount < 52) keys[keyCount++] = {r, ch, action};
+}
+void keyCap(const Rect &r, const char *text, uint16_t bg, int size = 2) {
+    aaRoundRect(r.x, r.y, r.w, r.h, 8, bg);
+    labelCenter(r.x + r.w / 2, r.y + r.h / 2 - 4 * size, text, size, TEXT);
+}
+bool kbDoneEnabled() {
+    return kb.purpose == KbFor::WifiPass ? strlen(kb.text) >= 8 : true;  // WPA needs 8+
+}
+const char *kbDoneLabel() {
+    return kb.purpose == KbFor::WifiPass ? L("Join", "เข้าร่วม")
+         : kb.purpose == KbFor::PortalUser ? L("Next", "ถัดไป") : L("Sign in", "ลงชื่อเข้าใช้");
+}
+
+void drawKeyboard() {
+    needPresent = true;
+    keyCount = 0;
+    screen.fillScreen(BG);
+    // top bar: Cancel | title | Join
+    const Rect cancel = {PAD, 12, 110, 40};
+    labelCenter(cancel.x + cancel.w / 2, cancel.y + 12, L("Cancel", "ยกเลิก"), 2, BRAND);
+    addKey(cancel, 0, K_CANCEL);
+    const char *done = kbDoneLabel();
+    const int dw = textWidth(done, 2) + 36;
+    const Rect doneR = {800 - PAD - dw, 12, dw, 40};
+    keyCap(doneR, done, kbDoneEnabled() ? BRAND : blend(TEXT, BG, 25));
+    addKey(doneR, 0, K_DONE);
+    screen.drawFastHLine(0, 62, 800, BORDER);
+    utext(PAD + 20, 80, kb.title, TEXT, 800 - 2 * PAD - 40);
+
+    // field
+    const Rect field = {PAD + 20, 112, 800 - 2 * PAD - 40, 50};
+    aaRoundRect(field.x, field.y, field.w, field.h, 10, BORDER);
+    aaRoundRect(field.x + 1, field.y + 1, field.w - 2, field.h - 2, 9, blend(TEXT, BG, 14));
+    const int fy = field.y + field.h / 2;
+    int tx = field.x + 16;
+    if (!kb.text[0]) {
+        label(tx + 10, fy - 8, kb.purpose == KbFor::PortalUser ? L("Username", "ชื่อผู้ใช้") : L("Password", "รหัสผ่าน"), 2, MUTED);
+    } else if (kb.masked && !kb.reveal) {
+        for (size_t i = 0; i < strlen(kb.text); ++i) aaCircle(tx + 5 + static_cast<int>(i) * 14, fy, 4, TEXT);
+        tx += static_cast<int>(strlen(kb.text)) * 14;
+    } else {
+        tx += aaText(fontFor(2), tx, fy + fontFor(2).capHeight / 2, kb.text, TEXT);
+    }
+    screen.fillRect(tx + 3, fy - 11, 2, 22, BRAND);  // cursor
+    if (kb.masked) {
+        const char *rv = kb.reveal ? L("Hide", "ซ่อน") : L("Show", "แสดง");
+        const int rw = textWidth(rv, 1) + 28;
+        const Rect revealR = {field.x + field.w - rw - 8, field.y + 9, rw, 32};
+        aaRoundRect(revealR.x, revealR.y, revealR.w, revealR.h, 7, blend(TEXT, BG, 26));
+        labelCenter(revealR.x + rw / 2, revealR.y + 12, rv, 1, TEXT);
+        addKey(revealR, 0, K_REVEAL);
+    }
+
+    // keys
+    static const char *ROWS[3][3] = {
+        {"qwertyuiop", "asdfghjkl", "zxcvbnm"},
+        {"1234567890", "-/:;()$&@\"", ".,?!'"},
+        {"[]{}#%^*+=", "_\\|~<>`$&@", ".,?!'"},
+    };
+    for (int r = 0; r < 3; ++r) {
+        const char *row = ROWS[kb.layer][r];
+        const int n = strlen(row);
+        const bool special = r == 2;
+        const int rowW = n * KEY_W + (n - 1) * KEY_GAP + (special ? 2 * (100 + KEY_GAP) : 0);
+        int x = (800 - rowW) / 2;
+        const int y = KB_TOP + r * (KEY_H + 10);
+        if (special) {
+            const Rect s = {x, y, 100, KEY_H};
+            if (kb.layer == 0) {
+                keyCap(s, kb.shift == 2 ? "CAPS" : "Shift", kb.shift ? BRAND : blend(TEXT, BG, 22), 1);
+                addKey(s, 0, K_SHIFT);
+            } else {
+                keyCap(s, kb.layer == 1 ? "#+=" : "123", blend(TEXT, BG, 22), 1);
+                addKey(s, 0, K_LAYER2);
+            }
+            x += 100 + KEY_GAP;
+        }
+        for (int i = 0; i < n; ++i) {
+            char c = row[i];
+            if (kb.layer == 0 && kb.shift) c = toupper(c);
+            const char cap[2] = {c, 0};
+            const Rect k = {x, y, KEY_W, KEY_H};
+            keyCap(k, cap, blend(TEXT, BG, 38));
+            addKey(k, c, K_CHAR);
+            x += KEY_W + KEY_GAP;
+        }
+        if (special) {
+            const Rect b = {x, y, 100, KEY_H};
+            keyCap(b, L("Delete", "ลบ"), blend(TEXT, BG, 22), 1);
+            addKey(b, 0, K_BACK);
+        }
+    }
+    const int y4 = KB_TOP + 3 * (KEY_H + 10);
+    const Rect layerR = {(800 - (120 + KEY_GAP + 400 + KEY_GAP + 140)) / 2, y4, 120, KEY_H};
+    keyCap(layerR, kb.layer == 0 ? "123" : "ABC", blend(TEXT, BG, 22), 1);
+    addKey(layerR, 0, K_LAYER);
+    const Rect space = {layerR.x + 120 + KEY_GAP, y4, 400, KEY_H};
+    keyCap(space, L("space", "เว้นวรรค"), blend(TEXT, BG, 38), 1);
+    addKey(space, ' ', K_SPACE);
+    const Rect done2 = {space.x + 400 + KEY_GAP, y4, 140, KEY_H};
+    keyCap(done2, done, kbDoneEnabled() ? BRAND : blend(TEXT, BG, 25), 1);
+    addKey(done2, 0, K_DONE);
+}
+
+void closeKeyboard() {
+    kb.open = false;
+    memset(kb.text, 0, sizeof(kb.text));
+    drawDashboard();
+}
+void openKeyboard(KbFor purpose, const String &ssid, const String &initial) {
+    kb.open = true;
+    kb.purpose = purpose;
+    kb.ssid = ssid;
+    copyText(kb.text, sizeof(kb.text), initial.c_str(), 63);
+    kb.layer = 0;
+    kb.shift = 0;
+    kb.reveal = false;
+    kb.masked = purpose != KbFor::PortalUser;
+    if (purpose == KbFor::WifiPass)
+        snprintf(kb.title, sizeof(kb.title), thai ? "ป้อนรหัสผ่านของ \"%s\"" : "Enter the password for \"%s\"", ssid.c_str());
+    else if (purpose == KbFor::PortalUser)
+        snprintf(kb.title, sizeof(kb.title), thai ? "ชื่อผู้ใช้สำหรับหน้าลงชื่อเข้าใช้ของ \"%s\" (เว้นว่างได้)"
+                                                  : "Username for the sign-in page of \"%s\" (can be empty)", ssid.c_str());
+    else
+        snprintf(kb.title, sizeof(kb.title), thai ? "รหัสผ่านสำหรับหน้าลงชื่อเข้าใช้ของ \"%s\" (เว้นว่างได้)"
+                                                  : "Password for the sign-in page of \"%s\" (can be empty)", ssid.c_str());
+    settingsTouched = millis();
+    drawKeyboard();
+}
+
+// A small modal card over the current frame, shown at once (before blocking work).
+void busy(const char *message) {
+    needPresent = true;
+    aaRoundRect(180, 196, 440, 88, 14, BORDER);
+    aaRoundRect(181, 197, 438, 86, 13, CARD);
+    const int w = textWidth(message, 2);
+    label(400 - min(w, 400) / 2, 232, message, 2, TEXT);
+    present(false);
+}
+
+void joinNetwork(const String &ssid, const String &pass) {
+    kb.open = false;
+    char msg[200];
+    snprintf(msg, sizeof(msg), thai ? "กำลังเชื่อมต่อ %s..." : "Joining %s...", ssid.c_str());
+    drawDashboard();
+    busy(msg);
+    WiFi.disconnect();
+    delay(200);
+    const int n = netIndex(ssid);
+    if (n >= 0) WiFi.begin(ssid.c_str(), pass.c_str(), nets[n].channel, nets[n].bssid);
+    else WiFi.begin(ssid.c_str(), pass.c_str());
+    WiFi.setTxPower(WIFI_POWER_19_5dBm);
+    joinStarted = millis();
+    const uint32_t t0 = millis();
+    while (WiFi.status() != WL_CONNECTED && millis() - t0 < 15000) delay(200);
+    const bool ok = WiFi.status() == WL_CONNECTED;
+    Serial.printf("Join %s: %s\n", ssid.c_str(), ok ? "connected" : "failed");
+    if (ok) {
+        rememberNetwork(ssid, pass);
+        currentSsid = ssid;
+        configTime(0, 0, "pool.ntp.org", "time.google.com", "time.cloudflare.com");
+        checkInternet();
+        if (inet == Inet::Portal) autoPortalLogin();
+        snprintf(msg, sizeof(msg), thai ? "เชื่อมต่อ %s แล้ว" : "Connected to %s", ssid.c_str());
+        nextPoll = millis();  // fetch the data now
+    } else {
+        snprintf(msg, sizeof(msg), thai ? "เชื่อมต่อ %s ไม่ได้ ตรวจสอบรหัสผ่าน" : "Couldn't join %s. Check the password.", ssid.c_str());
+        connectStrongest();  // back to a remembered network
+    }
+    memset(kb.text, 0, sizeof(kb.text));
+    setNote(msg);
+    settingsTouched = millis();
+    section = 2;
+    drawDashboard();
+}
+
+void portalSignIn(const String &user, const String &pass) {
+    kb.open = false;
+    drawDashboard();
+    busy(L("Signing in...", "กำลังลงชื่อเข้าใช้..."));
+    const bool ok = portalLogin(user, pass);
+    portalFailed = !ok;
+    if (ok) {
+        const int k = knownIndex(currentSsid);
+        if (k >= 0) {  // remember it, so the panel signs in again by itself
+            known[k].portalSaved = true;
+            known[k].portalUser = user;
+            known[k].portalPass = pass;
+            saveKnown();
+        }
+        nextPoll = millis();
+    }
+    memset(kb.text, 0, sizeof(kb.text));
+    setNote(ok ? L("Signed in", "ลงชื่อเข้าใช้แล้ว") : L("Couldn't sign in", "ลงชื่อเข้าใช้ไม่ได้"));
+    settingsTouched = millis();
+    drawDashboard();
+}
+
+void keyboardTap(int x, int y) {
+    settingsTouched = millis();
+    for (int i = 0; i < keyCount; ++i) {
+        const Key &k = keys[i];
+        if (!k.r.in(x, y)) continue;
+        const size_t len = strlen(kb.text);
+        switch (k.action) {
+            case K_CHAR:
+            case K_SPACE:
+                if (len < 63) { kb.text[len] = k.ch; kb.text[len + 1] = 0; }
+                if (kb.shift == 1) kb.shift = 0;
+                break;
+            case K_BACK: if (len) kb.text[len - 1] = 0; break;
+            case K_SHIFT: kb.shift = (kb.shift + 1) % 3; break;
+            case K_LAYER: kb.layer = kb.layer == 0 ? 1 : 0; break;
+            case K_LAYER2: kb.layer = kb.layer == 1 ? 2 : 1; break;
+            case K_REVEAL: kb.reveal = !kb.reveal; break;
+            case K_CANCEL: closeKeyboard(); return;
+            case K_DONE: {
+                if (!kbDoneEnabled()) return;
+                const String text = kb.text;
+                if (kb.purpose == KbFor::WifiPass) joinNetwork(kb.ssid, text);
+                else if (kb.purpose == KbFor::PortalUser) {
+                    kb.portalUser = text;
+                    const int kn = knownIndex(kb.ssid);
+                    const String user = text;
+                    openKeyboard(KbFor::PortalPass, kb.ssid, kn >= 0 ? known[kn].portalPass : "");
+                    kb.portalUser = user;
+                } else portalSignIn(kb.portalUser, text);
+                return;
+            }
+        }
+        drawKeyboard();
         return;
     }
 }
@@ -1675,11 +2543,18 @@ void drawHotel() {
         subLine(r.x + 7, r.y + 51, sub, MUTED);
     }
 
-    // Occupancy forecast, next 14 days (0-100 %)
+    // Occupancy forecast, next 14 days: rooms occupied out of rooms in the hotel
     {
         const int x = PAD, y = ROW_A_Y, w = LEFT_W, h = ROW_A_H;
-        panelBox(x, y, w, h, L("OCCUPANCY FORECAST - NEXT 14 DAYS", "พยากรณ์การเข้าพัก 14 วัน"));
         JsonArrayConst days = hotel["forecast"].as<JsonArrayConst>();
+        int rooms = 1, n = 0;
+        for (JsonObjectConst day : days) {
+            if (n++ == 14) break;
+            rooms = max(rooms, day["total"] | 0);
+        }
+        char title[96];
+        snprintf(title, sizeof(title), thai ? "พยากรณ์การเข้าพัก 14 วัน · ห้อง (จาก %d)" : "OCCUPANCY FORECAST · NEXT 14 DAYS · ROOMS OF %d", rooms);
+        panelBox(x, y, w, h, title);
         if (days.size() == 0) {
             labelCenter(x + w / 2, y + h / 2, L("No forecast in this report", "ไม่มีข้อมูลพยากรณ์"), 1, MUTED);
         } else {
@@ -1689,11 +2564,11 @@ void drawHotel() {
             for (JsonObjectConst day : days) {
                 if (d == 14) break;
                 const int bx = x + 10 + d * slot + (slot - barW) / 2;
-                const float p = constrain(day["pct"] | 0.0f, 0.0f, 100.0f);
-                const int bh = static_cast<int>(area * p / 100.0f);
+                const int occupied = constrain(static_cast<int>(day["rooms"] | 0), 0, rooms);
+                const int bh = area * occupied / rooms;
                 if (bh > 0) aaRoundRect(bx, base - bh, barW, bh, min(3, bh / 2), d == 0 ? BRAND : BAR_FORECAST);
                 char v[8];
-                snprintf(v, sizeof(v), "%d", static_cast<int>(lroundf(day["pct"] | 0.0f)));
+                snprintf(v, sizeof(v), "%d", occupied);
                 labelCenter(bx + barW / 2, base - bh - 10, v, 1, TEXT);
                 char lab[4];
                 copyText(lab, sizeof(lab), day["label"] | "", 2);
@@ -1765,6 +2640,11 @@ void drawHotel() {
 
 // ── Screens and taps ─────────────────────────────────────────────────────────
 void drawDashboard() {
+    needPresent = true;
+    if (kb.open) {
+        drawKeyboard();
+        return;
+    }
     screen.fillScreen(BG);
     drawHeader();
     if (current == Screen::Kaizen) {
@@ -1829,6 +2709,10 @@ void setLanguage(bool th) {
 void handleTap(int x, int y) {
     lastTouch = millis();
     Serial.printf("Tap %d,%d\n", x, y);
+    if (kb.open) {
+        keyboardTap(x, y);
+        return;
+    }
     if (settingsOpen) {
         settingsTap(x, y);
         return;
@@ -1849,6 +2733,14 @@ void handleTap(int x, int y) {
 }
 
 // ── Data ─────────────────────────────────────────────────────────────────────
+uint32_t dataHash = 0;  // of the board's data, to skip redraws when nothing changed
+uint32_t hashDetails() {
+    String s;
+    serializeJson(details, s);
+    uint32_t h = 2166136261u;  // FNV-1a
+    for (size_t i = 0; i < s.length(); ++i) h = (h ^ static_cast<uint8_t>(s[i])) * 16777619u;
+    return h;
+}
 bool fetchDashboard() {
     JsonDocument filter;
     for (const Metric &metric : METRICS) filter[metric.key] = true;
@@ -1879,40 +2771,46 @@ bool fetchDashboard() {
 }
 
 // ── Wi-Fi management ─────────────────────────────────────────────────────────
-// "Qhouse Main_2.4G" is served by more than one access point. Left to itself
-// the ESP32 joins whichever it hears first and never roams, so pick the
-// strongest explicitly by BSSID.
-uint32_t joinStarted = 0;
 void connectStrongest() {
-    ApChoice best;
-    if (strongestAp(best)) {
-        Serial.printf("Joining strongest AP %02X:%02X:%02X:%02X:%02X:%02X  ch %ld  %ld dBm\n",
-                      best.bssid[0], best.bssid[1], best.bssid[2], best.bssid[3], best.bssid[4],
-                      best.bssid[5], (long)best.channel, (long)best.rssi);
-        WiFi.begin(WIFI_SSID, WIFI_PASSWORD, best.channel, best.bssid);
-    } else {
-        WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-    }
-    WiFi.setTxPower(WIFI_POWER_19_5dBm);
+    scanNetworks();
+    inet = Inet::Unknown;
     joinStarted = millis();
+    for (int i = 0; i < netCount; ++i) {  // strongest first
+        const int k = knownIndex(nets[i].ssid);
+        if (k < 0) continue;
+        currentSsid = nets[i].ssid;
+        Serial.printf("Joining %s  ch %ld  %ld dBm\n", currentSsid.c_str(), (long)nets[i].channel, (long)nets[i].rssi);
+        WiFi.begin(currentSsid.c_str(), known[k].pass.c_str(), nets[i].channel, nets[i].bssid);
+        WiFi.setTxPower(WIFI_POWER_19_5dBm);
+        return;
+    }
+    if (knownCount) {
+        currentSsid = known[0].ssid;
+        Serial.println("No remembered network in range; trying the most recent");
+        WiFi.begin(currentSsid.c_str(), known[0].pass.c_str());
+    }
 }
 
 // Pinning a BSSID means auto-reconnect only retries that one AP, so if the link
 // stays down, scan again and take whichever is strongest now. While connected
-// but weak, check every few minutes for a clearly stronger AP.
+// but weak, check every few minutes for a clearly stronger AP. Each time the
+// link comes up, restart the clock sync and look for a sign-in page.
 void manageWifi() {
     static uint32_t lastConnected = 0, lastRoamCheck = 0;
     static bool wasConnected = false;
     const bool connected = WiFi.status() == WL_CONNECTED;
     if (connected) {
         lastConnected = millis();
-        // SNTP started before the network was up can sit in back-off for
-        // minutes; restart it each time the link comes up.
-        if (!wasConnected) configTime(0, 0, "pool.ntp.org", "time.google.com", "time.cloudflare.com");
+        if (!wasConnected) {
+            // SNTP started before the network was up can sit in back-off for minutes.
+            configTime(0, 0, "pool.ntp.org", "time.google.com", "time.cloudflare.com");
+            if (millis() - inetCheckedAt > 20000 || inet == Inet::Unknown) checkInternet();
+            if (inet == Inet::Portal) autoPortalLogin();
+        }
     }
     wasConnected = connected;
 
-    if (!connected && millis() - joinStarted > REJOIN_AFTER_MS && millis() - lastConnected > REJOIN_AFTER_MS) {
+    if (!connected && knownCount && millis() - joinStarted > REJOIN_AFTER_MS && millis() - lastConnected > REJOIN_AFTER_MS) {
         Serial.println("Wi-Fi down; rescanning");
         WiFi.disconnect();
         connectStrongest();
@@ -1922,11 +2820,12 @@ void manageWifi() {
     lastRoamCheck = millis();
     const int rssi = WiFi.RSSI();
     if (rssi >= ROAM_BELOW_DBM) return;
-    ApChoice best;
-    if (strongestAp(best) && best.rssi >= rssi + ROAM_MARGIN_DB && memcmp(best.bssid, WiFi.BSSID(), 6) != 0) {
-        Serial.printf("Roaming: %d dBm here, %ld dBm on ch %ld\n", rssi, (long)best.rssi, (long)best.channel);
+    scanNetworks();
+    const int i = netIndex(currentSsid), k = knownIndex(currentSsid);
+    if (i >= 0 && k >= 0 && nets[i].rssi >= rssi + ROAM_MARGIN_DB && memcmp(nets[i].bssid, WiFi.BSSID(), 6) != 0) {
+        Serial.printf("Roaming: %d dBm here, %ld dBm on ch %ld\n", rssi, (long)nets[i].rssi, (long)nets[i].channel);
         WiFi.disconnect();
-        WiFi.begin(WIFI_SSID, WIFI_PASSWORD, best.channel, best.bssid);
+        WiFi.begin(currentSsid.c_str(), known[k].pass.c_str(), nets[i].channel, nets[i].bssid);
         joinStarted = millis();
     }
 }
@@ -1944,15 +2843,30 @@ void setup() {
         Serial.println("LCD initialization failed");
         return;
     }
-    fb = screen.getFramebuffer();
+    fb = front = screen.getFramebuffer();
+    back = static_cast<uint16_t *>(ps_malloc(800 * 480 * 2));
+    if (back) {
+        memcpy(back, front, 800 * 480 * 2);
+        screen.drawTo(back);
+        fb = back;
+    } else {
+        Serial.println("No PSRAM for the off-screen buffer; drawing directly");
+        back = front;
+    }
+    vsyncInit();
+    wprefs.begin("wifi", false);
+    loadKnown();
     touchBegin();
     applyRotation();
     drawDashboard();
+    present(false);
     applyBrightness();
-    if (!WIFI_SSID[0] || !DISPLAY_TOKEN[0] || !ROOT_CA[0] || strncmp(DISPLAY_URL, "https://", 8) != 0) {
+    // Wi-Fi starts even with no network remembered: one can be picked on the panel.
+    const bool endpointSet = DISPLAY_TOKEN[0] && ROOT_CA[0] && strncmp(DISPLAY_URL, "https://", 8) == 0;
+    if (!endpointSet) {
         status = Status::Unconfigured;
         drawDashboard();
-        return;
+        present(false);
     }
     // Keep the Wi-Fi config out of NVS. Otherwise begin() sees the same
     // SSID/password already stored there and skips applying the new config.
@@ -1968,12 +2882,18 @@ void setup() {
 }
 
 void serialCommand(int cmd) {
-    if (cmd > ' ') Serial.printf("Command %c\n", cmd);
+    if (cmd > ' ' && cmd != '@') Serial.printf("Command %c\n", cmd);
     // S = screenshot. For testing without touching the panel:
     // K / H = Kaizen / Hotel, T = settings (1-5 pick a tab, N toggles night dim),
     // L = toggle language,
     // D = open the Total drill-down, E = expand its first case, X = close it.
-    if (cmd == 'S') dumpScreen();
+    if (cmd == '@') {  // "@x,y": a tap at x,y, for testing flows over serial
+        int x, y;
+        const String s = Serial.readStringUntil('\n');
+        if (sscanf(s.c_str(), "%d,%d", &x, &y) == 2) handleTap(x, y);
+        return;
+    }
+    if (cmd == 'S') { present(false); dumpScreen(); }
     else if (cmd == 'K') showScreen(Screen::Kaizen);
     else if (cmd == 'H') { lastTouch = millis(); showScreen(Screen::Hotel); }
     else if (cmd == 'T') openSettings();
@@ -2005,15 +2925,28 @@ void loop() {
         const bool connected = WiFi.status() == WL_CONNECTED;
         const bool clockReady = time(nullptr) > 1700000000;
         const bool success = connected && clockReady && fetchDashboard();
+        // Data blocked while connected: look for a sign-in page (at most once a minute).
+        if (connected && !success && millis() - inetCheckedAt > 60000) {
+            checkInternet();
+            if (inet == Inet::Portal) autoPortalLogin();
+        }
         if (connected) {
             Serial.printf("Wi-Fi ok, RSSI %d dBm, ch %ld, AP %s, fetch %s\n", WiFi.RSSI(),
                           (long)WiFi.channel(), WiFi.BSSIDstr().c_str(),
                           success ? "ok" : !clockReady ? "waiting for clock" : "failed");
         }
-        status = success ? Status::Live : hasData ? Status::Stale : !connected ? Status::NoWifi
+        status = success ? Status::Live : (connected && inet == Inet::Portal) ? Status::Portal
+                 : hasData ? Status::Stale : !connected ? Status::NoWifi
                  : !clockReady ? Status::NoClock : Status::Unavailable;
         // Don't repaint the board under an open list or settings; it refreshes on close.
-        if (!drill.open && !settingsOpen) drawDashboard();
+        static Status shownStatus = Status::Connecting;
+        const uint32_t h = hashDetails();
+        if (!drill.open && !settingsOpen && (h != dataHash || status != shownStatus)) {
+            drawDashboard();
+            fadeNext = true;  // new numbers fade in rather than flash
+            dataHash = h;
+            shownStatus = status;
+        }
         nextPoll = millis() + (success ? pollMs() : RETRY_MS);
     }
     static uint32_t lastTick = 0;
@@ -2028,5 +2961,6 @@ void loop() {
         lastTick = millis();
     }
     manageWifi();
+    if (needPresent) present(fadeNext);
     delay(20);  // short, so taps feel immediate
 }

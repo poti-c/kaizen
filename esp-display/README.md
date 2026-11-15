@@ -100,7 +100,7 @@ library.
     language. Language is panel-only; the web follows the app language.
   - Data: refresh interval 15s/30s/1m/5m, touch drill-down on/off (off makes
     the board display-only), and return-to-summary 10s/30s/1m/2m.
-  - Network: live Wi-Fi, signal, IP, MAC, access point and a working Reconnect.
+  - Network: laid out like a phone's Wi-Fi screen (see "Wi-Fi" below).
   - Device: Reboot and Factory reset, both needing a second tap within 4 s.
     Factory reset clears the panel's NVS settings; Wi-Fi and the token are
     compiled in and stay. The title, device name and location fields are
@@ -158,6 +158,7 @@ At 115200 baud, mainly for testing without touching the panel:
   pick a tab and `N` toggles night dim.
 - `L` toggles the language.
 - `D` opens the Total list, `E` expands its first case, `X` closes the list.
+- `@x,y` followed by a newline taps at x,y, for testing flows such as the keyboard.
 
 ## Screenshot of the panel
 
@@ -171,28 +172,53 @@ sends `S` over serial and saves the framebuffer as a PNG. It takes about 50 s.
 Use it to compare the layout with `/display` (the `nnrdsp` preview) after
 changing the firmware.
 
-## Wi-Fi behaviour
+## Wi-Fi
 
-"Qhouse Main_2.4G" is served by two access points on channel 6. Left alone,
-the ESP32 joined the far one (about −76 to −95 dBm) and never moved, so the
-firmware now:
-- scans at boot and joins the strongest access point by its MAC address
-  (BSSID);
-- rescans if the link stays down for 45 s;
-- checks every 5 minutes, when the signal is below −78 dBm, for another
-  access point at least 8 dB stronger;
-- keeps Wi-Fi power-saving off;
-- does not store Wi-Fi settings in flash;
-- restarts the clock sync (SNTP) each time Wi-Fi connects.
+**Remembered networks.** System Settings > Network lists the networks in
+range, each with signal bars, a lock if it is secured and "Saved" if it is
+remembered.
+- Tap a network to join it. Secured ones open an on-screen keyboard (letters,
+  numbers, symbols, shift and caps lock, Show/Hide).
+- A network that joins successfully is remembered in NVS (namespace `wifi`, up
+  to 6, most recent first). **Forget** removes the current one.
+- On start, and whenever the link drops for 45 s, the panel scans and joins the
+  strongest remembered network. It pins that network's strongest access
+  point, because the ESP32 doesn't roam by itself. While the signal is weak
+  (below −78 dBm) it checks every 5 minutes for an access point at least 8 dB
+  stronger.
+- The network in `device_config.h` only seeds the list on first start and after
+  a factory reset. After that, change Wi-Fi on the panel; `configure_wifi.sh`
+  matters only for a freshly flashed or reset panel.
+- Wi-Fi power-saving is off, settings don't go into the Wi-Fi driver's own
+  NVS, and SNTP restarts whenever the link comes up.
 
-## Flash backup
+**Sign-in pages (captive portals).** After joining, the panel fetches
+`http://connectivitycheck.gstatic.com/generate_204`, the way phones detect
+portals. HTTP 204 means online; a redirect or a page means a sign-in page is in
+the way.
+- Network then shows **Sign in**. You type the portal's username and password
+  (either can be empty, for "accept terms" pages).
+- The panel loads the portal, follows redirects (HTTP, meta refresh, JS
+  location), finds the login form and fills it in. It keeps the page's hidden
+  fields and ticks its checkboxes, submits the form, and checks again.
+- Details that work are remembered per network, so the panel signs in again
+  by itself on reconnect.
+- Portals that need JavaScript to log in can't be done this way. For those,
+  Network shows the panel's MAC address so IT can allow it on the network. For
+  a hotel's own network that is the dependable option anyway.
+- Portal pages are fetched with certificate checks off (they often use
+  self-signed certificates). Only portal traffic goes that way; Kaizen data
+  always uses the pinned roots.
 
-The factory flash image (`guition-backup-*.bin`, 16 MB) lives beside this README
-and is gitignored. To restore the original firmware:
+**Stored secrets.** Wi-Fi and portal passwords sit in NVS unencrypted (the
+ESP32's default) and are never printed to serial.
 
-```sh
-uvx --from 'esptool==4.13.0' esptool.py --port /dev/cu.usbserial-10 write_flash 0 guition-backup-20261115-173022.bin
-```
+## Drawing and refresh
+
+Everything is drawn off-screen into a PSRAM buffer, and only rows that changed
+are copied to the LCD buffer, so the screen never shows a half-drawn frame.
+The minute data refresh cross-fades the changed pixels over about 0.3 s
+instead of repainting in view. Taps switch instantly.
 
 ## Known limits
 

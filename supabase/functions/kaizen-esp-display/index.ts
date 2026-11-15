@@ -124,7 +124,10 @@ function hotelBoard(row: HotelRow, now: number) {
       sub: `LY ${money(num(row.ly_hotel_rev_ytd))}`, subTh: `ปีก่อน ${money(num(row.ly_hotel_rev_ytd))}` },
   ]
   const days = row.forecast?.days ?? []
-  const forecast = days.slice(0, 14).map(d => ({ label: d.date.slice(8, 10), pct: d.occPct }))
+  // Rooms occupied out of rooms in the hotel, as the web chart draws it.
+  const forecast = days.slice(0, 14).map(d => ({
+    label: d.date.slice(8, 10), pct: d.occPct, rooms: d.occupied, total: d.totalRooms,
+  }))
   const today = [
     { label: "Rooms occupied", labelTh: "ห้องที่ขายได้", value: `${orDash(row.rooms_occupied_today)} / ${orDash(row.rooms_avail_today)}`, color: PANEL_TEXT },
     { label: "ADR", labelTh: "ADR", value: exact(num(row.adr_today)), color: PANEL_TEXT },

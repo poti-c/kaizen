@@ -116,15 +116,21 @@ export function HotelBoard({ refreshMs, lang, sandbox = false }: {
     return () => { cancelled = true; clearInterval(id) }
   }, [activeCompany, refreshMs, sandbox])
 
-  // Next 14 days of the saved forecast, for the trend chart.
+  // Next 14 days of the saved forecast, for the trend chart: rooms occupied
+  // out of the rooms in the hotel (the report's "Occ. Allt" and "TL Rm").
   const chartDays = useMemo(() => {
     const days = row?.forecast?.days ?? []
     return days.slice(0, 14).map((d, i) => ({
       label: d.date.slice(8, 10),
-      pct: d.occPct,
+      rooms: d.occupied,
       today: i === 0,
     }))
   }, [row])
+  const chartRooms = useMemo(
+    () => Math.max(1, ...(row?.forecast?.days ?? []).slice(0, 14).map(d => d.totalRooms)),
+    [row],
+  )
+  const chartTicks = [0, Math.round(chartRooms / 3), Math.round((chartRooms * 2) / 3), chartRooms]
 
   // This week, this month (actual + forecast), and the two months after.
   const windows = useMemo(() => {
@@ -225,7 +231,12 @@ export function HotelBoard({ refreshMs, lang, sandbox = false }: {
 
       {/* Forecast trend + today detail */}
       <div className="flex gap-3 flex-shrink-0" style={{ height: 202, marginTop: 12 }}>
-        <Panel title={th ? 'พยากรณ์การเข้าพัก 14 วัน' : 'Occupancy forecast · next 14 days'} className="flex-1">
+        <Panel
+          title={th
+            ? `พยากรณ์การเข้าพัก 14 วัน · ห้อง (จาก ${chartRooms})`
+            : `Occupancy forecast · next 14 days · rooms of ${chartRooms}`}
+          className="flex-1"
+        >
           {chartDays.length === 0 ? (
             <div className="h-full flex items-center justify-center text-[12px]" style={{ color: C.muted }}>
               {th ? 'ไม่มีข้อมูลพยากรณ์' : 'No forecast in this report'}
@@ -234,9 +245,10 @@ export function HotelBoard({ refreshMs, lang, sandbox = false }: {
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={chartDays} margin={{ top: 16, right: 4, left: 0, bottom: 0 }}>
                 <XAxis dataKey="label" tick={{ fill: C.muted, fontSize: 10 }} axisLine={false} tickLine={false} interval={0} />
-                <YAxis domain={[0, 100]} tick={{ fill: C.muted, fontSize: 10 }} axisLine={false} tickLine={false} width={34} unit="%" />
-                <Bar dataKey="pct" radius={[3, 3, 0, 0]} isAnimationActive={false}
-                     label={{ position: 'top', fill: C.text, fontSize: 9, formatter: (v: number) => Math.round(v) }}>
+                <YAxis domain={[0, chartRooms]} ticks={chartTicks} allowDecimals={false}
+                       tick={{ fill: C.muted, fontSize: 10 }} axisLine={false} tickLine={false} width={34} />
+                <Bar dataKey="rooms" radius={[3, 3, 0, 0]} isAnimationActive={false}
+                     label={{ position: 'top', fill: C.text, fontSize: 9 }}>
                   {chartDays.map((d, i) => (
                     <Cell key={i} fill={d.today ? 'var(--brand-primary, #0891b2)' : 'rgba(255,255,255,0.18)'} />
                   ))}
