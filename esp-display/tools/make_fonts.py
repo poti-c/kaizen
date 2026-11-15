@@ -22,7 +22,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 ASCII = list(range(0x20, 0x7F))
 THAI = list(range(0x0E01, 0x0E3B)) + list(range(0x0E3F, 0x0E5C))
-EXTRA = [0x00B0, 0x00B7, 0x2013, 0x2014, 0x2026, 0x2192]
+EXTRA = [0x00B0, 0x00B3, 0x00B5, 0x00B7, 0x2013, 0x2014, 0x2026, 0x2192]  # ° ³ µ · – — … →
 
 # name, file, pixel size, character set
 STYLES = [
@@ -32,6 +32,7 @@ STYLES = [
     ("title17", "IBMPlexSansThai-SemiBold.ttf", 17, ASCII + THAI + EXTRA), # size 2
     ("head22", "IBMPlexSansThai-SemiBold.ttf", 22, ASCII + THAI + EXTRA),  # size 3
     ("num30", "IBMPlexSansThai-SemiBold.ttf", 30, ASCII + [0x0E3F, 0x00B0]),  # size 4: numbers
+    ("clock64", "IBMPlexSansThai-SemiBold.ttf", 64, [ord(c) for c in " 0123456789:-"]),  # size 5: world clock, AQI
 ]
 
 UPPER_VOWELS = [0x0E31, 0x0E34, 0x0E35, 0x0E36, 0x0E37, 0x0E47]

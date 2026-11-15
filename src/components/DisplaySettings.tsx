@@ -1,8 +1,9 @@
 import { useState, type ReactNode } from 'react'
-import { X, Monitor, RefreshCw, Wifi, Cpu, Info } from 'lucide-react'
+import { X, Monitor, RefreshCw, Wifi, Cpu, Info, Clock } from 'lucide-react'
 import { PANEL as P, type PanelSettings } from '@/lib/panelTheme'
 import { cn } from '@/lib/utils'
 import { useCompany } from '@/contexts/CompanyContext'
+import { CITY_OPTIONS } from '@/lib/worldClock'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // System Settings for the wall panel.
@@ -19,7 +20,7 @@ import { useCompany } from '@/contexts/CompanyContext'
 // live — it really does drive this board.
 // ─────────────────────────────────────────────────────────────────────────────
 
-type SectionId = 'display' | 'data' | 'network' | 'device' | 'about'
+type SectionId = 'display' | 'clock' | 'data' | 'network' | 'device' | 'about'
 
 // Stand-in for what firmware would report over its own API. Fixed values, not
 // invented per-render, so the screen does not look like it is live when it is not.
@@ -143,6 +144,21 @@ function TimeField({ value, onChange }: { value: string; onChange: (v: string) =
   )
 }
 
+function CitySelect({ value, onChange, th }: { value: string; onChange: (v: string) => void; th: boolean }) {
+  return (
+    <select
+      value={value}
+      onChange={e => onChange(e.target.value)}
+      className="rounded-lg px-3 text-[13px] outline-none"
+      style={{ width: 220, height: 36, background: 'rgba(255,255,255,0.06)', border: `1px solid ${P.border}`, color: P.text }}
+    >
+      {CITY_OPTIONS.map(c => (
+        <option key={c.key} value={c.key} style={{ background: P.card }}>{th ? c.nameTh : c.name}</option>
+      ))}
+    </select>
+  )
+}
+
 function ActionButton({ label, tone = 'normal', onClick }: {
   label: string; tone?: 'normal' | 'danger'; onClick: () => void
 }) {
@@ -190,6 +206,7 @@ export function DisplaySettings({ settings, onChange, onClose, lang, onActivity 
 
   const sections: { id: SectionId; label: string; icon: typeof Monitor }[] = [
     { id: 'display', label: th ? 'หน้าจอ' : 'Display',  icon: Monitor },
+    { id: 'clock',   label: th ? 'นาฬิกาโลก' : 'World clock', icon: Clock },
     { id: 'data',    label: th ? 'ข้อมูล' : 'Data',      icon: RefreshCw },
     { id: 'network', label: th ? 'เครือข่าย' : 'Network', icon: Wifi },
     { id: 'device',  label: th ? 'อุปกรณ์' : 'Device',   icon: Cpu },
@@ -303,6 +320,22 @@ export function DisplaySettings({ settings, onChange, onClose, lang, onActivity 
                   options={[{ value: 0, label: th ? 'ปกติ' : 'Normal' }, { value: 180, label: '180°' }]}
                   onChange={v => set('orientation', v as 0 | 180)}
                 />
+              </Row>
+            </>
+          )}
+
+          {section === 'clock' && (
+            <>
+              {[0, 1, 2].map(i => (
+                <Row key={i} label={`${th ? 'นาฬิกา' : 'Clock'} ${i + 1}`}
+                     hint={i === 0 ? (th ? 'เวลาและอุณหภูมิของแต่ละเมือง' : 'Time and temperature for each city') : undefined}>
+                  <CitySelect th={th} value={settings.clocks[i] ?? 'chiangmai'}
+                              onChange={v => set('clocks', settings.clocks.map((c, j) => (j === i ? v : c)))} />
+                </Row>
+              ))}
+              <Row label={th ? 'ตำแหน่งวัดคุณภาพอากาศ' : 'Air quality location'}
+                   hint={th ? 'สถานี Air4Thai ที่ใกล้ที่สุด (ในประเทศไทย)' : 'Nearest Air4Thai station (in Thailand)'}>
+                <CitySelect th={th} value={settings.airHome} onChange={v => set('airHome', v)} />
               </Row>
             </>
           )}

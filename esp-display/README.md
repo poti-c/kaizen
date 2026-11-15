@@ -76,6 +76,16 @@ SCL 20, reset 38). The firmware reads it directly over I2C, with no extra
 library.
 
 - **Bottom row:** Kaizen System, Hotel and System Settings switch boards.
+- **World Clock board** (third button): three city clocks, each with its UTC
+  offset, its difference from the panel's location, today's date, and current
+  temperature and weather. Below them is air quality at the panel's location.
+  - Cities are picked in System Settings > World clock (defaults: Chiang Mai,
+    Tokyo, Taipei; air quality in Chiang Mai).
+  - Data comes from the `kaizen-ambient` edge function every 10 minutes:
+    weather from Open-Meteo, air quality from the nearest **Air4Thai** station
+    (Thai AQI). It falls back to Open-Meteo's modelled values (US AQI).
+  - Times are computed on the panel from the offset kaizen-ambient reports, so
+    DST cities are right too, and the board redraws once a minute.
 - **Rotate boards** (System Settings > Display): cycles the bottom-row boards in
   order, Kaizen > Hotel > ..., every 15s / 30s / 1m / 2m / 5m. It pauses while a
   case list, Settings or the keyboard is open, and a tap restarts the countdown.
