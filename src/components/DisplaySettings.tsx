@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react'
-import { X, Monitor, RefreshCw, Wifi, Cpu, Info, Clock } from 'lucide-react'
+import { X, Monitor, RefreshCw, Wifi, Cpu, Info, Clock, ChevronRight } from 'lucide-react'
 import { PANEL as P, type PanelSettings } from '@/lib/panelTheme'
 import { cn } from '@/lib/utils'
 import { useCompany } from '@/contexts/CompanyContext'
@@ -144,18 +144,79 @@ function TimeField({ value, onChange }: { value: string; onChange: (v: string) =
   )
 }
 
-function CitySelect({ value, onChange, th }: { value: string; onChange: (v: string) => void; th: boolean }) {
+// City picker. A native <select> is out on the panel: its popup is drawn by the
+// OS, not the page, so on a kiosk/embedded browser it can open off-screen or not
+// at all. Instead the button opens CityPicker, a full-panel list grouped by
+// country with finger-sized buttons.
+function CityButton({ value, onOpen, th }: { value: string; onOpen: () => void; th: boolean }) {
+  const c = CITY_OPTIONS.find(o => o.key === value)
   return (
-    <select
-      value={value}
-      onChange={e => onChange(e.target.value)}
-      className="rounded-lg px-3 text-[13px] outline-none"
-      style={{ width: 220, height: 36, background: 'rgba(255,255,255,0.06)', border: `1px solid ${P.border}`, color: P.text }}
+    <button
+      onClick={onOpen}
+      className="rounded-lg px-3 text-[13px] flex items-center justify-between gap-2 active:brightness-150 transition"
+      style={{ width: 240, height: 40, background: 'rgba(255,255,255,0.06)', border: `1px solid ${P.border}`, color: P.text }}
     >
-      {CITY_OPTIONS.map(c => (
-        <option key={c.key} value={c.key} style={{ background: P.card }}>{th ? c.nameTh : c.name}</option>
-      ))}
-    </select>
+      <span className="truncate">
+        {c ? (th ? c.nameTh : c.name) : value}
+        {c && <span style={{ color: P.muted }}> · {th ? c.countryTh : c.country}</span>}
+      </span>
+      <ChevronRight className="h-4 w-4 flex-shrink-0" style={{ color: P.muted }} />
+    </button>
+  )
+}
+
+function CityPicker({ title, value, onPick, onClose, th }: {
+  title: string; value: string; onPick: (v: string) => void; onClose: () => void; th: boolean
+}) {
+  const groups: { country: string; countryTh: string; cities: typeof CITY_OPTIONS }[] = []
+  for (const c of CITY_OPTIONS) {
+    const g = groups.find(x => x.country === c.country)
+    if (g) g.cities.push(c)
+    else groups.push({ country: c.country, countryTh: c.countryTh, cities: [c] })
+  }
+  return (
+    <div className="absolute inset-0 z-20 flex items-center justify-center p-6"
+         style={{ background: 'rgba(0,0,0,0.6)' }} onClick={onClose}>
+      <div className="flex flex-col rounded-xl overflow-hidden w-full h-full"
+           style={{ maxWidth: 760, background: P.card, border: `1px solid ${P.border}` }}
+           onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-4 py-2.5 flex-shrink-0"
+             style={{ borderBottom: `1px solid ${P.border}` }}>
+          <span className="text-[15px] font-bold">{title}</span>
+          <button onClick={onClose} aria-label={th ? 'ปิด' : 'Close'}
+                  className="w-10 h-10 rounded-lg flex items-center justify-center active:brightness-150 transition"
+                  style={{ background: 'rgba(255,255,255,0.07)' }}>
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-3">
+          {groups.map(g => (
+            <div key={g.country}>
+              <div className="text-[11px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: P.muted }}>
+                {th ? g.countryTh : g.country}
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                {g.cities.map(c => {
+                  const on = c.key === value
+                  return (
+                    <button key={c.key} onClick={() => { onPick(c.key); onClose() }}
+                            className="rounded-lg px-3 text-[13px] text-left active:brightness-150 transition"
+                            style={{
+                              height: 44,
+                              background: on ? 'var(--brand-primary, #0891b2)' : 'rgba(255,255,255,0.06)',
+                              border: `1px solid ${on ? 'transparent' : P.border}`,
+                              color: on ? '#fff' : P.text, fontWeight: on ? 600 : 400,
+                            }}>
+                      {th ? c.nameTh : c.name}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -195,6 +256,7 @@ export function DisplaySettings({ settings, onChange, onClose, lang, onActivity 
   const { activeCompany } = useCompany()
   const companyTitle = activeCompany?.org_title || activeCompany?.name || ''
   const [note, setNote] = useState<string | null>(null)
+  const [cityPick, setCityPick] = useState<{ title: string; value: string; apply: (v: string) => void } | null>(null)
   const th = lang === 'th'
   const set = <K extends keyof PanelSettings>(k: K, v: PanelSettings[K]) => onChange({ ...settings, [k]: v })
 
@@ -329,13 +391,22 @@ export function DisplaySettings({ settings, onChange, onClose, lang, onActivity 
               {[0, 1, 2].map(i => (
                 <Row key={i} label={`${th ? 'นาฬิกา' : 'Clock'} ${i + 1}`}
                      hint={i === 0 ? (th ? 'เวลาและอุณหภูมิของแต่ละเมือง' : 'Time and temperature for each city') : undefined}>
-                  <CitySelect th={th} value={settings.clocks[i] ?? 'chiangmai'}
-                              onChange={v => set('clocks', settings.clocks.map((c, j) => (j === i ? v : c)))} />
+                  <CityButton th={th} value={settings.clocks[i] ?? 'chiangmai'}
+                              onOpen={() => setCityPick({
+                                title: `${th ? 'นาฬิกา' : 'Clock'} ${i + 1}`,
+                                value: settings.clocks[i] ?? 'chiangmai',
+                                apply: v => set('clocks', [0, 1, 2].map(j => (j === i ? v : settings.clocks[j] ?? 'chiangmai'))),
+                              })} />
                 </Row>
               ))}
               <Row label={th ? 'ตำแหน่งวัดคุณภาพอากาศ' : 'Air quality location'}
                    hint={th ? 'สถานี Air4Thai ที่ใกล้ที่สุด (ในประเทศไทย)' : 'Nearest Air4Thai station (in Thailand)'}>
-                <CitySelect th={th} value={settings.airHome} onChange={v => set('airHome', v)} />
+                <CityButton th={th} value={settings.airHome}
+                            onOpen={() => setCityPick({
+                              title: th ? 'ตำแหน่งวัดคุณภาพอากาศ' : 'Air quality location',
+                              value: settings.airHome,
+                              apply: v => set('airHome', v),
+                            })} />
               </Row>
             </>
           )}
@@ -448,6 +519,10 @@ export function DisplaySettings({ settings, onChange, onClose, lang, onActivity 
           )}
         </div>
       </div>
+      {cityPick && (
+        <CityPicker th={th} title={cityPick.title} value={cityPick.value}
+                    onPick={cityPick.apply} onClose={() => setCityPick(null)} />
+      )}
     </div>
   )
 }
