@@ -1,0 +1,5 @@
+.pio/
+include/device_config.h
+include/device_config.h.tmp
+# flash backups contain the factory firmware; keep them out of Git
+*.bin
