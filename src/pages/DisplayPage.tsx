@@ -38,6 +38,11 @@ const H = 600
 
 const MONTH_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
 
+// The boards on the bottom row, in switcher (and rotation) order. A board added
+// here appears in the switcher and joins the rotation.
+const BOARDS = ['kaizen', 'hotel'] as const
+type Board = typeof BOARDS[number]
+
 const C = PANEL
 const CAT_COLORS: Record<string, string> = {
   maintenance: '#3b82f6', cleanliness: '#14b8a6', safety: '#ef4444',
@@ -83,7 +88,7 @@ export function DisplayPage() {
   const [panel, setPanelState] = useState<PanelSettings>(() => loadPanelSettings())
   function setPanel(next: PanelSettings) { setPanelState(next); savePanelSettings(next) }
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [board, setBoard] = useState<'kaizen' | 'hotel'>('kaizen')
+  const [board, setBoard] = useState<Board>('kaizen')
   // id → full_name, so the drill-down can name the people on a case.
   // kaizen_cases stores PICs as profile ids (person_in_charge is just pic_ids[0]),
   // and a wall board showing a UUID is worse than showing nothing.
@@ -315,6 +320,16 @@ export function DisplayPage() {
   }
   useEffect(() => () => { if (idleTimer.current) window.clearTimeout(idleTimer.current) }, [])
 
+  // ── Board rotation (System Settings → Display, or ?rotate=<seconds>) ───────
+  // Cycles through the boards on the bottom row. Pauses while a drill-down or
+  // Settings is open, and switching board by hand restarts the countdown, so a
+  // board never changes under someone who is reading it.
+  const rotateMs = useMemo(() => {
+    const raw = Number(params.get('rotate'))
+    if (Number.isFinite(raw) && raw > 0) return Math.min(300, Math.max(15, raw)) * 1000
+    return panel.rotate ? Math.min(300, Math.max(15, panel.rotateSecs)) * 1000 : 0
+  }, [params, panel.rotate, panel.rotateSecs])
+
   const drillCases = useMemo(() => {
     if (!drill) return []
     if (drill.kind === 'attention') return attention.map(a => a.c)
@@ -367,6 +382,15 @@ export function DisplayPage() {
     bumpSettingsIdle()
   }
   useEffect(() => () => { if (settingsIdle.current) window.clearTimeout(settingsIdle.current) }, [])
+
+  useEffect(() => {
+    if (!rotateMs || drill || settingsOpen || BOARDS.length < 2) return
+    const id = window.setTimeout(
+      () => setBoard(b => BOARDS[(BOARDS.indexOf(b) + 1) % BOARDS.length]),
+      rotateMs,
+    )
+    return () => window.clearTimeout(id)
+  }, [rotateMs, board, drill, settingsOpen])
 
   const clock = bkkParts(now)
   const stale = fetchedAt ? (now.getTime() - fetchedAt.getTime()) > refreshMs * 3 : false
@@ -444,6 +468,8 @@ export function DisplayPage() {
           </div>
         </div>
 
+        <style>{`@keyframes kzn-board-in { from { opacity: 0 } to { opacity: 1 } }`}</style>
+        <div key={board} className="flex flex-col flex-1 min-h-0" style={{ animation: 'kzn-board-in 350ms ease-out' }}>
         {board === 'kaizen' ? (
           <>
         {/* ── KPI row ──────────────────────────────────────────────────────── */}
@@ -617,6 +643,7 @@ export function DisplayPage() {
         ) : (
           <HotelBoard refreshMs={refreshMs} lang={lang} sandbox={params.get('sandbox') === '1'} />
         )}
+        </div>
 
         {/* ── Dashboard switcher ───────────────────────────────────────────
             Five fixed slots. The middle three are reserved for dashboards that

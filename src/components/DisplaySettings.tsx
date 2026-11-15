@@ -275,6 +275,27 @@ export function DisplaySettings({ settings, onChange, onClose, lang, onActivity 
                   </Row>
                 </>
               )}
+              <Row label={th ? 'สลับหน้าจออัตโนมัติ' : 'Rotate boards'}
+                   hint={th ? 'วนแสดงแต่ละหน้าที่แถบด้านล่าง (Kaizen → โรงแรม → …)'
+                            : 'Cycle the boards on the bottom row (Kaizen → Hotel → …)'}>
+                <Toggle on={settings.rotate} onChange={v => set('rotate', v)} />
+              </Row>
+              {settings.rotate && (
+                <Row label={th ? 'เวลาต่อหน้าจอ' : 'Time per board'}
+                     hint={th ? 'หยุดชั่วคราวขณะเปิดรายการหรือการตั้งค่า' : 'Pauses while a list or settings is open'}>
+                  <Segmented
+                    value={settings.rotateSecs}
+                    options={[
+                      { value: 15,  label: '15s' },
+                      { value: 30,  label: '30s' },
+                      { value: 60,  label: '1m' },
+                      { value: 120, label: '2m' },
+                      { value: 300, label: '5m' },
+                    ]}
+                    onChange={v => set('rotateSecs', v as number)}
+                  />
+                </Row>
+              )}
               <Row label={th ? 'การหมุนจอ' : 'Orientation'} device
                    hint={th ? 'สำหรับการติดตั้งกลับหัว' : 'For upside-down mounting'}>
                 <Segmented

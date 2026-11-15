@@ -32,6 +32,9 @@ export interface PanelSettings {
   nightTo: string
   nightLevel: number        // 10–100
   orientation: 0 | 180
+  /** Cycle through the boards on the bottom row (Kaizen → Hotel → …). */
+  rotate: boolean
+  rotateSecs: number        // time per board: 15–300
   // Data
   refreshSecs: number
   idleSecs: number
@@ -51,6 +54,8 @@ export const DEFAULT_PANEL_SETTINGS: PanelSettings = {
   nightTo: '06:00',
   nightLevel: 35,
   orientation: 0,
+  rotate: false,
+  rotateSecs: 30,
   refreshSecs: 60,
   idleSecs: 30,
   touch: true,

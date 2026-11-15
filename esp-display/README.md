@@ -75,8 +75,13 @@ The panel has a GT911 capacitive touch controller (I2C at 0x5D: SDA 19,
 SCL 20, reset 38). The firmware reads it directly over I2C, with no extra
 library.
 
-- **Bottom row:** Kaizen System, Hotel and System Settings switch boards. Any
-  board other than Kaizen returns to it after 2 minutes without a touch.
+- **Bottom row:** Kaizen System, Hotel and System Settings switch boards.
+- **Rotate boards** (System Settings > Display): cycles the bottom-row boards in
+  order, Kaizen > Hotel > ..., every 15s / 30s / 1m / 2m / 5m. It pauses while a
+  case list, Settings or the keyboard is open, and a tap restarts the countdown.
+  A board added to `BOARDS` in `main.cpp` (and to the switcher) joins the
+  rotation. With rotation off, any board other than Kaizen returns to it after
+  2 minutes without a touch.
 - **Kaizen board:** tapping a KPI tile (Total, Open, In Progress, Waiting
   Approval, Resolved, Overdue), a category row or a Needs Attention row opens
   the matching cases over the whole board, as on the web. Empty KPI tiles do

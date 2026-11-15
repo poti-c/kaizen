@@ -144,6 +144,8 @@ struct PanelSettings {
     int nightFrom = 22 * 60, nightTo = 6 * 60;  // minutes after midnight, Bangkok time
     int nightLevel = 35;
     bool rotated = false;                       // orientation 180°
+    bool rotate = false;                        // cycle the bottom-row boards
+    int rotateSecs = 30;                        // time per board, 15..300
     int refreshSecs = 60;
     int idleSecs = 30;
     bool touch = true;                          // touch drill-down
@@ -1773,7 +1775,7 @@ uint32_t armedUntil = 0;
 enum Ctl {
     C_CLOSE = 1, C_TAB, C_BRIGHT, C_NIGHT, C_FROM_M, C_FROM_P, C_TO_M, C_TO_P, C_NIGHT_LVL, C_ORIENT,
     C_LANG, C_REFRESH, C_TOUCH, C_IDLE, C_RECONNECT, C_FIELD, C_SOUND, C_REBOOT, C_RESET, C_OTA,
-    C_NET, C_SCAN, C_FORGET, C_SIGNIN, C_NET_UP, C_NET_DOWN
+    C_NET, C_SCAN, C_FORGET, C_SIGNIN, C_NET_UP, C_NET_DOWN, C_CYCLE, C_CYCLE_SECS
 };
 struct Control { Rect r; int id, aux; };
 Control ctls[40];
@@ -1794,6 +1796,8 @@ void saveSettings() {
     prefs.putUShort("nto", cfg.nightTo);
     prefs.putUChar("nlvl", cfg.nightLevel);
     prefs.putBool("rot", cfg.rotated);
+    prefs.putBool("cycle", cfg.rotate);
+    prefs.putUShort("cycle_s", cfg.rotateSecs);
     prefs.putUShort("poll", cfg.refreshSecs);
     prefs.putUShort("idle", cfg.idleSecs);
     prefs.putBool("touch", cfg.touch);
@@ -1805,6 +1809,8 @@ void loadSettings() {
     cfg.nightTo = prefs.getUShort("nto", 6 * 60) % 1440;
     cfg.nightLevel = constrain(static_cast<int>(prefs.getUChar("nlvl", 35)), 10, 100);
     cfg.rotated = prefs.getBool("rot", false);
+    cfg.rotate = prefs.getBool("cycle", false);
+    cfg.rotateSecs = constrain(static_cast<int>(prefs.getUShort("cycle_s", 30)), 15, 300);
     cfg.refreshSecs = prefs.getUShort("poll", 60);
     cfg.idleSecs = prefs.getUShort("idle", 30);
     cfg.touch = prefs.getBool("touch", true);
@@ -1992,6 +1998,15 @@ void drawSettings() {
             timeStepper(CX1 - 118, cy, cfg.nightTo, C_TO_M, C_TO_P);
             cy = beginRow(L("Night brightness", "ความสว่างกลางคืน"));
             slider(CX1, cy, cfg.nightLevel, C_NIGHT_LVL);
+        }
+        cy = beginRow(L("Rotate boards", "สลับหน้าจออัตโนมัติ"),
+                      L("Cycle the boards on the bottom row (Kaizen > Hotel > ...)", "วนแสดงแต่ละหน้าที่แถบด้านล่าง (Kaizen > โรงแรม > ...)"));
+        toggle(CX1, cy, cfg.rotate, C_CYCLE);
+        if (cfg.rotate) {
+            cy = beginRow(L("Time per board", "เวลาต่อหน้าจอ"), L("Pauses while a list or settings is open", "หยุดชั่วคราวขณะเปิดรายการหรือการตั้งค่า"));
+            const char *per[] = {"15s", "30s", "1m", "2m", "5m"};
+            const int perV[] = {15, 30, 60, 120, 300};
+            segmented(CX1, cy, per, perV, 5, cfg.rotateSecs, C_CYCLE_SECS);
         }
         cy = beginRow(L("Orientation", "การหมุนจอ"), L("For upside-down mounting", "สำหรับการติดตั้งกลับหัว"), true);
         const char *orient[] = {L("Normal", "ปกติ"), "180°"};
@@ -2222,6 +2237,8 @@ void settingsTap(int x, int y) {
             case C_REFRESH: cfg.refreshSecs = c.aux; nextPoll = millis(); break;
             case C_TOUCH: cfg.touch = !cfg.touch; break;
             case C_IDLE: cfg.idleSecs = c.aux; break;
+            case C_CYCLE: cfg.rotate = !cfg.rotate; break;
+            case C_CYCLE_SECS: cfg.rotateSecs = c.aux; break;
             case C_RECONNECT:
                 setNote(L("Reconnecting...", "กำลังเชื่อมต่อใหม่..."));
                 drawSettings();
@@ -2662,7 +2679,14 @@ void drawDashboard() {
     if (settingsOpen) drawSettings();
 }
 
+// The boards on the bottom row, in switcher (and rotation) order. A board added
+// to the switcher goes here too and joins the rotation.
+constexpr Screen BOARDS[] = {Screen::Kaizen, Screen::Hotel};
+constexpr int BOARD_COUNT = sizeof(BOARDS) / sizeof(BOARDS[0]);
+uint32_t boardShownAt = 0;
+
 void showScreen(Screen next) {
+    boardShownAt = millis();
     if (next == current && !drill.open && !settingsOpen) return;
     drill.open = false;
     settingsOpen = false;
@@ -2916,7 +2940,20 @@ void loop() {
     if (settingsOpen && millis() - settingsTouched > SETTINGS_IDLE_MS) closeSettings();
     if (settingsOpen && note[0] && millis() > noteUntil) { note[0] = 0; drawSettings(); }
     if (settingsOpen && armed && millis() > armedUntil) { armed = 0; drawSettings(); }
-    if (current != Screen::Kaizen && !settingsOpen && millis() - lastTouch > IDLE_RETURN_MS) showScreen(Screen::Kaizen);
+    if (cfg.rotate) {
+        // Rotation: the next board after its time, paused while a list,
+        // settings or the keyboard is open; a tap restarts the countdown.
+        const uint32_t since = millis() - max(boardShownAt, lastTouch);
+        if (!settingsOpen && !drill.open && !kb.open && BOARD_COUNT > 1 && since >= cfg.rotateSecs * 1000UL) {
+            int i = 0;
+            while (i < BOARD_COUNT && BOARDS[i] != current) ++i;
+            const Screen next = BOARDS[(i + 1) % BOARD_COUNT];
+            Serial.printf("Rotate: %s\n", next == Screen::Hotel ? "Hotel" : "Kaizen");
+            showScreen(next);
+        }
+    } else if (current != Screen::Kaizen && !settingsOpen && millis() - lastTouch > IDLE_RETURN_MS) {
+        showScreen(Screen::Kaizen);  // without rotation, other boards time out back to Kaizen
+    }
     if (WiFi.getMode() != WIFI_STA) {
         delay(20);
         return;
