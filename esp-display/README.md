@@ -112,20 +112,37 @@ library.
 
 Each tap is logged over serial as `Tap x,y`.
 
-## Thai and other languages
+## Text and smooth drawing
 
-The built-in 6x8 font is ASCII only. Any label containing non-ASCII text is
-drawn in the 16 px Unifont that ships with Arduino_GFX, which covers Thai and
-most of Unicode.
-- **Why U8g2:** the `olikraus/U8g2` dependency is there only so Arduino_GFX
-  enables UTF-8 text.
-- **Build flag:** `-DU8G2_USE_LARGE_FONTS` includes the font, about 2.2 MB of
-  flash.
-- **Thai shaping:** above and below vowels and tone marks are separate code
-  points. The firmware draws them over the preceding letter's cell, and lifts a
-  tone mark 3 px when it follows an upper vowel (นั่ง), so the two don't collide.
-- **Labels:** English and Thai labels are the web app's own strings.
-- **Case content:** case titles, descriptions and names are shown as entered.
+Text uses **IBM Plex Sans Thai** (SIL OFL 1.1; `fonts/` holds the TTFs and
+`OFL.txt`). It is pre-rendered by `tools/make_fonts.py` into 4-bit
+anti-aliased bitmaps at the sizes the board uses, written to the generated
+`src/aa_fonts.h` (about 66 KB). The sizes are 11 px semibold caps, 12 px,
+15 px body, 17 px and 22 px semibold, and 30 px numbers.
+
+To regenerate after changing sizes or characters, run this with any Python
+that has Pillow 11:
+
+```sh
+python tools/make_fonts.py fonts src/aa_fonts.h
+```
+
+The firmware blends each glyph's edge into the framebuffer, so text is smooth
+on any background.
+
+**Thai marks.** Thai vowels above and below, and tone marks, have zero advance
+and sit left of the pen, so they land on the letter before them. Two
+measured fixes stand in for the font's OpenType rules, which the panel doesn't
+run:
+- a tone mark after an upper vowel is lifted clear of it (นั่ง, ที่);
+- marks on ป ฝ ฟ ฬ shift left just enough to clear the tail (ปิ่น, ฟ้า).
+
+**Other scripts.** Characters outside Latin and Thai fall back to the
+hard-edged 16 px Unifont bundled with Arduino_GFX. That font is why U8g2 and
+`-DU8G2_USE_LARGE_FONTS` remain.
+
+**Shapes.** Rounded rectangles, circles and the donut (including the gaps
+between slices) are drawn with per-pixel coverage, so their edges are soft.
 
 ## Brightness
 

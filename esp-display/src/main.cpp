@@ -6,6 +6,9 @@
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <Wire.h>
+#include <esp32s3/rom/cache.h>
+
+#include "aa_fonts.h"
 
 #if __has_include("device_config.h")
 #include "device_config.h"
@@ -133,59 +136,181 @@ int cpWidth(uint32_t cp) {
                       (cp >= 0xFF00 && cp <= 0xFF60);
     return wide ? 16 : 8;
 }
-int uwidth(const char *s) {
-    int w = 0;
-    while (*s) w += cpWidth(nextCp(s));
-    return w;
+// ── Anti-aliased text and shapes ─────────────────────────────────────────────
+// Text is drawn from IBM Plex Sans Thai, pre-rendered at each size by
+// tools/make_fonts.py into 4-bit coverage (src/aa_fonts.h). Each glyph's soft
+// edge is blended into the framebuffer over whatever is already there, so text
+// is smooth on any background. Characters outside Latin and Thai fall back to
+// the hard-edged Unifont. Shapes get the same treatment below.
+uint16_t *fb = nullptr;      // the panel's framebuffer, set in setup()
+bool rotated180 = false;     // Orientation 180°: framebuffer is drawn upside down
+inline uint16_t *fbAt(int x, int y) {
+    return rotated180 ? fb + (479 - y) * 800 + (799 - x) : fb + y * 800 + x;
 }
-// Where a combining mark is drawn relative to the cursor after its base letter,
-// and how far a tone mark is lifted when it sits on an upper vowel.
-constexpr int MARK_DX = -8;  // Unifont marks are full 8 px cells: overlay the base's cell
-constexpr int TONE_RAISE = 3;
-void glyph(int x, int baseline, const char *from, const char *to) {
+// The LCD reads the framebuffer from PSRAM; push our CPU-cache writes out to it.
+void flushRows(int y0, int y1) {
+    y0 = max(0, y0);
+    y1 = min(479, y1);
+    if (!fb || y1 < y0) return;
+    const int r0 = rotated180 ? 479 - y1 : y0, r1 = rotated180 ? 479 - y0 : y1;
+    Cache_WriteBack_Addr(reinterpret_cast<uint32_t>(fb + r0 * 800), (r1 - r0 + 1) * 800 * 2);
+}
+inline void blendPx(int x, int y, uint16_t color, int alpha) {  // alpha 0..255
+    if (x < 0 || x >= 800 || y < 0 || y >= 480 || alpha <= 0) return;
+    uint16_t *p = fbAt(x, y);
+    *p = alpha >= 255 ? color : blend(color, *p, alpha);
+}
+
+const AAGlyph *findGlyph(const AAFont &f, uint32_t cp) {
+    int lo = 0, hi = f.count - 1;
+    while (lo <= hi) {
+        const int mid = (lo + hi) / 2;
+        if (f.glyphs[mid].cp == cp) return &f.glyphs[mid];
+        if (f.glyphs[mid].cp < cp) lo = mid + 1;
+        else hi = mid - 1;
+    }
+    return nullptr;
+}
+void drawGlyph(const AAFont &f, const AAGlyph &g, int penX, int baseline, uint16_t color) {
+    if (!fb) return;
+    const uint8_t *bits = f.bits + g.offset;
+    const int x0 = penX + g.x, y0 = baseline + g.y;
+    for (int r = 0; r < g.h; ++r) {
+        for (int c = 0; c < g.w; ++c) {
+            const int i = r * g.w + c;
+            const int a = (bits[i >> 1] >> ((i & 1) ? 0 : 4)) & 15;
+            if (a) blendPx(x0 + c, y0 + r, color, a * 17);
+        }
+    }
+    flushRows(y0, y0 + g.h - 1);
+}
+// Characters the Plex fonts lack: draw them from Unifont, hard-edged.
+void unifontGlyph(int x, int baseline, const char *from, const char *to, uint16_t color) {
     char buf[5];
     const size_t n = min<size_t>(to - from, 4);
     memcpy(buf, from, n);
     buf[n] = 0;
-    screen.setCursor(x, baseline);
-    screen.print(buf);
-}
-// Draws one line of Unifont text with its top at `top`; clips with an ellipsis
-// at maxW. Returns the width drawn.
-int utext(int x, int top, const char *s, uint16_t color, int maxW = 10000) {
     screen.setFont(u8g2_font_unifont_h_utf8);
     screen.setUTF8Print(true);
     screen.setTextSize(1);
     screen.setTextColor(color);
-    const int baseline = top + 14;
-    const bool clip = uwidth(s) > maxW;
+    screen.setCursor(x, baseline + 2);
+    screen.print(buf);
+    screen.setUTF8Print(false);
+    screen.setFont(static_cast<const GFXfont *>(nullptr));
+}
+bool thaiTall(uint32_t cp) { return cp == 0x0E1B || cp == 0x0E1D || cp == 0x0E1F || cp == 0x0E2C; }
+bool thaiLower(uint32_t cp) { return cp >= 0x0E38 && cp <= 0x0E3A; }
+
+// Draws (or, with draw=false, measures) one line; clips with an ellipsis at
+// maxW. Thai marks have zero advance and sit left of the pen, so they land on
+// the letter before them. Two fixes stand in for the font's OpenType rules:
+// a tone mark after an upper vowel is lifted clear of it, and marks on ป ฝ ฟ ฬ
+// move left just enough to clear the tail.
+int aaText(const AAFont &f, int x, int baseline, const char *s, uint16_t color, int maxW = 100000, bool draw = true) {
     static const char ELLIPSIS[] = "\xE2\x80\xA6";
-    int cx = x;
-    uint32_t prev = 0;
+    const AAGlyph *ell = findGlyph(f, 0x2026);
+    const int ellW = ell ? (ell->adv16 + 15) / 16 : 8;
+    bool clip = false;
+    if (maxW < 100000) clip = aaText(f, 0, 0, s, color, 100000, false) > maxW;
+    int pen16 = x * 16;
+    uint32_t prev = 0, base = 0;
     while (*s) {
         const char *from = s;
         const uint32_t cp = nextCp(s);
         if (cp == '\n') continue;
-        const int w = cpWidth(cp);
-        if (w == 0) {
-            const int lift = thaiTone(cp) && thaiUpperVowel(prev) ? TONE_RAISE : 0;
-            glyph(cx + MARK_DX, baseline - lift, from, s);
+        const AAGlyph *g = findGlyph(f, cp);
+        if (!g) {  // not in the font
+            const int w = cpWidth(cp);
+            if (clip && (pen16 + w * 16) / 16 > x + maxW - ellW) break;
+            if (draw && w) unifontGlyph((pen16 + 8) / 16, baseline, from, s, color);
+            pen16 += w * 16;
+            prev = base = cp;
+            continue;
+        }
+        if (g->adv16 == 0) {  // combining mark
+            if (draw && g->w) {
+                int dx = 0, dy = 0;
+                if (thaiTone(cp) && thaiUpperVowel(prev)) dy = -f.toneLift;
+                const int right = g->x + g->w - 1;
+                if (thaiTall(base) && !thaiLower(cp) && right >= f.tailX) dx = f.tailX - 1 - right;
+                drawGlyph(f, *g, (pen16 + 8) / 16 + dx, baseline + dy, color);
+            }
             prev = cp;
             continue;
         }
-        if (clip && cx + w > x + maxW - 8) {
-            glyph(cx, baseline, ELLIPSIS, ELLIPSIS + 3);
-            cx += 8;
+        if (clip && (pen16 + g->adv16 + 15) / 16 > x + maxW - ellW) {
+            if (draw && ell) drawGlyph(f, *ell, (pen16 + 8) / 16, baseline, color);
+            pen16 += ellW * 16;
             break;
         }
-        glyph(cx, baseline, from, s);
-        cx += w;
-        prev = cp;
+        if (draw) drawGlyph(f, *g, (pen16 + 8) / 16, baseline, color);
+        pen16 += g->adv16;
+        prev = base = cp;
     }
-    screen.setUTF8Print(false);
-    screen.setFont(static_cast<const GFXfont *>(nullptr));
-    return cx - x;
+    (void)ELLIPSIS;
+    return (pen16 + 15) / 16 - x;
 }
+int advPx(const AAFont &f, uint32_t cp) {
+    const AAGlyph *g = findGlyph(f, cp);
+    return g ? (g->adv16 + 8) / 16 : cpWidth(cp);
+}
+
+// Text sizes, standing in for the old 6x8 font at 1x..4x. Size 0 is the small
+// semibold used for uppercase panel titles and tile labels, as on the web.
+const AAFont &fontFor(int size) {
+    switch (size) {
+        case 0: return caps11;
+        case 1: return text12;
+        case 2: return title17;
+        case 3: return head22;
+        default: return num30;
+    }
+}
+// Body text (what Unifont used to draw): 15 px.
+int uwidth(const char *s) { return aaText(body15, 0, 0, s, 0, 100000, false); }
+// One line of body text with its 16 px line box starting at `top`.
+int utext(int x, int top, const char *s, uint16_t color, int maxW = 100000) {
+    return aaText(body15, x, top + 8 + body15.capHeight / 2, s, color, maxW);
+}
+
+// Shapes with soft edges: coverage from the distance to the curve.
+inline int coverage(float inside) {  // signed px inside the edge -> 0..255
+    return inside <= -0.5f ? 0 : inside >= 0.5f ? 255 : static_cast<int>((inside + 0.5f) * 255);
+}
+void aaRoundRect(int x, int y, int w, int h, int r, uint16_t color) {
+    if (w <= 0 || h <= 0) return;
+    r = max(0, min(r, min(w, h) / 2));
+    if (r < 2 || !fb) { screen.fillRect(x, y, w, h, color); return; }
+    screen.fillRect(x + r, y, w - 2 * r, h, color);
+    screen.fillRect(x, y + r, r, h - 2 * r, color);
+    screen.fillRect(x + w - r, y + r, r, h - 2 * r, color);
+    // corners: circle of radius r centred r px in from each corner
+    for (int dy = 0; dy < r; ++dy) {
+        for (int dx = 0; dx < r; ++dx) {
+            const float fx = r - dx - 0.5f, fy = r - dy - 0.5f;
+            const int a = coverage(r - sqrtf(fx * fx + fy * fy));
+            if (!a) continue;
+            blendPx(x + dx, y + dy, color, a);
+            blendPx(x + w - 1 - dx, y + dy, color, a);
+            blendPx(x + dx, y + h - 1 - dy, color, a);
+            blendPx(x + w - 1 - dx, y + h - 1 - dy, color, a);
+        }
+    }
+    flushRows(y, y + r);
+    flushRows(y + h - r, y + h - 1);
+}
+void aaCircle(int cx, int cy, int r, uint16_t color) {
+    if (!fb) { screen.fillCircle(cx, cy, r, color); return; }
+    const float R = r + 0.5f;
+    for (int dy = -r - 1; dy <= r + 1; ++dy) {
+        for (int dx = -r - 1; dx <= r + 1; ++dx) {
+            blendPx(cx + dx, cy + dy, color, coverage(R - sqrtf(static_cast<float>(dx * dx + dy * dy))));
+        }
+    }
+    flushRows(cy - r - 1, cy + r + 1);
+}
+
 // Word-wraps (or breaks between letters, for Thai, which has no spaces) into at
 // most maxLines lines of lineH. With draw=false it only counts the lines.
 int uwrap(int x, int top, const char *s, uint16_t color, int maxW, int lineH, int maxLines, bool draw = true) {
@@ -199,7 +324,7 @@ int uwrap(int x, int top, const char *s, uint16_t color, int maxW, int lineH, in
             const char *q = p;
             const uint32_t cp = nextCp(q);
             if (cp == '\n') { cut = p; newline = true; break; }
-            const int cw = cpWidth(cp);
+            const int cw = thaiMark(cp) ? 0 : advPx(body15, cp);
             if (cw && w + cw > maxW) break;
             w += cw;
             if (cp == ' ') space = q;
@@ -224,18 +349,13 @@ int uwrap(int x, int top, const char *s, uint16_t color, int maxW, int lineH, in
     return lines;
 }
 
-int textWidth(const char *s, int size) { return isAscii(s) ? strlen(s) * 6 * size : uwidth(s); }
-// ASCII in the built-in font at `size`; anything else in Unifont, centred on
-// the same line so English and Thai labels sit in the same place.
+int textWidth(const char *s, int size) { return aaText(fontFor(size), 0, 0, s, 0, 100000, false); }
+// `y` is the top of the old 8*size px text box; the text is centred in it, so
+// every existing layout position still lines up.
 void label(int x, int y, const char *text, int size, uint16_t color) {
-    if (!isAscii(text)) {
-        utext(x, y + 4 * size - 8, text, color);
-        return;
-    }
-    screen.setCursor(x, y);
-    screen.setTextSize(size);
-    screen.setTextColor(color);
-    screen.print(text);
+    const AAFont &f = fontFor(size);
+    const int box = 8 * max(1, size);
+    aaText(f, x, y + box / 2 + f.capHeight / 2, text, color);
 }
 void labelRight(int right, int y, const char *text, int size, uint16_t color) {
     label(right - textWidth(text, size), y, text, size, color);
@@ -243,7 +363,7 @@ void labelRight(int right, int y, const char *text, int size, uint16_t color) {
 void labelCenter(int cx, int y, const char *text, int size, uint16_t color) {
     label(cx - textWidth(text, size) / 2, y, text, size, color);
 }
-// Copies printable text, keeping UTF-8 (Unifont draws it) but dropping control
+// Copies printable text, keeping UTF-8 (the fonts draw it) but dropping control
 // characters, capped at maxBytes.
 void copyText(char *out, size_t cap, const char *in, size_t maxBytes = 1000) {
     size_t n = 0;
@@ -270,10 +390,10 @@ uint16_t parseColor(const char *hex, uint16_t fallback) {
     return rgb(strtoul(hex + 1, nullptr, 16));
 }
 // Small rounded tag; returns its width.
-int pill(int x, int y, const char *text, uint16_t fg, uint16_t bg, int h = 18) {
-    const int w = textWidth(text, 1) + 12;
-    screen.fillRoundRect(x, y, w, h, 4, bg);
-    label(x + 6, y + (h - 8) / 2, text, 1, fg);
+int pill(int x, int y, const char *text, uint16_t fg, uint16_t bg, int h = 18, int size = 1) {
+    const int w = textWidth(text, size) + 12;
+    aaRoundRect(x, y, w, h, 4, bg);
+    label(x + 6, y + (h - 8) / 2, text, size, fg);
     return w;
 }
 const char *pick(JsonObjectConst o, const char *en, const char *th) {
@@ -282,12 +402,12 @@ const char *pick(JsonObjectConst o, const char *en, const char *th) {
 }
 
 void card(int x, int y, int w, int h) {
-    screen.fillRoundRect(x, y, w, h, 9, BORDER);
-    screen.fillRoundRect(x + 1, y + 1, w - 2, h - 2, 8, CARD);
+    aaRoundRect(x, y, w, h, 9, BORDER);
+    aaRoundRect(x + 1, y + 1, w - 2, h - 2, 8, CARD);
 }
 void panelBox(int x, int y, int w, int h, const char *title) {
     card(x, y, w, h);
-    label(x + 10, y + 10, title, 1, MUTED);
+    label(x + 10, y + 10, title, 0, MUTED);
 }
 
 // ── Layout (1024x600 web canvas scaled ~0.78 to 800x480) ──────────────────────
@@ -316,9 +436,9 @@ void drawHeader() {
     if (hasData) copyText(title, sizeof(title), details["title"] | "Kaizen", 60);
     label(PAD, 10, title, 3, TEXT);
     int bx = PAD + textWidth(title, 3) + 10;
-    bx += pill(bx, 11, L("DASHBOARD", "แดชบอร์ด"), TEXT, BRAND, 17) + 6;
+    bx += pill(bx, 11, L("DASHBOARD", "แดชบอร์ด"), TEXT, BRAND, 17, 0) + 6;
     if (hasData && millis() - lastSuccess > 3 * pollMs()) {
-        bx += pill(bx, 11, L("STALE", "ข้อมูลค้าง"), C_PENDING, rgb(0x3a2e17), 17) + 6;
+        bx += pill(bx, 11, L("STALE", "ข้อมูลค้าง"), C_PENDING, rgb(0x3a2e17), 17, 0) + 6;
     }
 
     char subtitle[160] = "Kaizen System";
@@ -341,7 +461,7 @@ void drawHeader() {
             if (age >= 2) {
                 char tag[96];
                 snprintf(tag, sizeof(tag), thai ? "ข้อมูล %d วันที่แล้ว" : "%d DAYS OLD", age);
-                pill(bx, 11, tag, C_PENDING, rgb(0x3a2e17), 17);
+                pill(bx, 11, tag, C_PENDING, rgb(0x3a2e17), 17, 0);
             }
         } else {
             snprintf(subtitle, sizeof(subtitle), "%s  |  %s %s  |  %s %d%%", month,
@@ -374,7 +494,7 @@ void drawKpis() {
         char number[16] = "--";
         if (hasData) snprintf(number, sizeof(number), "%d", values[i]);
         label(r.x + 10, r.y + 10, number, strlen(number) <= 4 ? 4 : 3, METRICS[i].color);
-        label(r.x + 10, r.y + 48, L(METRICS[i].en, METRICS[i].th), 1, MUTED);
+        label(r.x + 10, r.y + 48, L(METRICS[i].en, METRICS[i].th), 0, MUTED);
     }
 }
 
@@ -396,7 +516,7 @@ void drawTrend() {
         const int bx = x + 10 + i * slot + (slot - barW) / 2;
         const int count = months[i]["count"].as<int>();
         const int bh = static_cast<int>(static_cast<int64_t>(area) * count / maximum);
-        if (bh > 0) screen.fillRoundRect(bx, base - bh, barW, bh, min(3, bh / 2), i == 8 ? BRAND : BAR_PAST);
+        if (bh > 0) aaRoundRect(bx, base - bh, barW, bh, min(3, bh / 2), i == 8 ? BRAND : BAR_PAST);
         char value[12];
         snprintf(value, sizeof(value), "%d", count);
         labelCenter(bx + barW / 2, base - bh - 11, value, 1, TEXT);
@@ -412,8 +532,8 @@ void drawDonut(int cx, int cy, int outer, int inner, const int *counts, const ui
     int total = 0, slices = 0;
     for (int i = 0; i < n; ++i) { total += counts[i]; slices += counts[i] > 0; }
     if (total == 0) {
-        screen.fillCircle(cx, cy, outer, TRACK);
-        screen.fillCircle(cx, cy, inner, CARD);
+        aaCircle(cx, cy, outer, TRACK);
+        aaCircle(cx, cy, inner, CARD);
         return;
     }
     const float gap = slices > 1 ? 3.0f : 0.0f;
@@ -425,20 +545,24 @@ void drawDonut(int cx, int cy, int outer, int inner, const int *counts, const ui
         end[i] = a + usable * counts[i] / total;
         a = end[i] + (counts[i] > 0 ? gap : 0);
     }
-    for (int dy = -outer; dy <= outer; ++dy) {
-        for (int dx = -outer; dx <= outer; ++dx) {
-            const int r2 = dx * dx + dy * dy;
-            if (r2 > outer * outer || r2 < inner * inner) continue;
+    // Coverage = inside the ring (radially) x inside the slice (angularly,
+    // converted to px at that radius), so every edge is soft.
+    for (int dy = -outer - 1; dy <= outer + 1; ++dy) {
+        for (int dx = -outer - 1; dx <= outer + 1; ++dx) {
+            const float d = sqrtf(static_cast<float>(dx * dx + dy * dy));
+            const int radial = min(coverage(outer + 0.5f - d), coverage(d - (inner - 0.5f)));
+            if (!radial) continue;
             float deg = atan2f(static_cast<float>(dx), static_cast<float>(-dy)) * RAD_TO_DEG;
             if (deg < 0) deg += 360.0f;
             for (int i = 0; i < n; ++i) {
-                if (counts[i] > 0 && deg >= start[i] && deg < end[i]) {
-                    screen.drawPixel(cx + dx, cy + dy, colors[i]);
-                    break;
-                }
+                if (counts[i] <= 0) continue;
+                const float inside = min(deg - start[i], end[i] - deg) * DEG_TO_RAD * max(d, 1.0f);
+                const int ang = coverage(inside);
+                if (ang) blendPx(cx + dx, cy + dy, colors[i], radial * ang / 255);
             }
         }
     }
+    flushRows(cy - outer - 1, cy + outer + 1);
 }
 
 void drawOverview() {
@@ -457,13 +581,13 @@ void drawOverview() {
         labelCenter(cx, cy - 13, total, total[3] ? 2 : 3, TEXT);
         labelCenter(cx, cy + 13, L("Total", "ทั้งหมด"), 1, MUTED);
     } else {
-        screen.fillCircle(cx, cy, 50, TRACK);
-        screen.fillCircle(cx, cy, 34, CARD);
+        aaCircle(cx, cy, 50, TRACK);
+        aaCircle(cx, cy, 34, CARD);
         labelCenter(cx, cy - 4, L("No data", "ไม่มีข้อมูล"), 1, MUTED);
     }
     for (int i = 0; i < 5; ++i) {
         const int ly = y + 40 + i * 19;
-        screen.fillRoundRect(x + 136, ly, 8, 8, 2, colors[i]);
+        aaRoundRect(x + 136, ly, 8, 8, 2, colors[i]);
         label(x + 150, ly, names[i], 1, MUTED);
         char count[12] = "--";
         if (hasData) snprintf(count, sizeof(count), "%d", counts[i]);
@@ -498,8 +622,8 @@ void drawAttention() {
         const Rect r = attentionRow(i++);
         const bool overdue = item["overdue"] | false;
         const uint16_t tone = overdue ? C_CRITICAL : C_PENDING;
-        screen.fillRoundRect(r.x, r.y, r.w, r.h, 5, ROW);
-        screen.fillCircle(r.x + 10, r.y + 12, 3, tone);
+        aaRoundRect(r.x, r.y, r.w, r.h, 5, ROW);
+        aaCircle(r.x + 10, r.y + 12, 3, tone);
         char caseNumber[24], dept[64], hours[12], title[200];
         copyText(caseNumber, sizeof(caseNumber), item["caseNumber"] | "", 20);
         copyText(dept, sizeof(dept), pick(item, "department", "departmentTh"));
@@ -511,7 +635,7 @@ void drawAttention() {
         const int dw = textWidth(dept, 1) + 12;
         const int dx = hx - 40 - dw;
         pill(dx, r.y + 3, dept, MUTED, TRACK);
-        const int tx = r.x + 20 + 16 * 6;
+        const int tx = r.x + 20 + textWidth(caseNumber, 1) + 10;  // proportional font: measure
         utext(tx, r.y + 4, title, TEXT, dx - 8 - tx);
     }
 }
@@ -544,9 +668,9 @@ void drawCategories() {
         } else {
             utext(x + 10, ry - 4, name, MUTED, labelW);
         }
-        screen.fillRoundRect(trackX, ry - 1, trackW, 10, 5, TRACK);
+        aaRoundRect(trackX, ry - 1, trackW, 10, 5, TRACK);
         const int fill = max(10, static_cast<int>(static_cast<int64_t>(trackW) * r["count"].as<int>() / maximum));
-        screen.fillRoundRect(trackX, ry - 1, fill, 10, 5, parseColor(r["color"] | "", BRAND));
+        aaRoundRect(trackX, ry - 1, fill, 10, 5, parseColor(r["color"] | "", BRAND));
         labelRight(x + w - 10, ry, count, 1, TEXT);
         ry += 19;
     }
@@ -585,8 +709,8 @@ void iconHotel(int x, int y, uint16_t c) {
     screen.fillRect(x + 5, y + 9, 2, 3, c);
 }
 void iconSettings(int x, int y, uint16_t c, uint16_t bg) {
-    screen.fillCircle(x + 6, y + 6, 4, c);
-    screen.fillCircle(x + 6, y + 6, 2, bg);
+    aaCircle(x + 6, y + 6, 4, c);
+    aaCircle(x + 6, y + 6, 2, bg);
     screen.fillRect(x + 5, y, 2, 2, c);
     screen.fillRect(x + 5, y + 10, 2, 2, c);
     screen.fillRect(x, y + 5, 2, 2, c);
@@ -604,7 +728,7 @@ void drawSwitcher() {
             continue;
         }
         const bool active = (i == 0 && current == Screen::Kaizen) || (i == 1 && current == Screen::Hotel);
-        if (active) screen.fillRoundRect(x, y, SWITCH_W, h, 9, BRAND);
+        if (active) aaRoundRect(x, y, SWITCH_W, h, 9, BRAND);
         else card(x, y, SWITCH_W, h);
         const uint16_t fg = active ? TEXT : MUTED;
         const uint16_t bg = active ? BRAND : CARD;
@@ -758,7 +882,6 @@ void touchBegin() {
 // Finger-down, move and up, with the point mapped to screen pixels (and
 // flipped when the panel is mounted upside down).
 enum class Touch { None, Down, Move, Up };
-bool rotated180 = false;
 Touch touchPoll(int &x, int &y) {
     static bool down = false;
     if (!gtAddr) return Touch::None;
@@ -925,7 +1048,7 @@ void drawIdleBar() {
 }
 
 void arrowButton(const Rect &r, bool up, bool enabled) {
-    screen.fillRoundRect(r.x, r.y, r.w, r.h, 8, blend(TEXT, BG, 18));
+    aaRoundRect(r.x, r.y, r.w, r.h, 8, blend(TEXT, BG, 18));
     const uint16_t c = enabled ? TEXT : blend(MUTED, BG, 90);
     const int cx = r.x + r.w / 2, cy = r.y + r.h / 2;
     if (up) screen.fillTriangle(cx - 8, cy + 4, cx + 8, cy + 4, cx, cy - 5, c);
@@ -959,19 +1082,19 @@ int caseDetail(JsonObjectConst c, int x, int top, int w, bool draw, int bottom =
 }
 
 void drawDrill() {
-    screen.fillRoundRect(OX, OY, OW, OH, 12, BORDER);
-    screen.fillRoundRect(OX + 1, OY + 1, OW - 2, OH - 2, 11, BG);
+    aaRoundRect(OX, OY, OW, OH, 12, BORDER);
+    aaRoundRect(OX + 1, OY + 1, OW - 2, OH - 2, 11, BG);
     drawIdleBar();
 
     // Title row: colour key, name, count, paging, close
-    screen.fillRoundRect(OX + 14, OY + 22, 12, 12, 2, drill.color);
+    aaRoundRect(OX + 14, OY + 22, 12, 12, 2, drill.color);
     label(OX + 34, OY + 21, drill.title, 2, TEXT);
     int px = OX + 34 + textWidth(drill.title, 2) + 10;
     char count[48];
     if (thai) snprintf(count, sizeof(count), "%d เคส", drill.count);
     else snprintf(count, sizeof(count), "%d %s", drill.count, drill.count == 1 ? "case" : "cases");
     px += pill(px, OY + 19, count, MUTED, blend(TEXT, BG, 18), 18) + 8;
-    screen.fillRoundRect(DRILL_CLOSE.x, DRILL_CLOSE.y, DRILL_CLOSE.w, DRILL_CLOSE.h, 8, blend(TEXT, BG, 18));
+    aaRoundRect(DRILL_CLOSE.x, DRILL_CLOSE.y, DRILL_CLOSE.w, DRILL_CLOSE.h, 8, blend(TEXT, BG, 18));
     const int cx = DRILL_CLOSE.x + DRILL_CLOSE.w / 2, cy = DRILL_CLOSE.y + DRILL_CLOSE.h / 2;
     for (int t = -1; t <= 1; ++t) {
         screen.drawLine(cx - 7 + t, cy - 7, cx + 7 + t, cy + 7, TEXT);
@@ -1005,10 +1128,10 @@ void drawDrill() {
         int h = 34 + detailH;
         if (y + 34 > LIST_BOTTOM) break;
         if (y + h > LIST_BOTTOM) h = LIST_BOTTOM - y;  // last expanded row may be cut
-        screen.fillRoundRect(rx, y, rw, h, 6, ROW_BG);
+        aaRoundRect(rx, y, rw, h, 6, ROW_BG);
 
         // priority · number · title · department · status · age
-        screen.fillCircle(rx + 14, y + 17, 4, priorityColor(c["priority"] | ""));
+        aaCircle(rx + 14, y + 17, 4, priorityColor(c["priority"] | ""));
         char number[24];
         copyText(number, sizeof(number), c["n"] | "", 20);
         label(rx + 26, y + 13, number, 1, MUTED);
@@ -1026,7 +1149,7 @@ void drawDrill() {
         const int dw = textWidth(dept, 1) + 12;
         const int dx = sx - 6 - dw;
         pill(dx, y + 8, dept, MUTED, blend(TEXT, ROW_BG, 15));
-        const int tx = rx + 26 + 16 * 6;
+        const int tx = rx + 26 + textWidth(number, 1) + 10;  // proportional font: measure
         utext(tx, y + 9, c["title"] | "", TEXT, dx - 10 - tx);
         // chevron
         const int vx = rx + rw - 4;
@@ -1171,12 +1294,12 @@ void loadSettings() {
 
 // ── controls (sizes are the web's, scaled ~0.78) ──
 void chip(int x, int y) {
-    pill(x, y, "DEVICE", MUTED, blend(TEXT, BG, 18), 14);
+    pill(x, y, "DEVICE", MUTED, blend(TEXT, BG, 18), 14, 0);
 }
 void toggle(int right, int cy, bool on, int id, bool enabled = true) {
     const Rect r = {right - 42, cy - 12, 42, 24};
-    screen.fillRoundRect(r.x, r.y, r.w, r.h, 12, on ? BRAND : blend(TEXT, BG, enabled ? 30 : 14));
-    screen.fillCircle(on ? r.x + r.w - 12 : r.x + 12, cy, 9, enabled ? TEXT : blend(TEXT, BG, 90));
+    aaRoundRect(r.x, r.y, r.w, r.h, 12, on ? BRAND : blend(TEXT, BG, enabled ? 30 : 14));
+    aaCircle(on ? r.x + r.w - 12 : r.x + 12, cy, 9, enabled ? TEXT : blend(TEXT, BG, 90));
     addCtl(r, id);
 }
 // Returns the left edge of what it drew.
@@ -1185,10 +1308,10 @@ int segmented(int right, int cy, const char *const *labels, const int *values, i
     for (int i = 0; i < n; ++i) { widths[i] = max(48, uwidth(labels[i]) + 18); total += widths[i]; }
     int x = right - total;
     const int left = x;
-    screen.fillRoundRect(x, cy - 14, total, 28, 7, blend(TEXT, BG, 15));
+    aaRoundRect(x, cy - 14, total, 28, 7, blend(TEXT, BG, 15));
     for (int i = 0; i < n; ++i) {
         const bool on = values[i] == current;
-        if (on) screen.fillRoundRect(x, cy - 14, widths[i], 28, 7, BRAND);
+        if (on) aaRoundRect(x, cy - 14, widths[i], 28, 7, BRAND);
         utext(x + (widths[i] - uwidth(labels[i])) / 2, cy - 8, labels[i], on ? TEXT : MUTED);  // one font for all options
         addCtl({x, cy - 14, widths[i], 28}, id, values[i]);
         x += widths[i];
@@ -1201,10 +1324,10 @@ void slider(int right, int cy, int value, int id) {
     snprintf(v, sizeof(v), "%d%%", value);
     const int tx = right - 40 - 12 - SLIDER_W;
     screen.fillRect(tx - 10, cy - 14, SLIDER_W + 20 + 12 + 40, 28, BG);
-    screen.fillRoundRect(tx, cy - 3, SLIDER_W, 6, 3, blend(TEXT, BG, 30));
+    aaRoundRect(tx, cy - 3, SLIDER_W, 6, 3, blend(TEXT, BG, 30));
     const int kx = tx + (value - 10) * SLIDER_W / 90;
-    screen.fillRoundRect(tx, cy - 3, kx - tx, 6, 3, BRAND);
-    screen.fillCircle(kx, cy, 8, BRAND);
+    aaRoundRect(tx, cy - 3, kx - tx, 6, 3, BRAND);
+    aaCircle(kx, cy, 8, BRAND);
     labelRight(right, cy - 4, v, 1, TEXT);
     addCtl({tx - 10, cy - 16, SLIDER_W + 20, 32}, id);
 }
@@ -1216,8 +1339,8 @@ void actionButton(int right, int cy, const char *text, int id, bool danger = fal
     const int w = textWidth(text, 1) + 28;
     const Rect r = {right - w, cy - 14, w, 28};
     const uint16_t fg = !enabled ? blend(MUTED, BG, 120) : danger ? C_CRITICAL : TEXT;
-    screen.fillRoundRect(r.x, r.y, r.w, r.h, 7, danger ? blend(C_CRITICAL, BG, 60) : BORDER);
-    screen.fillRoundRect(r.x + 1, r.y + 1, r.w - 2, r.h - 2, 6, danger ? blend(C_CRITICAL, BG, 36) : blend(TEXT, BG, 20));
+    aaRoundRect(r.x, r.y, r.w, r.h, 7, danger ? blend(C_CRITICAL, BG, 60) : BORDER);
+    aaRoundRect(r.x + 1, r.y + 1, r.w - 2, r.h - 2, 6, danger ? blend(C_CRITICAL, BG, 36) : blend(TEXT, BG, 20));
     labelCenter(r.x + r.w / 2, cy - 4, text, 1, fg);
     addCtl(r, id);
 }
@@ -1227,8 +1350,8 @@ void readOnly(int right, int cy, const char *text) {
 }
 void field(int right, int cy, const char *value, const char *placeholder) {
     const Rect r = {right - 172, cy - 14, 172, 28};
-    screen.fillRoundRect(r.x, r.y, r.w, r.h, 7, BORDER);
-    screen.fillRoundRect(r.x + 1, r.y + 1, r.w - 2, r.h - 2, 6, blend(TEXT, BG, 15));
+    aaRoundRect(r.x, r.y, r.w, r.h, 7, BORDER);
+    aaRoundRect(r.x + 1, r.y + 1, r.w - 2, r.h - 2, 6, blend(TEXT, BG, 15));
     const bool empty = !value[0];
     utext(r.x + 9, cy - 8, empty ? placeholder : value, empty ? MUTED : TEXT, r.w - 18);
     addCtl(r, C_FIELD);
@@ -1238,12 +1361,12 @@ void timeStepper(int x, int cy, int minutes, int minusId, int plusId) {
     snprintf(v, sizeof(v), "%02d:%02d", minutes / 60, minutes % 60);
     for (int k = 0; k < 2; ++k) {
         const Rect r = {k ? x + 26 + 66 : x, cy - 13, 26, 26};
-        screen.fillRoundRect(r.x, r.y, r.w, r.h, 6, blend(TEXT, BG, 20));
+        aaRoundRect(r.x, r.y, r.w, r.h, 6, blend(TEXT, BG, 20));
         screen.fillRect(r.x + 8, cy - 1, 10, 2, TEXT);
         if (k) screen.fillRect(r.x + 12, cy - 5, 2, 10, TEXT);
         addCtl(r, k ? plusId : minusId);
     }
-    screen.fillRoundRect(x + 30, cy - 14, 58, 28, 7, blend(TEXT, BG, 15));
+    aaRoundRect(x + 30, cy - 14, 58, 28, 7, blend(TEXT, BG, 15));
     labelCenter(x + 59, cy - 4, v, 1, TEXT);
 }
 
@@ -1275,7 +1398,7 @@ void tabIcon(int i, int x, int y, uint16_t c, uint16_t bg) {
                 screen.fillRect(x - 3, y + 11, 18, 9, bg);                    // keep the upper arcs
                 screen.fillTriangle(x - 3, y + 11, x - 3, y - 1, x + 3, y + 11, bg);
                 screen.fillTriangle(x + 15, y + 11, x + 15, y - 1, x + 9, y + 11, bg);
-                screen.fillCircle(x + 6, y + 10, 1, c); break;
+                aaCircle(x + 6, y + 10, 1, c); break;
         case 3: screen.drawRect(x + 2, y + 2, 8, 8, c); screen.fillRect(x + 4, y + 4, 4, 4, c);
                 for (int k = 3; k <= 8; k += 5) {
                     screen.drawFastHLine(x, y + k, 2, c); screen.drawFastHLine(x + 10, y + k, 2, c);
@@ -1288,12 +1411,12 @@ void tabIcon(int i, int x, int y, uint16_t c, uint16_t bg) {
 
 void drawSettings() {
     ctlCount = 0;
-    screen.fillRoundRect(OX, OY, OW, OH, 12, BORDER);
-    screen.fillRoundRect(OX + 1, OY + 1, OW - 2, OH - 2, 11, BG);
+    aaRoundRect(OX, OY, OW, OH, 12, BORDER);
+    aaRoundRect(OX + 1, OY + 1, OW - 2, OH - 2, 11, BG);
 
     // Header
     label(OX + 14, OY + 18, L("System Settings", "ตั้งค่าระบบ"), 2, TEXT);
-    screen.fillRoundRect(DRILL_CLOSE.x, DRILL_CLOSE.y, DRILL_CLOSE.w, DRILL_CLOSE.h, 8, blend(TEXT, BG, 18));
+    aaRoundRect(DRILL_CLOSE.x, DRILL_CLOSE.y, DRILL_CLOSE.w, DRILL_CLOSE.h, 8, blend(TEXT, BG, 18));
     const int xc = DRILL_CLOSE.x + DRILL_CLOSE.w / 2, yc = DRILL_CLOSE.y + DRILL_CLOSE.h / 2;
     for (int k = -1; k <= 1; ++k) {
         screen.drawLine(xc - 7 + k, yc - 7, xc + 7 + k, yc + 7, TEXT);
@@ -1313,7 +1436,7 @@ void drawSettings() {
     for (int i = 0; i < 5; ++i) {
         const Rect r = {OX + 6, OY + 58 + i * 40, RAIL_W - 12, 34};
         const bool on = i == section;
-        if (on) screen.fillRoundRect(r.x, r.y, r.w, r.h, 7, BRAND);
+        if (on) aaRoundRect(r.x, r.y, r.w, r.h, 7, BRAND);
         const uint16_t fg = on ? TEXT : MUTED;
         tabIcon(i, r.x + 10, r.y + 11, fg, on ? BRAND : BG);
         utext(r.x + 30, r.y + 9, tabs[i], fg, r.w - 34);
@@ -1512,49 +1635,11 @@ void settingsTap(int x, int y) {
 }
 
 // ── Hotel board: mirrors src/components/HotelBoard.tsx ──────────────────────
-// The endpoint sends display-ready strings. Numbers are drawn large in the
-// built-in font, which lacks the baht sign, so it is drawn as a B with a stroke.
-bool isBaht(const char *s) {
-    return static_cast<uint8_t>(s[0]) == 0xE0 && static_cast<uint8_t>(s[1]) == 0xB8 &&
-           static_cast<uint8_t>(s[2]) == 0xBF;
-}
-int richWidth(const char *s, int size) {
-    int n = 0;
-    while (*s) {
-        if (isBaht(s)) { ++n; s += 3; continue; }
-        if (*s >= 0x20 && *s < 0x7f) ++n;
-        ++s;
-    }
-    return n * 6 * size;
-}
-void rich(int x, int y, const char *s, int size, uint16_t color) {
-    screen.setTextSize(size);
-    screen.setTextColor(color);
-    while (*s) {
-        if (isBaht(s)) {
-            screen.setCursor(x, y);
-            screen.print('B');
-            screen.fillRect(x + 2 * size, y - size, size, 9 * size, color);
-            x += 6 * size;
-            s += 3;
-            continue;
-        }
-        if (*s >= 0x20 && *s < 0x7f) {
-            screen.setCursor(x, y);
-            screen.print(*s);
-            x += 6 * size;
-        }
-        ++s;
-    }
-}
-void richRight(int right, int y, const char *s, int size, uint16_t color) {
-    rich(right - richWidth(s, size), y, s, size, color);
-}
-// Sub-lines mix baht amounts with Thai words: Unifont has both.
-void subLine(int x, int y, const char *s, uint16_t color) {
-    if (isAscii(s) || (isBaht(s) && isAscii(s + 3))) rich(x, y, s, 1, color);
-    else utext(x, y - 4, s, color);
-}
+// The endpoint sends display-ready strings, baht sign included.
+int richWidth(const char *s, int size) { return textWidth(s, size); }
+void rich(int x, int y, const char *s, int size, uint16_t color) { label(x, y, s, size, color); }
+void richRight(int right, int y, const char *s, int size, uint16_t color) { labelRight(right, y, s, size, color); }
+void subLine(int x, int y, const char *s, uint16_t color) { label(x, y, s, 1, color); }
 constexpr uint16_t BAR_FORECAST = rgb(0x3e4654);  // rgba(255,255,255,0.18) on CARD
 
 void drawHotel() {
@@ -1585,7 +1670,7 @@ void drawHotel() {
         char name[96], sub[96];
         upper(name, sizeof(name), pick(tile, "label", "labelTh"));
         copyText(sub, sizeof(sub), pick(tile, "sub", "subTh"));
-        if (isAscii(name)) label(r.x + 7, r.y + 36, name, 1, MUTED);
+        if (isAscii(name)) label(r.x + 7, r.y + 36, name, 0, MUTED);
         else utext(r.x + 7, r.y + 30, name, MUTED, r.w - 10);
         subLine(r.x + 7, r.y + 51, sub, MUTED);
     }
@@ -1606,7 +1691,7 @@ void drawHotel() {
                 const int bx = x + 10 + d * slot + (slot - barW) / 2;
                 const float p = constrain(day["pct"] | 0.0f, 0.0f, 100.0f);
                 const int bh = static_cast<int>(area * p / 100.0f);
-                if (bh > 0) screen.fillRoundRect(bx, base - bh, barW, bh, min(3, bh / 2), d == 0 ? BRAND : BAR_FORECAST);
+                if (bh > 0) aaRoundRect(bx, base - bh, barW, bh, min(3, bh / 2), d == 0 ? BRAND : BAR_FORECAST);
                 char v[8];
                 snprintf(v, sizeof(v), "%d", static_cast<int>(lroundf(day["pct"] | 0.0f)));
                 labelCenter(bx + barW / 2, base - bh - 10, v, 1, TEXT);
@@ -1647,12 +1732,12 @@ void drawHotel() {
             upper(name, sizeof(name), pick(win, "label", "labelTh"));
             snprintf(counts, sizeof(counts), "%d / %d", win["occ"] | 0, win["avail"] | 0);
             label(cx, y + 32, text, 2, TEXT);
-            label(cx, y + 55, name, 1, MUTED);
+            label(cx, y + 55, name, 0, MUTED);
             label(cx, y + 69, counts, 1, MUTED);
-            screen.fillRoundRect(cx, y + 84, cw, 6, 3, BORDER);
+            aaRoundRect(cx, y + 84, cw, 6, 3, BORDER);
             const float p = constrain(win["pct"] | 0.0f, 0.0f, 100.0f);
             const int fill = static_cast<int>(cw * p / 100.0f);
-            if (fill > 0) screen.fillRoundRect(cx, y + 84, max(6, fill), 6, 3, BRAND);
+            if (fill > 0) aaRoundRect(cx, y + 84, max(6, fill), 6, 3, BRAND);
         }
     }
 
@@ -1668,10 +1753,10 @@ void drawHotel() {
             const char *name = pick(r, "label", "labelTh");
             if (isAscii(name)) label(x + 10, ry, name, 1, MUTED);
             else utext(x + 10, ry - 4, name, MUTED, labelW);
-            screen.fillRoundRect(trackX, ry - 1, trackW, 10, 5, TRACK);
+            aaRoundRect(trackX, ry - 1, trackW, 10, 5, TRACK);
             const float ratio = constrain(r["ratio"] | 0.0f, 0.0f, 1.0f);
             const int fill = static_cast<int>(trackW * ratio);
-            if (fill > 0) screen.fillRoundRect(trackX, ry - 1, max(10, fill), 10, 5, parseColor(r["color"] | "", BRAND));
+            if (fill > 0) aaRoundRect(trackX, ry - 1, max(10, fill), 10, 5, parseColor(r["color"] | "", BRAND));
             richRight(x + w - 10, ry, r["value"] | "-", 1, TEXT);
             ry += 22;
         }
@@ -1859,6 +1944,7 @@ void setup() {
         Serial.println("LCD initialization failed");
         return;
     }
+    fb = screen.getFramebuffer();
     touchBegin();
     applyRotation();
     drawDashboard();
