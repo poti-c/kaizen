@@ -1675,11 +1675,18 @@ void drawHotel() {
         subLine(r.x + 7, r.y + 51, sub, MUTED);
     }
 
-    // Occupancy forecast, next 14 days (0-100 %)
+    // Occupancy forecast, next 14 days: rooms occupied out of rooms in the hotel
     {
         const int x = PAD, y = ROW_A_Y, w = LEFT_W, h = ROW_A_H;
-        panelBox(x, y, w, h, L("OCCUPANCY FORECAST - NEXT 14 DAYS", "พยากรณ์การเข้าพัก 14 วัน"));
         JsonArrayConst days = hotel["forecast"].as<JsonArrayConst>();
+        int rooms = 1, n = 0;
+        for (JsonObjectConst day : days) {
+            if (n++ == 14) break;
+            rooms = max(rooms, day["total"] | 0);
+        }
+        char title[96];
+        snprintf(title, sizeof(title), thai ? "พยากรณ์การเข้าพัก 14 วัน · ห้อง (จาก %d)" : "OCCUPANCY FORECAST · NEXT 14 DAYS · ROOMS OF %d", rooms);
+        panelBox(x, y, w, h, title);
         if (days.size() == 0) {
             labelCenter(x + w / 2, y + h / 2, L("No forecast in this report", "ไม่มีข้อมูลพยากรณ์"), 1, MUTED);
         } else {
@@ -1689,11 +1696,11 @@ void drawHotel() {
             for (JsonObjectConst day : days) {
                 if (d == 14) break;
                 const int bx = x + 10 + d * slot + (slot - barW) / 2;
-                const float p = constrain(day["pct"] | 0.0f, 0.0f, 100.0f);
-                const int bh = static_cast<int>(area * p / 100.0f);
+                const int occupied = constrain(static_cast<int>(day["rooms"] | 0), 0, rooms);
+                const int bh = area * occupied / rooms;
                 if (bh > 0) aaRoundRect(bx, base - bh, barW, bh, min(3, bh / 2), d == 0 ? BRAND : BAR_FORECAST);
                 char v[8];
-                snprintf(v, sizeof(v), "%d", static_cast<int>(lroundf(day["pct"] | 0.0f)));
+                snprintf(v, sizeof(v), "%d", occupied);
                 labelCenter(bx + barW / 2, base - bh - 10, v, 1, TEXT);
                 char lab[4];
                 copyText(lab, sizeof(lab), day["label"] | "", 2);
