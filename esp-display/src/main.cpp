@@ -7,6 +7,9 @@
 #include <WiFiClientSecure.h>
 #include <Wire.h>
 #include <esp32s3/rom/cache.h>
+#include <driver/gpio.h>
+#include <soc/gpio_periph.h>
+#include <soc/io_mux_reg.h>
 
 #include "aa_fonts.h"
 
@@ -171,8 +174,70 @@ void flushRows(int y0, int y1) {
     const int r0 = rotated180 ? 479 - y1 : y0, r1 = rotated180 ? 479 - y0 : y1;
     Cache_WriteBack_Addr(reinterpret_cast<uint32_t>(fb + r0 * 800), (r1 - r0 + 1) * 800 * 2);
 }
-// Copies the off-screen frame to the LCD buffer, touching only rows that
-// changed. With fade, changed pixels step from old to new over ~0.3 s.
+// ── Presenting frames ────────────────────────────────────────────────────────
+// Two things make on-screen changes look torn or streaky on this panel:
+//  - the LCD controller streams the frame from the same PSRAM the CPU uses, so
+//    long CPU passes over the framebuffer starve it and show as shifted lines;
+//  - writing while the LCD is mid-scan shows part of the old and part of the
+//    new image.
+// So present() finds the runs of pixels that actually changed (one compare
+// pass), touches only those, and writes each step right after VSYNC, while the
+// panel is between frames.
+constexpr int VSYNC_PIN = 41;
+int vsyncPulse = -1;  // level of the VSYNC pulse (1 or 0); -1 = unusable, use plain timing
+
+// The pulse is a few lines long and the idle level fills the rest of the
+// frame, so whichever level is rare over ~30 ms is the pulse.
+void vsyncInit() {
+    PIN_INPUT_ENABLE(GPIO_PIN_MUX_REG[VSYNC_PIN]);  // read back the pin the LCD drives
+    int highs = 0, total = 0, edges = 0, last = gpio_get_level(static_cast<gpio_num_t>(VSYNC_PIN));
+    const uint32_t t0 = micros();
+    while (micros() - t0 < 30000) {
+        const int v = gpio_get_level(static_cast<gpio_num_t>(VSYNC_PIN));
+        highs += v;
+        ++total;
+        if (v != last) { ++edges; last = v; }
+    }
+    if (edges >= 2) vsyncPulse = highs * 2 < total ? 1 : 0;
+    Serial.printf("VSYNC: %d edges in 30 ms, pulse %s\n", edges,
+                  vsyncPulse < 0 ? "not readable (plain timing)" : vsyncPulse ? "high" : "low");
+}
+// Returns at the start of the next VSYNC pulse (or after ~30 ms if unreadable).
+void waitVsync() {
+    if (vsyncPulse < 0) { delay(25); return; }
+    const gpio_num_t pin = static_cast<gpio_num_t>(VSYNC_PIN);
+    const uint32_t t0 = micros();
+    while (gpio_get_level(pin) == vsyncPulse && micros() - t0 < 40000) {}  // leave a pulse in progress
+    while (gpio_get_level(pin) != vsyncPulse && micros() - t0 < 60000) {}  // wait for the next one
+}
+
+struct Span { uint32_t start; uint16_t len; };
+constexpr int MAX_SPANS = 4000;
+Span spans[MAX_SPANS];  // internal RAM: the fade loops never re-scan PSRAM
+
+// Runs of differing pixels in rows top..bottom; small gaps are merged.
+// Returns -1 if the change is too scattered to list (then: plain copy).
+int findSpans(int top, int bottom) {
+    int n = 0;
+    for (int y = top; y <= bottom; ++y) {
+        const uint16_t *f = front + y * 800, *b = back + y * 800;
+        int x = 0;
+        while (x < 800) {
+            if (f[x] == b[x]) { ++x; continue; }
+            int end = x + 1, gap = 0;
+            while (end < 800 && gap <= 6) {
+                if (f[end] != b[end]) gap = 0; else ++gap;
+                ++end;
+            }
+            end -= gap;
+            if (n == MAX_SPANS) return -1;
+            spans[n++] = {static_cast<uint32_t>(y * 800 + x), static_cast<uint16_t>(end - x)};
+            x = end;
+        }
+    }
+    return n;
+}
+
 void present(bool fade) {
     needPresent = false;
     fadeNext = false;
@@ -185,21 +250,31 @@ void present(bool fade) {
         }
     }
     if (top < 0) return;
-    const size_t off = top * 800, n = (bottom - top + 1) * 800;
-    if (fade) {
-        constexpr int STEPS = 8;
-        for (int k = 0; k < STEPS - 1; ++k) {
-            const int a = 255 / (STEPS - k);  // a 1/(steps left) share of the remaining way
-            for (size_t i = off; i < off + n; ++i) {
-                const uint16_t f = front[i], b = back[i];
-                if (f != b) front[i] = blend(b, f, a);
-            }
-            Cache_WriteBack_Addr(reinterpret_cast<uint32_t>(front + off), n * 2);
-            delay(20);
-        }
+    const int n = findSpans(top, bottom);
+    const uint32_t lo = top * 800, bytes = (bottom - top + 1) * 1600;
+    if (n < 0) {  // a whole-screen change: one copy, between frames
+        waitVsync();
+        memcpy(front + lo, back + lo, bytes);
+        Cache_WriteBack_Addr(reinterpret_cast<uint32_t>(front + lo), bytes);
+        return;
     }
-    memcpy(front + off, back + off, n * 2);
-    Cache_WriteBack_Addr(reinterpret_cast<uint32_t>(front + off), n * 2);
+    constexpr int STEPS = 8;  // ~8 frames, about 0.2 s at this panel's ~39 Hz
+    const uint32_t started = millis();
+    for (int k = fade ? 0 : STEPS - 1; k < STEPS; ++k) {
+        const bool last = k == STEPS - 1;
+        const int a = 255 / (STEPS - k);  // a 1/(steps left) share of the remaining way
+        waitVsync();
+        for (int s = 0; s < n; ++s) {
+            uint16_t *f = front + spans[s].start;
+            const uint16_t *b = back + spans[s].start;
+            if (last) memcpy(f, b, spans[s].len * 2);
+            else
+                for (int i = 0; i < spans[s].len; ++i)
+                    if (f[i] != b[i]) f[i] = blend(b[i], f[i], a);
+        }
+        Cache_WriteBack_Addr(reinterpret_cast<uint32_t>(front + lo), bytes);
+    }
+    if (fade) Serial.printf("Faded %d runs of changed pixels in %lu ms\n", n, static_cast<unsigned long>(millis() - started));
 }
 inline void blendPx(int x, int y, uint16_t color, int alpha) {  // alpha 0..255
     if (x < 0 || x >= 800 || y < 0 || y >= 480 || alpha <= 0) return;
@@ -2720,6 +2795,7 @@ void setup() {
         Serial.println("No PSRAM for the off-screen buffer; drawing directly");
         back = front;
     }
+    vsyncInit();
     wprefs.begin("wifi", false);
     loadKnown();
     touchBegin();
