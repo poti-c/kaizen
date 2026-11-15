@@ -2,8 +2,9 @@
 
 Native firmware that redraws the Kaizen board of `/display`
 (`src/pages/DisplayPage.tsx`) on a GUITION JC8048W550: ESP32-S3, 800 × 480 RGB
-LCD, 16 MB flash, 8 MB PSRAM. It polls once a minute over Wi-Fi and has no
-touch controls. The Hotel board and touch drill-down are not built yet.
+LCD, 16 MB flash, 8 MB PSRAM. It polls once a minute over Wi-Fi. The bottom switcher row
+(Kaizen System, Hotel, two reserved slots, System Settings) is drawn as on
+`/display?touch=off`, but there are no touch controls yet. The Hotel board and touch drill-down are not built yet.
 
 The numbers come from the `kaizen-esp-display` edge function
 (`supabase/functions/kaizen-esp-display`). It computes the same values as the
@@ -66,6 +67,18 @@ On screen, the bottom line reads `Live | Refreshes every minute`, with the
 live Wi-Fi signal on the right. The signal refreshes every 10 s, so you can
 move the panel and watch it. After three missed polls the header shows
 `STALE`.
+
+## Screenshot of the panel
+
+`tools/esp_shot.py` resets the board, waits for its first successful fetch,
+sends `S` over serial and saves the framebuffer as a PNG. It takes about 50 s.
+
+```sh
+"$HOME/.local/share/uv/tools/platformio/bin/python" tools/esp_shot.py nnr_esp.png
+```
+
+Use it to compare the layout with `/display` (the `nnrdsp` preview) after
+changing the firmware.
 
 ## Wi-Fi behaviour
 

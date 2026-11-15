@@ -102,9 +102,10 @@ void panelBox(int x, int y, int w, int h, const char *title) {
 // ── Layout (1024x600 web canvas scaled ~0.78 to 800x480) ──────────────────────
 constexpr int PAD = 12, GAP = 10;
 constexpr int HEADER_H = 50;
-constexpr int KPI_Y = 56, KPI_H = 72;
-constexpr int ROW_A_Y = 138, ROW_A_H = 160;
-constexpr int ROW_B_Y = 308, ROW_B_H = 136;
+constexpr int KPI_Y = 56, KPI_H = 64;
+constexpr int ROW_A_Y = 128, ROW_A_H = 148;
+constexpr int ROW_B_Y = 284, ROW_B_H = 112;
+constexpr int SWITCH_Y = 404, SWITCH_H = 40;
 constexpr int RIGHT_W = 300;
 constexpr int LEFT_W = 800 - 2 * PAD - GAP - RIGHT_W;
 constexpr int RIGHT_X = PAD + LEFT_W + GAP;
@@ -156,8 +157,8 @@ void drawKpis() {
         card(x, KPI_Y, w, KPI_H);
         char number[16] = "--";
         if (hasData) snprintf(number, sizeof(number), "%d", values[i]);
-        label(x + 10, KPI_Y + 14, number, strlen(number) <= 4 ? 4 : 3, METRICS[i].color);
-        label(x + 10, KPI_Y + 54, METRICS[i].label, 1, MUTED);
+        label(x + 10, KPI_Y + 12, number, strlen(number) <= 4 ? 4 : 3, METRICS[i].color);
+        label(x + 10, KPI_Y + 48, METRICS[i].label, 1, MUTED);
     }
 }
 
@@ -231,20 +232,20 @@ void drawOverview() {
     const int counts[] = {values[1], values[2], values[3], values[4], details["reopened"] | 0};
     const uint16_t colors[] = {C_OPEN, C_PROGRESS, C_PENDING, C_RESOLVED, C_CRITICAL};
     const char *names[] = {"Open", "In Progress", "Waiting Approval", "Resolved", "Reopened"};
-    const int cx = x + 66, cy = y + 88;
+    const int cx = x + 64, cy = y + 84;
     if (hasData) {
-        drawDonut(cx, cy, 54, 37, counts, colors, 5);
+        drawDonut(cx, cy, 50, 34, counts, colors, 5);
         char total[12];
         snprintf(total, sizeof(total), "%d", values[0]);
         labelCenter(cx, cy - 13, total, total[3] ? 2 : 3, TEXT);
         labelCenter(cx, cy + 13, "Total", 1, MUTED);
     } else {
-        screen.fillCircle(cx, cy, 54, TRACK);
-        screen.fillCircle(cx, cy, 37, CARD);
+        screen.fillCircle(cx, cy, 50, TRACK);
+        screen.fillCircle(cx, cy, 34, CARD);
         labelCenter(cx, cy - 4, "No data", 1, MUTED);
     }
     for (int i = 0; i < 5; ++i) {
-        const int ly = y + 42 + i * 20;
+        const int ly = y + 40 + i * 19;
         screen.fillRoundRect(x + 136, ly, 8, 8, 2, colors[i]);
         label(x + 150, ly, names[i], 1, MUTED);
         char count[12] = "--";
@@ -274,24 +275,24 @@ void drawAttention() {
 
     int ry = y + 28;
     for (JsonObjectConst item : items) {
-        if (ry + 26 > y + h - 6) break;
+        if (ry + 24 > y + h - 4) break;
         const bool overdue = item["overdue"] | false;
         const uint16_t tone = overdue ? C_CRITICAL : C_PENDING;
-        screen.fillRoundRect(x + 10, ry, w - 20, 26, 5, ROW);
-        screen.fillCircle(x + 20, ry + 13, 3, tone);
+        screen.fillRoundRect(x + 10, ry, w - 20, 24, 5, ROW);
+        screen.fillCircle(x + 20, ry + 12, 3, tone);
         char caseNumber[24], dept[24], hours[12];
         ascii(caseNumber, sizeof(caseNumber), item["caseNumber"] | "", 20);
         ascii(dept, sizeof(dept), item["department"] | "", 20);
         snprintf(hours, sizeof(hours), "%dh", item["hours"] | 0);
-        label(x + 30, ry + 9, caseNumber, 1, MUTED);
-        label(x + 30 + 18 * 6, ry + 9, overdue ? "Overdue" : "Critical", 1, TEXT);
+        label(x + 30, ry + 8, caseNumber, 1, MUTED);
+        label(x + 30 + 18 * 6, ry + 8, overdue ? "Overdue" : "Critical", 1, TEXT);
         const int hx = x + w - 20;
-        labelRight(hx, ry + 9, hours, 1, tone);
+        labelRight(hx, ry + 8, hours, 1, tone);
         const int dw = textWidth(dept, 1) + 10;
         const int dx = hx - 46 - dw;
-        screen.fillRoundRect(dx, ry + 5, dw, 16, 3, TRACK);
-        label(dx + 5, ry + 9, dept, 1, MUTED);
-        ry += 30;
+        screen.fillRoundRect(dx, ry + 4, dw, 16, 3, TRACK);
+        label(dx + 5, ry + 8, dept, 1, MUTED);
+        ry += 27;
     }
 }
 
@@ -308,7 +309,7 @@ void drawCategories() {
     const int labelW = 96, countW = 28;
     const int trackX = x + 10 + labelW + 6;
     const int trackW = w - 20 - labelW - 6 - countW - 6;
-    int ry = y + 32;
+    int ry = y + 30;
     for (JsonObjectConst r : rows) {
         char name[20], count[12];
         ascii(name, sizeof(name), r["label"] | "", labelW / 6);
@@ -318,8 +319,98 @@ void drawCategories() {
         const int fill = max(10, static_cast<int>(static_cast<int64_t>(trackW) * r["count"].as<int>() / maximum));
         screen.fillRoundRect(trackX, ry - 1, fill, 10, 5, parseColor(r["color"] | "", BRAND));
         labelRight(x + w - 10, ry, count, 1, TEXT);
-        ry += 24;
+        ry += 19;
     }
+}
+
+// ── Dashboard switcher ───────────────────────────────────────────────────────
+// Five fixed slots, as on /display: Kaizen System (active), Hotel, two reserved
+// blanks, System Settings. Display-only for now (no touch yet), which is how
+// the web board behaves under ?touch=off.
+constexpr uint16_t RESERVED = rgb(0x232a36);   // rgba(255,255,255,0.10) on BG
+
+void dashedRect(int x, int y, int w, int h, uint16_t color) {
+    for (int i = x + 8; i + 4 <= x + w - 8; i += 8) {
+        screen.drawFastHLine(i, y, 4, color);
+        screen.drawFastHLine(i, y + h - 1, 4, color);
+    }
+    for (int j = y + 8; j + 4 <= y + h - 8; j += 8) {
+        screen.drawFastVLine(x, j, 4, color);
+        screen.drawFastVLine(x + w - 1, j, 4, color);
+    }
+}
+
+// 12x12 line icons standing in for lucide LayoutDashboard / Hotel / Settings.
+void iconDashboard(int x, int y, uint16_t c) {
+    screen.drawRoundRect(x, y, 5, 7, 1, c);
+    screen.drawRoundRect(x + 7, y, 5, 4, 1, c);
+    screen.drawRoundRect(x + 7, y + 6, 5, 6, 1, c);
+    screen.drawRoundRect(x, y + 9, 5, 3, 1, c);
+}
+void iconHotel(int x, int y, uint16_t c) {
+    screen.drawRect(x + 1, y, 10, 12, c);
+    for (int r = 0; r < 2; ++r) {
+        screen.fillRect(x + 3, y + 2 + r * 3, 2, 2, c);
+        screen.fillRect(x + 7, y + 2 + r * 3, 2, 2, c);
+    }
+    screen.fillRect(x + 5, y + 9, 2, 3, c);
+}
+void iconSettings(int x, int y, uint16_t c, uint16_t bg) {
+    screen.fillCircle(x + 6, y + 6, 4, c);
+    screen.fillCircle(x + 6, y + 6, 2, bg);
+    screen.fillRect(x + 5, y, 2, 2, c);
+    screen.fillRect(x + 5, y + 10, 2, 2, c);
+    screen.fillRect(x, y + 5, 2, 2, c);
+    screen.fillRect(x + 10, y + 5, 2, 2, c);
+}
+
+void drawSwitcher() {
+    const int w = (800 - 2 * PAD - 4 * GAP) / 5;
+    const int y = SWITCH_Y, h = SWITCH_H;
+    const char *names[] = {"Kaizen System", "Hotel", nullptr, nullptr, "System Settings"};
+    for (int i = 0; i < 5; ++i) {
+        const int x = PAD + i * (w + GAP);
+        if (!names[i]) {
+            dashedRect(x, y, w, h, RESERVED);
+            continue;
+        }
+        const bool active = i == 0;
+        if (active) screen.fillRoundRect(x, y, w, h, 9, BRAND);
+        else card(x, y, w, h);
+        const uint16_t fg = active ? TEXT : MUTED;
+        const uint16_t bg = active ? BRAND : CARD;
+        const int content = 12 + 6 + textWidth(names[i], 1);
+        const int ix = x + (w - content) / 2, iy = y + h / 2 - 6;
+        if (i == 0) iconDashboard(ix, iy, fg);
+        else if (i == 1) iconHotel(ix, iy, fg);
+        else iconSettings(ix, iy, fg, bg);
+        label(ix + 18, y + h / 2 - 4, names[i], 1, fg);
+    }
+}
+
+// Send 'S' over serial to receive the framebuffer, run-length encoded:
+// "KZSHOT", width u16, height u16, then (count u16, rgb565 u16) runs ending
+// with a zero count. Lets the layout be checked on a computer.
+void dumpScreen() {
+    const uint16_t *fb = screen.getFramebuffer();
+    if (!fb) return;
+    const uint8_t head[] = {'K', 'Z', 'S', 'H', 'O', 'T', 800 & 0xFF, 800 >> 8, 480 & 0xFF, 480 >> 8};
+    Serial.write(head, sizeof(head));
+    uint8_t buf[512];
+    size_t n = 0;
+    constexpr uint32_t total = 800UL * 480UL;
+    for (uint32_t i = 0; i < total;) {
+        const uint16_t c = fb[i];
+        uint16_t run = 1;
+        while (i + run < total && run < 65535 && fb[i + run] == c) ++run;
+        const uint8_t rec[] = {uint8_t(run), uint8_t(run >> 8), uint8_t(c), uint8_t(c >> 8)};
+        memcpy(buf + n, rec, 4);
+        n += 4;
+        if (n == sizeof(buf)) { Serial.write(buf, n); n = 0; }
+        i += run;
+    }
+    memset(buf + n, 0, 4);
+    Serial.write(buf, n + 4);
 }
 
 // ── Wi-Fi ────────────────────────────────────────────────────────────────────
@@ -377,6 +468,7 @@ void drawDashboard(const char *status) {
     drawOverview();
     drawAttention();
     drawCategories();
+    drawSwitcher();
     drawStatus();
 }
 
@@ -502,6 +594,7 @@ void manageWifi() {
 }
 
 void loop() {
+    if (Serial.available() && Serial.read() == 'S') dumpScreen();
     if (WiFi.getMode() != WIFI_STA) {
         delay(100);
         return;
