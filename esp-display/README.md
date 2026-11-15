@@ -75,21 +75,59 @@ The panel has a GT911 capacitive touch controller (I2C at 0x5D: SDA 19,
 SCL 20, reset 38). The firmware reads it directly over I2C, with no extra
 library.
 
-- **Kaizen System:** shows the Kaizen board, the home screen.
-- **Hotel:** the hotel board, from the latest `kaizen_hotel_daily` row. It
-  shows six KPI tiles, the 14-day occupancy forecast, Today, the four-window
-  occupancy outlook and today's revenue split.
-- **System Settings:** brightness −/+ in 10% steps (saved in NVS, kept after a
-  restart), then data source, last update, Wi-Fi, IP, MAC, uptime, free memory
-  and firmware date.
+- **Bottom row:** Kaizen System, Hotel and System Settings switch boards. Any
+  board other than Kaizen returns to it after 2 minutes without a touch.
+- **Kaizen board:** tapping a KPI tile (Total, Open, In Progress, Waiting
+  Approval, Resolved, Overdue), a category row or a Needs Attention row opens
+  the matching cases over the whole board, as on the web. Empty KPI tiles do
+  nothing, as on the web.
+  - Each row shows priority, number, title, department, status and age.
+  - Tap a case to expand it: description, proposed solution, PIC, location
+    and reporter.
+  - ▲ / ▼ page through long lists; × closes the list.
+  - The list closes itself after 30 s without a touch (the web's idle default).
+  - The list comes from `?view=cases`, fetched when a list opens and reused for
+    a minute.
+- **Hotel board:** from the latest `kaizen_hotel_daily` row. The header gives
+  the report date ("Figures for Fri 06 Nov 2026"), with an amber "N DAYS OLD"
+  tag once the report is two or more days behind.
+- **System Settings:**
+  - Brightness −/+ in 10% steps.
+  - Language: English / ไทย.
+  - Data source, last update, Wi-Fi, IP, MAC, uptime, free memory and firmware
+    date.
+  - Brightness and language are saved in NVS and kept after a restart.
 
-Any screen other than Kaizen returns to it after 2 minutes without a touch.
-Each tap is logged over serial as `Tap x,y`. KPI tiles and Needs Attention rows
-do not open case lists yet: those lists need case titles, which are mostly Thai.
+Each tap is logged over serial as `Tap x,y`.
 
-Serial commands at 115200 baud, mainly for testing:
+## Thai and other languages
+
+The built-in 6x8 font is ASCII only. Any label containing non-ASCII text is
+drawn in the 16 px Unifont that ships with Arduino_GFX, which covers Thai and
+most of Unicode.
+- **Why U8g2:** the `olikraus/U8g2` dependency is there only so Arduino_GFX
+  enables UTF-8 text.
+- **Build flag:** `-DU8G2_USE_LARGE_FONTS` includes the font, about 2.2 MB of
+  flash.
+- **Thai shaping:** above and below vowels and tone marks are separate code
+  points. The firmware draws them over the preceding letter's cell, and lifts a
+  tone mark 3 px when it follows an upper vowel (นั่ง), so the two don't collide.
+- **Labels:** English and Thai labels are the web app's own strings.
+- **Case content:** case titles, descriptions and names are shown as entered.
+
+## Brightness
+
+The backlight is PWM on GPIO 2 at 300 Hz. The percentage goes through a 2.2
+gamma curve, because eyes judge brightness logarithmically: a linear 60% duty
+looks almost the same as 100%.
+
+## Serial commands
+
+At 115200 baud, mainly for testing without touching the panel:
 - `S` sends a screenshot (see below).
 - `K`, `H`, `T` switch to the Kaizen, Hotel and settings screens.
+- `L` toggles the language.
+- `D` opens the Total list, `E` expands its first case, `X` closes the list.
 
 ## Screenshot of the panel
 
