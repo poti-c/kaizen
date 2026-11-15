@@ -132,7 +132,7 @@ Status status = Status::Connecting;
 uint32_t nextPoll = 0;
 
 // Which board is on screen. Kaizen is home; Hotel times out back to it.
-enum class Screen { Kaizen, Hotel };
+enum class Screen { Kaizen, Hotel, Clock };
 Screen current = Screen::Kaizen;
 uint32_t lastTouch = 0;
 Preferences prefs;
@@ -144,6 +144,8 @@ struct PanelSettings {
     int nightFrom = 22 * 60, nightTo = 6 * 60;  // minutes after midnight, Bangkok time
     int nightLevel = 35;
     bool rotated = false;                       // orientation 180°
+    int clockCity[3] = {0, 2, 4};               // World Clock cities (CITY_LIST indexes)
+    int airHome = 0;                            // where air quality is read
     bool rotate = false;                        // cycle the bottom-row boards
     int rotateSecs = 30;                        // time per board, 15..300
     int refreshSecs = 60;
@@ -151,6 +153,40 @@ struct PanelSettings {
     bool touch = true;                          // touch drill-down
 } cfg;
 uint32_t pollMs() { return cfg.refreshSecs * 1000UL; }
+
+// World Clock cities. Keep in step with src/lib/worldClock.ts and CITIES in
+// supabase/functions/kaizen-ambient. The offset is the standard one, used only
+// until kaizen-ambient reports the current offset (which includes DST).
+// Cities of one country sit next to each other: the settings dropdown groups
+// consecutive entries under one country heading.
+struct CityDef {
+    const char *key, *name, *nameTh, *country, *countryTh;
+    int16_t stdOffset;  // minutes
+};
+constexpr CityDef CITY_LIST[] = {
+    {"chiangmai", "Chiang Mai", "เชียงใหม่", "Thailand", "ไทย", 420},
+    {"bangkok", "Bangkok", "กรุงเทพฯ", "Thailand", "ไทย", 420},
+    {"tokyo", "Tokyo", "โตเกียว", "Japan", "ญี่ปุ่น", 540},
+    {"osaka", "Osaka", "โอซากา", "Japan", "ญี่ปุ่น", 540},
+    {"taipei", "Taipei", "ไทเป", "Taiwan", "ไต้หวัน", 480},
+    {"seoul", "Seoul", "โซล", "South Korea", "เกาหลีใต้", 540},
+    {"hongkong", "Hong Kong", "ฮ่องกง", "Hong Kong", "ฮ่องกง", 480},
+    {"shanghai", "Shanghai", "เซี่ยงไฮ้", "China", "จีน", 480},
+    {"singapore", "Singapore", "สิงคโปร์", "Singapore", "สิงคโปร์", 480},
+    {"dubai", "Dubai", "ดูไบ", "UAE", "สหรัฐอาหรับเอมิเรตส์", 240},
+    {"london", "London", "ลอนดอน", "UK", "สหราชอาณาจักร", 0},
+    {"paris", "Paris", "ปารีส", "France", "ฝรั่งเศส", 60},
+    {"newyork", "New York", "นิวยอร์ก", "USA", "สหรัฐอเมริกา", -300},
+    {"losangeles", "Los Angeles", "ลอสแอนเจลิส", "USA", "สหรัฐอเมริกา", -480},
+    {"sydney", "Sydney", "ซิดนีย์", "Australia", "ออสเตรเลีย", 600},
+};
+constexpr int CITY_COUNT = sizeof(CITY_LIST) / sizeof(CITY_LIST[0]);
+
+// World Clock data from kaizen-ambient (see fetchAmbient).
+JsonDocument ambient;
+bool ambientOk = false;
+uint32_t ambientAt = 0;  // 0 = fetch as soon as possible
+constexpr uint32_t AMBIENT_MS = 10 * 60 * 1000;
 uint32_t drillIdleMs() { return cfg.idleSecs * 1000UL; }
 
 // ── Text: built-in 6x8 font for ASCII, Unifont 16 px for everything else ─────
@@ -437,7 +473,8 @@ const AAFont &fontFor(int size) {
         case 1: return text12;
         case 2: return title17;
         case 3: return head22;
-        default: return num30;
+        case 4: return num30;
+        default: return clock64;
     }
 }
 // Body text (what Unifont used to draw): 15 px.
@@ -555,8 +592,8 @@ void copyText(char *out, size_t cap, const char *in, size_t maxBytes = 1000) {
 // English labels are uppercase on the web board (CSS); Thai has no case.
 void upper(char *out, size_t cap, const char *in) {
     copyText(out, cap, in);
-    if (isAscii(out))
-        for (char *c = out; *c; ++c) *c = toupper(*c);
+    for (char *c = out; *c; ++c)  // ASCII letters only; Thai and symbols pass through
+        if (*c >= 'a' && *c <= 'z') *c = *c - 'a' + 'A';
 }
 uint16_t parseColor(const char *hex, uint16_t fallback) {
     if (!hex || hex[0] != '#' || strlen(hex) != 7) return fallback;
@@ -620,7 +657,10 @@ void drawHeader() {
         char month[16], avg[16];
         copyText(month, sizeof(month), details["month"] | "", 12);
         copyText(avg, sizeof(avg), details["avgResolution"] | "-", 12);
-        if (current == Screen::Hotel) {
+        if (current == Screen::Clock) {
+            snprintf(subtitle, sizeof(subtitle), "%s  |  %s", month,
+                     L("World clock, weather and air quality", "นาฬิกาโลก สภาพอากาศ และคุณภาพอากาศ"));
+        } else if (current == Screen::Hotel) {
             // The hotel figures come from the last uploaded report, which can
             // be days behind: say which day, and flag it when it is old.
             JsonObjectConst hotel = details["hotel"].as<JsonObjectConst>();
@@ -882,6 +922,11 @@ void iconHotel(int x, int y, uint16_t c) {
     }
     screen.fillRect(x + 5, y + 9, 2, 3, c);
 }
+void iconClock(int x, int y, uint16_t c) {
+    screen.drawCircle(x + 6, y + 6, 6, c);
+    screen.drawFastVLine(x + 6, y + 2, 5, c);
+    screen.drawLine(x + 6, y + 6, x + 9, y + 8, c);
+}
 void iconSettings(int x, int y, uint16_t c, uint16_t bg) {
     aaCircle(x + 6, y + 6, 4, c);
     aaCircle(x + 6, y + 6, 2, bg);
@@ -893,7 +938,7 @@ void iconSettings(int x, int y, uint16_t c, uint16_t bg) {
 
 void drawSwitcher() {
     const int y = SWITCH_Y, h = SWITCH_H;
-    const char *names[] = {"Kaizen System", L("Hotel", "โรงแรม"), nullptr, nullptr,
+    const char *names[] = {"Kaizen System", L("Hotel", "โรงแรม"), L("World Clock", "นาฬิกาโลก"), nullptr,
                            L("System Settings", "ตั้งค่าระบบ")};
     for (int i = 0; i < 5; ++i) {
         const int x = PAD + i * (SWITCH_W + GAP);
@@ -901,7 +946,8 @@ void drawSwitcher() {
             dashedRect(x, y, SWITCH_W, h, RESERVED);
             continue;
         }
-        const bool active = (i == 0 && current == Screen::Kaizen) || (i == 1 && current == Screen::Hotel);
+        const bool active = (i == 0 && current == Screen::Kaizen) || (i == 1 && current == Screen::Hotel) ||
+                            (i == 2 && current == Screen::Clock);
         if (active) aaRoundRect(x, y, SWITCH_W, h, 9, BRAND);
         else card(x, y, SWITCH_W, h);
         const uint16_t fg = active ? TEXT : MUTED;
@@ -910,6 +956,7 @@ void drawSwitcher() {
         const int ix = x + (SWITCH_W - content) / 2, iy = y + h / 2 - 6;
         if (i == 0) iconDashboard(ix, iy, fg);
         else if (i == 1) iconHotel(ix, iy, fg);
+        else if (i == 2) iconClock(ix, iy, fg);
         else iconSettings(ix, iy, fg, bg);
         label(ix + 18, y + h / 2 - 4, names[i], 1, fg);
     }
@@ -1775,8 +1822,10 @@ uint32_t armedUntil = 0;
 enum Ctl {
     C_CLOSE = 1, C_TAB, C_BRIGHT, C_NIGHT, C_FROM_M, C_FROM_P, C_TO_M, C_TO_P, C_NIGHT_LVL, C_ORIENT,
     C_LANG, C_REFRESH, C_TOUCH, C_IDLE, C_RECONNECT, C_FIELD, C_SOUND, C_REBOOT, C_RESET, C_OTA,
-    C_NET, C_SCAN, C_FORGET, C_SIGNIN, C_NET_UP, C_NET_DOWN, C_CYCLE, C_CYCLE_SECS
+    C_NET, C_SCAN, C_FORGET, C_SIGNIN, C_NET_UP, C_NET_DOWN, C_CYCLE, C_CYCLE_SECS, C_CITY_OPEN, C_CITY_PICK, C_CITY_CLOSE
 };
+int cityDrop = -1;  // World clock dropdown open for slot 0-2 (clocks) or 3 (air quality); -1 closed
+
 struct Control { Rect r; int id, aux; };
 Control ctls[40];
 int ctlCount = 0;
@@ -1798,6 +1847,12 @@ void saveSettings() {
     prefs.putBool("rot", cfg.rotated);
     prefs.putBool("cycle", cfg.rotate);
     prefs.putUShort("cycle_s", cfg.rotateSecs);
+    for (int i = 0; i < 3; ++i) {
+        char k[6];
+        snprintf(k, sizeof(k), "clk%d", i);
+        prefs.putUChar(k, cfg.clockCity[i]);
+    }
+    prefs.putUChar("airh", cfg.airHome);
     prefs.putUShort("poll", cfg.refreshSecs);
     prefs.putUShort("idle", cfg.idleSecs);
     prefs.putBool("touch", cfg.touch);
@@ -1811,6 +1866,13 @@ void loadSettings() {
     cfg.rotated = prefs.getBool("rot", false);
     cfg.rotate = prefs.getBool("cycle", false);
     cfg.rotateSecs = constrain(static_cast<int>(prefs.getUShort("cycle_s", 30)), 15, 300);
+    const int defaults[3] = {0, 2, 4};  // Chiang Mai, Tokyo, Taipei
+    for (int i = 0; i < 3; ++i) {
+        char k[6];
+        snprintf(k, sizeof(k), "clk%d", i);
+        cfg.clockCity[i] = prefs.getUChar(k, defaults[i]) % CITY_COUNT;
+    }
+    cfg.airHome = prefs.getUChar("airh", 0) % CITY_COUNT;
     cfg.refreshSecs = prefs.getUShort("poll", 60);
     cfg.idleSecs = prefs.getUShort("idle", 30);
     cfg.touch = prefs.getBool("touch", true);
@@ -1971,14 +2033,19 @@ void drawSettings() {
 
     // Tab rail
     screen.drawFastVLine(OX + RAIL_W, OY + 51, OH - 52, BORDER);
+    // Section ids keep their numbers (other code refers to them); World clock
+    // is section 5 but sits second in the rail, as on the web.
     const char *tabs[] = {L("Display", "หน้าจอ"), L("Data", "ข้อมูล"), L("Network", "เครือข่าย"),
-                          L("Device", "อุปกรณ์"), L("About", "เกี่ยวกับ")};
-    for (int i = 0; i < 5; ++i) {
-        const Rect r = {OX + 6, OY + 58 + i * 40, RAIL_W - 12, 34};
+                          L("Device", "อุปกรณ์"), L("About", "เกี่ยวกับ"), L("World clock", "นาฬิกาโลก")};
+    const int order[] = {0, 5, 1, 2, 3, 4};
+    for (int pos = 0; pos < 6; ++pos) {
+        const int i = order[pos];
+        const Rect r = {OX + 6, OY + 58 + pos * 40, RAIL_W - 12, 34};
         const bool on = i == section;
         if (on) aaRoundRect(r.x, r.y, r.w, r.h, 7, BRAND);
         const uint16_t fg = on ? TEXT : MUTED;
-        tabIcon(i, r.x + 10, r.y + 11, fg, on ? BRAND : BG);
+        if (i == 5) iconClock(r.x + 10, r.y + 11, fg);
+        else tabIcon(i, r.x + 10, r.y + 11, fg, on ? BRAND : BG);
         utext(r.x + 30, r.y + 9, tabs[i], fg, r.w - 34);
         addCtl(r, C_TAB, i);
     }
@@ -2089,6 +2156,74 @@ void drawSettings() {
         snprintf(v, sizeof(v), "MAC %s  |  %s", WiFi.macAddress().c_str(),
                  L("2.4 GHz networks only", "รองรับเฉพาะ 2.4 GHz"));
         label(CX0, OY + OH - 22, v, 1, MUTED);
+    } else if (section == 5) {
+        // World clock: three cities and the air quality location. Each row is a
+        // dropdown button ("Chiang Mai · Thailand  v"); tapping it opens the
+        // list below, grouped by country.
+        auto dropButton = [&](int cy, int index, int slot) {
+            const Rect r = {CX1 - 260, cy - 16, 260, 32};
+            const bool open = cityDrop == slot;
+            aaRoundRect(r.x, r.y, r.w, r.h, 7, open ? BRAND : BORDER);
+            aaRoundRect(r.x + 1, r.y + 1, r.w - 2, r.h - 2, 6, blend(TEXT, BG, 15));
+            const CityDef &c = CITY_LIST[index];
+            const int w = utext(r.x + 12, cy - 8, L(c.name, c.nameTh), TEXT, 130);
+            char tail[96];
+            snprintf(tail, sizeof(tail), " · %s", L(c.country, c.countryTh));
+            utext(r.x + 12 + w, cy - 8, tail, MUTED, r.w - 44 - w);
+            const int ax = r.x + r.w - 20;  // down arrow
+            screen.fillTriangle(ax - 5, cy - 3, ax + 5, cy - 3, ax, cy + 3, MUTED);
+            addCtl(r, C_CITY_OPEN, slot);
+        };
+        for (int i = 0; i < 3; ++i) {
+            snprintf(v, sizeof(v), thai ? "นาฬิกา %d" : "Clock %d", i + 1);
+            const int cy = beginRow(v, i == 0 ? L("Time and temperature for each city", "เวลาและอุณหภูมิของแต่ละเมือง") : nullptr);
+            dropButton(cy, cfg.clockCity[i], i);
+        }
+        const int cy = beginRow(L("Air quality location", "ตำแหน่งวัดคุณภาพอากาศ"),
+                                L("Nearest Air4Thai station (in Thailand)", "สถานี Air4Thai ที่ใกล้ที่สุด (ในประเทศไทย)"));
+        dropButton(cy, cfg.airHome, 3);
+
+        if (cityDrop >= 0) {
+            // The open list covers the rows; only its own controls take taps,
+            // and a tap anywhere outside it closes it.
+            ctlCount = 0;
+            const int current = cityDrop == 3 ? cfg.airHome : cfg.clockCity[cityDrop];
+            const Rect p = {CX0 - 8, OY + 56, CX1 - CX0 + 16, OH - 62};
+            aaRoundRect(p.x, p.y, p.w, p.h, 10, BORDER);
+            aaRoundRect(p.x + 1, p.y + 1, p.w - 2, p.h - 2, 9, CARD);
+            if (cityDrop == 3) copyText(v, sizeof(v), L("Air quality location", "ตำแหน่งวัดคุณภาพอากาศ"));
+            else snprintf(v, sizeof(v), thai ? "นาฬิกา %d" : "Clock %d", cityDrop + 1);
+            utext(p.x + 14, p.y + 9, v, TEXT, 400);
+            const Rect x = {p.x + p.w - 40, p.y + 5, 32, 26};
+            aaRoundRect(x.x, x.y, x.w, x.h, 6, blend(TEXT, CARD, 18));
+            const int xc = x.x + x.w / 2, yc = x.y + x.h / 2;
+            for (int k = 0; k <= 1; ++k) {
+                screen.drawLine(xc - 5 + k, yc - 5, xc + 5 + k, yc + 5, TEXT);
+                screen.drawLine(xc - 5 + k, yc + 5, xc + 5 + k, yc - 5, TEXT);
+            }
+            addCtl(x, C_CITY_CLOSE);
+            screen.drawFastHLine(p.x + 1, p.y + 35, p.w - 2, BORDER);
+
+            // 11 countries x 30 px fit between the header and the bottom edge.
+            constexpr int LIST_ROW = 30, BTN_W = 160;
+            int ry = p.y + 41;
+            for (int i = 0; i < CITY_COUNT;) {
+                const char *country = CITY_LIST[i].country;
+                utext(p.x + 14, ry + (LIST_ROW - 16) / 2, L(country, CITY_LIST[i].countryTh), MUTED, 170);
+                int bx = p.x + 190;
+                for (; i < CITY_COUNT && strcmp(CITY_LIST[i].country, country) == 0; ++i) {
+                    const Rect b = {bx, ry + 2, BTN_W, LIST_ROW - 4};
+                    const bool on = i == current;
+                    aaRoundRect(b.x, b.y, b.w, b.h, 6, on ? BRAND : blend(TEXT, CARD, 15));
+                    const char *name = L(CITY_LIST[i].name, CITY_LIST[i].nameTh);
+                    utext(b.x + 12, b.y + (b.h - 16) / 2, name, TEXT, b.w - 20);
+                    addCtl(b, C_CITY_PICK, i);
+                    bx += BTN_W + 8;
+                }
+                ry += LIST_ROW;
+            }
+            addCtl({0, 0, 800, 480}, C_CITY_CLOSE);  // outside the list: close
+        }
     } else if (section == 3) {
         const char *title = hasData ? (details["title"] | "") : "";
         int cy = beginRow(L("Board title", "ชื่อบนจอ"), L("Shown in the header: the company name", "ชื่อที่แสดงบนหัวจอ: ชื่อบริษัท"));
@@ -2141,11 +2276,13 @@ void openSettings() {
     settingsOpen = true;
     settingsTouched = millis();
     armed = 0;
+    cityDrop = -1;
     drawSettings();
 }
 void closeSettings() {
     settingsOpen = false;
     kb.open = false;
+    cityDrop = -1;
     drawDashboard();
 }
 
@@ -2182,6 +2319,7 @@ void settingsTap(int x, int y) {
             case C_CLOSE: closeSettings(); return;
             case C_TAB:
                 section = c.aux;
+                cityDrop = -1;
                 if (section == 2 && (!scannedAt || millis() - scannedAt > 30000)) {
                     drawSettings();
                     busy(L("Scanning...", "กำลังสแกน..."));
@@ -2238,6 +2376,17 @@ void settingsTap(int x, int y) {
             case C_TOUCH: cfg.touch = !cfg.touch; break;
             case C_IDLE: cfg.idleSecs = c.aux; break;
             case C_CYCLE: cfg.rotate = !cfg.rotate; break;
+            case C_CITY_OPEN: cityDrop = c.aux; break;
+            case C_CITY_CLOSE: cityDrop = -1; break;
+            case C_CITY_PICK: {
+                int &idx = cityDrop == 3 ? cfg.airHome : cfg.clockCity[cityDrop];
+                if (idx != c.aux) {
+                    idx = c.aux;
+                    ambientAt = 0;  // fetch the new city's weather / air quality now
+                }
+                cityDrop = -1;
+                break;
+            }
             case C_CYCLE_SECS: cfg.rotateSecs = c.aux; break;
             case C_RECONNECT:
                 setNote(L("Reconnecting...", "กำลังเชื่อมต่อใหม่..."));
@@ -2655,6 +2804,171 @@ void drawHotel() {
     }
 }
 
+// ── World Clock board: mirrors src/components/WorldClockBoard.tsx ───────────
+JsonObjectConst ambientCity(const char *key) {
+    for (JsonObjectConst c : ambient["clocks"].as<JsonArrayConst>())
+        if (strcmp(c["key"] | "", key) == 0) return c;
+    return JsonObjectConst();
+}
+int cityOffset(int cityIndex) {
+    JsonObjectConst c = ambientCity(CITY_LIST[cityIndex].key);
+    return c.isNull() ? CITY_LIST[cityIndex].stdOffset : (c["offsetMin"] | CITY_LIST[cityIndex].stdOffset);
+}
+
+// 24x24 weather icons centred on (cx, cy), for the icon names kaizen-ambient sends.
+void cloudShape(int cx, int cy, uint16_t c) {
+    aaCircle(cx - 5, cy + 1, 6, c);
+    aaCircle(cx + 2, cy - 3, 8, c);
+    aaCircle(cx + 8, cy + 2, 5, c);
+    aaRoundRect(cx - 11, cy + 1, 24, 7, 3, c);
+}
+void weatherIcon(const char *icon, int cx, int cy, uint16_t c, uint16_t bg) {
+    const uint16_t sunC = rgb(0xfbbf24);
+    if (!strcmp(icon, "sun")) {
+        aaCircle(cx, cy, 6, sunC);
+        for (int a = 0; a < 8; ++a) {
+            const float r = a * PI / 4;
+            screen.drawLine(cx + cosf(r) * 9, cy + sinf(r) * 9, cx + cosf(r) * 12, cy + sinf(r) * 12, sunC);
+        }
+    } else if (!strcmp(icon, "moon")) {
+        aaCircle(cx, cy, 9, c);
+        aaCircle(cx + 5, cy - 4, 8, bg);
+    } else if (!strcmp(icon, "partly") || !strcmp(icon, "partly-night")) {
+        if (!strcmp(icon, "partly")) aaCircle(cx - 5, cy - 5, 6, sunC);
+        else { aaCircle(cx - 5, cy - 5, 6, c); aaCircle(cx - 2, cy - 8, 5, bg); }
+        cloudShape(cx + 2, cy + 3, c);
+    } else if (!strcmp(icon, "fog")) {
+        for (int i = 0; i < 3; ++i) aaRoundRect(cx - 11 + (i % 2) * 3, cy - 7 + i * 6, 20, 3, 1, c);
+    } else {
+        cloudShape(cx, cy - 4, c);
+        const uint16_t drop = rgb(0x60a5fa);
+        if (!strcmp(icon, "rain") || !strcmp(icon, "drizzle")) {
+            for (int i = -1; i <= 1; ++i) screen.drawLine(cx + i * 6 + 1, cy + 7, cx + i * 6 - 1, cy + (strcmp(icon, "rain") ? 9 : 12), drop);
+        } else if (!strcmp(icon, "snow")) {
+            for (int i = -1; i <= 1; ++i) aaCircle(cx + i * 6, cy + 10, 1, c);
+        } else if (!strcmp(icon, "storm")) {
+            screen.drawLine(cx + 1, cy + 6, cx - 2, cy + 11, sunC);
+            screen.drawLine(cx - 2, cy + 11, cx + 2, cy + 11, sunC);
+            screen.drawLine(cx + 2, cy + 11, cx - 1, cy + 15, sunC);
+        }
+    }
+}
+
+void drawClockBoard() {
+    const int cw = (800 - 2 * PAD - 2 * GAP) / 3, cy0 = 56, ch = 196;
+    const time_t utc = time(nullptr);
+    const int homeOff = cityOffset(cfg.airHome);
+    for (int i = 0; i < 3; ++i) {
+        const int x = PAD + i * (cw + GAP);
+        const int ci = cfg.clockCity[i];
+        const CityDef &city = CITY_LIST[ci];
+        JsonObjectConst wx = ambientCity(city.key);
+        card(x, cy0, cw, ch);
+        label(x + 14, cy0 + 12, L(city.name, city.nameTh), 2, TEXT);
+        char country[64];
+        upper(country, sizeof(country), pick(wx, "country", "countryTh"));
+        label(x + 14, cy0 + 34, country, 0, MUTED);
+        // UTC offset, and the difference from the panel's own location
+        const int off = cityOffset(ci), diff = off - homeOff;
+        char v[48];
+        snprintf(v, sizeof(v), "UTC%c%d%s", off < 0 ? '-' : '+', abs(off) / 60, abs(off) % 60 ? ":30" : "");
+        labelRight(x + cw - 14, cy0 + 13, v, 1, MUTED);
+        if (diff == 0) copyText(v, sizeof(v), L("Same time", "เวลาเดียวกัน"));
+        else if (thai) snprintf(v, sizeof(v), "%s %g ชม.", diff > 0 ? "เร็วกว่า" : "ช้ากว่า", abs(diff) / 60.0);
+        else snprintf(v, sizeof(v), "%c%g h", diff > 0 ? '+' : '-', abs(diff) / 60.0);
+        labelRight(x + cw - 14, cy0 + 29, v, 1, diff ? BRAND : MUTED);
+        // time and date
+        if (utc > 1700000000) {
+            const time_t local = utc + off * 60;
+            struct tm tm;
+            gmtime_r(&local, &tm);
+            char hhmm[8], date[20];
+            strftime(hhmm, sizeof(hhmm), "%H:%M", &tm);
+            strftime(date, sizeof(date), "%a %d %b", &tm);
+            aaText(fontFor(5), x + 12, cy0 + 106, hhmm, TEXT);
+            label(x + 14, cy0 + 116, date, 1, MUTED);
+        } else {
+            aaText(fontFor(5), x + 12, cy0 + 106, "--:--", MUTED);
+        }
+        // weather
+        screen.drawFastHLine(x + 14, cy0 + 138, cw - 28, BORDER);
+        if (!wx.isNull() && !wx["temp"].isNull()) {
+            weatherIcon(wx["icon"] | "cloud", x + 30, cy0 + 166, TEXT, CARD);
+            snprintf(v, sizeof(v), "%d°C", wx["temp"].as<int>());
+            label(x + 52, cy0 + 150, v, 4, TEXT);
+            const int tw = textWidth(v, 4);
+            utext(x + 52 + tw + 10, cy0 + 158, pick(wx, "label", "labelTh"), MUTED, cw - 52 - tw - 24);
+        } else {
+            label(x + 14, cy0 + 160, ambientAt ? L("Weather unavailable", "ไม่มีข้อมูลอากาศ") : L("Loading...", "กำลังโหลด..."), 1, MUTED);
+        }
+    }
+
+    // Air quality at the panel's location
+    const int ay = 262, ah = 134, aw = 800 - 2 * PAD;
+    JsonObjectConst air = ambient["air"].as<JsonObjectConst>();
+    char title[128];
+    snprintf(title, sizeof(title), "%s · %s", L("AIR QUALITY", "คุณภาพอากาศ"), L(CITY_LIST[cfg.airHome].name, CITY_LIST[cfg.airHome].nameTh));
+    upper(title, sizeof(title), title);
+    panelBox(PAD, ay, aw, ah, title);
+    if (air.isNull()) {
+        labelCenter(400, ay + ah / 2, ambientAt ? L("Air quality unavailable", "ไม่มีข้อมูลคุณภาพอากาศ") : L("Loading...", "กำลังโหลด..."), 1, MUTED);
+        return;
+    }
+    const bool thaiScale = strcmp(air["scale"] | "TH", "TH") == 0;
+    labelRight(PAD + aw - 12, ay + 10, thaiScale ? L("THAI AQI", "ดัชนีคุณภาพอากาศ (ไทย)") : "US AQI", 0, MUTED);
+    JsonObjectConst level = air["level"].as<JsonObjectConst>();
+    const uint16_t lc = parseColor(level["color"] | "", TEXT);
+    char v[48];
+    if (air["aqi"].isNull()) copyText(v, sizeof(v), "-");
+    else snprintf(v, sizeof(v), "%d", air["aqi"].as<int>());
+    const int aw1 = aaText(fontFor(5), PAD + 16, ay + 84, v, lc);
+    label(PAD + 16 + aw1 + 8, ay + 72, "AQI", 0, MUTED);
+    utext(PAD + 16, ay + 96, pick(level, "label", "labelTh"), lc, 220);
+
+    // pollutants: the first (PM2.5) large, the rest smaller
+    int px = PAD + 260, i = 0;
+    for (JsonObjectConst pol : air["pollutants"].as<JsonArrayConst>()) {
+        char val[16];
+        snprintf(val, sizeof(val), "%g", pol["value"].as<float>());
+        label(px, ay + 32, pol["key"] | "", 0, MUTED);
+        const int size = i == 0 ? 3 : 2;
+        label(px, ay + (i == 0 ? 46 : 50), val, size, TEXT);
+        const int vw = textWidth(val, size);
+        label(px + vw + 4, ay + (i == 0 ? 58 : 56), pol["unit"] | "", 1, MUTED);
+        px += max(vw + textWidth(pol["unit"] | "", 1) + 30, 80);
+        if (++i == 5 || px > PAD + aw - 80) break;
+    }
+    // scale bar with a marker at the current AQI
+    static const uint32_t TH_BANDS[][2] = {{25, 0x3bccff}, {50, 0x92d050}, {100, 0xffff00}, {200, 0xffa200}, {300, 0xf04646}};
+    static const uint32_t US_BANDS[][2] = {{50, 0x22c55e}, {100, 0xfacc15}, {150, 0xf97316}, {200, 0xef4444}, {300, 0xa855f7}, {400, 0x9f1239}};
+    const uint32_t (*bands)[2] = thaiScale ? TH_BANDS : US_BANDS;
+    const int nb = thaiScale ? 5 : 6, maxV = bands[nb - 1][0];
+    const int bx = PAD + 260, bw = aw - 260 - 16, by = ay + 92;
+    int prev = 0, xs = bx;
+    for (int b = 0; b < nb; ++b) {
+        const int xe = bx + static_cast<int>(static_cast<int64_t>(bw) * bands[b][0] / maxV);
+        screen.fillRect(xs, by, xe - xs, 8, rgb(bands[b][1]));
+        xs = xe;
+        prev = bands[b][0];
+    }
+    (void)prev;
+    if (!air["aqi"].isNull()) {
+        const int mx = bx + min(bw, static_cast<int>(static_cast<int64_t>(bw) * air["aqi"].as<int>() / maxV));
+        aaCircle(mx, by + 4, 8, BG);
+        aaCircle(mx, by + 4, 5, TEXT);
+    }
+    // source line
+    char src[200];
+    JsonObjectConst st = air["station"].as<JsonObjectConst>();
+    const char *t = air["time"] | "";
+    const char *hhmm = strlen(t) >= 16 ? t + 11 : t;
+    if (!st.isNull())
+        snprintf(src, sizeof(src), "%s · %s (%g km) · %.5s", air["source"] | "", pick(st, "name", "nameTh"), st["km"].as<float>(), hhmm);
+    else
+        snprintf(src, sizeof(src), "%s · %.5s", air["source"] | "", hhmm);
+    utext(bx, ay + 106, src, MUTED, bw);
+}
+
 // ── Screens and taps ─────────────────────────────────────────────────────────
 void drawDashboard() {
     needPresent = true;
@@ -2670,6 +2984,8 @@ void drawDashboard() {
         drawOverview();
         drawAttention();
         drawCategories();
+    } else if (current == Screen::Clock) {
+        drawClockBoard();
     } else {
         drawHotel();
     }
@@ -2681,7 +2997,7 @@ void drawDashboard() {
 
 // The boards on the bottom row, in switcher (and rotation) order. A board added
 // to the switcher goes here too and joins the rotation.
-constexpr Screen BOARDS[] = {Screen::Kaizen, Screen::Hotel};
+constexpr Screen BOARDS[] = {Screen::Kaizen, Screen::Hotel, Screen::Clock};
 constexpr int BOARD_COUNT = sizeof(BOARDS) / sizeof(BOARDS[0]);
 uint32_t boardShownAt = 0;
 
@@ -2750,6 +3066,7 @@ void handleTap(int x, int y) {
         if (x < PAD || slot > 4 || (x - PAD) % (SWITCH_W + GAP) >= SWITCH_W) return;  // gap between buttons
         if (slot == 0) showScreen(Screen::Kaizen);
         else if (slot == 1) showScreen(Screen::Hotel);
+        else if (slot == 2) showScreen(Screen::Clock);
         else if (slot == 4) openSettings();
         return;
     }
@@ -2765,6 +3082,25 @@ uint32_t hashDetails() {
     for (size_t i = 0; i < s.length(); ++i) h = (h ^ static_cast<uint8_t>(s[i])) * 16777619u;
     return h;
 }
+// World Clock data: weather per city and air quality (kaizen-ambient), every
+// 10 minutes; the same device token as the Kaizen data.
+bool fetchAmbient() {
+    String url = DISPLAY_URL;
+    url.replace("kaizen-esp-display", "kaizen-ambient");
+    url += "?clocks=";
+    for (int i = 0; i < 3; ++i) {
+        if (i) url += ',';
+        url += CITY_LIST[cfg.clockCity[i]].key;
+    }
+    url += "&home=";
+    url += CITY_LIST[cfg.airHome].key;
+    const int code = getJson(url.c_str(), ambient, nullptr);
+    ambientOk = code == HTTP_CODE_OK;
+    ambientAt = millis();
+    Serial.printf("Ambient fetch: %d (air: %s)\n", code, ambientOk ? (ambient["air"]["source"] | "none") : "-");
+    return ambientOk;
+}
+
 bool fetchDashboard() {
     JsonDocument filter;
     for (const Metric &metric : METRICS) filter[metric.key] = true;
@@ -2921,7 +3257,8 @@ void serialCommand(int cmd) {
     else if (cmd == 'K') showScreen(Screen::Kaizen);
     else if (cmd == 'H') { lastTouch = millis(); showScreen(Screen::Hotel); }
     else if (cmd == 'T') openSettings();
-    else if (cmd >= '1' && cmd <= '5' && settingsOpen) { section = cmd - '1'; settingsTouched = millis(); drawSettings(); }
+    else if (cmd >= '1' && cmd <= '6' && settingsOpen) { section = cmd - '1'; cityDrop = -1; settingsTouched = millis(); drawSettings(); }
+    else if (cmd == 'C') { lastTouch = millis(); showScreen(Screen::Clock); }
     else if (cmd == 'N' && settingsOpen) { cfg.nightDim = !cfg.nightDim; saveSettings(); applyBrightness(); drawSettings(); }
     else if (cmd == 'L') setLanguage(!thai);
     else if (cmd == 'D' && hasData) { showScreen(Screen::Kaizen); openDrill('s', "total", L(METRICS[0].en, METRICS[0].th), TEXT); }
@@ -2948,7 +3285,7 @@ void loop() {
             int i = 0;
             while (i < BOARD_COUNT && BOARDS[i] != current) ++i;
             const Screen next = BOARDS[(i + 1) % BOARD_COUNT];
-            Serial.printf("Rotate: %s\n", next == Screen::Hotel ? "Hotel" : "Kaizen");
+            Serial.printf("Rotate: %s\n", next == Screen::Hotel ? "Hotel" : next == Screen::Clock ? "World Clock" : "Kaizen");
             showScreen(next);
         }
     } else if (current != Screen::Kaizen && !settingsOpen && millis() - lastTouch > IDLE_RETURN_MS) {
@@ -2985,6 +3322,20 @@ void loop() {
             shownStatus = status;
         }
         nextPoll = millis() + (success ? pollMs() : RETRY_MS);
+    }
+    if ((!ambientAt || millis() - ambientAt > AMBIENT_MS) && WiFi.status() == WL_CONNECTED && time(nullptr) > 1700000000) {
+        fetchAmbient();
+        if (current == Screen::Clock && !drill.open && !settingsOpen && !kb.open) {
+            drawDashboard();
+            fadeNext = true;
+        }
+    }
+    static int shownMinute = -1;  // the World Clock shows minutes: redraw when one passes
+    const int minuteNow = static_cast<int>((time(nullptr) / 60) % 60);
+    if (current == Screen::Clock && minuteNow != shownMinute && !drill.open && !settingsOpen && !kb.open) {
+        shownMinute = minuteNow;
+        drawDashboard();
+        fadeNext = true;
     }
     static uint32_t lastTick = 0;
     if (settingsOpen) {

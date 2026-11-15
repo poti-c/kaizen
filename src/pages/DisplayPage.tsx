@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Navigate, useSearchParams } from 'react-router-dom'
-import { AlertTriangle, ChevronDown, Hotel, LayoutDashboard, Settings, X } from 'lucide-react'
+import { AlertTriangle, ChevronDown, Clock, Hotel, LayoutDashboard, Settings, X } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Cell, PieChart, Pie } from 'recharts'
 import { differenceInHours } from 'date-fns'
 import { supabase } from '@/lib/supabase'
@@ -12,6 +12,7 @@ import { deptLabel } from '@/types'
 import { DisplaySettings } from '@/components/DisplaySettings'
 import { Panel } from '@/components/PanelCard'
 import { HotelBoard } from '@/components/HotelBoard'
+import { WorldClockBoard } from '@/components/WorldClockBoard'
 import {
   PANEL, inWindow, loadPanelSettings, savePanelSettings,
   type PanelSettings,
@@ -40,7 +41,7 @@ const MONTH_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct'
 
 // The boards on the bottom row, in switcher (and rotation) order. A board added
 // here appears in the switcher and joins the rotation.
-const BOARDS = ['kaizen', 'hotel'] as const
+const BOARDS = ['kaizen', 'hotel', 'clock'] as const
 type Board = typeof BOARDS[number]
 
 const C = PANEL
@@ -459,7 +460,9 @@ export function DisplayPage() {
             <div className="text-[12px] mt-1" style={{ color: C.muted }}>
               {board === 'kaizen'
                 ? <>{MONTH_SHORT[bkkM - 1]} {bkkY} · {t.dashboard.avgResolution} {avgResolution ?? '—'} · {t.dashboard.resolutionRate} {resolutionRate}%</>
-                : <>{MONTH_SHORT[bkkM - 1]} {bkkY} · {lang === 'th' ? 'ผลประกอบการโรงแรม' : 'Hotel performance'}</>}
+                : board === 'hotel'
+                  ? <>{MONTH_SHORT[bkkM - 1]} {bkkY} · {lang === 'th' ? 'ผลประกอบการโรงแรม' : 'Hotel performance'}</>
+                  : <>{MONTH_SHORT[bkkM - 1]} {bkkY} · {lang === 'th' ? 'นาฬิกาโลก สภาพอากาศ และคุณภาพอากาศ' : 'World clock, weather and air quality'}</>}
             </div>
           </div>
           <div className="text-right flex-shrink-0 ml-4">
@@ -640,8 +643,10 @@ export function DisplayPage() {
           </Panel>
         </div>
           </>
-        ) : (
+        ) : board === 'hotel' ? (
           <HotelBoard refreshMs={refreshMs} lang={lang} sandbox={params.get('sandbox') === '1'} />
+        ) : (
+          <WorldClockBoard clocks={panel.clocks} airHome={panel.airHome} lang={lang} />
         )}
         </div>
 
@@ -654,6 +659,7 @@ export function DisplayPage() {
           {([
             { id: 'kaizen', icon: LayoutDashboard, label: 'Kaizen System' },
             { id: 'hotel',  icon: Hotel,           label: lang === 'th' ? 'โรงแรม' : 'Hotel' },
+            { id: 'clock',  icon: Clock,           label: lang === 'th' ? 'นาฬิกาโลก' : 'World Clock' },
           ] as const).map(b => {
             const active = board === b.id
             const Icon = b.icon
@@ -674,7 +680,7 @@ export function DisplayPage() {
             )
           })}
 
-          {[0, 1].map(i => (
+          {[0].map(i => (
             <div
               key={i}
               aria-hidden

@@ -411,3 +411,8 @@ s3_secret_key = "env(S3_SECRET_KEY)"
 # hashed bearer token (see the header comment in the function).
 [functions.kaizen-esp-display]
 verify_jwt = false
+
+# World Clock board: weather + air quality. Panel token or a signed-in user;
+# the function checks either itself (see its header comment).
+[functions.kaizen-ambient]
+verify_jwt = false
