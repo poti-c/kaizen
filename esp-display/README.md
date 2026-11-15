@@ -2,10 +2,9 @@
 
 Native firmware that redraws the Kaizen board of `/display`
 (`src/pages/DisplayPage.tsx`) on a GUITION JC8048W550: ESP32-S3, 800 × 480 RGB
-LCD, 16 MB flash, 8 MB PSRAM. It polls once a minute over Wi-Fi and has no
-touch controls. The Hotel board and touch drill-down are not built yet.
+LCD, 16 MB flash, 8 MB PSRAM. It polls once a minute over Wi-Fi. The panel is named **nnr_esp**. The Hotel board and touch drill-down are not built yet.
 
-The numbers come from the `kaizen-esp-display` edge function
+The numbers for both boards come from the `kaizen-esp-display` edge function
 (`supabase/functions/kaizen-esp-display`). It computes the same values as the
 web board and returns only aggregates, plus case number, department and age
 for the Needs Attention rows. The firmware only draws them.
@@ -33,8 +32,11 @@ Authorization: Bearer <device token>
   kaizen.nnr-solutions.com would need a reverse proxy in front of the site. The
   direct Supabase URL is used instead.
 
-If you change a metric rule in `DisplayPage.tsx` or `src/lib/utils.ts`, change
-the function too. Its comments mark each rule it mirrors.
+If you change a metric rule in `DisplayPage.tsx`, `HotelBoard.tsx` or
+`src/lib/utils.ts`, change the function too. The `hotel` block in its response
+is already formatted the way `HotelBoard.tsx` formats it, so the panel only
+prints it. The panel's font has no baht sign, so the firmware draws ฿ as a B
+with a stroke. Its comments mark each rule it mirrors.
 
 ## Local configuration (never committed)
 
@@ -56,10 +58,115 @@ firmware falls back to `device_config.example.h` when it is absent.
 "$HOME/.local/share/uv/tools/platformio/bin/pio" run -t upload --upload-port /dev/cu.usbserial-10
 ```
 
-Serial output (115200 baud) prints `Wi-Fi ok, RSSI …` on each poll and
-`Dashboard fetch failed (HTTP n)` on errors. On screen, the bottom line reads
-`Live | Refreshes every minute`. After three missed polls the header shows
+Serial output (115200 baud):
+- At boot, every access point broadcasting the configured SSID, and which
+  one it joins.
+- On each poll: `Wi-Fi ok, RSSI …, ch …, AP …, fetch ok|failed|waiting for clock`.
+- `Dashboard fetch failed (HTTP n)` on HTTP errors.
+
+On screen, the bottom line reads `Live | Refreshes every minute`, with the
+live Wi-Fi signal on the right. The signal refreshes every 10 s, so you can
+move the panel and watch it. After three missed polls the header shows
 `STALE`.
+
+## Touch
+
+The panel has a GT911 capacitive touch controller (I2C at 0x5D: SDA 19,
+SCL 20, reset 38). The firmware reads it directly over I2C, with no extra
+library.
+
+- **Bottom row:** Kaizen System, Hotel and System Settings switch boards. Any
+  board other than Kaizen returns to it after 2 minutes without a touch.
+- **Kaizen board:** tapping a KPI tile (Total, Open, In Progress, Waiting
+  Approval, Resolved, Overdue), a category row or a Needs Attention row opens
+  the matching cases over the whole board, as on the web. Empty KPI tiles do
+  nothing, as on the web.
+  - Each row shows priority, number, title, department, status and age.
+  - Tap a case to expand it: description, proposed solution, PIC, location
+    and reporter.
+  - ▲ / ▼ page through long lists; × closes the list.
+  - The list closes itself after 30 s without a touch (the web's idle default).
+  - The list comes from `?view=cases`, fetched when a list opens and reused for
+    a minute.
+- **Hotel board:** from the latest `kaizen_hotel_daily` row. The header gives
+  the report date ("Figures for Fri 06 Nov 2026"), with an amber "N DAYS OLD"
+  tag once the report is two or more days behind.
+- **System Settings:** the same overlay as the web's `DisplaySettings.tsx`: a
+  tab rail with rows of label, hint and control. Rows the web tags DEVICE ("firmware
+  would own on real hardware") are real here. Settings live in NVS and survive a
+  restart.
+  - Display: brightness slider (tap or drag), night dim with hours and level
+    (Bangkok time), orientation Normal/180° (screen and touch flip), and
+    language. Language is panel-only; the web follows the app language.
+  - Data: refresh interval 15s/30s/1m/5m, touch drill-down on/off (off makes
+    the board display-only), and return-to-summary 10s/30s/1m/2m.
+  - Network: live Wi-Fi, signal, IP, MAC, access point and a working Reconnect.
+  - Device: Reboot and Factory reset, both needing a second tap within 4 s.
+    Factory reset clears the panel's NVS settings; Wi-Fi and the token are
+    compiled in and stay. The title, device name and location fields are
+    read-only (no on-screen keyboard yet), and the critical-case sound is not
+    wired, so tapping those says so.
+  - About: real chip, PSRAM, flash, uptime and temperature readings. Firmware
+    update is over USB only.
+  - Settings close themselves after 2 minutes without a touch, as on the web.
+
+Each tap is logged over serial as `Tap x,y`.
+
+## Thai and other languages
+
+The built-in 6x8 font is ASCII only. Any label containing non-ASCII text is
+drawn in the 16 px Unifont that ships with Arduino_GFX, which covers Thai and
+most of Unicode.
+- **Why U8g2:** the `olikraus/U8g2` dependency is there only so Arduino_GFX
+  enables UTF-8 text.
+- **Build flag:** `-DU8G2_USE_LARGE_FONTS` includes the font, about 2.2 MB of
+  flash.
+- **Thai shaping:** above and below vowels and tone marks are separate code
+  points. The firmware draws them over the preceding letter's cell, and lifts a
+  tone mark 3 px when it follows an upper vowel (นั่ง), so the two don't collide.
+- **Labels:** English and Thai labels are the web app's own strings.
+- **Case content:** case titles, descriptions and names are shown as entered.
+
+## Brightness
+
+The backlight is PWM on GPIO 2 at 300 Hz. The percentage goes through a 2.2
+gamma curve, because eyes judge brightness logarithmically: a linear 60% duty
+looks almost the same as 100%.
+
+## Serial commands
+
+At 115200 baud, mainly for testing without touching the panel:
+- `S` sends a screenshot (see below).
+- `K`, `H` switch to the Kaizen and Hotel boards. `T` opens settings; `1`-`5`
+  pick a tab and `N` toggles night dim.
+- `L` toggles the language.
+- `D` opens the Total list, `E` expands its first case, `X` closes the list.
+
+## Screenshot of the panel
+
+`tools/esp_shot.py` resets the board, waits for its first successful fetch,
+sends `S` over serial and saves the framebuffer as a PNG. It takes about 50 s.
+
+```sh
+"$HOME/.local/share/uv/tools/platformio/bin/python" tools/esp_shot.py nnr_esp.png
+```
+
+Use it to compare the layout with `/display` (the `nnrdsp` preview) after
+changing the firmware.
+
+## Wi-Fi behaviour
+
+"Qhouse Main_2.4G" is served by two access points on channel 6. Left alone,
+the ESP32 joined the far one (about −76 to −95 dBm) and never moved, so the
+firmware now:
+- scans at boot and joins the strongest access point by its MAC address
+  (BSSID);
+- rescans if the link stays down for 45 s;
+- checks every 5 minutes, when the signal is below −78 dBm, for another
+  access point at least 8 dB stronger;
+- keeps Wi-Fi power-saving off;
+- does not store Wi-Fi settings in flash;
+- restarts the clock sync (SNTP) each time Wi-Fi connects.
 
 ## Flash backup
 

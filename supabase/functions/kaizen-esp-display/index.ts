@@ -15,8 +15,11 @@
 //   Revoke all:       supabase secrets unset KAIZEN_ESP_DISPLAY_TOKEN_SHA256
 // The service-role key never leaves Supabase.
 //
-// Output is aggregates plus, for Needs Attention, case number / department /
-// age only — no titles, descriptions or names.
+// The default response is aggregates plus the three Needs Attention rows
+// (number, title, department, age). `?view=cases` returns this month's cases
+// with the fields the web drill-down shows (title, description, proposed
+// solution, location, PIC and reporter names), for the panel's case lists. Both
+// need the device token; the panel shows what /display shows a signed-in user.
 
 import { timingSafeEqual } from "node:crypto"
 import { createClient } from "npm:@supabase/supabase-js@2"
@@ -45,6 +48,16 @@ const CAT_COLORS: Record<string, string> = {
 }
 const CAT_FALLBACK = ["#0ea5e9", "#8b5cf6", "#f59e0b", "#10b981", "#ec4899", "#6366f1"]
 // mirrors DEPARTMENT_LABELS (types/index.ts)
+// mirrors DEPARTMENT_LABELS_TH (types/index.ts)
+const DEPARTMENT_LABELS_TH: Record<string, string> = {
+  top_management: "ผู้บริหารระดับสูง", front_office: "แผนกต้อนรับ", sales_team: "ฝ่ายขาย",
+  house_keeping: "แผนกแม่บ้าน", human_resource: "ฝ่ายบุคคล", engineering_team: "ฝ่ายช่าง",
+  restaurant: "ห้องอาหาร", kitchen: "ครัว", accounting: "ฝ่ายบัญชี",
+}
+const clip = (s: string | null | undefined, n: number) => {
+  const chars = Array.from((s ?? "").trim())
+  return chars.length > n ? chars.slice(0, n).join("") + "…" : chars.join("")
+}
 const DEPARTMENT_LABELS: Record<string, string> = {
   top_management: "Top Management", front_office: "Front Office", sales_team: "Sales Team",
   house_keeping: "House Keeping", human_resource: "Human Resource",
@@ -53,9 +66,108 @@ const DEPARTMENT_LABELS: Record<string, string> = {
 }
 
 type Row = {
-  id: string; case_number: string | null; status: string; priority: string
+  id: string; case_number: string | null; title?: string | null; status: string; priority: string
   category: string | null; department: string | null
   created_at: string; closed_at: string | null; due_date: string | null
+}
+
+// ── Hotel board: mirrors src/components/HotelBoard.tsx ─────────────────────
+// Values are formatted here, exactly as the web board formats them, so the
+// panel only prints strings. "-" stands in for the web's em dash (the panel
+// font is ASCII); "฿" is kept and the firmware draws it as a glyph.
+const HOTEL_COLS = "stat_date, occ_pct_today, occ_pct_mtd, occ_pct_ytd, occ_excl_pct_today, occ_excl_pct_mtd, "
+  + "rooms_occupied_today, rooms_occupied_mtd, rooms_avail_today, rooms_avail_mtd, "
+  + "hotel_revenue_today, hotel_revenue_mtd, hotel_revenue_ytd, "
+  + "room_revenue_today, fb_revenue_today, misc_revenue_today, adr_today, "
+  + "ly_occ_pct_today, ly_hotel_rev_today, ly_hotel_rev_ytd, forecast"
+const PANEL_TEXT = "#e8edf3", PANEL_IN_PROGRESS = "#3b82f6", PANEL_RESOLVED = "#22c55e"
+const PANEL_PENDING = "#f59e0b", PANEL_CRITICAL = "#ef4444"
+
+type ForecastDay = { date: string; occPct: number; occupied: number; totalRooms: number }
+type ForecastMonth = { month: string; occupiedRoomNights: number; totalRoomNights: number }
+type HotelRow = Record<string, unknown> & {
+  stat_date: string
+  forecast: { days: ForecastDay[]; months: ForecastMonth[] } | null
+}
+
+const num = (v: unknown) => (v == null ? null : Number(v))
+const pct = (v: number | null) => (v == null ? "-" : `${v.toFixed(2)}%`)
+function money(v: number | null): string {
+  if (v == null) return "-"
+  const abs = Math.abs(v)
+  if (abs >= 10_000_000) return `฿${(v / 1_000_000).toFixed(1)}M`
+  if (abs >= 1_000_000) return `฿${(v / 1_000_000).toFixed(2)}M`
+  if (abs >= 1_000) return `฿${(v / 1_000).toFixed(1)}K`
+  return `฿${v.toFixed(0)}`
+}
+const exact = (v: number | null) =>
+  v == null ? "-" : v.toLocaleString("en-US", { maximumFractionDigits: 0 })
+const orDash = (v: unknown) => (v == null ? "-" : String(v))
+
+function hotelBoard(row: HotelRow, now: number) {
+  const occToday = num(row.occ_pct_today)
+  const lyOcc = num(row.ly_occ_pct_today)
+  const revToday = num(row.hotel_revenue_today)
+  const tiles = [
+    { label: "Occupancy today", labelTh: "เข้าพักวันนี้", value: pct(occToday), color: PANEL_IN_PROGRESS,
+      sub: `${orDash(row.rooms_occupied_today)} / ${orDash(row.rooms_avail_today)} rooms`,
+      subTh: `${orDash(row.rooms_occupied_today)} / ${orDash(row.rooms_avail_today)} ห้อง` },
+    { label: "Occupancy M-T-D", labelTh: "เข้าพัก M-T-D", value: pct(num(row.occ_pct_mtd)), color: PANEL_TEXT,
+      sub: `${orDash(row.rooms_occupied_mtd)} / ${orDash(row.rooms_avail_mtd)}` },
+    { label: "Excl Comp & HU", labelTh: "ไม่รวม Comp & HU", value: pct(num(row.occ_excl_pct_today)), color: PANEL_TEXT,
+      sub: `M-T-D ${pct(num(row.occ_excl_pct_mtd))}` },
+    { label: "Revenue today", labelTh: "รายได้วันนี้", value: money(revToday), color: PANEL_RESOLVED,
+      sub: `LY ${money(num(row.ly_hotel_rev_today))}`, subTh: `ปีก่อน ${money(num(row.ly_hotel_rev_today))}` },
+    { label: "Revenue M-T-D", labelTh: "รายได้ M-T-D", value: money(num(row.hotel_revenue_mtd)), color: PANEL_TEXT,
+      sub: exact(num(row.hotel_revenue_mtd)) },
+    { label: "Revenue Y-T-D", labelTh: "รายได้ Y-T-D", value: money(num(row.hotel_revenue_ytd)), color: PANEL_TEXT,
+      sub: `LY ${money(num(row.ly_hotel_rev_ytd))}`, subTh: `ปีก่อน ${money(num(row.ly_hotel_rev_ytd))}` },
+  ]
+  const days = row.forecast?.days ?? []
+  const forecast = days.slice(0, 14).map(d => ({ label: d.date.slice(8, 10), pct: d.occPct }))
+  const today = [
+    { label: "Rooms occupied", labelTh: "ห้องที่ขายได้", value: `${orDash(row.rooms_occupied_today)} / ${orDash(row.rooms_avail_today)}`, color: PANEL_TEXT },
+    { label: "ADR", labelTh: "ADR", value: exact(num(row.adr_today)), color: PANEL_TEXT },
+    { label: "Hotel revenue", labelTh: "รายได้รวม", value: exact(revToday), color: PANEL_TEXT },
+    {
+      label: "vs last year", labelTh: "เทียบปีก่อน",
+      value: lyOcc != null && occToday != null ? `${(occToday - lyOcc).toFixed(2)} pt` : "-",
+      color: lyOcc != null && occToday != null ? (occToday >= lyOcc ? PANEL_RESOLVED : PANEL_CRITICAL) : PANEL_TEXT,
+    },
+  ]
+  let outlook: { label: string; labelTh: string; pct: number; pctText: string; occ: number; avail: number }[] = []
+  if (row.forecast) {
+    const { months } = row.forecast
+    const week = days.slice(0, 7)
+    const rest = months[0]
+    outlook = [
+      { label: "This week", labelTh: "สัปดาห์นี้", occ: week.reduce((s, d) => s + d.occupied, 0), avail: week.reduce((s, d) => s + d.totalRooms, 0) },
+      {
+        label: "This month", labelTh: "เดือนนี้",
+        occ: (num(row.rooms_occupied_mtd) ?? 0) + (rest?.occupiedRoomNights ?? 0),
+        avail: (num(row.rooms_avail_mtd) ?? 0) + (rest?.totalRoomNights ?? 0),
+      },
+      ...months.slice(1, 3).map(m => ({ label: m.month, labelTh: m.month, occ: m.occupiedRoomNights, avail: m.totalRoomNights })),
+    ].map(w => {
+      const p = w.avail ? (w.occ / w.avail) * 100 : 0
+      return { ...w, pct: p, pctText: `${p.toFixed(1)}%` }
+    })
+  }
+  const split = [
+    { label: "Rooms", labelTh: "ห้องพัก", value: num(row.room_revenue_today) ?? 0, color: PANEL_IN_PROGRESS },
+    { label: "F&B", labelTh: "อาหารและเครื่องดื่ม", value: num(row.fb_revenue_today) ?? 0, color: PANEL_RESOLVED },
+    { label: "Other", labelTh: "อื่น ๆ", value: num(row.misc_revenue_today) ?? 0, color: PANEL_PENDING },
+  ]
+  const revMax = Math.max(1, ...split.map(r => r.value))
+  return {
+    state: "ready",
+    statDate: row.stat_date,
+    statDateLabel: new Date(`${row.stat_date}T00:00:00Z`).toLocaleDateString("en-GB",
+      { timeZone: "UTC", weekday: "short", day: "2-digit", month: "short", year: "numeric" }).replace(/,/g, ""),
+    ageDays: Math.round((Date.parse(new Date(now + BKK).toISOString().slice(0, 10)) - Date.parse(row.stat_date)) / 86_400_000),
+    tiles, forecast, today, outlook,
+    revenue: split.map(r => ({ label: r.label, labelTh: r.labelTh, value: exact(r.value), ratio: r.value / revMax, color: r.color })),
+  }
 }
 
 function reply(status: number, body: unknown) {
@@ -110,19 +222,70 @@ Deno.serve(async (request) => {
     { auth: { persistSession: false, autoRefreshToken: false } },
   )
 
-  const [{ data: company }, { data: catRow }] = await Promise.all([
+  const [{ data: company }, { data: catRow }, hotelResult] = await Promise.all([
     db.from("kaizen_companies").select("name, org_title").eq("id", companyId).maybeSingle(),
     db.from("kaizen_settings").select("value")
       .eq("company_id", companyId).eq("key", "custom_categories").maybeSingle(),
+    db.from("kaizen_hotel_daily").select(HOTEL_COLS)
+      .eq("company_id", companyId).order("stat_date", { ascending: false }).limit(1).maybeSingle(),
   ])
+  // mirrors HotelBoard's load states: error / empty / ready
+  const hotel = hotelResult.error ? { state: "error" }
+    : !hotelResult.data ? { state: "empty" }
+    : hotelBoard(hotelResult.data as unknown as HotelRow, now)
   if (!company) return reply(503, { error: "Display is unavailable" })
+
+  // ── ?view=cases: the drill-down list (mirrors DisplayPage's drill overlay) ──
+  // Fetched only when someone opens a list on the panel, so the per-minute
+  // poll stays small. Newest first, like the web board.
+  if (new URL(request.url).searchParams.get("view") === "cases") {
+    const labels = Array.isArray(catRow?.value) ? (catRow!.value as string[]) : []
+    const known = new Set([
+      ...(labels.length ? labels.map(l => l.toLowerCase().replace(/ /g, "_")) : BUILTIN_CATEGORIES.map(([s]) => s)),
+      "preventive_maintenance",
+    ])
+    const [{ data: caseRows, error }, { data: people }] = await Promise.all([
+      db.from("kaizen_cases")
+        .select("id,case_number,title,description,proposed_solution,location,status,priority,category,department,created_at,due_date,pic_ids,person_in_charge,created_by,closed_at")
+        .eq("company_id", companyId)
+        .gte("created_at", monthStart(current))
+        .lt("created_at", monthStart(current + 1))
+        .order("created_at", { ascending: false })
+        .limit(1000),
+      db.from("kaizen_profiles").select("id, full_name").eq("company_id", companyId),
+    ])
+    if (error) return reply(502, { error: "Cases unavailable" })
+    const names = new Map((people ?? []).map(p => [p.id as string, p.full_name as string]))
+    const cases = (caseRows ?? []).map(c => {
+      const ids: string[] = c.pic_ids?.length ? c.pic_ids : (c.person_in_charge ? [c.person_in_charge] : [])
+      const s = slug(c.category)
+      return {
+        id: c.id,
+        n: c.case_number ?? "",
+        title: clip(c.title, 80),
+        status: c.status,
+        priority: c.priority,
+        cat: known.has(s) ? s : "__other__",
+        deptEn: DEPARTMENT_LABELS[c.department ?? ""] ?? c.department ?? "",
+        deptTh: DEPARTMENT_LABELS_TH[c.department ?? ""] ?? DEPARTMENT_LABELS[c.department ?? ""] ?? c.department ?? "",
+        hours: hoursBetween(now, Date.parse(c.created_at)),
+        overdue: isSLABreached(c as Row, now),
+        desc: clip(c.description, 280),
+        proposed: clip(c.proposed_solution, 160),
+        location: clip(c.location, 40),
+        pic: ids.map(id => names.get(id)).filter(Boolean).join(", "),
+        by: names.get(c.created_by) ?? "",
+      }
+    })
+    return reply(200, { cases })
+  }
 
   // Only the nine-month window is needed: the KPIs use the current month, the
   // trend uses all nine. Keyset pagination keeps us under PostgREST's max-rows.
   const rows: Row[] = []
   for (let cursor = ""; ;) {
     let q = db.from("kaizen_cases")
-      .select("id,case_number,status,priority,category,department,created_at,closed_at,due_date")
+      .select("id,case_number,title,status,priority,category,department,created_at,closed_at,due_date")
       .eq("company_id", companyId)
       .gte("created_at", monthStart(firstMonth))
       .lt("created_at", monthStart(current + 1))
@@ -187,10 +350,10 @@ Deno.serve(async (request) => {
     else other++
   }
   const catRows = cats.map(([s, label], i) => ({
-    label, count: catCounts.get(s)!, color: CAT_COLORS[s] || CAT_FALLBACK[i % CAT_FALLBACK.length],
+    slug: s, label, count: catCounts.get(s)!, color: CAT_COLORS[s] || CAT_FALLBACK[i % CAT_FALLBACK.length],
   }))
   if (other > 0) {
-    catRows.push({ label: "Other", count: other, color: CAT_FALLBACK[cats.length % CAT_FALLBACK.length] })
+    catRows.push({ slug: "__other__", label: "Other", count: other, color: CAT_FALLBACK[cats.length % CAT_FALLBACK.length] })
   }
   const categories = catRows.filter(r => r.count > 0).sort((a, b) => b.count - a.count).slice(0, 4)
 
@@ -204,8 +367,11 @@ Deno.serve(async (request) => {
       || (Number(b.critical) - Number(a.critical))
       || (Date.parse(a.c.created_at) - Date.parse(b.c.created_at)))
   const attentionItems = flagged.slice(0, 3).map(({ c, overdue }) => ({
+    id: c.id,
     caseNumber: c.case_number ?? "",
+    title: clip(c.title, 60),
     department: DEPARTMENT_LABELS[c.department ?? ""] ?? c.department ?? "",
+    departmentTh: DEPARTMENT_LABELS_TH[c.department ?? ""] ?? DEPARTMENT_LABELS[c.department ?? ""] ?? c.department ?? "",
     hours: hoursBetween(now, Date.parse(c.created_at)),
     overdue,
   }))
@@ -220,6 +386,7 @@ Deno.serve(async (request) => {
     categories,
     attention: flagged.length,
     attentionItems,
+    hotel,
     updatedAt: new Date(now).toISOString(),
   })
 })
