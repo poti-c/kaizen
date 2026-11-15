@@ -27,16 +27,46 @@
 // Guition JC8048W550 RGB wiring and timings from the Arduino_GFX board example.
 Arduino_ESP32RGBPanel panel(
     40, 41, 39, 42, 45, 48, 47, 21, 14, 5, 6, 7, 15, 16, 4,
-    8, 3, 46, 9, 1, 0, 8, 4, 8, 0, 8, 4, 8, 1, 16000000);
+    8, 3, 46, 9, 1, 0, 8, 4, 8, 0, 8, 4, 8, 1,
+    // 12 MHz pixel clock (~29 Hz refresh), not 16: the LCD streams its frame from
+    // PSRAM, and at 16 MHz any burst of CPU or Wi-Fi PSRAM use starved it and showed
+    // as thin horizontal streaks. A static board gains nothing from the extra rate.
+    12000000);
 // Everything is drawn into an off-screen buffer (`back`); present() then copies
 // it, or cross-fades it, onto the buffer the LCD scans (`front`). So the board
 // never shows a half-drawn frame, and a data refresh fades instead of flashing.
+// Rows drawn since the last present(), in screen coordinates, so present()
+// compares only those instead of reading the whole frame twice.
+bool dirtyRow[480];
+bool anyDirty = false;
+inline void markRows(int y0, int y1) {
+    y0 = max(0, y0);
+    y1 = min(479, y1);
+    for (int y = y0; y <= y1; ++y) dirtyRow[y] = true;
+    if (y0 <= y1) anyDirty = true;
+}
 class PanelDisplay : public Arduino_RGB_Display {
 public:
     using Arduino_RGB_Display::Arduino_RGB_Display;
     void drawTo(uint16_t *buf) {
         _framebuffer = buf;
         _auto_flush = false;  // present() writes the LCD buffer back itself
+    }
+    void writePixelPreclipped(int16_t x, int16_t y, uint16_t color) override {
+        markRows(y, y);
+        Arduino_RGB_Display::writePixelPreclipped(x, y, color);
+    }
+    void writeFastVLine(int16_t x, int16_t y, int16_t h, uint16_t color) override {
+        markRows(y, y + h - 1);
+        Arduino_RGB_Display::writeFastVLine(x, y, h, color);
+    }
+    void writeFastHLine(int16_t x, int16_t y, int16_t w, uint16_t color) override {
+        markRows(y, y);
+        Arduino_RGB_Display::writeFastHLine(x, y, w, color);
+    }
+    void writeFillRectPreclipped(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t color) override {
+        markRows(y, y + h - 1);
+        Arduino_RGB_Display::writeFillRectPreclipped(x, y, w, h, color);
     }
 };
 PanelDisplay screen(800, 480, &panel);
@@ -186,6 +216,15 @@ void flushRows(int y0, int y1) {
 constexpr int VSYNC_PIN = 41;
 int vsyncPulse = -1;  // level of the VSYNC pulse (1 or 0); -1 = unusable, use plain timing
 
+// Returns at the start of the next VSYNC pulse (or after ~30 ms if unreadable).
+void waitVsync() {
+    if (vsyncPulse < 0) { delay(25); return; }
+    const gpio_num_t pin = static_cast<gpio_num_t>(VSYNC_PIN);
+    const uint32_t t0 = micros();
+    while (gpio_get_level(pin) == vsyncPulse && micros() - t0 < 40000) {}  // leave a pulse in progress
+    while (gpio_get_level(pin) != vsyncPulse && micros() - t0 < 60000) {}  // wait for the next one
+}
+
 // The pulse is a few lines long and the idle level fills the rest of the
 // frame, so whichever level is rare over ~30 ms is the pulse.
 void vsyncInit() {
@@ -199,18 +238,15 @@ void vsyncInit() {
         if (v != last) { ++edges; last = v; }
     }
     if (edges >= 2) vsyncPulse = highs * 2 < total ? 1 : 0;
-    Serial.printf("VSYNC: %d edges in 30 ms, pulse %s\n", edges,
-                  vsyncPulse < 0 ? "not readable (plain timing)" : vsyncPulse ? "high" : "low");
+    float hz = 0;
+    if (vsyncPulse >= 0) {  // time 10 frames to confirm the refresh rate
+        waitVsync();
+        const uint32_t s = micros();
+        for (int i = 0; i < 10; ++i) waitVsync();
+        hz = 10e6f / (micros() - s);
+    }
+    Serial.printf("VSYNC: pulse %s, %.1f Hz\n", vsyncPulse < 0 ? "not readable (plain timing)" : vsyncPulse ? "high" : "low", hz);
 }
-// Returns at the start of the next VSYNC pulse (or after ~30 ms if unreadable).
-void waitVsync() {
-    if (vsyncPulse < 0) { delay(25); return; }
-    const gpio_num_t pin = static_cast<gpio_num_t>(VSYNC_PIN);
-    const uint32_t t0 = micros();
-    while (gpio_get_level(pin) == vsyncPulse && micros() - t0 < 40000) {}  // leave a pulse in progress
-    while (gpio_get_level(pin) != vsyncPulse && micros() - t0 < 60000) {}  // wait for the next one
-}
-
 struct Span { uint32_t start; uint16_t len; };
 constexpr int MAX_SPANS = 4000;
 Span spans[MAX_SPANS];  // internal RAM: the fade loops never re-scan PSRAM
@@ -220,6 +256,7 @@ Span spans[MAX_SPANS];  // internal RAM: the fade loops never re-scan PSRAM
 int findSpans(int top, int bottom) {
     int n = 0;
     for (int y = top; y <= bottom; ++y) {
+        if ((y & 15) == 15) delayMicroseconds(60);  // let the LCD's reads through
         const uint16_t *f = front + y * 800, *b = back + y * 800;
         int x = 0;
         while (x < 800) {
@@ -241,20 +278,31 @@ int findSpans(int top, int bottom) {
 void present(bool fade) {
     needPresent = false;
     fadeNext = false;
-    if (!back || back == front) return;
+    if (!back || back == front || !anyDirty) return;
+    // Compare only rows that were drawn (framebuffer rows flip when rotated),
+    // pausing every few rows so the LCD's own PSRAM reads get through.
     int top = -1, bottom = -1;
     for (int y = 0; y < 480; ++y) {
-        if (memcmp(front + y * 800, back + y * 800, 1600)) {
-            if (top < 0) top = y;
-            bottom = y;
+        if (!dirtyRow[y]) continue;
+        dirtyRow[y] = false;
+        const int r = rotated180 ? 479 - y : y;
+        if (memcmp(front + r * 800, back + r * 800, 1600)) {
+            top = top < 0 ? r : min(top, r);
+            bottom = max(bottom, r);
         }
+        if ((y & 15) == 15) delayMicroseconds(60);
     }
+    anyDirty = false;
     if (top < 0) return;
     const int n = findSpans(top, bottom);
     const uint32_t lo = top * 800, bytes = (bottom - top + 1) * 1600;
-    if (n < 0) {  // a whole-screen change: one copy, between frames
+    if (n < 0) {  // a whole-screen change: copy between frames, in slices
         waitVsync();
-        memcpy(front + lo, back + lo, bytes);
+        for (uint32_t off = 0; off < bytes; off += 32 * 1600) {
+            memcpy(reinterpret_cast<uint8_t *>(front + lo) + off, reinterpret_cast<uint8_t *>(back + lo) + off,
+                   min<uint32_t>(32 * 1600, bytes - off));
+            delayMicroseconds(60);
+        }
         Cache_WriteBack_Addr(reinterpret_cast<uint32_t>(front + lo), bytes);
         return;
     }
@@ -280,6 +328,8 @@ inline void blendPx(int x, int y, uint16_t color, int alpha) {  // alpha 0..255
     if (x < 0 || x >= 800 || y < 0 || y >= 480 || alpha <= 0) return;
     uint16_t *p = fbAt(x, y);
     *p = alpha >= 255 ? color : blend(color, *p, alpha);
+    dirtyRow[y] = true;
+    anyDirty = true;
 }
 
 const AAGlyph *findGlyph(const AAFont &f, uint32_t cp) {
@@ -2683,6 +2733,14 @@ void handleTap(int x, int y) {
 }
 
 // ── Data ─────────────────────────────────────────────────────────────────────
+uint32_t dataHash = 0;  // of the board's data, to skip redraws when nothing changed
+uint32_t hashDetails() {
+    String s;
+    serializeJson(details, s);
+    uint32_t h = 2166136261u;  // FNV-1a
+    for (size_t i = 0; i < s.length(); ++i) h = (h ^ static_cast<uint8_t>(s[i])) * 16777619u;
+    return h;
+}
 bool fetchDashboard() {
     JsonDocument filter;
     for (const Metric &metric : METRICS) filter[metric.key] = true;
@@ -2881,9 +2939,13 @@ void loop() {
                  : hasData ? Status::Stale : !connected ? Status::NoWifi
                  : !clockReady ? Status::NoClock : Status::Unavailable;
         // Don't repaint the board under an open list or settings; it refreshes on close.
-        if (!drill.open && !settingsOpen) {
+        static Status shownStatus = Status::Connecting;
+        const uint32_t h = hashDetails();
+        if (!drill.open && !settingsOpen && (h != dataHash || status != shownStatus)) {
             drawDashboard();
             fadeNext = true;  // new numbers fade in rather than flash
+            dataHash = h;
+            shownStatus = status;
         }
         nextPoll = millis() + (success ? pollMs() : RETRY_MS);
     }
