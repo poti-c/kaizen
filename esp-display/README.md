@@ -2,9 +2,7 @@
 
 Native firmware that redraws the Kaizen board of `/display`
 (`src/pages/DisplayPage.tsx`) on a GUITION JC8048W550: ESP32-S3, 800 × 480 RGB
-LCD, 16 MB flash, 8 MB PSRAM. It polls once a minute over Wi-Fi. The bottom switcher row
-(Kaizen System, Hotel, two reserved slots, System Settings) is drawn as on
-`/display?touch=off`, but there are no touch controls yet. The Hotel board and touch drill-down are not built yet.
+LCD, 16 MB flash, 8 MB PSRAM. It polls once a minute over Wi-Fi. The panel is named **nnr_esp**. The Hotel board and touch drill-down are not built yet.
 
 The numbers come from the `kaizen-esp-display` edge function
 (`supabase/functions/kaizen-esp-display`). It computes the same values as the
@@ -67,6 +65,27 @@ On screen, the bottom line reads `Live | Refreshes every minute`, with the
 live Wi-Fi signal on the right. The signal refreshes every 10 s, so you can
 move the panel and watch it. After three missed polls the header shows
 `STALE`.
+
+## Touch
+
+The panel has a GT911 capacitive touch controller (I2C at 0x5D: SDA 19,
+SCL 20, reset 38). The firmware reads it directly over I2C, with no extra
+library.
+
+- **Kaizen System:** shows the Kaizen board, the home screen.
+- **Hotel:** shows a placeholder. The hotel figures are not in the panel's data
+  feed yet.
+- **System Settings:** brightness −/+ in 10% steps (saved in NVS, kept after a
+  restart), then data source, last update, Wi-Fi, IP, MAC, uptime, free memory
+  and firmware date.
+
+Any screen other than Kaizen returns to it after 2 minutes without a touch.
+Each tap is logged over serial as `Tap x,y`. KPI tiles and Needs Attention rows
+do not open case lists yet: those lists need case titles, which are mostly Thai.
+
+Serial commands at 115200 baud, mainly for testing:
+- `S` sends a screenshot (see below).
+- `K`, `H`, `T` switch to the Kaizen, Hotel and settings screens.
 
 ## Screenshot of the panel
 

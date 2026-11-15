@@ -1,6 +1,8 @@
 #include <Arduino.h>
 #include <Arduino_GFX_Library.h>
 #include <ArduinoJson.h>
+#include <Preferences.h>
+#include <Wire.h>
 #include <HTTPClient.h>
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
@@ -60,6 +62,13 @@ bool hasData = false;
 uint32_t lastSuccess = 0;
 const char *screenStatus = "Connecting to Wi-Fi...";
 uint32_t nextPoll = 0;
+
+// Which board is on screen. Kaizen is home; the others time out back to it.
+enum class Screen { Kaizen, Hotel, Settings };
+Screen current = Screen::Kaizen;
+uint32_t lastTouch = 0;
+int brightness = 100;  // percent, kept in NVS
+Preferences prefs;
 
 // ── Text helpers (built-in 6x8 font, scaled) ──────────────────────────────────
 int textWidth(const char *s, int size) { return strlen(s) * 6 * size; }
@@ -374,7 +383,8 @@ void drawSwitcher() {
             dashedRect(x, y, w, h, RESERVED);
             continue;
         }
-        const bool active = i == 0;
+        const bool active = (i == 0 && current == Screen::Kaizen) || (i == 1 && current == Screen::Hotel) ||
+                            (i == 4 && current == Screen::Settings);
         if (active) screen.fillRoundRect(x, y, w, h, 9, BRAND);
         else card(x, y, w, h);
         const uint16_t fg = active ? TEXT : MUTED;
@@ -459,15 +469,204 @@ void drawStatus() {
     }
 }
 
+// ── Touch: GT911 capacitive controller on I2C (SDA 19, SCL 20, reset 38) ─────
+constexpr int TOUCH_SDA = 19, TOUCH_SCL = 20, TOUCH_RST = 38;
+constexpr bool TOUCH_FLIP_X = false, TOUCH_FLIP_Y = false;
+constexpr uint32_t IDLE_RETURN_MS = 120000;  // like the web board's settings idle
+uint8_t gtAddr = 0;
+uint16_t gtMaxX = 800, gtMaxY = 480;
+
+bool gtRead(uint16_t reg, uint8_t *buf, size_t n) {
+    Wire.beginTransmission(gtAddr);
+    Wire.write(reg >> 8);
+    Wire.write(reg & 0xFF);
+    if (Wire.endTransmission(false) != 0) return false;
+    if (Wire.requestFrom(static_cast<int>(gtAddr), static_cast<int>(n)) != static_cast<int>(n)) return false;
+    for (size_t i = 0; i < n; ++i) buf[i] = Wire.read();
+    return true;
+}
+void gtClear() {
+    Wire.beginTransmission(gtAddr);
+    Wire.write(0x81);
+    Wire.write(0x4E);
+    Wire.write(0);
+    Wire.endTransmission();
+}
+
+void touchBegin() {
+    pinMode(TOUCH_RST, OUTPUT);
+    digitalWrite(TOUCH_RST, LOW);
+    delay(10);
+    digitalWrite(TOUCH_RST, HIGH);
+    delay(60);
+    Wire.begin(TOUCH_SDA, TOUCH_SCL, 400000);
+    for (uint8_t addr : {0x5D, 0x14}) {
+        Wire.beginTransmission(addr);
+        if (Wire.endTransmission() == 0) { gtAddr = addr; break; }
+    }
+    if (!gtAddr) {
+        Serial.println("Touch: no GT911 found on SDA 19 / SCL 20");
+        return;
+    }
+    char id[5] = {0};
+    gtRead(0x8140, reinterpret_cast<uint8_t *>(id), 4);
+    uint8_t res[4];
+    if (gtRead(0x8048, res, 4)) {
+        const uint16_t mx = res[0] | res[1] << 8, my = res[2] | res[3] << 8;
+        if (mx >= 100 && mx <= 4096 && my >= 100 && my <= 4096) { gtMaxX = mx; gtMaxY = my; }
+    }
+    Serial.printf("Touch: GT%s at 0x%02X, reports %ux%u\n", id, gtAddr, gtMaxX, gtMaxY);
+}
+
+// True once per finger-down, with the point mapped to screen pixels.
+bool touchTapped(int &x, int &y) {
+    static bool down = false;
+    if (!gtAddr) return false;
+    uint8_t status;
+    if (!gtRead(0x814E, &status, 1) || !(status & 0x80)) return false;  // no new report
+    const uint8_t points = status & 0x0F;
+    uint8_t p[4];
+    const bool havePoint = points > 0 && gtRead(0x8150, p, 4);
+    gtClear();
+    if (!havePoint) { down = false; return false; }
+    if (down) return false;
+    down = true;
+    x = static_cast<int>((p[0] | p[1] << 8) * 800L / gtMaxX);
+    y = static_cast<int>((p[2] | p[3] << 8) * 480L / gtMaxY);
+    if (TOUCH_FLIP_X) x = 799 - x;
+    if (TOUCH_FLIP_Y) y = 479 - y;
+    return true;
+}
+
+// ── Backlight ────────────────────────────────────────────────────────────────
+void applyBrightness() {
+    ledcWrite(0, max(10, brightness) * 255 / 100);
+}
+
+// ── Settings and Hotel screens (between header and switcher: y 56..396) ──────
+struct Rect {
+    int x, y, w, h;
+    // Accept taps up to 10 px outside the drawn button; fingers miss small targets.
+    bool hit(int px, int py) const { return px >= x - 10 && px < x + w + 10 && py >= y - 10 && py < y + h + 10; }
+};
+constexpr int BODY_Y = 56, BODY_H = 340;
+constexpr int DISP_H = 120;
+constexpr Rect BRIGHT_MINUS = {PAD + LEFT_W - 162, BODY_Y + 34, 48, 36};
+constexpr Rect BRIGHT_PLUS = {PAD + LEFT_W - 60, BODY_Y + 34, 48, 36};
+
+void settingRow(int x, int w, int y, const char *name, const char *value) {
+    label(x + 12, y, name, 1, MUTED);
+    labelRight(x + w - 12, y, value, 1, TEXT);
+}
+
+void stepButton(const Rect &r, bool plus) {
+    screen.fillRoundRect(r.x, r.y, r.w, r.h, 8, TRACK);
+    const int cx = r.x + r.w / 2, cy = r.y + r.h / 2;
+    screen.fillRect(cx - 8, cy - 1, 16, 3, TEXT);
+    if (plus) screen.fillRect(cx - 1, cy - 8, 3, 16, TEXT);
+}
+
+void drawSettings() {
+    char v[48];
+    // Display
+    panelBox(PAD, BODY_Y, LEFT_W, DISP_H, "DISPLAY");
+    label(PAD + 12, BODY_Y + 48, "Brightness", 2, TEXT);
+    stepButton(BRIGHT_MINUS, false);
+    stepButton(BRIGHT_PLUS, true);
+    snprintf(v, sizeof(v), "%d%%", brightness);
+    labelCenter((BRIGHT_MINUS.x + BRIGHT_MINUS.w + BRIGHT_PLUS.x) / 2, BODY_Y + 45, v, 2, TEXT);
+    settingRow(PAD, LEFT_W, BODY_Y + 92, "Return to Kaizen board after", "2 min without touch");
+
+    // Data
+    const int dy = BODY_Y + DISP_H + GAP, dh = BODY_H - DISP_H - GAP;
+    panelBox(PAD, dy, LEFT_W, dh, "DATA");
+    settingRow(PAD, LEFT_W, dy + 34, "Source", "Supabase kaizen-esp-display");
+    settingRow(PAD, LEFT_W, dy + 58, "Company", hasData ? (details["title"] | "-") : "-");
+    settingRow(PAD, LEFT_W, dy + 82, "Refresh interval", "1 min");
+    if (hasData) {
+        const uint32_t ago = (millis() - lastSuccess) / 1000;
+        snprintf(v, sizeof(v), "%lu s ago", static_cast<unsigned long>(ago));
+    } else {
+        strcpy(v, "not yet");
+    }
+    settingRow(PAD, LEFT_W, dy + 106, "Last update", v);
+    settingRow(PAD, LEFT_W, dy + 130, "Device name", "nnr_esp");
+
+    // Network and device
+    panelBox(RIGHT_X, BODY_Y, RIGHT_W, BODY_H, "NETWORK & DEVICE");
+    const bool up = WiFi.status() == WL_CONNECTED;
+    int ry = BODY_Y + 34;
+    auto row = [&](const char *name, const char *value) { settingRow(RIGHT_X, RIGHT_W, ry, name, value); ry += 24; };
+    char ssid[24];
+    ascii(ssid, sizeof(ssid), WIFI_SSID, 20);
+    row("Wi-Fi", up ? ssid : "not connected");
+    if (up) {
+        snprintf(v, sizeof(v), "%d dBm %s", WiFi.RSSI(), signalQuality(WiFi.RSSI()));
+        row("Signal", v);
+        snprintf(v, sizeof(v), "%ld", static_cast<long>(WiFi.channel()));
+        row("Channel", v);
+        row("Access point", WiFi.BSSIDstr().c_str());
+        row("IP", WiFi.localIP().toString().c_str());
+    }
+    row("MAC", WiFi.macAddress().c_str());
+    const uint32_t up_s = millis() / 1000;
+    snprintf(v, sizeof(v), "%lud %luh %lum", static_cast<unsigned long>(up_s / 86400),
+             static_cast<unsigned long>(up_s / 3600 % 24), static_cast<unsigned long>(up_s / 60 % 60));
+    row("Uptime", v);
+    snprintf(v, sizeof(v), "%lu KB", static_cast<unsigned long>(ESP.getFreeHeap() / 1024));
+    row("Free memory", v);
+    row("Firmware", __DATE__);
+    row("Touch", gtAddr ? "GT911" : "not found");
+}
+
+void drawHotel() {
+    panelBox(PAD, BODY_Y, 800 - 2 * PAD, BODY_H, "HOTEL");
+    labelCenter(400, BODY_Y + BODY_H / 2 - 24, "The Hotel board is not on this panel yet", 2, TEXT);
+    labelCenter(400, BODY_Y + BODY_H / 2 + 6, "Hotel figures are on the web display. Tap Kaizen System to go back.", 1, MUTED);
+}
+
+void drawDashboard(const char *status);
+void showScreen(Screen next) {
+    if (next == current) return;
+    current = next;
+    drawDashboard(screenStatus);
+}
+
+void handleTap(int x, int y) {
+    lastTouch = millis();
+    Serial.printf("Tap %d,%d\n", x, y);
+    if (y >= SWITCH_Y && y < SWITCH_Y + SWITCH_H) {
+        const int w = (800 - 2 * PAD - 4 * GAP) / 5;
+        const int slot = (x - PAD) / (w + GAP);
+        if (x < PAD || slot > 4 || (x - PAD) % (w + GAP) >= w) return;  // gap between buttons
+        if (slot == 0) showScreen(Screen::Kaizen);
+        else if (slot == 1) showScreen(Screen::Hotel);
+        else if (slot == 4) showScreen(Screen::Settings);
+        return;
+    }
+    if (current == Screen::Settings && (BRIGHT_MINUS.hit(x, y) || BRIGHT_PLUS.hit(x, y))) {
+        brightness = constrain(brightness + (BRIGHT_PLUS.hit(x, y) ? 10 : -10), 10, 100);
+        applyBrightness();
+        prefs.putUChar("bright", brightness);
+        drawDashboard(screenStatus);
+    }
+}
+
 void drawDashboard(const char *status) {
     screenStatus = status;
     screen.fillScreen(BG);
     drawHeader();
-    drawKpis();
-    drawTrend();
-    drawOverview();
-    drawAttention();
-    drawCategories();
+    if (current == Screen::Kaizen) {
+        drawKpis();
+        drawTrend();
+        drawOverview();
+        drawAttention();
+        drawCategories();
+    } else if (current == Screen::Settings) {
+        drawSettings();
+    } else {
+        drawHotel();
+    }
     drawSwitcher();
     drawStatus();
 }
@@ -515,14 +714,18 @@ bool fetchDashboard() {
 
 void setup() {
     Serial.begin(115200);
-    pinMode(BACKLIGHT, OUTPUT);
-    digitalWrite(BACKLIGHT, LOW);
+    prefs.begin("nnr_esp", false);
+    brightness = constrain(static_cast<int>(prefs.getUChar("bright", 100)), 10, 100);
+    ledcSetup(0, 5000, 8);
+    ledcAttachPin(BACKLIGHT, 0);
+    ledcWrite(0, 0);
     if (!screen.begin()) {
         Serial.println("LCD initialization failed");
         return;
     }
+    touchBegin();
     drawDashboard("Connecting to Wi-Fi...");
-    digitalWrite(BACKLIGHT, HIGH);
+    applyBrightness();
     if (!WIFI_SSID[0] || !DISPLAY_TOKEN[0] || !ROOT_CA[0] ||
         strncmp(DISPLAY_URL, "https://", 8) != 0) {
         drawDashboard("Waiting for device configuration");
@@ -594,9 +797,19 @@ void manageWifi() {
 }
 
 void loop() {
-    if (Serial.available() && Serial.read() == 'S') dumpScreen();
+    if (Serial.available()) {
+        // S = screenshot; K / H / T = show Kaizen / Hotel / settings (for testing)
+        const int cmd = Serial.read();
+        if (cmd == 'S') dumpScreen();
+        else if (cmd == 'K') showScreen(Screen::Kaizen);
+        else if (cmd == 'H') { lastTouch = millis(); showScreen(Screen::Hotel); }
+        else if (cmd == 'T') { lastTouch = millis(); showScreen(Screen::Settings); }
+    }
+    int tx, ty;
+    if (touchTapped(tx, ty)) handleTap(tx, ty);
+    if (current != Screen::Kaizen && millis() - lastTouch > IDLE_RETURN_MS) showScreen(Screen::Kaizen);
     if (WiFi.getMode() != WIFI_STA) {
-        delay(100);
+        delay(20);
         return;
     }
     if (static_cast<int32_t>(millis() - nextPoll) >= 0) {
@@ -622,5 +835,5 @@ void loop() {
         lastClockTick = millis();
     }
     manageWifi();
-    delay(100);
+    delay(20);  // short, so taps feel immediate
 }
