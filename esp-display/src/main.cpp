@@ -141,8 +141,12 @@ void drawHeader() {
         char month[16], avg[16];
         ascii(month, sizeof(month), details["month"] | "", 12);
         ascii(avg, sizeof(avg), details["avgResolution"] | "-", 12);
-        snprintf(subtitle, sizeof(subtitle), "%s  |  Avg Resolution %s  |  Resolution Rate %d%%",
-                 month, avg, details["resolutionRate"].as<int>());
+        if (current == Screen::Hotel) {
+            snprintf(subtitle, sizeof(subtitle), "%s  |  Hotel performance", month);
+        } else {
+            snprintf(subtitle, sizeof(subtitle), "%s  |  Avg Resolution %s  |  Resolution Rate %d%%",
+                     month, avg, details["resolutionRate"].as<int>());
+        }
     }
     label(PAD, 38, subtitle, 1, MUTED);
 
@@ -619,10 +623,165 @@ void drawSettings() {
     row("Touch", gtAddr ? "GT911" : "not found");
 }
 
+// ── Hotel board: mirrors src/components/HotelBoard.tsx ──────────────────────
+// The endpoint sends display-ready strings. They are ASCII apart from the baht
+// sign, which the built-in font lacks, so it is drawn as a B with a stroke.
+bool isBaht(const char *s) {
+    return static_cast<uint8_t>(s[0]) == 0xE0 && static_cast<uint8_t>(s[1]) == 0xB8 &&
+           static_cast<uint8_t>(s[2]) == 0xBF;
+}
+int richWidth(const char *s, int size) {
+    int n = 0;
+    while (*s) {
+        if (isBaht(s)) { ++n; s += 3; continue; }
+        if (*s >= 0x20 && *s < 0x7f) ++n;
+        ++s;
+    }
+    return n * 6 * size;
+}
+void rich(int x, int y, const char *s, int size, uint16_t color) {
+    screen.setTextSize(size);
+    screen.setTextColor(color);
+    while (*s) {
+        if (isBaht(s)) {
+            screen.setCursor(x, y);
+            screen.print('B');
+            screen.fillRect(x + 2 * size, y - size, size, 9 * size, color);
+            x += 6 * size;
+            s += 3;
+            continue;
+        }
+        if (*s >= 0x20 && *s < 0x7f) {
+            screen.setCursor(x, y);
+            screen.print(*s);
+            x += 6 * size;
+        }
+        ++s;
+    }
+}
+void richRight(int right, int y, const char *s, int size, uint16_t color) {
+    rich(right - richWidth(s, size), y, s, size, color);
+}
+void upper(char *out, size_t cap, const char *in) {
+    ascii(out, cap, in, cap - 1);
+    for (char *c = out; *c; ++c) *c = toupper(*c);
+}
+constexpr uint16_t BAR_FORECAST = rgb(0x3e4654);  // rgba(255,255,255,0.18) on CARD
+
 void drawHotel() {
-    panelBox(PAD, BODY_Y, 800 - 2 * PAD, BODY_H, "HOTEL");
-    labelCenter(400, BODY_Y + BODY_H / 2 - 24, "The Hotel board is not on this panel yet", 2, TEXT);
-    labelCenter(400, BODY_Y + BODY_H / 2 + 6, "Hotel figures are on the web display. Tap Kaizen System to go back.", 1, MUTED);
+    JsonObjectConst hotel = details["hotel"].as<JsonObjectConst>();
+    const char *state = hotel["state"] | "loading";
+    if (strcmp(state, "ready") != 0) {
+        card(PAD, KPI_Y, 800 - 2 * PAD, ROW_B_Y + ROW_B_H - KPI_Y);
+        const bool error = strcmp(state, "error") == 0;
+        labelCenter(400, (KPI_Y + ROW_B_Y + ROW_B_H) / 2 - 4,
+                    error ? "Can't read hotel data"
+                    : strcmp(state, "empty") == 0 ? "No report uploaded yet - add one on the Hotel Reports page"
+                    : "Loading...",
+                    1, error ? C_CRITICAL : MUTED);
+        return;
+    }
+
+    // KPI row: six tiles, value / label / sub-line
+    const int tw = (800 - 2 * PAD - 5 * GAP) / 6;
+    int i = 0;
+    for (JsonObjectConst tile : hotel["tiles"].as<JsonArrayConst>()) {
+        if (i == 6) break;
+        const int x = PAD + i++ * (tw + GAP);
+        card(x, KPI_Y, tw, KPI_H);
+        const char *value = tile["value"] | "-";
+        const int size = richWidth(value, 3) <= tw - 14 ? 3 : 2;
+        rich(x + 7, KPI_Y + (size == 3 ? 9 : 13), value, size, parseColor(tile["color"] | "", TEXT));
+        char name[24];
+        upper(name, sizeof(name), tile["label"] | "");
+        label(x + 7, KPI_Y + 38, name, 1, MUTED);
+        rich(x + 7, KPI_Y + 50, tile["sub"] | "", 1, MUTED);
+    }
+
+    // Occupancy forecast, next 14 days (0-100 %)
+    {
+        const int x = PAD, y = ROW_A_Y, w = LEFT_W, h = ROW_A_H;
+        panelBox(x, y, w, h, "OCCUPANCY FORECAST - NEXT 14 DAYS");
+        JsonArrayConst days = hotel["forecast"].as<JsonArrayConst>();
+        if (days.size() == 0) {
+            labelCenter(x + w / 2, y + h / 2, "No forecast in this report", 1, MUTED);
+        } else {
+            const int base = y + h - 20, area = h - 20 - 42;
+            const int slot = (w - 20) / 14, barW = slot * 3 / 5;
+            int d = 0;
+            for (JsonObjectConst day : days) {
+                if (d == 14) break;
+                const int bx = x + 10 + d * slot + (slot - barW) / 2;
+                const float p = constrain(day["pct"] | 0.0f, 0.0f, 100.0f);
+                const int bh = static_cast<int>(area * p / 100.0f);
+                if (bh > 0) screen.fillRoundRect(bx, base - bh, barW, bh, min(3, bh / 2), d == 0 ? BRAND : BAR_FORECAST);
+                char v[8];
+                snprintf(v, sizeof(v), "%d", static_cast<int>(lroundf(day["pct"] | 0.0f)));
+                labelCenter(bx + barW / 2, base - bh - 10, v, 1, TEXT);
+                char lab[4];
+                ascii(lab, sizeof(lab), day["label"] | "", 2);
+                labelCenter(bx + barW / 2, base + 6, lab, 1, MUTED);
+                ++d;
+            }
+        }
+    }
+
+    // Today
+    {
+        const int x = RIGHT_X, y = ROW_A_Y, w = RIGHT_W, h = ROW_A_H;
+        panelBox(x, y, w, h, "TODAY");
+        int ry = y + 32;
+        for (JsonObjectConst r : hotel["today"].as<JsonArrayConst>()) {
+            label(x + 12, ry + 4, r["label"] | "", 1, MUTED);
+            richRight(x + w - 12, ry, r["value"] | "-", 2, parseColor(r["color"] | "", TEXT));
+            ry += 24;
+        }
+        char when[40], date[16];
+        ascii(date, sizeof(date), hotel["statDate"] | "", 12);
+        snprintf(when, sizeof(when), "Figures for %s", date);
+        label(x + 12, y + h - 16, when, 1, MUTED);
+    }
+
+    // Occupancy outlook: four windows
+    {
+        const int x = PAD, y = ROW_B_Y, w = LEFT_W, h = ROW_B_H;
+        panelBox(x, y, w, h, "OCCUPANCY OUTLOOK");
+        const int cw = (w - 20 - 3 * 12) / 4;
+        int c = 0;
+        for (JsonObjectConst win : hotel["outlook"].as<JsonArrayConst>()) {
+            if (c == 4) break;
+            const int cx = x + 10 + c++ * (cw + 12);
+            char text[16], name[20], counts[24];
+            ascii(text, sizeof(text), win["pctText"] | "-", 10);
+            upper(name, sizeof(name), win["label"] | "");
+            snprintf(counts, sizeof(counts), "%d / %d", win["occ"] | 0, win["avail"] | 0);
+            label(cx, y + 34, text, 2, TEXT);
+            label(cx, y + 56, name, 1, MUTED);
+            label(cx, y + 68, counts, 1, MUTED);
+            screen.fillRoundRect(cx, y + 84, cw, 6, 3, BORDER);
+            const float p = constrain(win["pct"] | 0.0f, 0.0f, 100.0f);
+            const int fill = static_cast<int>(cw * p / 100.0f);
+            if (fill > 0) screen.fillRoundRect(cx, y + 84, max(6, fill), 6, 3, BRAND);
+        }
+    }
+
+    // Today's revenue split
+    {
+        const int x = RIGHT_X, y = ROW_B_Y, w = RIGHT_W, h = ROW_B_H;
+        panelBox(x, y, w, h, "TODAY'S REVENUE SPLIT");
+        int ry = y + 34;
+        const int trackX = x + 10 + 60, valueW = 48;
+        const int trackW = w - 20 - 60 - valueW - 6;
+        for (JsonObjectConst r : hotel["revenue"].as<JsonArrayConst>()) {
+            label(x + 10, ry, r["label"] | "", 1, MUTED);
+            screen.fillRoundRect(trackX, ry - 1, trackW, 10, 5, TRACK);
+            const float ratio = constrain(r["ratio"] | 0.0f, 0.0f, 1.0f);
+            const int fill = static_cast<int>(trackW * ratio);
+            if (fill > 0) screen.fillRoundRect(trackX, ry - 1, max(10, fill), 10, 5, parseColor(r["color"] | "", BRAND));
+            richRight(x + w - 10, ry, r["value"] | "-", 1, TEXT);
+            ry += 22;
+        }
+    }
 }
 
 void drawDashboard(const char *status);
@@ -687,7 +846,7 @@ bool fetchDashboard() {
         JsonDocument filter;
         for (const Metric &metric : METRICS) filter[metric.key] = true;
         for (const char *key : {"title", "month", "resolutionRate", "avgResolution", "reopened",
-                                "monthly", "categories", "attentionItems"}) {
+                                "monthly", "categories", "attentionItems", "hotel"}) {
             filter[key] = true;
         }
         JsonDocument data;

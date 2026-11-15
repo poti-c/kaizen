@@ -4,7 +4,7 @@ Native firmware that redraws the Kaizen board of `/display`
 (`src/pages/DisplayPage.tsx`) on a GUITION JC8048W550: ESP32-S3, 800 × 480 RGB
 LCD, 16 MB flash, 8 MB PSRAM. It polls once a minute over Wi-Fi. The panel is named **nnr_esp**. The Hotel board and touch drill-down are not built yet.
 
-The numbers come from the `kaizen-esp-display` edge function
+The numbers for both boards come from the `kaizen-esp-display` edge function
 (`supabase/functions/kaizen-esp-display`). It computes the same values as the
 web board and returns only aggregates, plus case number, department and age
 for the Needs Attention rows. The firmware only draws them.
@@ -32,8 +32,11 @@ Authorization: Bearer <device token>
   kaizen.nnr-solutions.com would need a reverse proxy in front of the site. The
   direct Supabase URL is used instead.
 
-If you change a metric rule in `DisplayPage.tsx` or `src/lib/utils.ts`, change
-the function too. Its comments mark each rule it mirrors.
+If you change a metric rule in `DisplayPage.tsx`, `HotelBoard.tsx` or
+`src/lib/utils.ts`, change the function too. The `hotel` block in its response
+is already formatted the way `HotelBoard.tsx` formats it, so the panel only
+prints it. The panel's font has no baht sign, so the firmware draws ฿ as a B
+with a stroke. Its comments mark each rule it mirrors.
 
 ## Local configuration (never committed)
 
@@ -73,8 +76,9 @@ SCL 20, reset 38). The firmware reads it directly over I2C, with no extra
 library.
 
 - **Kaizen System:** shows the Kaizen board, the home screen.
-- **Hotel:** shows a placeholder. The hotel figures are not in the panel's data
-  feed yet.
+- **Hotel:** the hotel board, from the latest `kaizen_hotel_daily` row. It
+  shows six KPI tiles, the 14-day occupancy forecast, Today, the four-window
+  occupancy outlook and today's revenue split.
 - **System Settings:** brightness −/+ in 10% steps (saved in NVS, kept after a
   restart), then data source, last update, Wi-Fi, IP, MAC, uptime, free memory
   and firmware date.

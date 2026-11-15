@@ -58,6 +58,101 @@ type Row = {
   created_at: string; closed_at: string | null; due_date: string | null
 }
 
+// ── Hotel board: mirrors src/components/HotelBoard.tsx ─────────────────────
+// Values are formatted here, exactly as the web board formats them, so the
+// panel only prints strings. "-" stands in for the web's em dash (the panel
+// font is ASCII); "฿" is kept and the firmware draws it as a glyph.
+const HOTEL_COLS = "stat_date, occ_pct_today, occ_pct_mtd, occ_pct_ytd, occ_excl_pct_today, occ_excl_pct_mtd, "
+  + "rooms_occupied_today, rooms_occupied_mtd, rooms_avail_today, rooms_avail_mtd, "
+  + "hotel_revenue_today, hotel_revenue_mtd, hotel_revenue_ytd, "
+  + "room_revenue_today, fb_revenue_today, misc_revenue_today, adr_today, "
+  + "ly_occ_pct_today, ly_hotel_rev_today, ly_hotel_rev_ytd, forecast"
+const PANEL_TEXT = "#e8edf3", PANEL_IN_PROGRESS = "#3b82f6", PANEL_RESOLVED = "#22c55e"
+const PANEL_PENDING = "#f59e0b", PANEL_CRITICAL = "#ef4444"
+
+type ForecastDay = { date: string; occPct: number; occupied: number; totalRooms: number }
+type ForecastMonth = { month: string; occupiedRoomNights: number; totalRoomNights: number }
+type HotelRow = Record<string, unknown> & {
+  stat_date: string
+  forecast: { days: ForecastDay[]; months: ForecastMonth[] } | null
+}
+
+const num = (v: unknown) => (v == null ? null : Number(v))
+const pct = (v: number | null) => (v == null ? "-" : `${v.toFixed(2)}%`)
+function money(v: number | null): string {
+  if (v == null) return "-"
+  const abs = Math.abs(v)
+  if (abs >= 10_000_000) return `฿${(v / 1_000_000).toFixed(1)}M`
+  if (abs >= 1_000_000) return `฿${(v / 1_000_000).toFixed(2)}M`
+  if (abs >= 1_000) return `฿${(v / 1_000).toFixed(1)}K`
+  return `฿${v.toFixed(0)}`
+}
+const exact = (v: number | null) =>
+  v == null ? "-" : v.toLocaleString("en-US", { maximumFractionDigits: 0 })
+const orDash = (v: unknown) => (v == null ? "-" : String(v))
+
+function hotelBoard(row: HotelRow) {
+  const occToday = num(row.occ_pct_today)
+  const lyOcc = num(row.ly_occ_pct_today)
+  const revToday = num(row.hotel_revenue_today)
+  const tiles = [
+    { label: "Occupancy today", value: pct(occToday), color: PANEL_IN_PROGRESS,
+      sub: `${orDash(row.rooms_occupied_today)} / ${orDash(row.rooms_avail_today)} rooms` },
+    { label: "Occupancy M-T-D", value: pct(num(row.occ_pct_mtd)), color: PANEL_TEXT,
+      sub: `${orDash(row.rooms_occupied_mtd)} / ${orDash(row.rooms_avail_mtd)}` },
+    { label: "Excl Comp & HU", value: pct(num(row.occ_excl_pct_today)), color: PANEL_TEXT,
+      sub: `M-T-D ${pct(num(row.occ_excl_pct_mtd))}` },
+    { label: "Revenue today", value: money(revToday), color: PANEL_RESOLVED,
+      sub: `LY ${money(num(row.ly_hotel_rev_today))}` },
+    { label: "Revenue M-T-D", value: money(num(row.hotel_revenue_mtd)), color: PANEL_TEXT,
+      sub: exact(num(row.hotel_revenue_mtd)) },
+    { label: "Revenue Y-T-D", value: money(num(row.hotel_revenue_ytd)), color: PANEL_TEXT,
+      sub: `LY ${money(num(row.ly_hotel_rev_ytd))}` },
+  ]
+  const days = row.forecast?.days ?? []
+  const forecast = days.slice(0, 14).map(d => ({ label: d.date.slice(8, 10), pct: d.occPct }))
+  const today = [
+    { label: "Rooms occupied", value: `${orDash(row.rooms_occupied_today)} / ${orDash(row.rooms_avail_today)}`, color: PANEL_TEXT },
+    { label: "ADR", value: exact(num(row.adr_today)), color: PANEL_TEXT },
+    { label: "Hotel revenue", value: exact(revToday), color: PANEL_TEXT },
+    {
+      label: "vs last year",
+      value: lyOcc != null && occToday != null ? `${(occToday - lyOcc).toFixed(2)} pt` : "-",
+      color: lyOcc != null && occToday != null ? (occToday >= lyOcc ? PANEL_RESOLVED : PANEL_CRITICAL) : PANEL_TEXT,
+    },
+  ]
+  let outlook: { label: string; pct: number; pctText: string; occ: number; avail: number }[] = []
+  if (row.forecast) {
+    const { months } = row.forecast
+    const week = days.slice(0, 7)
+    const rest = months[0]
+    outlook = [
+      { label: "This week", occ: week.reduce((s, d) => s + d.occupied, 0), avail: week.reduce((s, d) => s + d.totalRooms, 0) },
+      {
+        label: "This month",
+        occ: (num(row.rooms_occupied_mtd) ?? 0) + (rest?.occupiedRoomNights ?? 0),
+        avail: (num(row.rooms_avail_mtd) ?? 0) + (rest?.totalRoomNights ?? 0),
+      },
+      ...months.slice(1, 3).map(m => ({ label: m.month, occ: m.occupiedRoomNights, avail: m.totalRoomNights })),
+    ].map(w => {
+      const p = w.avail ? (w.occ / w.avail) * 100 : 0
+      return { ...w, pct: p, pctText: `${p.toFixed(1)}%` }
+    })
+  }
+  const split = [
+    { label: "Rooms", value: num(row.room_revenue_today) ?? 0, color: PANEL_IN_PROGRESS },
+    { label: "F&B", value: num(row.fb_revenue_today) ?? 0, color: PANEL_RESOLVED },
+    { label: "Other", value: num(row.misc_revenue_today) ?? 0, color: PANEL_PENDING },
+  ]
+  const revMax = Math.max(1, ...split.map(r => r.value))
+  return {
+    state: "ready",
+    statDate: row.stat_date,
+    tiles, forecast, today, outlook,
+    revenue: split.map(r => ({ label: r.label, value: exact(r.value), ratio: r.value / revMax, color: r.color })),
+  }
+}
+
 function reply(status: number, body: unknown) {
   return Response.json(body, { status, headers: { "Cache-Control": "no-store" } })
 }
@@ -110,11 +205,17 @@ Deno.serve(async (request) => {
     { auth: { persistSession: false, autoRefreshToken: false } },
   )
 
-  const [{ data: company }, { data: catRow }] = await Promise.all([
+  const [{ data: company }, { data: catRow }, hotelResult] = await Promise.all([
     db.from("kaizen_companies").select("name, org_title").eq("id", companyId).maybeSingle(),
     db.from("kaizen_settings").select("value")
       .eq("company_id", companyId).eq("key", "custom_categories").maybeSingle(),
+    db.from("kaizen_hotel_daily").select(HOTEL_COLS)
+      .eq("company_id", companyId).order("stat_date", { ascending: false }).limit(1).maybeSingle(),
   ])
+  // mirrors HotelBoard's load states: error / empty / ready
+  const hotel = hotelResult.error ? { state: "error" }
+    : !hotelResult.data ? { state: "empty" }
+    : hotelBoard(hotelResult.data as unknown as HotelRow)
   if (!company) return reply(503, { error: "Display is unavailable" })
 
   // Only the nine-month window is needed: the KPIs use the current month, the
@@ -220,6 +321,7 @@ Deno.serve(async (request) => {
     categories,
     attention: flagged.length,
     attentionItems,
+    hotel,
     updatedAt: new Date(now).toISOString(),
   })
 })
