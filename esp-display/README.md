@@ -91,12 +91,24 @@ library.
 - **Hotel board:** from the latest `kaizen_hotel_daily` row. The header gives
   the report date ("Figures for Fri 06 Nov 2026"), with an amber "N DAYS OLD"
   tag once the report is two or more days behind.
-- **System Settings:**
-  - Brightness −/+ in 10% steps.
-  - Language: English / ไทย.
-  - Data source, last update, Wi-Fi, IP, MAC, uptime, free memory and firmware
-    date.
-  - Brightness and language are saved in NVS and kept after a restart.
+- **System Settings:** the same overlay as the web's `DisplaySettings.tsx`: a
+  tab rail with rows of label, hint and control. Rows the web tags DEVICE ("firmware
+  would own on real hardware") are real here. Settings live in NVS and survive a
+  restart.
+  - Display: brightness slider (tap or drag), night dim with hours and level
+    (Bangkok time), orientation Normal/180° (screen and touch flip), and
+    language. Language is panel-only; the web follows the app language.
+  - Data: refresh interval 15s/30s/1m/5m, touch drill-down on/off (off makes
+    the board display-only), and return-to-summary 10s/30s/1m/2m.
+  - Network: live Wi-Fi, signal, IP, MAC, access point and a working Reconnect.
+  - Device: Reboot and Factory reset, both needing a second tap within 4 s.
+    Factory reset clears the panel's NVS settings; Wi-Fi and the token are
+    compiled in and stay. The title, device name and location fields are
+    read-only (no on-screen keyboard yet), and the critical-case sound is not
+    wired, so tapping those says so.
+  - About: real chip, PSRAM, flash, uptime and temperature readings. Firmware
+    update is over USB only.
+  - Settings close themselves after 2 minutes without a touch, as on the web.
 
 Each tap is logged over serial as `Tap x,y`.
 
@@ -125,7 +137,8 @@ looks almost the same as 100%.
 
 At 115200 baud, mainly for testing without touching the panel:
 - `S` sends a screenshot (see below).
-- `K`, `H`, `T` switch to the Kaizen, Hotel and settings screens.
+- `K`, `H` switch to the Kaizen and Hotel boards. `T` opens settings; `1`-`5`
+  pick a tab and `N` toggles night dim.
 - `L` toggles the language.
 - `D` opens the Total list, `E` expands its first case, `X` closes the list.
 

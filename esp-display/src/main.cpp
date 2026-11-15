@@ -24,7 +24,6 @@ Arduino_ESP32RGBPanel panel(
     8, 3, 46, 9, 1, 0, 8, 4, 8, 0, 8, 4, 8, 1, 16000000);
 Arduino_RGB_Display screen(800, 480, &panel);
 constexpr int BACKLIGHT = 2;
-constexpr uint32_t POLL_MS = 60000;
 constexpr uint32_t RETRY_MS = 15000;
 
 // PANEL colours (src/lib/panelTheme.ts) in RGB565.
@@ -85,12 +84,25 @@ enum class Status { Connecting, Unconfigured, Live, Stale, NoWifi, NoClock, Unav
 Status status = Status::Connecting;
 uint32_t nextPoll = 0;
 
-// Which board is on screen. Kaizen is home; the others time out back to it.
-enum class Screen { Kaizen, Hotel, Settings };
+// Which board is on screen. Kaizen is home; Hotel times out back to it.
+enum class Screen { Kaizen, Hotel };
 Screen current = Screen::Kaizen;
 uint32_t lastTouch = 0;
-int brightness = 100;  // percent, kept in NVS
 Preferences prefs;
+
+// Panel settings, as in src/lib/panelTheme.ts (same defaults), kept in NVS.
+struct PanelSettings {
+    int brightness = 100;
+    bool nightDim = false;
+    int nightFrom = 22 * 60, nightTo = 6 * 60;  // minutes after midnight, Bangkok time
+    int nightLevel = 35;
+    bool rotated = false;                       // orientation 180°
+    int refreshSecs = 60;
+    int idleSecs = 30;
+    bool touch = true;                          // touch drill-down
+} cfg;
+uint32_t pollMs() { return cfg.refreshSecs * 1000UL; }
+uint32_t drillIdleMs() { return cfg.idleSecs * 1000UL; }
 
 // ── Text: built-in 6x8 font for ASCII, Unifont 16 px for everything else ─────
 // The built-in font has no Thai. Unifont does, but Thai above/below vowels
@@ -305,7 +317,7 @@ void drawHeader() {
     label(PAD, 10, title, 3, TEXT);
     int bx = PAD + textWidth(title, 3) + 10;
     bx += pill(bx, 11, L("DASHBOARD", "แดชบอร์ด"), TEXT, BRAND, 17) + 6;
-    if (hasData && millis() - lastSuccess > 3 * POLL_MS) {
+    if (hasData && millis() - lastSuccess > 3 * pollMs()) {
         bx += pill(bx, 11, L("STALE", "ข้อมูลค้าง"), C_PENDING, rgb(0x3a2e17), 17) + 6;
     }
 
@@ -591,8 +603,7 @@ void drawSwitcher() {
             dashedRect(x, y, SWITCH_W, h, RESERVED);
             continue;
         }
-        const bool active = (i == 0 && current == Screen::Kaizen) || (i == 1 && current == Screen::Hotel) ||
-                            (i == 4 && current == Screen::Settings);
+        const bool active = (i == 0 && current == Screen::Kaizen) || (i == 1 && current == Screen::Hotel);
         if (active) screen.fillRoundRect(x, y, SWITCH_W, h, 9, BRAND);
         else card(x, y, SWITCH_W, h);
         const uint16_t fg = active ? TEXT : MUTED;
@@ -669,7 +680,13 @@ const char *signalQuality(int rssi) {
 const char *statusText() {
     switch (status) {
         case Status::Unconfigured: return L("Waiting for device configuration", "รอการตั้งค่าอุปกรณ์");
-        case Status::Live: return L("Live  |  Refreshes every minute", "ออนไลน์  |  อัปเดตทุก 1 นาที");
+        case Status::Live: {
+            static char live[96];
+            const char *every = cfg.refreshSecs >= 60 ? (cfg.refreshSecs == 60 ? "1m" : "5m")
+                                : cfg.refreshSecs == 30 ? "30s" : "15s";
+            snprintf(live, sizeof(live), thai ? "ออนไลน์  |  อัปเดตทุก %s" : "Live  |  Refreshes every %s", every);
+            return live;
+        }
         case Status::Stale: return L("Showing last update  |  Retrying...", "แสดงข้อมูลล่าสุด  |  กำลังลองใหม่...");
         case Status::NoWifi: return L("Waiting for Wi-Fi...", "กำลังรอ Wi-Fi...");
         case Status::NoClock: return L("Synchronizing clock...", "กำลังตั้งเวลา...");
@@ -738,24 +755,31 @@ void touchBegin() {
     Serial.printf("Touch: GT%s at 0x%02X, reports %ux%u\n", id, gtAddr, gtMaxX, gtMaxY);
 }
 
-// True once per finger-down, with the point mapped to screen pixels.
-bool touchTapped(int &x, int &y) {
+// Finger-down, move and up, with the point mapped to screen pixels (and
+// flipped when the panel is mounted upside down).
+enum class Touch { None, Down, Move, Up };
+bool rotated180 = false;
+Touch touchPoll(int &x, int &y) {
     static bool down = false;
-    if (!gtAddr) return false;
+    if (!gtAddr) return Touch::None;
     uint8_t st;
-    if (!gtRead(0x814E, &st, 1) || !(st & 0x80)) return false;  // no new report
+    if (!gtRead(0x814E, &st, 1) || !(st & 0x80)) return Touch::None;  // no new report
     const uint8_t points = st & 0x0F;
     uint8_t p[4];
     const bool havePoint = points > 0 && gtRead(0x8150, p, 4);
     gtClear();
-    if (!havePoint) { down = false; return false; }
-    if (down) return false;
-    down = true;
+    if (!havePoint) {
+        const bool was = down;
+        down = false;
+        return was ? Touch::Up : Touch::None;
+    }
     x = static_cast<int>((p[0] | p[1] << 8) * 800L / gtMaxX);
     y = static_cast<int>((p[2] | p[3] << 8) * 480L / gtMaxY);
-    if (TOUCH_FLIP_X) x = 799 - x;
-    if (TOUCH_FLIP_Y) y = 479 - y;
-    return true;
+    if (TOUCH_FLIP_X != rotated180) x = 799 - x;
+    if (TOUCH_FLIP_Y != rotated180) y = 479 - y;
+    if (down) return Touch::Move;
+    down = true;
+    return Touch::Down;
 }
 
 // ── Backlight ────────────────────────────────────────────────────────────────
@@ -764,9 +788,24 @@ bool touchTapped(int &x, int &y) {
 // drive it at a few hundred Hz, which the board's backlight driver follows.
 constexpr int BL_CHANNEL = 1;
 constexpr int BL_FREQ_HZ = 300;
+int bangkokMinutes() {
+    const time_t now = time(nullptr);
+    if (now < 1700000000) return -1;
+    return static_cast<int>(((now + 7 * 3600) % 86400) / 60);
+}
+// mirrors inWindow (panelTheme.ts)
+bool inWindow(int t, int from, int to) {
+    if (t < 0 || from == to) return false;
+    return from < to ? (t >= from && t < to) : (t >= from || t < to);
+}
+bool nightNow() { return cfg.nightDim && inWindow(bangkokMinutes(), cfg.nightFrom, cfg.nightTo); }
 void applyBrightness() {
-    const float f = constrain(brightness, 10, 100) / 100.0f;
-    ledcWrite(BL_CHANNEL, max(2, static_cast<int>(lroundf(255.0f * powf(f, 2.2f)))));
+    static int lastDuty = -1;
+    const int pct = nightNow() ? cfg.nightLevel : cfg.brightness;
+    const float f = constrain(pct, 10, 100) / 100.0f;
+    const int duty = max(2, static_cast<int>(lroundf(255.0f * powf(f, 2.2f))));
+    if (duty != lastDuty) ledcWrite(BL_CHANNEL, duty);
+    lastDuty = duty;
 }
 
 // ── HTTP ─────────────────────────────────────────────────────────────────────
@@ -793,9 +832,8 @@ int getJson(const char *url, JsonDocument &doc, JsonDocument *filter) {
 // ── Drill-down (mirrors DisplayPage's overlay) ────────────────────────────────
 // Tapping a KPI tile, a category row or a Needs Attention row opens the
 // matching cases over the whole board. Tap a case to expand it. The overlay
-// closes itself after 30 s without a touch, like the web board, because a panel
+// closes itself after the idle timeout (30 s by default, as on the web), because a panel
 // left on a filtered list reads as if that were the whole count.
-constexpr uint32_t DRILL_IDLE_MS = 30000;
 constexpr int OX = PAD, OY = 8, OW = 800 - 2 * PAD, OH = 480 - 16;
 constexpr Rect DRILL_CLOSE = {OX + OW - 52, OY + 10, 40, 36};
 constexpr Rect DRILL_DOWN = {OX + OW - 100, OY + 10, 40, 36};
@@ -879,8 +917,9 @@ void filterDrill() {
 }
 
 void drawIdleBar() {
-    const uint32_t left = DRILL_IDLE_MS - min<uint32_t>(DRILL_IDLE_MS, millis() - drill.touched);
-    const int w = static_cast<int>(static_cast<int64_t>(OW - 4) * left / DRILL_IDLE_MS);
+    const uint32_t idle = drillIdleMs();
+    const uint32_t left = idle - min<uint32_t>(idle, millis() - drill.touched);
+    const int w = static_cast<int>(static_cast<int64_t>(OW - 4) * left / idle);
     screen.fillRect(OX + 2, OY + 2, OW - 4, 3, blend(TEXT, BG, 15));
     screen.fillRect(OX + 2, OY + 2, w, 3, drill.color);
 }
@@ -1021,7 +1060,7 @@ void openDrill(char kind, const char *key, const char *title, uint16_t color, co
     drill.failed = false;
     drill.touched = millis();
     // The list comes from ?view=cases on demand; reuse it for a minute.
-    if (!casesOk || millis() - casesAt > POLL_MS) {
+    if (!casesOk || millis() - casesAt > pollMs()) {
         casesOk = false;
         drawDrill();  // "Loading..."
         String url = String(DISPLAY_URL) + "?view=cases";
@@ -1070,80 +1109,406 @@ void drillTap(int x, int y) {
     drawIdleBar();
 }
 
-// ── Settings ─────────────────────────────────────────────────────────────────
-constexpr int BODY_Y = 56, BODY_H = 340;
-constexpr int DISP_H = 150;
-constexpr Rect BRIGHT_MINUS = {PAD + LEFT_W - 162, BODY_Y + 30, 48, 36};
-constexpr Rect BRIGHT_PLUS = {PAD + LEFT_W - 60, BODY_Y + 30, 48, 36};
-constexpr Rect LANG_EN = {PAD + LEFT_W - 222, BODY_Y + 78, 100, 32};
-constexpr Rect LANG_TH = {PAD + LEFT_W - 112, BODY_Y + 78, 100, 32};
+void connectStrongest();
 
-void settingRow(int x, int w, int y, const char *name, const char *value) {
-    label(x + 12, y, name, 1, MUTED);
-    labelRight(x + w - 12, y, value, 1, TEXT);
+// ── System Settings: mirrors src/components/DisplaySettings.tsx ─────────────
+// Same overlay as the web: header with close, a tab rail (Display, Data,
+// Network, Device, About) and rows of label + hint + control. The web marks
+// rows tagged DEVICE as values "firmware would own on real hardware"; here they
+// are real: backlight PWM, night dim, rotation, the Wi-Fi link, reboot and
+// reset. There is no keyboard yet, so text fields are read-only.
+constexpr uint32_t SETTINGS_IDLE_MS = 120000;  // as the web: long enough to adjust things
+constexpr int RAIL_W = 128;
+constexpr int CX0 = OX + RAIL_W + 14, CX1 = OX + OW - 16;
+constexpr int ROWS_TOP = OY + 54, ROW_H = 44;
+
+bool settingsOpen = false;
+int section = 0;  // 0 display, 1 data, 2 network, 3 device, 4 about
+uint32_t settingsTouched = 0;
+char note[96] = "";
+uint32_t noteUntil = 0;
+int armed = 0;            // control id waiting for its confirming second tap
+uint32_t armedUntil = 0;
+
+enum Ctl {
+    C_CLOSE = 1, C_TAB, C_BRIGHT, C_NIGHT, C_FROM_M, C_FROM_P, C_TO_M, C_TO_P, C_NIGHT_LVL, C_ORIENT,
+    C_LANG, C_REFRESH, C_TOUCH, C_IDLE, C_RECONNECT, C_FIELD, C_SOUND, C_REBOOT, C_RESET, C_OTA
+};
+struct Control { Rect r; int id, aux; };
+Control ctls[40];
+int ctlCount = 0;
+void addCtl(Rect r, int id, int aux = 0) {
+    if (ctlCount < 40) ctls[ctlCount++] = {r, id, aux};
 }
-void stepButton(const Rect &r, bool plus) {
-    screen.fillRoundRect(r.x, r.y, r.w, r.h, 8, TRACK);
-    const int cx = r.x + r.w / 2, cy = r.y + r.h / 2;
-    screen.fillRect(cx - 8, cy - 1, 16, 3, TEXT);
-    if (plus) screen.fillRect(cx - 1, cy - 8, 3, 16, TEXT);
+
+void setNote(const char *msg) {
+    copyText(note, sizeof(note), msg);
+    noteUntil = millis() + 2600;
 }
-void choiceButton(const Rect &r, const char *text, bool active) {
-    screen.fillRoundRect(r.x, r.y, r.w, r.h, 8, active ? BRAND : TRACK);
-    labelCenter(r.x + r.w / 2, r.y + r.h / 2 - 4, text, 1, active ? TEXT : MUTED);
+
+void saveSettings() {
+    prefs.putUChar("bright", cfg.brightness);
+    prefs.putBool("ndim", cfg.nightDim);
+    prefs.putUShort("nfrom", cfg.nightFrom);
+    prefs.putUShort("nto", cfg.nightTo);
+    prefs.putUChar("nlvl", cfg.nightLevel);
+    prefs.putBool("rot", cfg.rotated);
+    prefs.putUShort("poll", cfg.refreshSecs);
+    prefs.putUShort("idle", cfg.idleSecs);
+    prefs.putBool("touch", cfg.touch);
+}
+void loadSettings() {
+    cfg.brightness = constrain(static_cast<int>(prefs.getUChar("bright", 100)), 10, 100);
+    cfg.nightDim = prefs.getBool("ndim", false);
+    cfg.nightFrom = prefs.getUShort("nfrom", 22 * 60) % 1440;
+    cfg.nightTo = prefs.getUShort("nto", 6 * 60) % 1440;
+    cfg.nightLevel = constrain(static_cast<int>(prefs.getUChar("nlvl", 35)), 10, 100);
+    cfg.rotated = prefs.getBool("rot", false);
+    cfg.refreshSecs = prefs.getUShort("poll", 60);
+    cfg.idleSecs = prefs.getUShort("idle", 30);
+    cfg.touch = prefs.getBool("touch", true);
+}
+
+// ── controls (sizes are the web's, scaled ~0.78) ──
+void chip(int x, int y) {
+    pill(x, y, "DEVICE", MUTED, blend(TEXT, BG, 18), 14);
+}
+void toggle(int right, int cy, bool on, int id, bool enabled = true) {
+    const Rect r = {right - 42, cy - 12, 42, 24};
+    screen.fillRoundRect(r.x, r.y, r.w, r.h, 12, on ? BRAND : blend(TEXT, BG, enabled ? 30 : 14));
+    screen.fillCircle(on ? r.x + r.w - 12 : r.x + 12, cy, 9, enabled ? TEXT : blend(TEXT, BG, 90));
+    addCtl(r, id);
+}
+// Returns the left edge of what it drew.
+int segmented(int right, int cy, const char *const *labels, const int *values, int n, int current, int id) {
+    int widths[6], total = 0;
+    for (int i = 0; i < n; ++i) { widths[i] = max(48, uwidth(labels[i]) + 18); total += widths[i]; }
+    int x = right - total;
+    const int left = x;
+    screen.fillRoundRect(x, cy - 14, total, 28, 7, blend(TEXT, BG, 15));
+    for (int i = 0; i < n; ++i) {
+        const bool on = values[i] == current;
+        if (on) screen.fillRoundRect(x, cy - 14, widths[i], 28, 7, BRAND);
+        utext(x + (widths[i] - uwidth(labels[i])) / 2, cy - 8, labels[i], on ? TEXT : MUTED);  // one font for all options
+        addCtl({x, cy - 14, widths[i], 28}, id, values[i]);
+        x += widths[i];
+    }
+    return left;
+}
+constexpr int SLIDER_W = 150;
+void slider(int right, int cy, int value, int id) {
+    char v[8];
+    snprintf(v, sizeof(v), "%d%%", value);
+    const int tx = right - 40 - 12 - SLIDER_W;
+    screen.fillRect(tx - 10, cy - 14, SLIDER_W + 20 + 12 + 40, 28, BG);
+    screen.fillRoundRect(tx, cy - 3, SLIDER_W, 6, 3, blend(TEXT, BG, 30));
+    const int kx = tx + (value - 10) * SLIDER_W / 90;
+    screen.fillRoundRect(tx, cy - 3, kx - tx, 6, 3, BRAND);
+    screen.fillCircle(kx, cy, 8, BRAND);
+    labelRight(right, cy - 4, v, 1, TEXT);
+    addCtl({tx - 10, cy - 16, SLIDER_W + 20, 32}, id);
+}
+int sliderValue(const Rect &r, int x) {
+    const int v = 10 + (x - (r.x + 10)) * 90 / SLIDER_W;
+    return constrain((v + 2) / 5 * 5, 10, 100);  // 5% steps
+}
+void actionButton(int right, int cy, const char *text, int id, bool danger = false, bool enabled = true) {
+    const int w = textWidth(text, 1) + 28;
+    const Rect r = {right - w, cy - 14, w, 28};
+    const uint16_t fg = !enabled ? blend(MUTED, BG, 120) : danger ? C_CRITICAL : TEXT;
+    screen.fillRoundRect(r.x, r.y, r.w, r.h, 7, danger ? blend(C_CRITICAL, BG, 60) : BORDER);
+    screen.fillRoundRect(r.x + 1, r.y + 1, r.w - 2, r.h - 2, 6, danger ? blend(C_CRITICAL, BG, 36) : blend(TEXT, BG, 20));
+    labelCenter(r.x + r.w / 2, cy - 4, text, 1, fg);
+    addCtl(r, id);
+}
+void readOnly(int right, int cy, const char *text) {
+    if (isAscii(text)) labelRight(right, cy - 4, text, 1, MUTED);
+    else utext(right - uwidth(text), cy - 8, text, MUTED);
+}
+void field(int right, int cy, const char *value, const char *placeholder) {
+    const Rect r = {right - 172, cy - 14, 172, 28};
+    screen.fillRoundRect(r.x, r.y, r.w, r.h, 7, BORDER);
+    screen.fillRoundRect(r.x + 1, r.y + 1, r.w - 2, r.h - 2, 6, blend(TEXT, BG, 15));
+    const bool empty = !value[0];
+    utext(r.x + 9, cy - 8, empty ? placeholder : value, empty ? MUTED : TEXT, r.w - 18);
+    addCtl(r, C_FIELD);
+}
+void timeStepper(int x, int cy, int minutes, int minusId, int plusId) {
+    char v[8];
+    snprintf(v, sizeof(v), "%02d:%02d", minutes / 60, minutes % 60);
+    for (int k = 0; k < 2; ++k) {
+        const Rect r = {k ? x + 26 + 66 : x, cy - 13, 26, 26};
+        screen.fillRoundRect(r.x, r.y, r.w, r.h, 6, blend(TEXT, BG, 20));
+        screen.fillRect(r.x + 8, cy - 1, 10, 2, TEXT);
+        if (k) screen.fillRect(r.x + 12, cy - 5, 2, 10, TEXT);
+        addCtl(r, k ? plusId : minusId);
+    }
+    screen.fillRoundRect(x + 30, cy - 14, 58, 28, 7, blend(TEXT, BG, 15));
+    labelCenter(x + 59, cy - 4, v, 1, TEXT);
+}
+
+// One settings row: label (+ DEVICE chip), hint, bottom rule. Returns the
+// vertical centre for its control.
+int rowY = 0;
+int beginRow(const char *name, const char *hint = nullptr, bool device = false) {
+    const int y = rowY;
+    const bool twoLines = hint && hint[0];
+    const int ly = twoLines ? y + 5 : y + ROW_H / 2 - 8;
+    const int w = utext(CX0, ly, name, TEXT, 300);
+    if (device) chip(CX0 + w + 8, ly + 1);
+    if (twoLines) {
+        if (isAscii(hint)) label(CX0, ly + 21, hint, 1, MUTED);
+        else utext(CX0, ly + 17, hint, MUTED, 330);
+    }
+    screen.drawFastHLine(CX0, y + ROW_H - 1, CX1 - CX0, BORDER);
+    rowY += ROW_H;
+    return y + ROW_H / 2;
+}
+
+// 12x12 tab icons standing in for lucide Monitor / RefreshCw / Wifi / Cpu / Info.
+void tabIcon(int i, int x, int y, uint16_t c, uint16_t bg) {
+    switch (i) {
+        case 0: screen.drawRoundRect(x, y, 12, 9, 1, c); screen.fillRect(x + 5, y + 9, 2, 2, c); screen.fillRect(x + 3, y + 11, 6, 1, c); break;
+        case 1: screen.drawCircle(x + 6, y + 6, 5, c); screen.fillRect(x + 7, y, 5, 4, bg);
+                screen.fillTriangle(x + 7, y - 1, x + 7, y + 4, x + 11, y + 2, c); break;
+        case 2: screen.drawCircle(x + 6, y + 11, 4, c); screen.drawCircle(x + 6, y + 11, 8, c);
+                screen.fillRect(x - 3, y + 11, 18, 9, bg);                    // keep the upper arcs
+                screen.fillTriangle(x - 3, y + 11, x - 3, y - 1, x + 3, y + 11, bg);
+                screen.fillTriangle(x + 15, y + 11, x + 15, y - 1, x + 9, y + 11, bg);
+                screen.fillCircle(x + 6, y + 10, 1, c); break;
+        case 3: screen.drawRect(x + 2, y + 2, 8, 8, c); screen.fillRect(x + 4, y + 4, 4, 4, c);
+                for (int k = 3; k <= 8; k += 5) {
+                    screen.drawFastHLine(x, y + k, 2, c); screen.drawFastHLine(x + 10, y + k, 2, c);
+                    screen.drawFastVLine(x + k, y, 2, c); screen.drawFastVLine(x + k, y + 10, 2, c);
+                }
+                break;
+        default: screen.drawCircle(x + 6, y + 6, 5, c); screen.fillRect(x + 5, y + 5, 2, 4, c); screen.fillRect(x + 5, y + 2, 2, 2, c);
+    }
 }
 
 void drawSettings() {
-    char v[64];
-    panelBox(PAD, BODY_Y, LEFT_W, DISP_H, L("DISPLAY", "หน้าจอ"));
-    label(PAD + 12, BODY_Y + 44, L("Brightness", "ความสว่าง"), 2, TEXT);
-    stepButton(BRIGHT_MINUS, false);
-    stepButton(BRIGHT_PLUS, true);
-    snprintf(v, sizeof(v), "%d%%", brightness);
-    labelCenter((BRIGHT_MINUS.x + BRIGHT_MINUS.w + BRIGHT_PLUS.x) / 2, BODY_Y + 41, v, 2, TEXT);
-    label(PAD + 12, BODY_Y + 90, L("Language", "ภาษา"), 2, TEXT);
-    choiceButton(LANG_EN, "English", !thai);
-    choiceButton(LANG_TH, "ไทย", thai);
-    settingRow(PAD, LEFT_W, BODY_Y + 126, L("Return to Kaizen board after", "กลับหน้าสรุปอัตโนมัติ"),
-               L("2 min without touch", "2 นาทีหลังไม่มีการสัมผัส"));
+    ctlCount = 0;
+    screen.fillRoundRect(OX, OY, OW, OH, 12, BORDER);
+    screen.fillRoundRect(OX + 1, OY + 1, OW - 2, OH - 2, 11, BG);
 
-    const int dy = BODY_Y + DISP_H + GAP, dh = BODY_H - DISP_H - GAP;
-    panelBox(PAD, dy, LEFT_W, dh, L("DATA", "ข้อมูล"));
-    settingRow(PAD, LEFT_W, dy + 34, L("Source", "แหล่งข้อมูล"), "Supabase kaizen-esp-display");
-    settingRow(PAD, LEFT_W, dy + 58, L("Company", "บริษัท"), hasData ? (details["title"] | "-") : "-");
-    settingRow(PAD, LEFT_W, dy + 82, L("Refresh interval", "รอบดึงข้อมูล"), L("1 min", "1 นาที"));
-    if (hasData) {
-        const unsigned long ago = (millis() - lastSuccess) / 1000;
-        snprintf(v, sizeof(v), thai ? "%lu วินาทีที่แล้ว" : "%lu s ago", ago);
+    // Header
+    label(OX + 14, OY + 18, L("System Settings", "ตั้งค่าระบบ"), 2, TEXT);
+    screen.fillRoundRect(DRILL_CLOSE.x, DRILL_CLOSE.y, DRILL_CLOSE.w, DRILL_CLOSE.h, 8, blend(TEXT, BG, 18));
+    const int xc = DRILL_CLOSE.x + DRILL_CLOSE.w / 2, yc = DRILL_CLOSE.y + DRILL_CLOSE.h / 2;
+    for (int k = -1; k <= 1; ++k) {
+        screen.drawLine(xc - 7 + k, yc - 7, xc + 7 + k, yc + 7, TEXT);
+        screen.drawLine(xc - 7 + k, yc + 7, xc + 7 + k, yc - 7, TEXT);
+    }
+    addCtl(DRILL_CLOSE, C_CLOSE);
+    if (note[0] && millis() < noteUntil) {
+        const int w = textWidth(note, 1) + 16;
+        pill(DRILL_CLOSE.x - 12 - w, OY + 19, note, C_RESOLVED, blend(C_RESOLVED, BG, 36), 20);
+    }
+    screen.drawFastHLine(OX + 1, OY + 50, OW - 2, BORDER);
+
+    // Tab rail
+    screen.drawFastVLine(OX + RAIL_W, OY + 51, OH - 52, BORDER);
+    const char *tabs[] = {L("Display", "หน้าจอ"), L("Data", "ข้อมูล"), L("Network", "เครือข่าย"),
+                          L("Device", "อุปกรณ์"), L("About", "เกี่ยวกับ")};
+    for (int i = 0; i < 5; ++i) {
+        const Rect r = {OX + 6, OY + 58 + i * 40, RAIL_W - 12, 34};
+        const bool on = i == section;
+        if (on) screen.fillRoundRect(r.x, r.y, r.w, r.h, 7, BRAND);
+        const uint16_t fg = on ? TEXT : MUTED;
+        tabIcon(i, r.x + 10, r.y + 11, fg, on ? BRAND : BG);
+        utext(r.x + 30, r.y + 9, tabs[i], fg, r.w - 34);
+        addCtl(r, C_TAB, i);
+    }
+
+    // Rows
+    rowY = ROWS_TOP;
+    char v[96];
+    if (section == 0) {
+        int cy = beginRow(L("Brightness", "ความสว่าง"), L("Backlight PWM duty cycle", "PWM ของไฟหน้าจอ"), true);
+        slider(CX1, cy, cfg.brightness, C_BRIGHT);
+        cy = beginRow(L("Night dim", "หรี่จอกลางคืน"), L("Drop the backlight between set hours", "ลดความสว่างอัตโนมัติตามเวลา"), true);
+        toggle(CX1, cy, cfg.nightDim, C_NIGHT);
+        if (cfg.nightDim) {
+            cy = beginRow(L("Night hours", "ช่วงเวลา"), L("Bangkok time", "เวลาประเทศไทย"));
+            timeStepper(CX1 - 254, cy, cfg.nightFrom, C_FROM_M, C_FROM_P);
+            utext(CX1 - 131, cy - 8, "→", MUTED);
+            timeStepper(CX1 - 118, cy, cfg.nightTo, C_TO_M, C_TO_P);
+            cy = beginRow(L("Night brightness", "ความสว่างกลางคืน"));
+            slider(CX1, cy, cfg.nightLevel, C_NIGHT_LVL);
+        }
+        cy = beginRow(L("Orientation", "การหมุนจอ"), L("For upside-down mounting", "สำหรับการติดตั้งกลับหัว"), true);
+        const char *orient[] = {L("Normal", "ปกติ"), "180°"};
+        const int orientV[] = {0, 180};
+        segmented(CX1, cy, orient, orientV, 2, cfg.rotated ? 180 : 0, C_ORIENT);
+        // Not on the web panel, which follows the app's language; the panel needs its own.
+        cy = beginRow(L("Language", "ภาษา"), L("Labels on this panel", "ภาษาบนหน้าจอนี้"));
+        const char *langs[] = {"English", "ไทย"};
+        const int langV[] = {0, 1};
+        segmented(CX1, cy, langs, langV, 2, thai ? 1 : 0, C_LANG);
+    } else if (section == 1) {
+        int cy = beginRow(L("Refresh interval", "รอบดึงข้อมูล"), L("How often the board re-reads cases", "ความถี่ในการดึงเคสใหม่"));
+        const char *ref[] = {"15s", "30s", "1m", "5m"};
+        const int refV[] = {15, 30, 60, 300};
+        segmented(CX1, cy, ref, refV, 4, cfg.refreshSecs, C_REFRESH);
+        cy = beginRow(L("Touch drill-down", "สัมผัสเพื่อดูรายละเอียด"), L("Off makes the board display-only", "ปิดเพื่อให้เป็นจอแสดงผลอย่างเดียว"));
+        toggle(CX1, cy, cfg.touch, C_TOUCH);
+        cy = beginRow(L("Return to summary after", "กลับหน้าสรุปอัตโนมัติ"), L("Idle timeout on a drill-down", "เมื่อไม่มีการสัมผัส"));
+        const char *idle[] = {"10s", "30s", "1m", "2m"};
+        const int idleV[] = {10, 30, 60, 120};
+        segmented(CX1, cy, idle, idleV, 4, cfg.idleSecs, C_IDLE);
+    } else if (section == 2) {
+        const bool up = WiFi.status() == WL_CONNECTED;
+        char ssid[40];
+        copyText(ssid, sizeof(ssid), WIFI_SSID, 30);
+        int cy = beginRow(L("Connection", "การเชื่อมต่อ"), L("Wi-Fi on the ESP32-S3, 2.4 GHz", "Wi-Fi บน ESP32-S3 ความถี่ 2.4 GHz"), true);
+        snprintf(v, sizeof(v), "Wi-Fi - %s", up ? ssid : L("not connected", "ไม่ได้เชื่อมต่อ"));
+        readOnly(CX1, cy, v);
+        cy = beginRow(L("Signal", "ความแรงสัญญาณ"), nullptr, true);
+        if (up) snprintf(v, sizeof(v), "%d dBm  %s", WiFi.RSSI(), signalQuality(WiFi.RSSI()));
+        readOnly(CX1, cy, up ? v : "-");
+        cy = beginRow("IP", nullptr, true);
+        readOnly(CX1, cy, up ? WiFi.localIP().toString().c_str() : "-");
+        cy = beginRow("MAC", nullptr, true);
+        readOnly(CX1, cy, WiFi.macAddress().c_str());
+        cy = beginRow(L("Access point", "แอคเซสพอยต์"), L("Strongest one for this network", "ตัวที่สัญญาณแรงที่สุด"), true);
+        if (up) snprintf(v, sizeof(v), "%s  ch %ld", WiFi.BSSIDstr().c_str(), static_cast<long>(WiFi.channel()));
+        readOnly(CX1, cy, up ? v : "-");
+        cy = beginRow(L("Reconnect", "เชื่อมต่อใหม่"), L("Restart the network link", "รีสตาร์ทการเชื่อมต่อเครือข่าย"), true);
+        actionButton(CX1, cy, L("Reconnect", "เชื่อมต่อใหม่"), C_RECONNECT);
+    } else if (section == 3) {
+        const char *title = hasData ? (details["title"] | "") : "";
+        int cy = beginRow(L("Board title", "ชื่อบนจอ"), L("Shown in the header: the company name", "ชื่อที่แสดงบนหัวจอ: ชื่อบริษัท"));
+        field(CX1, cy, title, "Kaizen");
+        cy = beginRow(L("Device name", "ชื่ออุปกรณ์"), L("Identifies this panel", "ใช้ระบุจอนี้"));
+        field(CX1, cy, "nnr_esp", "");
+        cy = beginRow(L("Location", "ตำแหน่งติดตั้ง"), L("e.g. Lobby, Kitchen", "เช่น ล็อบบี้, ครัว"));
+        field(CX1, cy, "", L("Lobby", "ล็อบบี้"));
+        cy = beginRow(L("Sound on critical case", "เสียงเตือนเคสวิกฤต"), L("Needs a speaker on the board header", "ต้องมีลำโพงต่อกับบอร์ด"), true);
+        toggle(CX1, cy, false, C_SOUND, false);
+        const bool rebootArmed = armed == C_REBOOT && millis() < armedUntil;
+        cy = beginRow(L("Reboot", "รีสตาร์ท"), rebootArmed ? L("Tap again to reboot", "แตะอีกครั้งเพื่อรีสตาร์ท") : nullptr, true);
+        actionButton(CX1, cy, rebootArmed ? L("Tap again", "แตะอีกครั้ง") : L("Reboot", "รีสตาร์ท"), C_REBOOT, rebootArmed);
+        const bool resetArmed = armed == C_RESET && millis() < armedUntil;
+        cy = beginRow(L("Factory reset", "ล้างค่าทั้งหมด"),
+                      resetArmed ? L("Tap again: clears this panel's settings and restarts", "แตะอีกครั้ง: ล้างการตั้งค่าของจอนี้และรีสตาร์ท")
+                                 : L("Clears this panel's settings", "ลบการตั้งค่าของจอนี้"), true);
+        actionButton(CX1, cy, resetArmed ? L("Tap again", "แตะอีกครั้ง") : L("Reset", "ล้างค่า"), C_RESET, true);
     } else {
-        copyText(v, sizeof(v), L("not yet", "ยังไม่มี"));
+        int cy = beginRow(L("Model", "รุ่น"), nullptr, true);
+        readOnly(CX1, cy, "Guition JC8048W550");
+        cy = beginRow("SoC", nullptr, true);
+        snprintf(v, sizeof(v), "%s (dual-core @ %lu MHz)", ESP.getChipModel(), static_cast<unsigned long>(ESP.getCpuFreqMHz()));
+        readOnly(CX1, cy, v);
+        cy = beginRow(L("Radio", "ไร้สาย"), nullptr, true);
+        readOnly(CX1, cy, "Wi-Fi 2.4 GHz (on-chip)");
+        cy = beginRow(L("Firmware", "เฟิร์มแวร์"), nullptr, true);
+        readOnly(CX1, cy, "nnr_esp - " __DATE__);
+        cy = beginRow("PSRAM", nullptr, true);
+        snprintf(v, sizeof(v), "%.0f MB (%.1f MB free)", ESP.getPsramSize() / 1048576.0f, ESP.getFreePsram() / 1048576.0f);
+        readOnly(CX1, cy, v);
+        cy = beginRow("Flash", nullptr, true);
+        snprintf(v, sizeof(v), "%lu MB (firmware %.1f MB)", static_cast<unsigned long>(ESP.getFlashChipSize() >> 20), ESP.getSketchSize() / 1048576.0f);
+        readOnly(CX1, cy, v);
+        cy = beginRow(L("Uptime", "เวลาทำงาน"), nullptr, true);
+        const unsigned long s = millis() / 1000;
+        snprintf(v, sizeof(v), "%lud %02lu:%02lu", s / 86400, s / 3600 % 24, s / 60 % 60);
+        readOnly(CX1, cy, v);
+        cy = beginRow(L("Temperature", "อุณหภูมิ"), nullptr, true);
+        snprintf(v, sizeof(v), "%.0f °C", temperatureRead());
+        readOnly(CX1, cy, v);
+        cy = beginRow(L("Firmware update", "อัปเดตเฟิร์มแวร์"), L("Over USB for now; no OTA server yet", "ผ่าน USB เท่านั้น ยังไม่มีเซิร์ฟเวอร์ OTA"), true);
+        actionButton(CX1, cy, L("Check", "ตรวจสอบ"), C_OTA, false, false);
     }
-    settingRow(PAD, LEFT_W, dy + 106, L("Last update", "อัปเดตล่าสุด"), v);
-    settingRow(PAD, LEFT_W, dy + 130, L("Device name", "ชื่ออุปกรณ์"), "nnr_esp");
+}
 
-    panelBox(RIGHT_X, BODY_Y, RIGHT_W, BODY_H, L("NETWORK & DEVICE", "เครือข่ายและอุปกรณ์"));
-    const bool up = WiFi.status() == WL_CONNECTED;
-    int ry = BODY_Y + 34;
-    auto row = [&](const char *name, const char *value) { settingRow(RIGHT_X, RIGHT_W, ry, name, value); ry += 24; };
-    char ssid[40];
-    copyText(ssid, sizeof(ssid), WIFI_SSID, 30);
-    row("Wi-Fi", up ? ssid : L("not connected", "ไม่ได้เชื่อมต่อ"));
-    if (up) {
-        snprintf(v, sizeof(v), "%d dBm %s", WiFi.RSSI(), signalQuality(WiFi.RSSI()));
-        row(L("Signal", "ความแรงสัญญาณ"), v);
-        snprintf(v, sizeof(v), "%ld", static_cast<long>(WiFi.channel()));
-        row(L("Channel", "ช่องสัญญาณ"), v);
-        row(L("Access point", "แอคเซสพอยต์"), WiFi.BSSIDstr().c_str());
-        row("IP", WiFi.localIP().toString().c_str());
+void drawDashboard();
+void openSettings() {
+    drill.open = false;
+    settingsOpen = true;
+    settingsTouched = millis();
+    armed = 0;
+    drawSettings();
+}
+void closeSettings() {
+    settingsOpen = false;
+    drawDashboard();
+}
+
+void applyRotation() {
+    rotated180 = cfg.rotated;
+    screen.setRotation(cfg.rotated ? 2 : 0);
+}
+
+void setLanguage(bool th);
+// Finger moves on a slider drag it; everything else acts on finger-down.
+int dragging = 0;
+Rect dragRect;
+void sliderDrag(int x) {
+    const int v = sliderValue(dragRect, x);
+    int &target = dragging == C_BRIGHT ? cfg.brightness : cfg.nightLevel;
+    if (v == target) return;
+    target = v;
+    applyBrightness();
+    // Redraw just the slider; keep the control list as it was.
+    const int saved = ctlCount;
+    slider(CX1, dragRect.y + dragRect.h / 2, v, dragging);
+    ctlCount = saved;
+}
+
+void settingsTap(int x, int y) {
+    settingsTouched = millis();
+    for (int i = 0; i < ctlCount; ++i) {
+        const Control &c = ctls[i];
+        if (!c.r.hit(x, y)) continue;
+        const bool confirm = armed == c.id && millis() < armedUntil;
+        if (c.id != C_REBOOT && c.id != C_RESET) armed = 0;
+        switch (c.id) {
+            case C_CLOSE: closeSettings(); return;
+            case C_TAB: section = c.aux; break;
+            case C_BRIGHT: case C_NIGHT_LVL:
+                dragging = c.id;
+                dragRect = c.r;
+                (c.id == C_BRIGHT ? cfg.brightness : cfg.nightLevel) = sliderValue(c.r, x);
+                break;
+            case C_NIGHT: cfg.nightDim = !cfg.nightDim; break;
+            case C_FROM_M: cfg.nightFrom = (cfg.nightFrom + 1440 - 30) % 1440; break;
+            case C_FROM_P: cfg.nightFrom = (cfg.nightFrom + 30) % 1440; break;
+            case C_TO_M: cfg.nightTo = (cfg.nightTo + 1440 - 30) % 1440; break;
+            case C_TO_P: cfg.nightTo = (cfg.nightTo + 30) % 1440; break;
+            case C_ORIENT:
+                if (cfg.rotated != (c.aux == 180)) { cfg.rotated = c.aux == 180; applyRotation(); }
+                break;
+            case C_LANG: saveSettings(); setLanguage(c.aux == 1); return;
+            case C_REFRESH: cfg.refreshSecs = c.aux; nextPoll = millis(); break;
+            case C_TOUCH: cfg.touch = !cfg.touch; break;
+            case C_IDLE: cfg.idleSecs = c.aux; break;
+            case C_RECONNECT:
+                setNote(L("Reconnecting...", "กำลังเชื่อมต่อใหม่..."));
+                drawSettings();
+                WiFi.disconnect();
+                connectStrongest();
+                break;
+            case C_FIELD: setNote(L("No keyboard on this panel yet", "จอนี้ยังไม่มีแป้นพิมพ์")); break;
+            case C_SOUND: setNote(L("No speaker on this panel yet", "จอนี้ยังไม่มีลำโพง")); break;
+            case C_OTA: setNote(L("Update over USB for now", "อัปเดตผ่าน USB เท่านั้น")); break;
+            case C_REBOOT: case C_RESET:
+                if (confirm) {
+                    if (c.id == C_RESET) prefs.clear();
+                    else saveSettings();
+                    screen.fillScreen(BG);
+                    labelCenter(400, 236, L("Restarting...", "กำลังรีสตาร์ท..."), 2, TEXT);
+                    delay(300);
+                    ESP.restart();
+                }
+                armed = c.id;
+                armedUntil = millis() + 4000;
+                break;
+        }
+        saveSettings();
+        applyBrightness();
+        drawSettings();
+        return;
     }
-    row("MAC", WiFi.macAddress().c_str());
-    const unsigned long upS = millis() / 1000;
-    snprintf(v, sizeof(v), "%lud %luh %lum", upS / 86400, upS / 3600 % 24, upS / 60 % 60);
-    row(L("Uptime", "เวลาทำงาน"), v);
-    snprintf(v, sizeof(v), "%lu KB", static_cast<unsigned long>(ESP.getFreeHeap() / 1024));
-    row(L("Free memory", "หน่วยความจำว่าง"), v);
-    row(L("Firmware", "เฟิร์มแวร์"), __DATE__);
-    row(L("Touch", "ระบบสัมผัส"), gtAddr ? "GT911" : L("not found", "ไม่พบ"));
 }
 
 // ── Hotel board: mirrors src/components/HotelBoard.tsx ──────────────────────
@@ -1323,25 +1688,25 @@ void drawDashboard() {
         drawOverview();
         drawAttention();
         drawCategories();
-    } else if (current == Screen::Settings) {
-        drawSettings();
     } else {
         drawHotel();
     }
     drawSwitcher();
     drawStatus();
     if (drill.open) drawDrill();
+    if (settingsOpen) drawSettings();
 }
 
 void showScreen(Screen next) {
-    if (next == current && !drill.open) return;
+    if (next == current && !drill.open && !settingsOpen) return;
     drill.open = false;
+    settingsOpen = false;
     current = next;
     drawDashboard();
 }
 
 void kaizenTap(int x, int y) {
-    if (!hasData) return;
+    if (!hasData || !cfg.touch) return;  // "Touch drill-down" off: display-only, as on the web
     // KPI tiles: an empty bucket is not a drill target, as on the web board.
     for (size_t i = 0; i < METRIC_COUNT; ++i) {
         if (kpiRect(i).in(x, y)) {
@@ -1379,6 +1744,10 @@ void setLanguage(bool th) {
 void handleTap(int x, int y) {
     lastTouch = millis();
     Serial.printf("Tap %d,%d\n", x, y);
+    if (settingsOpen) {
+        settingsTap(x, y);
+        return;
+    }
     if (drill.open) {
         drillTap(x, y);
         return;
@@ -1388,24 +1757,10 @@ void handleTap(int x, int y) {
         if (x < PAD || slot > 4 || (x - PAD) % (SWITCH_W + GAP) >= SWITCH_W) return;  // gap between buttons
         if (slot == 0) showScreen(Screen::Kaizen);
         else if (slot == 1) showScreen(Screen::Hotel);
-        else if (slot == 4) showScreen(Screen::Settings);
+        else if (slot == 4) openSettings();
         return;
     }
-    if (current == Screen::Kaizen) {
-        kaizenTap(x, y);
-        return;
-    }
-    if (current != Screen::Settings) return;
-    if (BRIGHT_MINUS.hit(x, y) || BRIGHT_PLUS.hit(x, y)) {
-        brightness = constrain(brightness + (BRIGHT_PLUS.hit(x, y) ? 10 : -10), 10, 100);
-        applyBrightness();
-        prefs.putUChar("bright", brightness);
-        drawDashboard();
-    } else if (LANG_EN.hit(x, y)) {
-        setLanguage(false);
-    } else if (LANG_TH.hit(x, y)) {
-        setLanguage(true);
-    }
+    if (current == Screen::Kaizen) kaizenTap(x, y);
 }
 
 // ── Data ─────────────────────────────────────────────────────────────────────
@@ -1495,7 +1850,7 @@ void manageWifi() {
 void setup() {
     Serial.begin(115200);
     prefs.begin("nnr_esp", false);
-    brightness = constrain(static_cast<int>(prefs.getUChar("bright", 100)), 10, 100);
+    loadSettings();
     thai = prefs.getBool("thai", false);
     ledcSetup(BL_CHANNEL, BL_FREQ_HZ, 8);
     ledcAttachPin(BACKLIGHT, BL_CHANNEL);
@@ -1505,6 +1860,7 @@ void setup() {
         return;
     }
     touchBegin();
+    applyRotation();
     drawDashboard();
     applyBrightness();
     if (!WIFI_SSID[0] || !DISPLAY_TOKEN[0] || !ROOT_CA[0] || strncmp(DISPLAY_URL, "https://", 8) != 0) {
@@ -1528,12 +1884,15 @@ void setup() {
 void serialCommand(int cmd) {
     if (cmd > ' ') Serial.printf("Command %c\n", cmd);
     // S = screenshot. For testing without touching the panel:
-    // K / H / T = Kaizen / Hotel / settings, L = toggle language,
+    // K / H = Kaizen / Hotel, T = settings (1-5 pick a tab, N toggles night dim),
+    // L = toggle language,
     // D = open the Total drill-down, E = expand its first case, X = close it.
     if (cmd == 'S') dumpScreen();
     else if (cmd == 'K') showScreen(Screen::Kaizen);
     else if (cmd == 'H') { lastTouch = millis(); showScreen(Screen::Hotel); }
-    else if (cmd == 'T') { lastTouch = millis(); showScreen(Screen::Settings); }
+    else if (cmd == 'T') openSettings();
+    else if (cmd >= '1' && cmd <= '5' && settingsOpen) { section = cmd - '1'; settingsTouched = millis(); drawSettings(); }
+    else if (cmd == 'N' && settingsOpen) { cfg.nightDim = !cfg.nightDim; saveSettings(); applyBrightness(); drawSettings(); }
     else if (cmd == 'L') setLanguage(!thai);
     else if (cmd == 'D' && hasData) { showScreen(Screen::Kaizen); openDrill('s', "total", L(METRICS[0].en, METRICS[0].th), TEXT); }
     else if (cmd == 'E' && drill.open && drill.rows > 0) drillTap(drill.rowRect[0].x + 40, drill.rowRect[0].y + 10);
@@ -1543,9 +1902,15 @@ void serialCommand(int cmd) {
 void loop() {
     if (Serial.available()) serialCommand(Serial.read());
     int tx, ty;
-    if (touchTapped(tx, ty)) handleTap(tx, ty);
-    if (drill.open && millis() - drill.touched > DRILL_IDLE_MS) closeDrill();
-    if (current != Screen::Kaizen && millis() - lastTouch > IDLE_RETURN_MS) showScreen(Screen::Kaizen);
+    const Touch ev = touchPoll(tx, ty);
+    if (ev == Touch::Down) handleTap(tx, ty);
+    else if (ev == Touch::Move && dragging && settingsOpen) { settingsTouched = millis(); sliderDrag(tx); }
+    else if (ev == Touch::Up && dragging) { dragging = 0; saveSettings(); }
+    if (drill.open && millis() - drill.touched > drillIdleMs()) closeDrill();
+    if (settingsOpen && millis() - settingsTouched > SETTINGS_IDLE_MS) closeSettings();
+    if (settingsOpen && note[0] && millis() > noteUntil) { note[0] = 0; drawSettings(); }
+    if (settingsOpen && armed && millis() > armedUntil) { armed = 0; drawSettings(); }
+    if (current != Screen::Kaizen && !settingsOpen && millis() - lastTouch > IDLE_RETURN_MS) showScreen(Screen::Kaizen);
     if (WiFi.getMode() != WIFI_STA) {
         delay(20);
         return;
@@ -1561,16 +1926,19 @@ void loop() {
         }
         status = success ? Status::Live : hasData ? Status::Stale : !connected ? Status::NoWifi
                  : !clockReady ? Status::NoClock : Status::Unavailable;
-        // Don't repaint the board under an open list; it refreshes on close.
-        if (!drill.open) drawDashboard();
-        nextPoll = millis() + (success ? POLL_MS : RETRY_MS);
+        // Don't repaint the board under an open list or settings; it refreshes on close.
+        if (!drill.open && !settingsOpen) drawDashboard();
+        nextPoll = millis() + (success ? pollMs() : RETRY_MS);
     }
     static uint32_t lastTick = 0;
-    if (drill.open) {
+    if (settingsOpen) {
+        if (millis() - lastTick >= 10000) { applyBrightness(); lastTick = millis(); }
+    } else if (drill.open) {
         if (millis() - lastTick >= 500) { drawIdleBar(); lastTick = millis(); }
     } else if (millis() - lastTick >= 10000) {
         drawHeader();
         drawStatus();  // live signal readout, so the panel can be positioned by eye
+        applyBrightness();  // night dim follows the clock
         lastTick = millis();
     }
     manageWifi();
