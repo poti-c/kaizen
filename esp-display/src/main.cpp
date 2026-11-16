@@ -6,6 +6,9 @@
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <esp_wpa2.h>
+#include <esp_phy_init.h>
+#include <esp_rom_gpio.h>
+#include <soc/gpio_sig_map.h>
 #include <Wire.h>
 #include <esp32s3/rom/cache.h>
 #include <driver/gpio.h>
@@ -32,6 +35,8 @@ Arduino_ESP32RGBPanel panel(
     // 12 MHz pixel clock (~29 Hz refresh), not 16: the LCD streams its frame from
     // PSRAM, and at 16 MHz any burst of CPU or Wi-Fi PSRAM use starved it and showed
     // as thin horizontal streaks. A static board gains nothing from the extra rate.
+    // (At 16 MHz Wi-Fi scans once found nothing, but that was probably the
+    // cancelled-scan bug fixed in scanNetworks(), not the clock.)
     12000000);
 // Everything is drawn into an off-screen buffer (`back`); present() then copies
 // it, or cross-fades it, onto the buffer the LCD scans (`front`). So the board
@@ -137,6 +142,80 @@ enum class Screen { Kaizen, Hotel, Clock };
 Screen current = Screen::Kaizen;
 uint32_t lastTouch = 0;
 Preferences prefs;
+
+// ── Restart log ──────────────────────────────────────────────────────────────
+// Why the panel restarted, kept across restarts in NVS ("boot"), with how far
+// each start got and how long it ran. Made to tell a weak power supply (a loop
+// of brownout / power-on resets that never get past starting Wi-Fi) from a
+// firmware crash. Printed at boot and on serial 'B'; summarised under About.
+enum BootStage : uint8_t { BS_START, BS_SCREEN, BS_BACKLIGHT, BS_WIFI_START, BS_WIFI_UP, BS_DATA };
+const char *const STAGE_NAMES[] = {"start", "screen", "backlight", "Wi-Fi start", "Wi-Fi up", "data"};
+struct BootEntry { uint8_t reason, stage; uint16_t pad; uint32_t upSecs; };
+constexpr int BOOT_LOG_N = 16;
+Preferences bprefs;
+BootEntry bootLog[BOOT_LOG_N];
+uint8_t bootHead = 0;      // slot of this start
+uint32_t bootCount = 0;
+
+const char *resetName(uint8_t r) {
+    switch (r) {
+        case ESP_RST_POWERON: return "power-on";
+        case ESP_RST_BROWNOUT: return "brownout";
+        case ESP_RST_SW: return "software";
+        case ESP_RST_PANIC: return "crash";
+        case ESP_RST_INT_WDT: case ESP_RST_TASK_WDT: case ESP_RST_WDT: return "watchdog";
+        case ESP_RST_EXT: return "reset pin";
+        case ESP_RST_DEEPSLEEP: return "deep sleep";
+        default: return "other";
+    }
+}
+void bootLogSave() { bprefs.putBytes("log", bootLog, sizeof(bootLog)); }
+void bootLogStart() {
+    bprefs.begin("boot", false);
+    if (bprefs.getBytes("log", bootLog, sizeof(bootLog)) != sizeof(bootLog)) memset(bootLog, 0, sizeof(bootLog));
+    bootCount = bprefs.getULong("n", 0) + 1;
+    bprefs.putULong("n", bootCount);
+    bootHead = bootCount % BOOT_LOG_N;
+    bootLog[bootHead] = {static_cast<uint8_t>(esp_reset_reason()), BS_START, 0, 0};
+    bootLogSave();
+}
+void bootStage(BootStage s) {
+    if (bootLog[bootHead].stage >= s) return;
+    bootLog[bootHead].stage = s;
+    bootLog[bootHead].upSecs = millis() / 1000;
+    bootLogSave();
+}
+// Uptime at a few marks only (1, 5, 30 min, then hourly): enough to see how long
+// a start lasted without wearing the flash.
+void bootLogTick() {
+    static uint32_t next = 60;
+    const uint32_t up = millis() / 1000;
+    if (up < next) return;
+    bootLog[bootHead].upSecs = up;
+    bootLogSave();
+    next = next < 300 ? 300 : next < 1800 ? 1800 : next + 3600;
+}
+void bootLogPrint() {
+    Serial.printf("Restart log (%lu starts; newest first):\n", static_cast<unsigned long>(bootCount));
+    for (int i = 0; i < BOOT_LOG_N && i < static_cast<int>(bootCount); ++i) {
+        const uint32_t n = bootCount - i;
+        const BootEntry &e = bootLog[n % BOOT_LOG_N];
+        Serial.printf("  #%-5lu %-9s reached %-11s ran %lus%s\n", static_cast<unsigned long>(n), resetName(e.reason),
+                      STAGE_NAMES[min<int>(e.stage, BS_DATA)], static_cast<unsigned long>(e.upSecs), i == 0 ? "  (this start)" : "");
+    }
+}
+// e.g. "brownout 7, power-on 3" over the remembered starts, before this one.
+String bootSummary() {
+    int counts[16] = {0};
+    const int n = min<int>(BOOT_LOG_N, static_cast<int>(bootCount));
+    for (int i = 1; i < n; ++i) ++counts[bootLog[(bootCount - i) % BOOT_LOG_N].reason & 15];
+    String s;
+    const uint8_t order[] = {ESP_RST_BROWNOUT, ESP_RST_POWERON, ESP_RST_PANIC, ESP_RST_TASK_WDT, ESP_RST_INT_WDT, ESP_RST_WDT, ESP_RST_SW, ESP_RST_EXT};
+    for (uint8_t r : order)
+        if (counts[r]) { if (s.length()) s += ", "; s += resetName(r); s += " "; s += counts[r]; }
+    return s.length() ? s : String("-");
+}
+
 
 // Panel settings, as in src/lib/panelTheme.ts (same defaults), kept in NVS.
 struct PanelSettings {
@@ -1085,15 +1164,28 @@ int netCount = 0;
 uint32_t scannedAt = 0;
 
 void scanNetworks() {
-    int16_t n = WiFi.scanNetworks(false, false, false, 300);
-    // The radio refuses to scan while it is still trying to join a network
-    // (e.g. a remembered one that is out of range). Stop that attempt and scan
-    // again; manageWifi() resumes joining afterwards.
-    if (n < 0 && WiFi.status() != WL_CONNECTED) {
-        Serial.printf("Scan failed (%d) during a join; stopping the join and rescanning\n", n);
+    // While a join keeps failing, the WiFi library restarts it on every failure
+    // (auto-reconnect, plus one retry after each begin()), and each restart
+    // cancels a running scan, which then reports 0 networks rather than an
+    // error. The radio also refuses to start a scan mid-join (-2). So when not
+    // connected, pause auto-reconnect and stop the join for the scan;
+    // manageWifi() resumes joining afterwards.
+    const bool connected = WiFi.status() == WL_CONNECTED;
+    if (!connected) {
+        WiFi.setAutoReconnect(false);
         WiFi.disconnect();
-        delay(100);
+        delay(300);
+    }
+    int16_t n = WiFi.scanNetworks(false, false, false, 300);
+    if (n <= 0 && !connected) {
+        // A failure event from the stopped join can still land mid-scan once.
+        Serial.printf("Scan found nothing (%d) while not connected; scanning again\n", n);
+        WiFi.disconnect();
+        delay(300);
         n = WiFi.scanNetworks(false, false, false, 300);
+    }
+    if (!connected) {
+        WiFi.setAutoReconnect(true);
         joinStarted = millis();
     }
     netCount = 0;
@@ -1118,7 +1210,7 @@ void scanNetworks() {
         for (int b = a; b > 0 && nets[b].rssi > nets[b - 1].rssi; --b) std::swap(nets[b], nets[b - 1]);
     WiFi.scanDelete();
     scannedAt = millis();
-    Serial.printf("Scan: %d networks in range\n", netCount);
+    Serial.printf("Scan: %d networks in range (radio returned %d)\n", netCount, n);
     for (int i = 0; i < netCount; ++i)
         Serial.printf("  %-32s %4ld dBm  ch %2ld  %s\n", nets[i].ssid.c_str(), (long)nets[i].rssi, (long)nets[i].channel,
                       nets[i].enterprise ? "enterprise" : nets[i].secure ? "password" : "open");
@@ -2284,6 +2376,8 @@ void drawSettings() {
         readOnly(CX1, cy, "Wi-Fi 2.4 GHz (on-chip)");
         cy = beginRow(L("Firmware", "เฟิร์มแวร์"), nullptr, true);
         readOnly(CX1, cy, "nnr_esp - " __DATE__);
+        cy = beginRow(L("Earlier restarts", "การรีสตาร์ทก่อนหน้า"), L("Many brownout or power-on restarts: check the power supply", "brownout หรือ power-on หลายครั้ง: ตรวจสอบแหล่งจ่ายไฟ"), true);
+        readOnly(CX1, cy, bootSummary().c_str());
         cy = beginRow("PSRAM", nullptr, true);
         snprintf(v, sizeof(v), "%.0f MB (%.1f MB free)", ESP.getPsramSize() / 1048576.0f, ESP.getFreePsram() / 1048576.0f);
         readOnly(CX1, cy, v);
@@ -3212,6 +3306,7 @@ void manageWifi() {
     if (connected) {
         lastConnected = millis();
         if (!wasConnected) {
+            bootStage(BS_WIFI_UP);
             // SNTP started before the network was up can sit in back-off for minutes.
             configTime(0, 0, "pool.ntp.org", "time.google.com", "time.cloudflare.com");
             if (millis() - inetCheckedAt > 20000 || inet == Inet::Unknown) checkInternet();
@@ -3243,6 +3338,8 @@ void manageWifi() {
 // ── Arduino ──────────────────────────────────────────────────────────────────
 void setup() {
     Serial.begin(115200);
+    bootLogStart();
+    bootLogPrint();
     prefs.begin("nnr_esp", false);
     loadSettings();
     thai = prefs.getBool("thai", false);
@@ -3253,6 +3350,7 @@ void setup() {
         Serial.println("LCD initialization failed");
         return;
     }
+    bootStage(BS_SCREEN);
     fb = front = screen.getFramebuffer();
     back = static_cast<uint16_t *>(ps_malloc(800 * 480 * 2));
     if (back) {
@@ -3271,6 +3369,7 @@ void setup() {
     drawDashboard();
     present(false);
     applyBrightness();
+    bootStage(BS_BACKLIGHT);
     // Wi-Fi starts even with no network remembered: one can be picked on the panel.
     const bool endpointSet = DISPLAY_TOKEN[0] && ROOT_CA[0] && strncmp(DISPLAY_URL, "https://", 8) == 0;
     if (!endpointSet) {
@@ -3288,14 +3387,47 @@ void setup() {
     WiFi.setScanMethod(WIFI_ALL_CHANNEL_SCAN);
     WiFi.setSortMethod(WIFI_CONNECT_AP_BY_SIGNAL);
     WiFi.setAutoReconnect(true);
+    // Say why a join failed (wrong password, no AP, enterprise sign-in refused...).
+    // Repeats of the same reason are not printed again.
+    WiFi.onEvent([](arduino_event_id_t, arduino_event_info_t info) {
+        static uint8_t last = 0;
+        const uint8_t reason = info.wifi_sta_disconnected.reason;
+        if (reason == last) return;
+        last = reason;
+        Serial.printf("Wi-Fi left %.*s: reason %u (%s)\n", (int)info.wifi_sta_disconnected.ssid_len,
+                      reinterpret_cast<const char *>(info.wifi_sta_disconnected.ssid), reason, WiFi.disconnectReasonName(static_cast<wifi_err_reason_t>(reason)));
+    }, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
     connectStrongest();
+    bootStage(BS_WIFI_START);
+}
+
+void quietScanTest() {
+    WiFi.disconnect();
+    delay(300);
+    for (int i = 0; i < 2; ++i) { Serial.println("QUIET TEST normal:"); scanNetworks(); }
+    ledcWrite(BL_CHANNEL, 0);
+    delay(300);
+    for (int i = 0; i < 2; ++i) { Serial.println("QUIET TEST backlight off:"); scanNetworks(); }
+    // DE, VSYNC, HSYNC, PCLK and the 16 data lines: take them off the LCD
+    // peripheral and hold them low, so nothing toggles on the ribbon.
+    static const int RGB_PINS[] = {40, 41, 39, 42, 45, 48, 47, 21, 14, 5, 6, 7, 15, 16, 4, 8, 3, 46, 9, 1};
+    for (int pin : RGB_PINS) {
+        esp_rom_gpio_connect_out_signal(pin, SIG_GPIO_OUT_IDX, false, false);
+        gpio_set_direction(static_cast<gpio_num_t>(pin), GPIO_MODE_OUTPUT);
+        gpio_set_level(static_cast<gpio_num_t>(pin), 0);
+    }
+    delay(300);
+    for (int i = 0; i < 2; ++i) { Serial.println("QUIET TEST backlight off + LCD bus still:"); scanNetworks(); }
+    Serial.println("QUIET TEST done; restarting");
+    delay(200);
+    ESP.restart();
 }
 
 void serialCommand(int cmd) {
     if (cmd > ' ' && cmd != '@') Serial.printf("Command %c\n", cmd);
     // S = screenshot. For testing without touching the panel:
     // K / H = Kaizen / Hotel, T = settings (1-5 pick a tab, N toggles night dim),
-    // L = toggle language,
+    // L = toggle language, B = restart log, W = rescan Wi-Fi, R = recalibrate the radio,
     // D = open the Total drill-down, E = expand its first case, X = close it.
     if (cmd == '@') {  // "@x,y": a tap at x,y, for testing flows over serial
         int x, y;
@@ -3314,10 +3446,24 @@ void serialCommand(int cmd) {
     else if (cmd == 'D' && hasData) { showScreen(Screen::Kaizen); openDrill('s', "total", L(METRICS[0].en, METRICS[0].th), TEXT); }
     else if (cmd == 'E' && drill.open && drill.rows > 0) drillTap(drill.rowRect[0].x + 40, drill.rowRect[0].y + 10);
     else if (cmd == 'X' && drill.open) closeDrill();
+    else if (cmd == 'B') bootLogPrint();
+    else if (cmd == 'W') scanNetworks();
+    // Q = is the board drowning out its own radio? Scan normally, then with the
+    // backlight off, then with the RGB bus lines held still too, and restart.
+    // More networks once it is quiet = self-interference; no change = antenna.
+    else if (cmd == 'Q') quietScanTest();
+    // R = throw away the radio's stored calibration and restart, so it calibrates
+    // from scratch. Bad calibration data leaves the radio deaf: every scan finds 0.
+    else if (cmd == 'R') {
+        Serial.printf("Erasing RF calibration (%d); restarting\n", (int)esp_phy_erase_cal_data_in_nvs());
+        delay(200);
+        ESP.restart();
+    }
 }
 
 void loop() {
     if (Serial.available()) serialCommand(Serial.read());
+    bootLogTick();
     int tx, ty;
     const Touch ev = touchPoll(tx, ty);
     if (ev == Touch::Down) handleTap(tx, ty);
@@ -3359,6 +3505,7 @@ void loop() {
                           (long)WiFi.channel(), WiFi.BSSIDstr().c_str(),
                           success ? "ok" : !clockReady ? "waiting for clock" : "failed");
         }
+        if (success) bootStage(BS_DATA);
         status = success ? Status::Live : (connected && inet == Inet::Portal) ? Status::Portal
                  : hasData ? Status::Stale : !connected ? Status::NoWifi
                  : !clockReady ? Status::NoClock : Status::Unavailable;
