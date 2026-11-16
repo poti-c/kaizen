@@ -32,6 +32,7 @@ Arduino_ESP32RGBPanel panel(
     // 12 MHz pixel clock (~29 Hz refresh), not 16: the LCD streams its frame from
     // PSRAM, and at 16 MHz any burst of CPU or Wi-Fi PSRAM use starved it and showed
     // as thin horizontal streaks. A static board gains nothing from the extra rate.
+    // At 16 MHz the Wi-Fi also found no networks at all (tested 2026-11-16, ch 1).
     12000000);
 // Everything is drawn into an off-screen buffer (`back`); present() then copies
 // it, or cross-fades it, onto the buffer the LCD scans (`front`). So the board
@@ -137,6 +138,80 @@ enum class Screen { Kaizen, Hotel, Clock };
 Screen current = Screen::Kaizen;
 uint32_t lastTouch = 0;
 Preferences prefs;
+
+// ── Restart log ──────────────────────────────────────────────────────────────
+// Why the panel restarted, kept across restarts in NVS ("boot"), with how far
+// each start got and how long it ran. Made to tell a weak power supply (a loop
+// of brownout / power-on resets that never get past starting Wi-Fi) from a
+// firmware crash. Printed at boot and on serial 'B'; summarised under About.
+enum BootStage : uint8_t { BS_START, BS_SCREEN, BS_BACKLIGHT, BS_WIFI_START, BS_WIFI_UP, BS_DATA };
+const char *const STAGE_NAMES[] = {"start", "screen", "backlight", "Wi-Fi start", "Wi-Fi up", "data"};
+struct BootEntry { uint8_t reason, stage; uint16_t pad; uint32_t upSecs; };
+constexpr int BOOT_LOG_N = 16;
+Preferences bprefs;
+BootEntry bootLog[BOOT_LOG_N];
+uint8_t bootHead = 0;      // slot of this start
+uint32_t bootCount = 0;
+
+const char *resetName(uint8_t r) {
+    switch (r) {
+        case ESP_RST_POWERON: return "power-on";
+        case ESP_RST_BROWNOUT: return "brownout";
+        case ESP_RST_SW: return "software";
+        case ESP_RST_PANIC: return "crash";
+        case ESP_RST_INT_WDT: case ESP_RST_TASK_WDT: case ESP_RST_WDT: return "watchdog";
+        case ESP_RST_EXT: return "reset pin";
+        case ESP_RST_DEEPSLEEP: return "deep sleep";
+        default: return "other";
+    }
+}
+void bootLogSave() { bprefs.putBytes("log", bootLog, sizeof(bootLog)); }
+void bootLogStart() {
+    bprefs.begin("boot", false);
+    if (bprefs.getBytes("log", bootLog, sizeof(bootLog)) != sizeof(bootLog)) memset(bootLog, 0, sizeof(bootLog));
+    bootCount = bprefs.getULong("n", 0) + 1;
+    bprefs.putULong("n", bootCount);
+    bootHead = bootCount % BOOT_LOG_N;
+    bootLog[bootHead] = {static_cast<uint8_t>(esp_reset_reason()), BS_START, 0, 0};
+    bootLogSave();
+}
+void bootStage(BootStage s) {
+    if (bootLog[bootHead].stage >= s) return;
+    bootLog[bootHead].stage = s;
+    bootLog[bootHead].upSecs = millis() / 1000;
+    bootLogSave();
+}
+// Uptime at a few marks only (1, 5, 30 min, then hourly): enough to see how long
+// a start lasted without wearing the flash.
+void bootLogTick() {
+    static uint32_t next = 60;
+    const uint32_t up = millis() / 1000;
+    if (up < next) return;
+    bootLog[bootHead].upSecs = up;
+    bootLogSave();
+    next = next < 300 ? 300 : next < 1800 ? 1800 : next + 3600;
+}
+void bootLogPrint() {
+    Serial.printf("Restart log (%lu starts; newest first):\n", static_cast<unsigned long>(bootCount));
+    for (int i = 0; i < BOOT_LOG_N && i < static_cast<int>(bootCount); ++i) {
+        const uint32_t n = bootCount - i;
+        const BootEntry &e = bootLog[n % BOOT_LOG_N];
+        Serial.printf("  #%-5lu %-9s reached %-11s ran %lus%s\n", static_cast<unsigned long>(n), resetName(e.reason),
+                      STAGE_NAMES[min<int>(e.stage, BS_DATA)], static_cast<unsigned long>(e.upSecs), i == 0 ? "  (this start)" : "");
+    }
+}
+// e.g. "brownout 7, power-on 3" over the remembered starts, before this one.
+String bootSummary() {
+    int counts[16] = {0};
+    const int n = min<int>(BOOT_LOG_N, static_cast<int>(bootCount));
+    for (int i = 1; i < n; ++i) ++counts[bootLog[(bootCount - i) % BOOT_LOG_N].reason & 15];
+    String s;
+    const uint8_t order[] = {ESP_RST_BROWNOUT, ESP_RST_POWERON, ESP_RST_PANIC, ESP_RST_TASK_WDT, ESP_RST_INT_WDT, ESP_RST_WDT, ESP_RST_SW, ESP_RST_EXT};
+    for (uint8_t r : order)
+        if (counts[r]) { if (s.length()) s += ", "; s += resetName(r); s += " "; s += counts[r]; }
+    return s.length() ? s : String("-");
+}
+
 
 // Panel settings, as in src/lib/panelTheme.ts (same defaults), kept in NVS.
 struct PanelSettings {
@@ -2284,6 +2359,8 @@ void drawSettings() {
         readOnly(CX1, cy, "Wi-Fi 2.4 GHz (on-chip)");
         cy = beginRow(L("Firmware", "เฟิร์มแวร์"), nullptr, true);
         readOnly(CX1, cy, "nnr_esp - " __DATE__);
+        cy = beginRow(L("Earlier restarts", "การรีสตาร์ทก่อนหน้า"), L("Many brownout or power-on restarts: check the power supply", "brownout หรือ power-on หลายครั้ง: ตรวจสอบแหล่งจ่ายไฟ"), true);
+        readOnly(CX1, cy, bootSummary().c_str());
         cy = beginRow("PSRAM", nullptr, true);
         snprintf(v, sizeof(v), "%.0f MB (%.1f MB free)", ESP.getPsramSize() / 1048576.0f, ESP.getFreePsram() / 1048576.0f);
         readOnly(CX1, cy, v);
@@ -3212,6 +3289,7 @@ void manageWifi() {
     if (connected) {
         lastConnected = millis();
         if (!wasConnected) {
+            bootStage(BS_WIFI_UP);
             // SNTP started before the network was up can sit in back-off for minutes.
             configTime(0, 0, "pool.ntp.org", "time.google.com", "time.cloudflare.com");
             if (millis() - inetCheckedAt > 20000 || inet == Inet::Unknown) checkInternet();
@@ -3243,6 +3321,8 @@ void manageWifi() {
 // ── Arduino ──────────────────────────────────────────────────────────────────
 void setup() {
     Serial.begin(115200);
+    bootLogStart();
+    bootLogPrint();
     prefs.begin("nnr_esp", false);
     loadSettings();
     thai = prefs.getBool("thai", false);
@@ -3253,6 +3333,7 @@ void setup() {
         Serial.println("LCD initialization failed");
         return;
     }
+    bootStage(BS_SCREEN);
     fb = front = screen.getFramebuffer();
     back = static_cast<uint16_t *>(ps_malloc(800 * 480 * 2));
     if (back) {
@@ -3271,6 +3352,7 @@ void setup() {
     drawDashboard();
     present(false);
     applyBrightness();
+    bootStage(BS_BACKLIGHT);
     // Wi-Fi starts even with no network remembered: one can be picked on the panel.
     const bool endpointSet = DISPLAY_TOKEN[0] && ROOT_CA[0] && strncmp(DISPLAY_URL, "https://", 8) == 0;
     if (!endpointSet) {
@@ -3289,6 +3371,7 @@ void setup() {
     WiFi.setSortMethod(WIFI_CONNECT_AP_BY_SIGNAL);
     WiFi.setAutoReconnect(true);
     connectStrongest();
+    bootStage(BS_WIFI_START);
 }
 
 void serialCommand(int cmd) {
@@ -3314,10 +3397,12 @@ void serialCommand(int cmd) {
     else if (cmd == 'D' && hasData) { showScreen(Screen::Kaizen); openDrill('s', "total", L(METRICS[0].en, METRICS[0].th), TEXT); }
     else if (cmd == 'E' && drill.open && drill.rows > 0) drillTap(drill.rowRect[0].x + 40, drill.rowRect[0].y + 10);
     else if (cmd == 'X' && drill.open) closeDrill();
+    else if (cmd == 'B') bootLogPrint();
 }
 
 void loop() {
     if (Serial.available()) serialCommand(Serial.read());
+    bootLogTick();
     int tx, ty;
     const Touch ev = touchPoll(tx, ty);
     if (ev == Touch::Down) handleTap(tx, ty);
@@ -3359,6 +3444,7 @@ void loop() {
                           (long)WiFi.channel(), WiFi.BSSIDstr().c_str(),
                           success ? "ok" : !clockReady ? "waiting for clock" : "failed");
         }
+        if (success) bootStage(BS_DATA);
         status = success ? Status::Live : (connected && inet == Inet::Portal) ? Status::Portal
                  : hasData ? Status::Stale : !connected ? Status::NoWifi
                  : !clockReady ? Status::NoClock : Status::Unavailable;
