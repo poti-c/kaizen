@@ -47,6 +47,7 @@ export function Header() {
   const allNavItems = useNavItems()
   const visibleNavItems = allNavItems.filter(item =>
     (profile ? item.roles.includes(profile.role) : false) &&
+    item.visible !== false &&
     (item.addon === undefined || companyHasAddon(activeCompany, item.addon)) &&
     (!item.feature || companyHasFeature(activeCompany, item.feature)) &&
     (item.to !== '/routine-roster' || (!rrFo.loading && rrFo.allowed))
