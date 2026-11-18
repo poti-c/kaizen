@@ -5,6 +5,7 @@
 #include <Preferences.h>
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
+#include <esp_wpa2.h>
 #include <Wire.h>
 #include <esp32s3/rom/cache.h>
 #include <driver/gpio.h>
@@ -1003,6 +1004,7 @@ uint32_t joinStarted = 0;  // when the last join attempt started
 Preferences wprefs;
 struct Known {
     String ssid, pass;
+    String user;                  // set = WPA2-Enterprise (PEAP) sign-in, e.g. @JumboPlus
     bool portalSaved = false;     // signed in to this network's sign-in page before
     String portalUser, portalPass;
 };
@@ -1017,6 +1019,7 @@ void saveKnown() {
     for (int i = 0; i < knownCount; ++i) {
         snprintf(k, sizeof(k), "s%d", i); wprefs.putString(k, known[i].ssid);
         snprintf(k, sizeof(k), "p%d", i); wprefs.putString(k, known[i].pass);
+        snprintf(k, sizeof(k), "e%d", i); wprefs.putString(k, known[i].user);
         snprintf(k, sizeof(k), "a%d", i); wprefs.putBool(k, known[i].portalSaved);
         snprintf(k, sizeof(k), "u%d", i); wprefs.putString(k, known[i].portalUser);
         snprintf(k, sizeof(k), "q%d", i); wprefs.putString(k, known[i].portalPass);
@@ -1028,6 +1031,7 @@ void loadKnown() {
     for (int i = 0; i < knownCount; ++i) {
         snprintf(k, sizeof(k), "s%d", i); known[i].ssid = wprefs.getString(k, "");
         snprintf(k, sizeof(k), "p%d", i); known[i].pass = wprefs.getString(k, "");
+        snprintf(k, sizeof(k), "e%d", i); known[i].user = wprefs.getString(k, "");
         snprintf(k, sizeof(k), "a%d", i); known[i].portalSaved = wprefs.getBool(k, false);
         snprintf(k, sizeof(k), "u%d", i); known[i].portalUser = wprefs.getString(k, "");
         snprintf(k, sizeof(k), "q%d", i); known[i].portalPass = wprefs.getString(k, "");
@@ -1044,7 +1048,7 @@ int knownIndex(const String &ssid) {
         if (known[i].ssid == ssid) return i;
     return -1;
 }
-void rememberNetwork(const String &ssid, const String &pass) {
+void rememberNetwork(const String &ssid, const String &pass, const String &user) {
     Known k;
     const int i = knownIndex(ssid);
     if (i >= 0) {
@@ -1054,6 +1058,7 @@ void rememberNetwork(const String &ssid, const String &pass) {
     }
     k.ssid = ssid;
     k.pass = pass;
+    k.user = user;
     for (int j = min(knownCount, MAX_KNOWN - 1); j > 0; --j) known[j] = known[j - 1];
     known[0] = k;
     knownCount = min(knownCount + 1, MAX_KNOWN);
@@ -1073,13 +1078,24 @@ struct Net {
     int32_t rssi = -127, channel = 0;
     uint8_t bssid[6] = {0};
     bool secure = true;
+    bool enterprise = false;  // asks for a username and password (802.1X)
 };
 Net nets[MAX_NETS];
 int netCount = 0;
 uint32_t scannedAt = 0;
 
 void scanNetworks() {
-    const int16_t n = WiFi.scanNetworks(false, false, false, 300);
+    int16_t n = WiFi.scanNetworks(false, false, false, 300);
+    // The radio refuses to scan while it is still trying to join a network
+    // (e.g. a remembered one that is out of range). Stop that attempt and scan
+    // again; manageWifi() resumes joining afterwards.
+    if (n < 0 && WiFi.status() != WL_CONNECTED) {
+        Serial.printf("Scan failed (%d) during a join; stopping the join and rescanning\n", n);
+        WiFi.disconnect();
+        delay(100);
+        n = WiFi.scanNetworks(false, false, false, 300);
+        joinStarted = millis();
+    }
     netCount = 0;
     for (int i = 0; i < n; ++i) {
         const String ssid = WiFi.SSID(i);
@@ -1096,12 +1112,28 @@ void scanNetworks() {
         nets[j].channel = WiFi.channel(i);
         memcpy(nets[j].bssid, WiFi.BSSID(i), 6);
         nets[j].secure = WiFi.encryptionType(i) != WIFI_AUTH_OPEN;
+        nets[j].enterprise = WiFi.encryptionType(i) == WIFI_AUTH_WPA2_ENTERPRISE;
     }
     for (int a = 1; a < netCount; ++a)
         for (int b = a; b > 0 && nets[b].rssi > nets[b - 1].rssi; --b) std::swap(nets[b], nets[b - 1]);
     WiFi.scanDelete();
     scannedAt = millis();
     Serial.printf("Scan: %d networks in range\n", netCount);
+    for (int i = 0; i < netCount; ++i)
+        Serial.printf("  %-32s %4ld dBm  ch %2ld  %s\n", nets[i].ssid.c_str(), (long)nets[i].rssi, (long)nets[i].channel,
+                      nets[i].enterprise ? "enterprise" : nets[i].secure ? "password" : "open");
+}
+
+// Start joining a network. A username means WPA2-Enterprise with PEAP/MSCHAPv2
+// (what university and office networks use); otherwise a WPA/WPA2 password.
+// The server certificate is not checked: there is no CA for it on the panel.
+void beginJoin(const String &ssid, const String &user, const String &pass, int32_t channel = 0, const uint8_t *bssid = nullptr) {
+    if (user.length()) {
+        WiFi.begin(ssid.c_str(), WPA2_AUTH_PEAP, user.c_str(), user.c_str(), pass.c_str(), nullptr, nullptr, nullptr, channel, bssid);
+    } else {
+        esp_wifi_sta_wpa2_ent_disable();  // left on by an earlier enterprise join
+        WiFi.begin(ssid.c_str(), pass.c_str(), channel, bssid);
+    }
 }
 int netIndex(const String &ssid) {
     for (int i = 0; i < netCount; ++i)
@@ -1784,7 +1816,7 @@ void drillTap(int x, int y) {
 }
 
 void connectStrongest();
-enum class KbFor { WifiPass, PortalUser, PortalPass };
+enum class KbFor { WifiPass, PortalUser, PortalPass, EapUser, EapPass };
 struct Keyboard {
     bool open = false;
     KbFor purpose = KbFor::WifiPass;
@@ -1793,10 +1825,10 @@ struct Keyboard {
     bool masked = true, reveal = false;
     int layer = 0;  // 0 letters, 1 numbers, 2 symbols
     int shift = 0;  // 0 off, 1 next letter, 2 caps lock
-    String ssid, portalUser;
+    String ssid, portalUser;  // portalUser also holds the enterprise username
 } kb;
 void openKeyboard(KbFor purpose, const String &ssid, const String &initial = "");
-void joinNetwork(const String &ssid, const String &pass);
+void joinNetwork(const String &ssid, const String &pass, const String &user = "");
 void busy(const char *message);
 int netPage = 0, netShown = 0;
 
@@ -2337,7 +2369,8 @@ void settingsTap(int x, int y) {
             case C_NET: {
                 const String ssid = nets[c.aux].ssid;
                 const int k = knownIndex(ssid);
-                if (k >= 0) joinNetwork(ssid, known[k].pass);
+                if (k >= 0) joinNetwork(ssid, known[k].pass, known[k].user);
+                else if (nets[c.aux].enterprise) openKeyboard(KbFor::EapUser, ssid);
                 else if (!nets[c.aux].secure) joinNetwork(ssid, "");
                 else openKeyboard(KbFor::WifiPass, ssid);
                 return;
@@ -2439,11 +2472,13 @@ void keyCap(const Rect &r, const char *text, uint16_t bg, int size = 2) {
     labelCenter(r.x + r.w / 2, r.y + r.h / 2 - 4 * size, text, size, TEXT);
 }
 bool kbDoneEnabled() {
-    return kb.purpose == KbFor::WifiPass ? strlen(kb.text) >= 8 : true;  // WPA needs 8+
+    if (kb.purpose == KbFor::WifiPass) return strlen(kb.text) >= 8;  // WPA needs 8+
+    if (kb.purpose == KbFor::EapUser || kb.purpose == KbFor::EapPass) return kb.text[0] != 0;
+    return true;
 }
 const char *kbDoneLabel() {
-    return kb.purpose == KbFor::WifiPass ? L("Join", "เข้าร่วม")
-         : kb.purpose == KbFor::PortalUser ? L("Next", "ถัดไป") : L("Sign in", "ลงชื่อเข้าใช้");
+    return kb.purpose == KbFor::WifiPass || kb.purpose == KbFor::EapPass ? L("Join", "เข้าร่วม")
+         : kb.purpose == KbFor::PortalUser || kb.purpose == KbFor::EapUser ? L("Next", "ถัดไป") : L("Sign in", "ลงชื่อเข้าใช้");
 }
 
 void drawKeyboard() {
@@ -2469,7 +2504,7 @@ void drawKeyboard() {
     const int fy = field.y + field.h / 2;
     int tx = field.x + 16;
     if (!kb.text[0]) {
-        label(tx + 10, fy - 8, kb.purpose == KbFor::PortalUser ? L("Username", "ชื่อผู้ใช้") : L("Password", "รหัสผ่าน"), 2, MUTED);
+        label(tx + 10, fy - 8, kb.purpose == KbFor::PortalUser || kb.purpose == KbFor::EapUser ? L("Username", "ชื่อผู้ใช้") : L("Password", "รหัสผ่าน"), 2, MUTED);
     } else if (kb.masked && !kb.reveal) {
         for (size_t i = 0; i < strlen(kb.text); ++i) aaCircle(tx + 5 + static_cast<int>(i) * 14, fy, 4, TEXT);
         tx += static_cast<int>(strlen(kb.text)) * 14;
@@ -2550,8 +2585,13 @@ void openKeyboard(KbFor purpose, const String &ssid, const String &initial) {
     kb.layer = 0;
     kb.shift = 0;
     kb.reveal = false;
-    kb.masked = purpose != KbFor::PortalUser;
-    if (purpose == KbFor::WifiPass)
+    kb.masked = purpose != KbFor::PortalUser && purpose != KbFor::EapUser;
+    if (purpose == KbFor::EapUser)
+        snprintf(kb.title, sizeof(kb.title), thai ? "ชื่อผู้ใช้สำหรับ \"%s\" (เช่น CMU IT Account)"
+                                                  : "Username for \"%s\" (e.g. your CMU IT Account)", ssid.c_str());
+    else if (purpose == KbFor::EapPass)
+        snprintf(kb.title, sizeof(kb.title), thai ? "รหัสผ่านสำหรับ \"%s\"" : "Password for \"%s\"", ssid.c_str());
+    else if (purpose == KbFor::WifiPass)
         snprintf(kb.title, sizeof(kb.title), thai ? "ป้อนรหัสผ่านของ \"%s\"" : "Enter the password for \"%s\"", ssid.c_str());
     else if (purpose == KbFor::PortalUser)
         snprintf(kb.title, sizeof(kb.title), thai ? "ชื่อผู้ใช้สำหรับหน้าลงชื่อเข้าใช้ของ \"%s\" (เว้นว่างได้)"
@@ -2573,7 +2613,7 @@ void busy(const char *message) {
     present(false);
 }
 
-void joinNetwork(const String &ssid, const String &pass) {
+void joinNetwork(const String &ssid, const String &pass, const String &user) {
     kb.open = false;
     char msg[200];
     snprintf(msg, sizeof(msg), thai ? "กำลังเชื่อมต่อ %s..." : "Joining %s...", ssid.c_str());
@@ -2582,16 +2622,18 @@ void joinNetwork(const String &ssid, const String &pass) {
     WiFi.disconnect();
     delay(200);
     const int n = netIndex(ssid);
-    if (n >= 0) WiFi.begin(ssid.c_str(), pass.c_str(), nets[n].channel, nets[n].bssid);
-    else WiFi.begin(ssid.c_str(), pass.c_str());
+    if (n >= 0) beginJoin(ssid, user, pass, nets[n].channel, nets[n].bssid);
+    else beginJoin(ssid, user, pass);
     WiFi.setTxPower(WIFI_POWER_19_5dBm);
     joinStarted = millis();
     const uint32_t t0 = millis();
-    while (WiFi.status() != WL_CONNECTED && millis() - t0 < 15000) delay(200);
+    // An enterprise sign-in (TLS handshake + RADIUS) takes longer than a password.
+    const uint32_t limit = user.length() ? 30000 : 15000;
+    while (WiFi.status() != WL_CONNECTED && millis() - t0 < limit) delay(200);
     const bool ok = WiFi.status() == WL_CONNECTED;
     Serial.printf("Join %s: %s\n", ssid.c_str(), ok ? "connected" : "failed");
     if (ok) {
-        rememberNetwork(ssid, pass);
+        rememberNetwork(ssid, pass, user);
         currentSsid = ssid;
         configTime(0, 0, "pool.ntp.org", "time.google.com", "time.cloudflare.com");
         checkInternet();
@@ -2599,7 +2641,10 @@ void joinNetwork(const String &ssid, const String &pass) {
         snprintf(msg, sizeof(msg), thai ? "เชื่อมต่อ %s แล้ว" : "Connected to %s", ssid.c_str());
         nextPoll = millis();  // fetch the data now
     } else {
-        snprintf(msg, sizeof(msg), thai ? "เชื่อมต่อ %s ไม่ได้ ตรวจสอบรหัสผ่าน" : "Couldn't join %s. Check the password.", ssid.c_str());
+        if (user.length())
+            snprintf(msg, sizeof(msg), thai ? "เชื่อมต่อ %s ไม่ได้ ตรวจสอบชื่อผู้ใช้และรหัสผ่าน" : "Couldn't join %s. Check the username and password.", ssid.c_str());
+        else
+            snprintf(msg, sizeof(msg), thai ? "เชื่อมต่อ %s ไม่ได้ ตรวจสอบรหัสผ่าน" : "Couldn't join %s. Check the password.", ssid.c_str());
         connectStrongest();  // back to a remembered network
     }
     memset(kb.text, 0, sizeof(kb.text));
@@ -2653,6 +2698,11 @@ void keyboardTap(int x, int y) {
                 if (!kbDoneEnabled()) return;
                 const String text = kb.text;
                 if (kb.purpose == KbFor::WifiPass) joinNetwork(kb.ssid, text);
+                else if (kb.purpose == KbFor::EapUser) {
+                    const String user = text;
+                    openKeyboard(KbFor::EapPass, kb.ssid);
+                    kb.portalUser = user;
+                } else if (kb.purpose == KbFor::EapPass) joinNetwork(kb.ssid, text, kb.portalUser);
                 else if (kb.purpose == KbFor::PortalUser) {
                     kb.portalUser = text;
                     const int kn = knownIndex(kb.ssid);
@@ -3140,14 +3190,14 @@ void connectStrongest() {
         if (k < 0) continue;
         currentSsid = nets[i].ssid;
         Serial.printf("Joining %s  ch %ld  %ld dBm\n", currentSsid.c_str(), (long)nets[i].channel, (long)nets[i].rssi);
-        WiFi.begin(currentSsid.c_str(), known[k].pass.c_str(), nets[i].channel, nets[i].bssid);
+        beginJoin(currentSsid, known[k].user, known[k].pass, nets[i].channel, nets[i].bssid);
         WiFi.setTxPower(WIFI_POWER_19_5dBm);
         return;
     }
     if (knownCount) {
         currentSsid = known[0].ssid;
         Serial.println("No remembered network in range; trying the most recent");
-        WiFi.begin(currentSsid.c_str(), known[0].pass.c_str());
+        beginJoin(currentSsid, known[0].user, known[0].pass);
     }
 }
 
@@ -3185,7 +3235,7 @@ void manageWifi() {
     if (i >= 0 && k >= 0 && nets[i].rssi >= rssi + ROAM_MARGIN_DB && memcmp(nets[i].bssid, WiFi.BSSID(), 6) != 0) {
         Serial.printf("Roaming: %d dBm here, %ld dBm on ch %ld\n", rssi, (long)nets[i].rssi, (long)nets[i].channel);
         WiFi.disconnect();
-        WiFi.begin(currentSsid.c_str(), known[k].pass.c_str(), nets[i].channel, nets[i].bssid);
+        beginJoin(currentSsid, known[k].user, known[k].pass, nets[i].channel, nets[i].bssid);
         joinStarted = millis();
     }
 }
