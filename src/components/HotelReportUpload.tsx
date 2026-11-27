@@ -4,6 +4,7 @@ import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useCompany } from '@/contexts/CompanyContext'
 import { useLanguage } from '@/contexts/LanguageContext'
+import { RoomAvailabilityUpload } from '@/components/RoomAvailabilityUpload'
 import { Button } from '@/components/ui/button'
 import { pdfTextItems } from '@/lib/pdfText'
 import {
@@ -163,8 +164,8 @@ export function HotelReportUpload() {
         <h2 className="font-semibold text-gray-900">{th ? 'อัปโหลดรายงานโรงแรม' : 'Upload Hotel Report'}</h2>
         <p className="text-xs text-gray-500 mt-0.5">
           {th
-            ? 'อัปโหลด PDF สองไฟล์จากอีเมล Daily Manager Reports เพื่ออัปเดตจอแสดงผล'
-            : 'Upload the two PDFs from the Daily Manager Reports email to update the display board.'}
+            ? 'อัปโหลดรายงาน PDF ทั้งสี่ไฟล์เพื่ออัปเดตผลประกอบการโรงแรมและห้องว่าง'
+            : 'Upload the four daily report PDFs to update Resort Report and Room Availability.'}
         </p>
         {lastUpload && (
           <p className={cn('text-xs mt-2 flex items-center gap-1.5', behind ? 'text-amber-700' : 'text-gray-600')}>
@@ -172,7 +173,7 @@ export function HotelReportUpload() {
               ? <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0" />
               : <CheckCircle2 className="h-3.5 w-3.5 flex-shrink-0 text-green-600" />}
             <span>
-              {th ? 'อัปโหลดล่าสุด: ' : 'Last upload: '}
+              {th ? 'อัปโหลดล่าสุด: ' : 'Last hotel report upload: '}
               <strong className="font-semibold">{fmtStamp(lastUpload.updated_at)}</strong>
               {lastUpload.uploader?.full_name && <>{th ? ' โดย ' : ' by '}{lastUpload.uploader.full_name}</>}
               {' · '}
@@ -217,6 +218,8 @@ export function HotelReportUpload() {
             </label>
           ))}
         </div>
+
+        <RoomAvailabilityUpload />
 
         {busy && (
           <div className="flex items-center gap-2 text-sm text-gray-600">
