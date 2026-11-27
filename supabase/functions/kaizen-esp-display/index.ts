@@ -75,7 +75,7 @@ type Row = {
 // Values are formatted here, exactly as the web board formats them, so the
 // panel only prints strings. "-" stands in for the web's em dash (the panel
 // font is ASCII); "฿" is kept and the firmware draws it as a glyph.
-const HOTEL_COLS = "stat_date, occ_pct_today, occ_pct_mtd, occ_pct_ytd, occ_excl_pct_today, occ_excl_pct_mtd, "
+const HOTEL_COLS = "stat_date, updated_at, occ_pct_today, occ_pct_mtd, occ_pct_ytd, occ_excl_pct_today, occ_excl_pct_mtd, "
   + "rooms_occupied_today, rooms_occupied_mtd, rooms_avail_today, rooms_avail_mtd, "
   + "hotel_revenue_today, hotel_revenue_mtd, hotel_revenue_ytd, "
   + "room_revenue_today, fb_revenue_today, misc_revenue_today, adr_today, "
@@ -87,6 +87,7 @@ type ForecastDay = { date: string; occPct: number; occupied: number; totalRooms:
 type ForecastMonth = { month: string; occupiedRoomNights: number; totalRoomNights: number }
 type HotelRow = Record<string, unknown> & {
   stat_date: string
+  updated_at: string
   forecast: { days: ForecastDay[]; months: ForecastMonth[] } | null
 }
 
@@ -165,6 +166,8 @@ function hotelBoard(row: HotelRow, now: number) {
   return {
     state: "ready",
     statDate: row.stat_date,
+    uploadDateLabel: new Date(row.updated_at).toLocaleDateString("en-US", {timeZone:"Asia/Bangkok",month:"short",day:"numeric",year:"numeric"}),
+    uploadAgeDays: Math.max(0, Math.round((Date.parse(new Date(now+BKK).toISOString().slice(0,10))-Date.parse(new Date(Date.parse(row.updated_at)+BKK).toISOString().slice(0,10)))/86400000)),
     statDateLabel: new Date(`${row.stat_date}T00:00:00Z`).toLocaleDateString("en-GB",
       { timeZone: "UTC", weekday: "short", day: "2-digit", month: "short", year: "numeric" }).replace(/,/g, ""),
     ageDays: Math.round((Date.parse(new Date(now + BKK).toISOString().slice(0, 10)) - Date.parse(row.stat_date)) / 86_400_000),
@@ -225,17 +228,23 @@ Deno.serve(async (request) => {
     { auth: { persistSession: false, autoRefreshToken: false } },
   )
 
-  const [{ data: company }, { data: catRow }, hotelResult] = await Promise.all([
+  const [{ data: company }, { data: catRow }, hotelResult, roomResult] = await Promise.all([
     db.from("kaizen_companies").select("name, org_title").eq("id", companyId).maybeSingle(),
     db.from("kaizen_settings").select("value")
       .eq("company_id", companyId).eq("key", "custom_categories").maybeSingle(),
     db.from("kaizen_hotel_daily").select(HOTEL_COLS)
       .eq("company_id", companyId).order("stat_date", { ascending: false }).limit(1).maybeSingle(),
+    db.from("kaizen_room_availability").select("report,updated_at").eq("company_id",companyId).maybeSingle(),
   ])
   // mirrors HotelBoard's load states: error / empty / ready
   const hotel = hotelResult.error ? { state: "error" }
     : !hotelResult.data ? { state: "empty" }
     : hotelBoard(hotelResult.data as unknown as HotelRow, now)
+  const rr = roomResult.data?.report as {reportDate:string;types:{id:string;name:string;capacity:number}[];values:{date:string;roomType:string;available:number}[]} | undefined
+  const roomAvailability = rr && Array.isArray(rr.types) && Array.isArray(rr.values) ? {
+    reportDate: rr.reportDate, updatedAt: roomResult.data?.updated_at, types: rr.types,
+    days: [...new Set(rr.values.map(v=>v.date))].sort().map(date=>({date,available:rr.types.map(t=>rr.values.find(v=>v.date===date&&v.roomType===t.id)?.available??null)})),
+  } : null
   if (!company) return reply(503, { error: "Display is unavailable" })
 
   // ── ?view=cases: the drill-down list (mirrors DisplayPage's drill overlay) ──
@@ -390,6 +399,7 @@ Deno.serve(async (request) => {
     attention: flagged.length,
     attentionItems,
     hotel,
+    roomAvailability,
     updatedAt: new Date(now).toISOString(),
   })
 })

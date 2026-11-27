@@ -12,6 +12,8 @@ import { loadSandboxRow } from '@/lib/hotelSandbox'
 
 interface HotelRow {
   stat_date: string
+  report_date: string | null
+  updated_at: string | null
   occ_pct_today: number | null
   occ_pct_mtd: number | null
   occ_pct_ytd: number | null
@@ -34,7 +36,7 @@ interface HotelRow {
   forecast: { asAtDate: string; days: ForecastDay[]; months: ForecastMonth[] } | null
 }
 
-const COLS = 'stat_date, occ_pct_today, occ_pct_mtd, occ_pct_ytd, occ_excl_pct_today, occ_excl_pct_mtd, '
+const COLS = 'stat_date, report_date, updated_at, occ_pct_today, occ_pct_mtd, occ_pct_ytd, occ_excl_pct_today, occ_excl_pct_mtd, '
   + 'rooms_occupied_today, rooms_occupied_mtd, rooms_avail_today, rooms_avail_mtd, '
   + 'hotel_revenue_today, hotel_revenue_mtd, hotel_revenue_ytd, '
   + 'room_revenue_today, fb_revenue_today, misc_revenue_today, adr_today, '
@@ -70,11 +72,12 @@ function Tile({ label, value, sub, color }: { label: string; value: string; sub?
   )
 }
 
-export function HotelBoard({ refreshMs, lang, sandbox = false }: {
+export function HotelBoard({ refreshMs, lang, sandbox = false, onDataDate }: {
   refreshMs: number
   lang: string
   /** Read the device-local sandbox row instead of the database. */
   sandbox?: boolean
+  onDataDate?: (date: string | null) => void
 }) {
   const { activeCompany } = useCompany()
   const th = lang === 'th'
@@ -115,6 +118,12 @@ export function HotelBoard({ refreshMs, lang, sandbox = false }: {
     const id = setInterval(load, refreshMs)
     return () => { cancelled = true; clearInterval(id) }
   }, [activeCompany, refreshMs, sandbox])
+
+  // Use the upload timestamp of the same row shown on the board.
+  useEffect(() => {
+    onDataDate?.(state === 'ready' && row ? (sandbox ? row.report_date : row.updated_at) : null)
+    return () => onDataDate?.(null)
+  }, [state, row, sandbox, onDataDate])
 
   // Next 14 days of the saved forecast, for the trend chart: rooms occupied
   // out of the rooms in the hotel (the report's "Occ. Allt" and "TL Rm").
