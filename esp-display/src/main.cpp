@@ -5,9 +5,15 @@
 #include <Preferences.h>
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
+#include <esp_wpa2.h>
+#include <esp_phy_init.h>
+#include <esp_rom_gpio.h>
+#include <soc/gpio_sig_map.h>
 #include <Wire.h>
 #include <esp32s3/rom/cache.h>
 #include <driver/gpio.h>
+#include <esp_heap_caps.h>
+#include <esp_idf_version.h>
 #include <soc/gpio_periph.h>
 #include <soc/io_mux_reg.h>
 
@@ -24,14 +30,86 @@
 // comes from the kaizen-esp-display edge function, which computes the same
 // numbers the web board does; this file only draws them.
 
+// ESP-IDF 4.4.7's RGB driver restarts its one-shot DMA chain AFTER the
+// on_frame_trans_done callback. Repoint that chain to a complete second
+// framebuffer before the next frame begins, without changing LCD timing.
+// The layout is pinned to ESP-IDF 4.4.7 and checked against each descriptor.
+#if ESP_IDF_VERSION == ESP_IDF_VERSION_VAL(4,4,7)
+struct Rgb44Panel {
+    esp_lcd_panel_t base;
+    int panel_id;
+    lcd_hal_context_t hal;
+    size_t data_width,sram_trans_align,psram_trans_align;
+    int disp_gpio_num;
+    intr_handle_t intr;
+    esp_pm_lock_handle_t pm_lock;
+    size_t num_dma_nodes;
+    uint8_t *fb;
+    size_t fb_size;
+    int data_gpio_nums[SOC_LCD_RGB_DATA_WIDTH];
+    uint32_t src_clk_hz;
+    esp_lcd_rgb_timing_t timings;
+    gdma_channel_handle_t dma_chan;
+    esp_lcd_rgb_panel_frame_trans_done_cb_t on_frame_trans_done;
+    void *user_ctx;
+    int x_gap,y_gap,lcd_clk_flags;
+    struct { unsigned int disp_en_level:1,stream_mode:1,fb_in_psram:1; } flags;
+    dma_descriptor_t dma_nodes[];
+};
+static uint32_t dmaOffsets[256];
+static volatile size_t swapNodes=0;
+static uint16_t *volatile requestedFrame=nullptr;
+static uint16_t *volatile committedFrame=nullptr;
+static bool IRAM_ATTR frameSwapCallback(esp_lcd_panel_handle_t handle,esp_lcd_rgb_panel_event_data_t*,void*) {
+    uint16_t *next=requestedFrame;
+    if(next && swapNodes){
+        auto *rgb=reinterpret_cast<Rgb44Panel*>(handle);
+        uint8_t *base=reinterpret_cast<uint8_t*>(next);
+        for(size_t i=0;i<swapNodes;++i) rgb->dma_nodes[i].buffer=base+dmaOffsets[i];
+        asm volatile("memw" ::: "memory");
+        committedFrame=next;
+        requestedFrame=nullptr;
+    }
+    return false;
+}
+extern "C" esp_err_t __real_esp_lcd_new_rgb_panel(const esp_lcd_rgb_panel_config_t*,esp_lcd_panel_handle_t*);
+extern "C" esp_err_t __wrap_esp_lcd_new_rgb_panel(const esp_lcd_rgb_panel_config_t *config,esp_lcd_panel_handle_t *out) {
+    esp_lcd_rgb_panel_config_t copy=*config;
+    if(!copy.on_frame_trans_done)copy.on_frame_trans_done=frameSwapCallback;
+    esp_err_t res=__real_esp_lcd_new_rgb_panel(&copy,out);
+    if(res!=ESP_OK||!out||!*out)return res;
+    auto *rgb=reinterpret_cast<Rgb44Panel*>(*out);
+    if(rgb->fb_size!=800UL*480UL*2 || !rgb->fb || rgb->num_dma_nodes==0 || rgb->num_dma_nodes>256 || copy.on_frame_trans_done!=frameSwapCallback)return res;
+    size_t sum=0;
+    for(size_t i=0;i<rgb->num_dma_nodes;++i){
+        auto &d=rgb->dma_nodes[i];uintptr_t ptr=reinterpret_cast<uintptr_t>(d.buffer),base=reinterpret_cast<uintptr_t>(rgb->fb);
+        if(ptr<base||ptr-base>=rgb->fb_size||!d.dw0.length||ptr-base+d.dw0.length>rgb->fb_size||ptr-base!=sum)return res;
+        dmaOffsets[i]=ptr-base;sum+=d.dw0.length;
+    }
+    if(sum==rgb->fb_size)swapNodes=rgb->num_dma_nodes;
+    return res;
+}
+#else
+#error "Frame swap must be revalidated against the installed RGB driver version"
+#endif
+static bool backNeedsSync=false;
+// Four immutable page snapshots, plus two normal rendering buffers. Page
+// navigation swaps a cached frame directly at VSYNC; no rasterization or PSRAM
+// bulk copy occurs in the interaction path.
+static uint16_t *pageCache[4]={};
+static uint16_t *workA=nullptr,*workB=nullptr;
+static uint8_t readyPages=0, rebuildPages=0;
+static bool cachingPage=false;
+static bool isPageCache(const uint16_t *p){for(auto *c:pageCache)if(c && c==p)return true;return false;}
+static void pacePixels(uint32_t n=1){static uint32_t budget=0;budget+=n;if(budget>=64){budget=0;delayMicroseconds(7);}}
+
 // Guition JC8048W550 RGB wiring and timings from the Arduino_GFX board example.
 Arduino_ESP32RGBPanel panel(
     40, 41, 39, 42, 45, 48, 47, 21, 14, 5, 6, 7, 15, 16, 4,
     8, 3, 46, 9, 1, 0, 8, 4, 8, 0, 8, 4, 8, 1,
-    // 12 MHz pixel clock (~29 Hz refresh), not 16: the LCD streams its frame from
-    // PSRAM, and at 16 MHz any burst of CPU or Wi-Fi PSRAM use starved it and showed
-    // as thin horizontal streaks. A static board gains nothing from the extra rate.
-    12000000);
+    // Controlled recovery trial: the original 16 MHz panel timing. A panel
+    // that enters an RGB test pattern at 12 MHz may require a faster clock.
+    16000000);
 // Everything is drawn into an off-screen buffer (`back`); present() then copies
 // it, or cross-fades it, onto the buffer the LCD scans (`front`). So the board
 // never shows a half-drawn frame, and a data refresh fades instead of flashing.
@@ -39,6 +117,7 @@ Arduino_ESP32RGBPanel panel(
 // compares only those instead of reading the whole frame twice.
 bool dirtyRow[480];
 bool anyDirty = false;
+bool fullFramePending = false; // board redraw bypasses the expensive framebuffer diff
 inline void markRows(int y0, int y1) {
     y0 = max(0, y0);
     y1 = min(479, y1);
@@ -55,6 +134,7 @@ public:
     void writePixelPreclipped(int16_t x, int16_t y, uint16_t color) override {
         markRows(y, y);
         Arduino_RGB_Display::writePixelPreclipped(x, y, color);
+        if(cachingPage)pacePixels();
     }
     void writeFastVLine(int16_t x, int16_t y, int16_t h, uint16_t color) override {
         markRows(y, y + h - 1);
@@ -62,11 +142,21 @@ public:
     }
     void writeFastHLine(int16_t x, int16_t y, int16_t w, uint16_t color) override {
         markRows(y, y);
-        Arduino_RGB_Display::writeFastHLine(x, y, w, color);
+        if(cachingPage&&w>64){for(int i=0;i<w;i+=64){Arduino_RGB_Display::writeFastHLine(x+i,y,min(64,(int)w-i),color);delayMicroseconds(7);}}
+        else Arduino_RGB_Display::writeFastHLine(x, y, w, color);
     }
     void writeFillRectPreclipped(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t color) override {
         markRows(y, y + h - 1);
-        Arduino_RGB_Display::writeFillRectPreclipped(x, y, w, h, color);
+        // Keep the RGB DMA fed at 16 MHz while a large offscreen area is drawn.
+        // The library's unbroken fill of 768 KB can starve PSRAM reads.
+        if(cachingPage && static_cast<int32_t>(w)*h>256){
+            for(int j=0;j<h;++j){for(int i=0;i<w;i+=128){Arduino_RGB_Display::writeFillRectPreclipped(x+i,y+j,min(128,(int)w-i),1,color);delayMicroseconds(7);}}
+        }else if(static_cast<int32_t>(w)*h > 16000){
+            for(int off=0;off<h;off+=8){
+                Arduino_RGB_Display::writeFillRectPreclipped(x,y+off,w,min(8,static_cast<int>(h)-off),color);
+                delayMicroseconds(80);
+            }
+        }else Arduino_RGB_Display::writeFillRectPreclipped(x, y, w, h, color);
     }
 };
 PanelDisplay screen(800, 480, &panel);
@@ -132,10 +222,87 @@ Status status = Status::Connecting;
 uint32_t nextPoll = 0;
 
 // Which board is on screen. Kaizen is home; Hotel times out back to it.
-enum class Screen { Kaizen, Hotel, Clock };
+enum class Screen { Kaizen, Hotel, Availability, Clock };
+constexpr Screen BOARDS[] = {Screen::Kaizen, Screen::Hotel, Screen::Availability, Screen::Clock};
+constexpr int BOARD_COUNT = 4;
+JsonDocument localAvailability;
 Screen current = Screen::Kaizen;
 uint32_t lastTouch = 0;
 Preferences prefs;
+
+// ── Restart log ──────────────────────────────────────────────────────────────
+// Why the panel restarted, kept across restarts in NVS ("boot"), with how far
+// each start got and how long it ran. Made to tell a weak power supply (a loop
+// of brownout / power-on resets that never get past starting Wi-Fi) from a
+// firmware crash. Printed at boot and on serial 'B'; summarised under About.
+enum BootStage : uint8_t { BS_START, BS_SCREEN, BS_BACKLIGHT, BS_WIFI_START, BS_WIFI_UP, BS_DATA };
+const char *const STAGE_NAMES[] = {"start", "screen", "backlight", "Wi-Fi start", "Wi-Fi up", "data"};
+struct BootEntry { uint8_t reason, stage; uint16_t pad; uint32_t upSecs; };
+constexpr int BOOT_LOG_N = 16;
+Preferences bprefs;
+BootEntry bootLog[BOOT_LOG_N];
+uint8_t bootHead = 0;      // slot of this start
+uint32_t bootCount = 0;
+
+const char *resetName(uint8_t r) {
+    switch (r) {
+        case ESP_RST_POWERON: return "power-on";
+        case ESP_RST_BROWNOUT: return "brownout";
+        case ESP_RST_SW: return "software";
+        case ESP_RST_PANIC: return "crash";
+        case ESP_RST_INT_WDT: case ESP_RST_TASK_WDT: case ESP_RST_WDT: return "watchdog";
+        case ESP_RST_EXT: return "reset pin";
+        case ESP_RST_DEEPSLEEP: return "deep sleep";
+        default: return "other";
+    }
+}
+void bootLogSave() { bprefs.putBytes("log", bootLog, sizeof(bootLog)); }
+void bootLogStart() {
+    bprefs.begin("boot", false);
+    if (bprefs.getBytes("log", bootLog, sizeof(bootLog)) != sizeof(bootLog)) memset(bootLog, 0, sizeof(bootLog));
+    bootCount = bprefs.getULong("n", 0) + 1;
+    bprefs.putULong("n", bootCount);
+    bootHead = bootCount % BOOT_LOG_N;
+    bootLog[bootHead] = {static_cast<uint8_t>(esp_reset_reason()), BS_START, 0, 0};
+    bootLogSave();
+}
+void bootStage(BootStage s) {
+    if (bootLog[bootHead].stage >= s) return;
+    bootLog[bootHead].stage = s;
+    bootLog[bootHead].upSecs = millis() / 1000;
+    bootLogSave();
+}
+// Uptime at a few marks only (1, 5, 30 min, then hourly): enough to see how long
+// a start lasted without wearing the flash.
+void bootLogTick() {
+    static uint32_t next = 60;
+    const uint32_t up = millis() / 1000;
+    if (up < next) return;
+    bootLog[bootHead].upSecs = up;
+    bootLogSave();
+    next = next < 300 ? 300 : next < 1800 ? 1800 : next + 3600;
+}
+void bootLogPrint() {
+    Serial.printf("Restart log (%lu starts; newest first):\n", static_cast<unsigned long>(bootCount));
+    for (int i = 0; i < BOOT_LOG_N && i < static_cast<int>(bootCount); ++i) {
+        const uint32_t n = bootCount - i;
+        const BootEntry &e = bootLog[n % BOOT_LOG_N];
+        Serial.printf("  #%-5lu %-9s reached %-11s ran %lus%s\n", static_cast<unsigned long>(n), resetName(e.reason),
+                      STAGE_NAMES[min<int>(e.stage, BS_DATA)], static_cast<unsigned long>(e.upSecs), i == 0 ? "  (this start)" : "");
+    }
+}
+// e.g. "brownout 7, power-on 3" over the remembered starts, before this one.
+String bootSummary() {
+    int counts[16] = {0};
+    const int n = min<int>(BOOT_LOG_N, static_cast<int>(bootCount));
+    for (int i = 1; i < n; ++i) ++counts[bootLog[(bootCount - i) % BOOT_LOG_N].reason & 15];
+    String s;
+    const uint8_t order[] = {ESP_RST_BROWNOUT, ESP_RST_POWERON, ESP_RST_PANIC, ESP_RST_TASK_WDT, ESP_RST_INT_WDT, ESP_RST_WDT, ESP_RST_SW, ESP_RST_EXT};
+    for (uint8_t r : order)
+        if (counts[r]) { if (s.length()) s += ", "; s += resetName(r); s += " "; s += counts[r]; }
+    return s.length() ? s : String("-");
+}
+
 
 // Panel settings, as in src/lib/panelTheme.ts (same defaults), kept in NVS.
 struct PanelSettings {
@@ -147,11 +314,23 @@ struct PanelSettings {
     int clockCity[3] = {0, 2, 4};               // World Clock cities (CITY_LIST indexes)
     int airHome = 0;                            // where air quality is read
     bool rotate = false;                        // cycle the bottom-row boards
+    uint8_t enabledBoards = 15;
+    int startupBoard = 0;
+    int boardDurations[4] = {30,30,30,15};
+    bool freshnessAlerts = true;
     int rotateSecs = 30;                        // time per board, 15..300
     int refreshSecs = 60;
     int idleSecs = 30;
     bool touch = true;                          // touch drill-down
 } cfg;
+bool boardEnabled(Screen b) { return cfg.enabledBoards & (1 << static_cast<int>(b)); }
+Screen defaultBoard() { return BOARDS[cfg.startupBoard]; }
+int enabledCount() { int n=0; for (Screen b:BOARDS) if(boardEnabled(b)) ++n; return n; }
+const char *boardName(Screen b) { switch(b) { case Screen::Kaizen:return "Kaizen System"; case Screen::Hotel:return L("Resort Report","รายงานรีสอร์ต"); case Screen::Availability:return L("Room Availability","ห้องว่าง"); default:return L("World Clock","นาฬิกาโลก"); } }
+JsonObjectConst roomReport() { JsonObjectConst live=details["roomAvailability"].as<JsonObjectConst>(); if (!live.isNull() && live["types"].is<JsonArrayConst>() && strcmp(live["reportDate"]|"",localAvailability["reportDate"]|"")>=0) return live; return localAvailability.as<JsonObjectConst>(); }
+int reportAge(const char *date) { if (!date || strlen(date)<10 || time(nullptr)<1700000000) return -1; struct tm t={}; int y,m,d; if(sscanf(date,"%d-%d-%d",&y,&m,&d)!=3)return -1; t.tm_year=y-1900;t.tm_mon=m-1;t.tm_mday=d; return max(0, static_cast<int>((time(nullptr)+7*3600-mktime(&t))/86400)); }
+const char *freshLabel(int age) { return age>=2?L("ATTENTION REQUIRED","ต้องตรวจสอบ"):age==1?L("OUTDATED","ข้อมูลเก่า"):age==0?L("UP TO DATE","ข้อมูลล่าสุด"):""; }
+uint16_t freshColor(int age) { return age>=2?C_CRITICAL:age==1?C_PENDING:C_RESOLVED; }
 uint32_t pollMs() { return cfg.refreshSecs * 1000UL; }
 
 // World Clock cities. Keep in step with src/lib/worldClock.ts and CITIES in
@@ -252,6 +431,7 @@ void flushRows(int y0, int y1) {
 // pass), touches only those, and writes each step right after VSYNC, while the
 // panel is between frames.
 constexpr int VSYNC_PIN = 41;
+uint32_t framePeriodUs = 25640;
 int vsyncPulse = -1;  // level of the VSYNC pulse (1 or 0); -1 = unusable, use plain timing
 
 // Returns at the start of the next VSYNC pulse (or after ~30 ms if unreadable).
@@ -282,6 +462,7 @@ void vsyncInit() {
         const uint32_t s = micros();
         for (int i = 0; i < 10; ++i) waitVsync();
         hz = 10e6f / (micros() - s);
+        if(hz>20 && hz<100) framePeriodUs=static_cast<uint32_t>(1000000.0f/hz);
     }
     Serial.printf("VSYNC: pulse %s, %.1f Hz\n", vsyncPulse < 0 ? "not readable (plain timing)" : vsyncPulse ? "high" : "low", hz);
 }
@@ -313,10 +494,68 @@ int findSpans(int top, int bottom) {
     return n;
 }
 
+// Only a partial redraw needs a copy of the current screen. Full board
+// switches are rendered directly into the inactive buffer and never copy it
+// into the buffer currently scanned by the LCD.
+void ensureBackSynced() {
+    if(!backNeedsSync || fullFramePending || !front || !back || front==back)return;
+    for(int y=0;y<480;y+=8){memcpy(back+y*800,front+y*800,8*1600);delayMicroseconds(60);}
+    backNeedsSync=false;
+}
+
+bool swapToFrame(uint16_t *next) {
+    if(!swapNodes||!next||((reinterpret_cast<uintptr_t>(next)&63)!=0))return false;
+    if(next==front)return true;
+    committedFrame=nullptr;requestedFrame=next;
+    const uint32_t begin=millis();
+    while(requestedFrame && millis()-begin<150)delay(1);
+    if(requestedFrame){requestedFrame=nullptr;delay(2);}
+    if(committedFrame!=next)return false;
+    delay(1);
+    uint16_t *old=front;front=next;
+    if(isPageCache(old))back=(front==workA)?workB:workA;
+    else if(isPageCache(front))back=(old==workA||old==workB)?old:workA;
+    else back=old;
+    if(!back||back==front||isPageCache(back))back=(front==workA)?workB:workA;
+    fb=back;screen.drawTo(back);backNeedsSync=true;
+    fullFramePending=false;anyDirty=false;needPresent=false;memset(dirtyRow,0,sizeof(dirtyRow));
+    Serial.printf("Frame swapped at VSYNC in %lu ms\n",static_cast<unsigned long>(millis()-begin));
+    return true;
+}
+
 void present(bool fade) {
     needPresent = false;
     fadeNext = false;
-    if (!back || back == front || !anyDirty) return;
+    if (!back || back == front || !anyDirty) { fullFramePending=false; return; }
+    if(fullFramePending){
+        fullFramePending=false; anyDirty=false; memset(dirtyRow,0,sizeof(dirtyRow));
+        if(swapNodes && ((reinterpret_cast<uintptr_t>(back)&63)==0)){
+            // Flush only the inactive buffer, in short stripes to avoid
+            // starving the currently displayed DMA frame.
+            for(int y=0;y<480;y+=8){Cache_WriteBack_Addr(reinterpret_cast<uint32_t>(back+y*800),8*1600);delayMicroseconds(30);}
+            if(swapToFrame(back))return;
+            Serial.println("VSYNC swap timed out; fallback transfer");swapNodes=0;
+        }
+        backNeedsSync=false;
+        // Single-buffer RGB driver: present behind the scan in short row
+        // stripes. Avoids a complete diff read and large cache-writeback burst.
+        // The old image remains lit during drawing; no black flash or fade.
+        waitVsync(); const uint32_t began=micros();
+        constexpr int STRIPE=8;
+        for(int y=0;y<480;y+=STRIPE){
+            const int rows=min(STRIPE,480-y);
+            if(vsyncPulse>=0){
+                const uint32_t target=framePeriodUs*(y+rows)/480+300;
+                const uint32_t elapsed=micros()-began;
+                if(elapsed<target)delayMicroseconds(target-elapsed);
+            }
+            memcpy(front+y*800,back+y*800,rows*1600);
+            Cache_WriteBack_Addr(reinterpret_cast<uint32_t>(front+y*800),rows*1600);
+            delayMicroseconds(35);
+        }
+        Serial.printf("Frame presented in %lu ms (striped)\n",static_cast<unsigned long>((micros()-began)/1000));
+        return;
+    }
     // Compare only rows that were drawn (framebuffer rows flip when rotated),
     // pausing every few rows so the LCD's own PSRAM reads get through.
     int top = -1, bottom = -1;
@@ -366,6 +605,7 @@ inline void blendPx(int x, int y, uint16_t color, int alpha) {  // alpha 0..255
     if (x < 0 || x >= 800 || y < 0 || y >= 480 || alpha <= 0) return;
     uint16_t *p = fbAt(x, y);
     *p = alpha >= 255 ? color : blend(color, *p, alpha);
+    if(cachingPage)pacePixels();
     dirtyRow[y] = true;
     anyDirty = true;
 }
@@ -641,6 +881,7 @@ struct Rect {
 
 // ── Header ────────────────────────────────────────────────────────────────────
 void drawHeader() {
+    ensureBackSynced();
     needPresent = true;
     screen.fillRect(0, 0, 800, HEADER_H + 2, BG);
     char title[64] = "Kaizen";
@@ -657,25 +898,27 @@ void drawHeader() {
         char month[16], avg[16];
         copyText(month, sizeof(month), details["month"] | "", 12);
         copyText(avg, sizeof(avg), details["avgResolution"] | "-", 12);
-        if (current == Screen::Clock) {
+        if (current == Screen::Availability) {
+            snprintf(subtitle, sizeof(subtitle), "%s", L("Room availability | 10 days", "ห้องว่างตามประเภท 10 วัน"));
+        } else if (current == Screen::Clock) {
             snprintf(subtitle, sizeof(subtitle), "%s  |  %s", month,
                      L("World clock, weather and air quality", "นาฬิกาโลก สภาพอากาศ และคุณภาพอากาศ"));
         } else if (current == Screen::Hotel) {
             // The hotel figures come from the last uploaded report, which can
             // be days behind: say which day, and flag it when it is old.
             JsonObjectConst hotel = details["hotel"].as<JsonObjectConst>();
-            const char *date = hotel["statDateLabel"] | "";
+            const char *date = hotel["uploadDateLabel"] | (hotel["statDateLabel"] | "");
             if (date[0]) {
                 snprintf(subtitle, sizeof(subtitle), "%s  |  %s  |  %s %s", month,
-                         L("Hotel performance", "ผลประกอบการโรงแรม"), L("Figures for", "ข้อมูลวันที่"), date);
+                         L("Hotel performance", "ผลประกอบการโรงแรม"), hotel["uploadDateLabel"].is<const char*>() ? L("As of", "ข้อมูล ณ วันที่") : L("Figures for", "ข้อมูลวันที่"), date);
             } else {
                 snprintf(subtitle, sizeof(subtitle), "%s  |  %s", month, L("Hotel performance", "ผลประกอบการโรงแรม"));
             }
-            const int age = hotel["ageDays"] | 0;
-            if (age >= 2) {
+            const int age = hotel["uploadAgeDays"] | (hotel["ageDays"] | 0);
+            if (cfg.freshnessAlerts && age >= 1) {
                 char tag[96];
                 snprintf(tag, sizeof(tag), thai ? "ข้อมูล %d วันที่แล้ว" : "%d DAYS OLD", age);
-                pill(bx, 11, tag, C_PENDING, rgb(0x3a2e17), 17, 0);
+                pill(bx, 11, tag, age>=2?C_CRITICAL:C_PENDING, rgb(0x3a2e17), 17, 0);
             }
         } else {
             snprintf(subtitle, sizeof(subtitle), "%s  |  %s %s  |  %s %d%%", month,
@@ -683,6 +926,7 @@ void drawHeader() {
                      details["resolutionRate"].as<int>());
         }
     }
+    if (current==Screen::Availability) snprintf(subtitle,sizeof(subtitle),"%s",L("Room availability | 10 days","ห้องว่างตามประเภท 10 วัน"));
     label(PAD, 38, subtitle, 1, MUTED);
 
     const time_t now = time(nullptr);
@@ -936,29 +1180,18 @@ void iconSettings(int x, int y, uint16_t c, uint16_t bg) {
     screen.fillRect(x + 10, y + 5, 2, 2, c);
 }
 
+int switchWidth() { return (800-2*PAD-enabledCount()*GAP)/(enabledCount()+1); }
 void drawSwitcher() {
-    const int y = SWITCH_Y, h = SWITCH_H;
-    const char *names[] = {"Kaizen System", L("Hotel", "โรงแรม"), L("World Clock", "นาฬิกาโลก"), nullptr,
-                           L("System Settings", "ตั้งค่าระบบ")};
-    for (int i = 0; i < 5; ++i) {
-        const int x = PAD + i * (SWITCH_W + GAP);
-        if (!names[i]) {
-            dashedRect(x, y, SWITCH_W, h, RESERVED);
-            continue;
-        }
-        const bool active = (i == 0 && current == Screen::Kaizen) || (i == 1 && current == Screen::Hotel) ||
-                            (i == 2 && current == Screen::Clock);
-        if (active) aaRoundRect(x, y, SWITCH_W, h, 9, BRAND);
-        else card(x, y, SWITCH_W, h);
-        const uint16_t fg = active ? TEXT : MUTED;
-        const uint16_t bg = active ? BRAND : CARD;
-        const int content = 12 + 6 + textWidth(names[i], 1);
-        const int ix = x + (SWITCH_W - content) / 2, iy = y + h / 2 - 6;
-        if (i == 0) iconDashboard(ix, iy, fg);
-        else if (i == 1) iconHotel(ix, iy, fg);
-        else if (i == 2) iconClock(ix, iy, fg);
-        else iconSettings(ix, iy, fg, bg);
-        label(ix + 18, y + h / 2 - 4, names[i], 1, fg);
+    const int y=SWITCH_Y,h=SWITCH_H,w=switchWidth(); int slot=0;
+    for (int i=0;i<=4;++i) {
+        if(i<4 && !boardEnabled(BOARDS[i])) continue;
+        int x=PAD+slot++*(w+GAP); bool active=i<4&&current==BOARDS[i];
+        if(active) aaRoundRect(x,y,w,h,9,BRAND); else card(x,y,w,h);
+        uint16_t fg=active?TEXT:MUTED,bg=active?BRAND:CARD;
+        const char *name=i<4?boardName(BOARDS[i]):L("System Settings","ตั้งค่าระบบ");
+        int font=textWidth(name,1)+18<=w-8?1:0; int content=18+textWidth(name,font); int ix=x+(w-content)/2,iy=y+h/2-6;
+        if(i==0)iconDashboard(ix,iy,fg);else if(i==1||i==2)iconHotel(ix,iy,fg);else if(i==3)iconClock(ix,iy,fg);else iconSettings(ix,iy,fg,bg);
+        label(ix+18,y+h/2-4,name,font,fg);
     }
 }
 
@@ -1003,6 +1236,7 @@ uint32_t joinStarted = 0;  // when the last join attempt started
 Preferences wprefs;
 struct Known {
     String ssid, pass;
+    String user;                  // set = WPA2-Enterprise (PEAP) sign-in, e.g. @JumboPlus
     bool portalSaved = false;     // signed in to this network's sign-in page before
     String portalUser, portalPass;
 };
@@ -1017,6 +1251,7 @@ void saveKnown() {
     for (int i = 0; i < knownCount; ++i) {
         snprintf(k, sizeof(k), "s%d", i); wprefs.putString(k, known[i].ssid);
         snprintf(k, sizeof(k), "p%d", i); wprefs.putString(k, known[i].pass);
+        snprintf(k, sizeof(k), "e%d", i); wprefs.putString(k, known[i].user);
         snprintf(k, sizeof(k), "a%d", i); wprefs.putBool(k, known[i].portalSaved);
         snprintf(k, sizeof(k), "u%d", i); wprefs.putString(k, known[i].portalUser);
         snprintf(k, sizeof(k), "q%d", i); wprefs.putString(k, known[i].portalPass);
@@ -1028,6 +1263,7 @@ void loadKnown() {
     for (int i = 0; i < knownCount; ++i) {
         snprintf(k, sizeof(k), "s%d", i); known[i].ssid = wprefs.getString(k, "");
         snprintf(k, sizeof(k), "p%d", i); known[i].pass = wprefs.getString(k, "");
+        snprintf(k, sizeof(k), "e%d", i); known[i].user = wprefs.getString(k, "");
         snprintf(k, sizeof(k), "a%d", i); known[i].portalSaved = wprefs.getBool(k, false);
         snprintf(k, sizeof(k), "u%d", i); known[i].portalUser = wprefs.getString(k, "");
         snprintf(k, sizeof(k), "q%d", i); known[i].portalPass = wprefs.getString(k, "");
@@ -1044,7 +1280,7 @@ int knownIndex(const String &ssid) {
         if (known[i].ssid == ssid) return i;
     return -1;
 }
-void rememberNetwork(const String &ssid, const String &pass) {
+void rememberNetwork(const String &ssid, const String &pass, const String &user) {
     Known k;
     const int i = knownIndex(ssid);
     if (i >= 0) {
@@ -1054,6 +1290,7 @@ void rememberNetwork(const String &ssid, const String &pass) {
     }
     k.ssid = ssid;
     k.pass = pass;
+    k.user = user;
     for (int j = min(knownCount, MAX_KNOWN - 1); j > 0; --j) known[j] = known[j - 1];
     known[0] = k;
     knownCount = min(knownCount + 1, MAX_KNOWN);
@@ -1073,13 +1310,37 @@ struct Net {
     int32_t rssi = -127, channel = 0;
     uint8_t bssid[6] = {0};
     bool secure = true;
+    bool enterprise = false;  // asks for a username and password (802.1X)
 };
 Net nets[MAX_NETS];
 int netCount = 0;
 uint32_t scannedAt = 0;
 
 void scanNetworks() {
-    const int16_t n = WiFi.scanNetworks(false, false, false, 300);
+    // While a join keeps failing, the WiFi library restarts it on every failure
+    // (auto-reconnect, plus one retry after each begin()), and each restart
+    // cancels a running scan, which then reports 0 networks rather than an
+    // error. The radio also refuses to start a scan mid-join (-2). So when not
+    // connected, pause auto-reconnect and stop the join for the scan;
+    // manageWifi() resumes joining afterwards.
+    const bool connected = WiFi.status() == WL_CONNECTED;
+    if (!connected) {
+        WiFi.setAutoReconnect(false);
+        WiFi.disconnect();
+        delay(300);
+    }
+    int16_t n = WiFi.scanNetworks(false, false, false, 300);
+    if (n <= 0 && !connected) {
+        // A failure event from the stopped join can still land mid-scan once.
+        Serial.printf("Scan found nothing (%d) while not connected; scanning again\n", n);
+        WiFi.disconnect();
+        delay(300);
+        n = WiFi.scanNetworks(false, false, false, 300);
+    }
+    if (!connected) {
+        WiFi.setAutoReconnect(true);
+        joinStarted = millis();
+    }
     netCount = 0;
     for (int i = 0; i < n; ++i) {
         const String ssid = WiFi.SSID(i);
@@ -1096,12 +1357,28 @@ void scanNetworks() {
         nets[j].channel = WiFi.channel(i);
         memcpy(nets[j].bssid, WiFi.BSSID(i), 6);
         nets[j].secure = WiFi.encryptionType(i) != WIFI_AUTH_OPEN;
+        nets[j].enterprise = WiFi.encryptionType(i) == WIFI_AUTH_WPA2_ENTERPRISE;
     }
     for (int a = 1; a < netCount; ++a)
         for (int b = a; b > 0 && nets[b].rssi > nets[b - 1].rssi; --b) std::swap(nets[b], nets[b - 1]);
     WiFi.scanDelete();
     scannedAt = millis();
-    Serial.printf("Scan: %d networks in range\n", netCount);
+    Serial.printf("Scan: %d networks in range (radio returned %d)\n", netCount, n);
+    for (int i = 0; i < netCount; ++i)
+        Serial.printf("  %-32s %4ld dBm  ch %2ld  %s\n", nets[i].ssid.c_str(), (long)nets[i].rssi, (long)nets[i].channel,
+                      nets[i].enterprise ? "enterprise" : nets[i].secure ? "password" : "open");
+}
+
+// Start joining a network. A username means WPA2-Enterprise with PEAP/MSCHAPv2
+// (what university and office networks use); otherwise a WPA/WPA2 password.
+// The server certificate is not checked: there is no CA for it on the panel.
+void beginJoin(const String &ssid, const String &user, const String &pass, int32_t channel = 0, const uint8_t *bssid = nullptr) {
+    if (user.length()) {
+        WiFi.begin(ssid.c_str(), WPA2_AUTH_PEAP, user.c_str(), user.c_str(), pass.c_str(), nullptr, nullptr, nullptr, channel, bssid);
+    } else {
+        esp_wifi_sta_wpa2_ent_disable();  // left on by an earlier enterprise join
+        WiFi.begin(ssid.c_str(), pass.c_str(), channel, bssid);
+    }
 }
 int netIndex(const String &ssid) {
     for (int i = 0; i < netCount; ++i)
@@ -1367,6 +1644,7 @@ const char *statusText() {
 }
 
 void drawStatus() {
+    ensureBackSynced();
     needPresent = true;
     screen.fillRect(0, 450, 800, 30, BG);
     label(PAD, 458, statusText(), 1, MUTED);
@@ -1588,6 +1866,7 @@ void filterDrill() {
 }
 
 void drawIdleBar() {
+    ensureBackSynced();
     needPresent = true;
     const uint32_t idle = drillIdleMs();
     const uint32_t left = idle - min<uint32_t>(idle, millis() - drill.touched);
@@ -1631,6 +1910,8 @@ int caseDetail(JsonObjectConst c, int x, int top, int w, bool draw, int bottom =
 }
 
 void drawDrill() {
+    ensureBackSynced();
+    fullFramePending=true;
     needPresent = true;
     aaRoundRect(OX, OY, OW, OH, 12, BORDER);
     aaRoundRect(OX + 1, OY + 1, OW - 2, OH - 2, 11, BG);
@@ -1784,7 +2065,7 @@ void drillTap(int x, int y) {
 }
 
 void connectStrongest();
-enum class KbFor { WifiPass, PortalUser, PortalPass };
+enum class KbFor { WifiPass, PortalUser, PortalPass, EapUser, EapPass };
 struct Keyboard {
     bool open = false;
     KbFor purpose = KbFor::WifiPass;
@@ -1793,10 +2074,10 @@ struct Keyboard {
     bool masked = true, reveal = false;
     int layer = 0;  // 0 letters, 1 numbers, 2 symbols
     int shift = 0;  // 0 off, 1 next letter, 2 caps lock
-    String ssid, portalUser;
+    String ssid, portalUser;  // portalUser also holds the enterprise username
 } kb;
 void openKeyboard(KbFor purpose, const String &ssid, const String &initial = "");
-void joinNetwork(const String &ssid, const String &pass);
+void joinNetwork(const String &ssid, const String &pass, const String &user = "");
 void busy(const char *message);
 int netPage = 0, netShown = 0;
 
@@ -1822,15 +2103,15 @@ uint32_t armedUntil = 0;
 enum Ctl {
     C_CLOSE = 1, C_TAB, C_BRIGHT, C_NIGHT, C_FROM_M, C_FROM_P, C_TO_M, C_TO_P, C_NIGHT_LVL, C_ORIENT,
     C_LANG, C_REFRESH, C_TOUCH, C_IDLE, C_RECONNECT, C_FIELD, C_SOUND, C_REBOOT, C_RESET, C_OTA,
-    C_NET, C_SCAN, C_FORGET, C_SIGNIN, C_NET_UP, C_NET_DOWN, C_CYCLE, C_CYCLE_SECS, C_CITY_OPEN, C_CITY_PICK, C_CITY_CLOSE
+    C_NET, C_SCAN, C_FORGET, C_SIGNIN, C_NET_UP, C_NET_DOWN, C_CYCLE, C_CYCLE_SECS, C_CITY_OPEN, C_CITY_PICK, C_CITY_CLOSE, C_BOARD_ENABLE, C_BOARD_DURATION, C_STARTUP, C_FRESH
 };
 int cityDrop = -1;  // World clock dropdown open for slot 0-2 (clocks) or 3 (air quality); -1 closed
 
 struct Control { Rect r; int id, aux; };
-Control ctls[40];
+Control ctls[64];
 int ctlCount = 0;
 void addCtl(Rect r, int id, int aux = 0) {
-    if (ctlCount < 40) ctls[ctlCount++] = {r, id, aux};
+    if (ctlCount < 64) ctls[ctlCount++] = {r, id, aux};
 }
 
 void setNote(const char *msg) {
@@ -1839,6 +2120,7 @@ void setNote(const char *msg) {
 }
 
 void saveSettings() {
+    readyPages=0; rebuildPages|=15; // layout, language, or navigation may have changed
     prefs.putUChar("bright", cfg.brightness);
     prefs.putBool("ndim", cfg.nightDim);
     prefs.putUShort("nfrom", cfg.nightFrom);
@@ -1847,6 +2129,8 @@ void saveSettings() {
     prefs.putBool("rot", cfg.rotated);
     prefs.putBool("cycle", cfg.rotate);
     prefs.putUShort("cycle_s", cfg.rotateSecs);
+    prefs.putUChar("boards",cfg.enabledBoards); prefs.putUChar("startup",cfg.startupBoard); prefs.putBool("fresh",cfg.freshnessAlerts);
+    for(int i=0;i<4;++i){char k[8];snprintf(k,sizeof(k),"dur%d",i);prefs.putUShort(k,cfg.boardDurations[i]);}
     for (int i = 0; i < 3; ++i) {
         char k[6];
         snprintf(k, sizeof(k), "clk%d", i);
@@ -1866,6 +2150,10 @@ void loadSettings() {
     cfg.rotated = prefs.getBool("rot", false);
     cfg.rotate = prefs.getBool("cycle", false);
     cfg.rotateSecs = constrain(static_cast<int>(prefs.getUShort("cycle_s", 30)), 15, 300);
+    cfg.enabledBoards=prefs.getUChar("boards",15)&15;if(!cfg.enabledBoards)cfg.enabledBoards=15;
+    cfg.startupBoard=prefs.getUChar("startup",0)%4; if(!boardEnabled(BOARDS[cfg.startupBoard])){for(int i=0;i<4;++i)if(boardEnabled(BOARDS[i])){cfg.startupBoard=i;break;}}
+    cfg.freshnessAlerts=prefs.getBool("fresh",true);for(int i=0;i<4;++i){char k[8];snprintf(k,sizeof(k),"dur%d",i);cfg.boardDurations[i]=constrain((int)prefs.getUShort(k,i==3?15:cfg.rotateSecs),15,300);}
+    current=defaultBoard(); deserializeJson(localAvailability,prefs.getString("r052","{}"));
     const int defaults[3] = {0, 2, 4};  // Chiang Mai, Tokyo, Taipei
     for (int i = 0; i < 3; ++i) {
         char k[6];
@@ -1882,11 +2170,11 @@ void loadSettings() {
 void chip(int x, int y) {
     pill(x, y, "DEVICE", MUTED, blend(TEXT, BG, 18), 14, 0);
 }
-void toggle(int right, int cy, bool on, int id, bool enabled = true) {
+void toggle(int right, int cy, bool on, int id, bool enabled = true, int aux = 0) {
     const Rect r = {right - 42, cy - 12, 42, 24};
     aaRoundRect(r.x, r.y, r.w, r.h, 12, on ? BRAND : blend(TEXT, BG, enabled ? 30 : 14));
     aaCircle(on ? r.x + r.w - 12 : r.x + 12, cy, 9, enabled ? TEXT : blend(TEXT, BG, 90));
-    addCtl(r, id);
+    if(enabled) addCtl(r, id, aux);
 }
 // Returns the left edge of what it drew.
 int segmented(int right, int cy, const char *const *labels, const int *values, int n, int current, int id) {
@@ -2011,6 +2299,8 @@ void tabIcon(int i, int x, int y, uint16_t c, uint16_t bg) {
 }
 
 void drawSettings() {
+    ensureBackSynced();
+    fullFramePending=true;
     needPresent = true;
     ctlCount = 0;
     aaRoundRect(OX, OY, OW, OH, 12, BORDER);
@@ -2036,15 +2326,16 @@ void drawSettings() {
     // Section ids keep their numbers (other code refers to them); World clock
     // is section 5 but sits second in the rail, as on the web.
     const char *tabs[] = {L("Display", "หน้าจอ"), L("Data", "ข้อมูล"), L("Network", "เครือข่าย"),
-                          L("Device", "อุปกรณ์"), L("About", "เกี่ยวกับ"), L("World clock", "นาฬิกาโลก")};
-    const int order[] = {0, 5, 1, 2, 3, 4};
-    for (int pos = 0; pos < 6; ++pos) {
+                          L("Device", "อุปกรณ์"), L("About", "เกี่ยวกับ"), L("World clock", "นาฬิกาโลก"), L("Dashboards", "แดชบอร์ด")};
+    const int order[] = {0, 6, 5, 1, 2, 3, 4};
+    for (int pos = 0; pos < 7; ++pos) {
         const int i = order[pos];
         const Rect r = {OX + 6, OY + 58 + pos * 40, RAIL_W - 12, 34};
         const bool on = i == section;
         if (on) aaRoundRect(r.x, r.y, r.w, r.h, 7, BRAND);
         const uint16_t fg = on ? TEXT : MUTED;
-        if (i == 5) iconClock(r.x + 10, r.y + 11, fg);
+        if (i == 6) iconDashboard(r.x + 10,r.y+11,fg);
+        else if (i == 5) iconClock(r.x + 10, r.y + 11, fg);
         else tabIcon(i, r.x + 10, r.y + 11, fg, on ? BRAND : BG);
         utext(r.x + 30, r.y + 9, tabs[i], fg, r.w - 34);
         addCtl(r, C_TAB, i);
@@ -2066,15 +2357,6 @@ void drawSettings() {
             cy = beginRow(L("Night brightness", "ความสว่างกลางคืน"));
             slider(CX1, cy, cfg.nightLevel, C_NIGHT_LVL);
         }
-        cy = beginRow(L("Rotate boards", "สลับหน้าจออัตโนมัติ"),
-                      L("Cycle the boards on the bottom row (Kaizen > Hotel > ...)", "วนแสดงแต่ละหน้าที่แถบด้านล่าง (Kaizen > โรงแรม > ...)"));
-        toggle(CX1, cy, cfg.rotate, C_CYCLE);
-        if (cfg.rotate) {
-            cy = beginRow(L("Time per board", "เวลาต่อหน้าจอ"), L("Pauses while a list or settings is open", "หยุดชั่วคราวขณะเปิดรายการหรือการตั้งค่า"));
-            const char *per[] = {"15s", "30s", "1m", "2m", "5m"};
-            const int perV[] = {15, 30, 60, 120, 300};
-            segmented(CX1, cy, per, perV, 5, cfg.rotateSecs, C_CYCLE_SECS);
-        }
         cy = beginRow(L("Orientation", "การหมุนจอ"), L("For upside-down mounting", "สำหรับการติดตั้งกลับหัว"), true);
         const char *orient[] = {L("Normal", "ปกติ"), "180°"};
         const int orientV[] = {0, 180};
@@ -2084,6 +2366,18 @@ void drawSettings() {
         const char *langs[] = {"English", "ไทย"};
         const int langV[] = {0, 1};
         segmented(CX1, cy, langs, langV, 2, thai ? 1 : 0, C_LANG);
+    } else if (section == 6) {
+        int cy=beginRow(L("Rotate boards","สลับหน้าจออัตโนมัติ")); toggle(CX1,cy,cfg.rotate,C_CYCLE);
+        cy=beginRow(L("Default dashboard","หน้าเริ่มต้น"));
+        const char *shorts[]={"Kaizen","Resort","Rooms","Clock"}; const int ids[]={0,1,2,3};
+        segmented(CX1,cy,shorts,ids,4,cfg.startupBoard,C_STARTUP);
+        for(int i=0;i<4;++i){
+            cy=beginRow(boardName(BOARDS[i])); bool enabled=boardEnabled(BOARDS[i]);
+            toggle(CX1-245,cy,enabled,C_BOARD_ENABLE,!enabled||enabledCount()>1,i);
+            const char *per[]={"15s","30s","1m","2m","5m"}; int nums[]={i*1000+15,i*1000+30,i*1000+60,i*1000+120,i*1000+300};
+            if(enabled)segmented(CX1,cy,per,nums,5,i*1000+cfg.boardDurations[i],C_BOARD_DURATION);
+        }
+        cy=beginRow(L("Report freshness alerts","แจ้งเตือนข้อมูลเก่า"));toggle(CX1,cy,cfg.freshnessAlerts,C_FRESH);
     } else if (section == 1) {
         int cy = beginRow(L("Refresh interval", "รอบดึงข้อมูล"), L("How often the board re-reads cases", "ความถี่ในการดึงเคสใหม่"));
         const char *ref[] = {"15s", "30s", "1m", "5m"};
@@ -2252,6 +2546,8 @@ void drawSettings() {
         readOnly(CX1, cy, "Wi-Fi 2.4 GHz (on-chip)");
         cy = beginRow(L("Firmware", "เฟิร์มแวร์"), nullptr, true);
         readOnly(CX1, cy, "nnr_esp - " __DATE__);
+        cy = beginRow(L("Earlier restarts", "การรีสตาร์ทก่อนหน้า"), L("Many brownout or power-on restarts: check the power supply", "brownout หรือ power-on หลายครั้ง: ตรวจสอบแหล่งจ่ายไฟ"), true);
+        readOnly(CX1, cy, bootSummary().c_str());
         cy = beginRow("PSRAM", nullptr, true);
         snprintf(v, sizeof(v), "%.0f MB (%.1f MB free)", ESP.getPsramSize() / 1048576.0f, ESP.getFreePsram() / 1048576.0f);
         readOnly(CX1, cy, v);
@@ -2296,6 +2592,7 @@ void setLanguage(bool th);
 int dragging = 0;
 Rect dragRect;
 void sliderDrag(int x) {
+    ensureBackSynced();
     needPresent = true;
     const int v = sliderValue(dragRect, x);
     int &target = dragging == C_BRIGHT ? cfg.brightness : cfg.nightLevel;
@@ -2337,7 +2634,8 @@ void settingsTap(int x, int y) {
             case C_NET: {
                 const String ssid = nets[c.aux].ssid;
                 const int k = knownIndex(ssid);
-                if (k >= 0) joinNetwork(ssid, known[k].pass);
+                if (k >= 0) joinNetwork(ssid, known[k].pass, known[k].user);
+                else if (nets[c.aux].enterprise) openKeyboard(KbFor::EapUser, ssid);
                 else if (!nets[c.aux].secure) joinNetwork(ssid, "");
                 else openKeyboard(KbFor::WifiPass, ssid);
                 return;
@@ -2388,6 +2686,10 @@ void settingsTap(int x, int y) {
                 break;
             }
             case C_CYCLE_SECS: cfg.rotateSecs = c.aux; break;
+            case C_BOARD_ENABLE: { auto b=BOARDS[c.aux]; if(boardEnabled(b)&&enabledCount()==1)break; cfg.enabledBoards^=1<<c.aux; if(!boardEnabled(defaultBoard()))for(int i=0;i<4;++i)if(boardEnabled(BOARDS[i])){cfg.startupBoard=i;break;} if(!boardEnabled(current))current=defaultBoard();break; }
+            case C_BOARD_DURATION: cfg.boardDurations[c.aux/1000]=c.aux%1000;break;
+            case C_STARTUP: if(boardEnabled(BOARDS[c.aux]))cfg.startupBoard=c.aux;else setNote("Enable this dashboard first");break;
+            case C_FRESH: cfg.freshnessAlerts=!cfg.freshnessAlerts;break;
             case C_RECONNECT:
                 setNote(L("Reconnecting...", "กำลังเชื่อมต่อใหม่..."));
                 drawSettings();
@@ -2404,7 +2706,8 @@ void settingsTap(int x, int y) {
                         wprefs.clear();  // remembered networks too; device_config.h seeds again
                     }
                     else saveSettings();
-                    screen.fillScreen(BG);
+                    fullFramePending = true;
+    screen.fillScreen(BG);
                     labelCenter(400, 236, L("Restarting...", "กำลังรีสตาร์ท..."), 2, TEXT);
                     present(false);
                     delay(300);
@@ -2439,16 +2742,19 @@ void keyCap(const Rect &r, const char *text, uint16_t bg, int size = 2) {
     labelCenter(r.x + r.w / 2, r.y + r.h / 2 - 4 * size, text, size, TEXT);
 }
 bool kbDoneEnabled() {
-    return kb.purpose == KbFor::WifiPass ? strlen(kb.text) >= 8 : true;  // WPA needs 8+
+    if (kb.purpose == KbFor::WifiPass) return strlen(kb.text) >= 8;  // WPA needs 8+
+    if (kb.purpose == KbFor::EapUser || kb.purpose == KbFor::EapPass) return kb.text[0] != 0;
+    return true;
 }
 const char *kbDoneLabel() {
-    return kb.purpose == KbFor::WifiPass ? L("Join", "เข้าร่วม")
-         : kb.purpose == KbFor::PortalUser ? L("Next", "ถัดไป") : L("Sign in", "ลงชื่อเข้าใช้");
+    return kb.purpose == KbFor::WifiPass || kb.purpose == KbFor::EapPass ? L("Join", "เข้าร่วม")
+         : kb.purpose == KbFor::PortalUser || kb.purpose == KbFor::EapUser ? L("Next", "ถัดไป") : L("Sign in", "ลงชื่อเข้าใช้");
 }
 
 void drawKeyboard() {
     needPresent = true;
     keyCount = 0;
+    fullFramePending = true;
     screen.fillScreen(BG);
     // top bar: Cancel | title | Join
     const Rect cancel = {PAD, 12, 110, 40};
@@ -2469,7 +2775,7 @@ void drawKeyboard() {
     const int fy = field.y + field.h / 2;
     int tx = field.x + 16;
     if (!kb.text[0]) {
-        label(tx + 10, fy - 8, kb.purpose == KbFor::PortalUser ? L("Username", "ชื่อผู้ใช้") : L("Password", "รหัสผ่าน"), 2, MUTED);
+        label(tx + 10, fy - 8, kb.purpose == KbFor::PortalUser || kb.purpose == KbFor::EapUser ? L("Username", "ชื่อผู้ใช้") : L("Password", "รหัสผ่าน"), 2, MUTED);
     } else if (kb.masked && !kb.reveal) {
         for (size_t i = 0; i < strlen(kb.text); ++i) aaCircle(tx + 5 + static_cast<int>(i) * 14, fy, 4, TEXT);
         tx += static_cast<int>(strlen(kb.text)) * 14;
@@ -2550,8 +2856,13 @@ void openKeyboard(KbFor purpose, const String &ssid, const String &initial) {
     kb.layer = 0;
     kb.shift = 0;
     kb.reveal = false;
-    kb.masked = purpose != KbFor::PortalUser;
-    if (purpose == KbFor::WifiPass)
+    kb.masked = purpose != KbFor::PortalUser && purpose != KbFor::EapUser;
+    if (purpose == KbFor::EapUser)
+        snprintf(kb.title, sizeof(kb.title), thai ? "ชื่อผู้ใช้สำหรับ \"%s\" (เช่น CMU IT Account)"
+                                                  : "Username for \"%s\" (e.g. your CMU IT Account)", ssid.c_str());
+    else if (purpose == KbFor::EapPass)
+        snprintf(kb.title, sizeof(kb.title), thai ? "รหัสผ่านสำหรับ \"%s\"" : "Password for \"%s\"", ssid.c_str());
+    else if (purpose == KbFor::WifiPass)
         snprintf(kb.title, sizeof(kb.title), thai ? "ป้อนรหัสผ่านของ \"%s\"" : "Enter the password for \"%s\"", ssid.c_str());
     else if (purpose == KbFor::PortalUser)
         snprintf(kb.title, sizeof(kb.title), thai ? "ชื่อผู้ใช้สำหรับหน้าลงชื่อเข้าใช้ของ \"%s\" (เว้นว่างได้)"
@@ -2565,6 +2876,8 @@ void openKeyboard(KbFor purpose, const String &ssid, const String &initial) {
 
 // A small modal card over the current frame, shown at once (before blocking work).
 void busy(const char *message) {
+    ensureBackSynced();
+    fullFramePending=true;
     needPresent = true;
     aaRoundRect(180, 196, 440, 88, 14, BORDER);
     aaRoundRect(181, 197, 438, 86, 13, CARD);
@@ -2573,7 +2886,7 @@ void busy(const char *message) {
     present(false);
 }
 
-void joinNetwork(const String &ssid, const String &pass) {
+void joinNetwork(const String &ssid, const String &pass, const String &user) {
     kb.open = false;
     char msg[200];
     snprintf(msg, sizeof(msg), thai ? "กำลังเชื่อมต่อ %s..." : "Joining %s...", ssid.c_str());
@@ -2582,16 +2895,18 @@ void joinNetwork(const String &ssid, const String &pass) {
     WiFi.disconnect();
     delay(200);
     const int n = netIndex(ssid);
-    if (n >= 0) WiFi.begin(ssid.c_str(), pass.c_str(), nets[n].channel, nets[n].bssid);
-    else WiFi.begin(ssid.c_str(), pass.c_str());
+    if (n >= 0) beginJoin(ssid, user, pass, nets[n].channel, nets[n].bssid);
+    else beginJoin(ssid, user, pass);
     WiFi.setTxPower(WIFI_POWER_19_5dBm);
     joinStarted = millis();
     const uint32_t t0 = millis();
-    while (WiFi.status() != WL_CONNECTED && millis() - t0 < 15000) delay(200);
+    // An enterprise sign-in (TLS handshake + RADIUS) takes longer than a password.
+    const uint32_t limit = user.length() ? 30000 : 15000;
+    while (WiFi.status() != WL_CONNECTED && millis() - t0 < limit) delay(200);
     const bool ok = WiFi.status() == WL_CONNECTED;
     Serial.printf("Join %s: %s\n", ssid.c_str(), ok ? "connected" : "failed");
     if (ok) {
-        rememberNetwork(ssid, pass);
+        rememberNetwork(ssid, pass, user);
         currentSsid = ssid;
         configTime(0, 0, "pool.ntp.org", "time.google.com", "time.cloudflare.com");
         checkInternet();
@@ -2599,7 +2914,10 @@ void joinNetwork(const String &ssid, const String &pass) {
         snprintf(msg, sizeof(msg), thai ? "เชื่อมต่อ %s แล้ว" : "Connected to %s", ssid.c_str());
         nextPoll = millis();  // fetch the data now
     } else {
-        snprintf(msg, sizeof(msg), thai ? "เชื่อมต่อ %s ไม่ได้ ตรวจสอบรหัสผ่าน" : "Couldn't join %s. Check the password.", ssid.c_str());
+        if (user.length())
+            snprintf(msg, sizeof(msg), thai ? "เชื่อมต่อ %s ไม่ได้ ตรวจสอบชื่อผู้ใช้และรหัสผ่าน" : "Couldn't join %s. Check the username and password.", ssid.c_str());
+        else
+            snprintf(msg, sizeof(msg), thai ? "เชื่อมต่อ %s ไม่ได้ ตรวจสอบรหัสผ่าน" : "Couldn't join %s. Check the password.", ssid.c_str());
         connectStrongest();  // back to a remembered network
     }
     memset(kb.text, 0, sizeof(kb.text));
@@ -2653,6 +2971,11 @@ void keyboardTap(int x, int y) {
                 if (!kbDoneEnabled()) return;
                 const String text = kb.text;
                 if (kb.purpose == KbFor::WifiPass) joinNetwork(kb.ssid, text);
+                else if (kb.purpose == KbFor::EapUser) {
+                    const String user = text;
+                    openKeyboard(KbFor::EapPass, kb.ssid);
+                    kb.portalUser = user;
+                } else if (kb.purpose == KbFor::EapPass) joinNetwork(kb.ssid, text, kb.portalUser);
                 else if (kb.purpose == KbFor::PortalUser) {
                     kb.portalUser = text;
                     const int kn = knownIndex(kb.ssid);
@@ -2970,12 +3293,34 @@ void drawClockBoard() {
 }
 
 // ── Screens and taps ─────────────────────────────────────────────────────────
+// R052 compact snapshot: types {id,name,capacity}, days {date,available:[...]}.
+void drawAvailability() {
+    JsonObjectConst r=roomReport(); JsonArrayConst types=r["types"].as<JsonArrayConst>(), days=r["days"].as<JsonArrayConst>();
+    const int left=PAD, top=65, width=800-2*PAD, gridY=104, labelW=148, stockW=39, colW=(width-labelW-stockW-12)/10;
+    card(left,top,width,34); label(left+9,top+7,L("Room type availability | 10 days","ห้องว่างตามประเภท 10 วัน"),2,TEXT);
+    const char *reportDate=r["reportDate"]|""; char asof[64];snprintf(asof,sizeof(asof),"%s %s",L("As of","ข้อมูล ณ วันที่"),reportDate);labelRight(left+width-10,top+12,asof,1,MUTED);
+    if(types.size()==0||days.size()==0){card(left,gridY,width,300);labelCenter(400,220,L("No room availability report uploaded","ยังไม่มีรายงานห้องว่าง"),2,MUTED);return;}
+    char today[11]=""; time_t now=time(nullptr);if(now>1700000000){now+=7*3600;struct tm t;gmtime_r(&now,&t);strftime(today,sizeof(today),"%Y-%m-%d",&t);}else copyText(today,sizeof(today),r["previewDate"]|reportDate);
+    int start=0;while(start<(int)days.size() && strcmp(days[start]["date"]|"",today)<0)++start;
+    const int rows=min(12,(int)types.size()); int rowH=min(31, (SWITCH_Y-gridY-42)/(rows+1));
+    card(left,gridY,width,SWITCH_Y-gridY-6);
+    label(left+8,gridY+9,L("ROOM TYPE","ประเภทห้อง"),1,MUTED);labelCenter(left+labelW+stockW/2,gridY+9,"STOCK",0,MUTED);
+    for(int d=0;d<10;++d){int cx=left+labelW+stockW+d*colW+colW/2;const char *date=days[start+d]["date"]|"";char small[12]="-";if(strlen(date)>=10){const char *months[]={"Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"};int m=atoi(date+5),day=atoi(date+8);if(m>=1&&m<=12)snprintf(small,sizeof(small),"%d %s",day,months[m-1]);}labelCenter(cx,gridY+9,small,0,d==0?BRAND:TEXT);}
+    for(int i=0;i<=rows;++i){int y=gridY+32+i*rowH;bool total=i==rows;const char *id=total?"":(types[i]["id"]|"");bool divider=total||i==2||i==4||i==6||i==7;if(divider)screen.drawFastHLine(left+5,y-2,width-10,total?MUTED:BORDER);
+        label(left+8,y+6,total?L("Total sellable","รวมพร้อมขาย"):(types[i]["name"]|id),1,total?TEXT:MUTED);int cap=0;if(total){for(int j=0;j<rows;++j)cap+=types[j]["capacity"]|0;}else cap=types[i]["capacity"]|0;char num[12];snprintf(num,sizeof(num),"%d",cap);labelCenter(left+labelW+stockW/2,y+6,num,1,MUTED);
+        for(int d=0;d<10;++d){JsonArrayConst a=days[start+d]["available"].as<JsonArrayConst>();bool valid=a.size()==types.size();int v=0;if(valid){if(total){for(int j=0;j<rows;++j)v+=a[j].as<int>();}else v=a[i].as<int>();}int x=left+labelW+stockW+d*colW;uint16_t c=!valid?MUTED:v<0?rgb(0xc084fc):v==0?C_CRITICAL:v<=2?C_PENDING:C_RESOLVED;aaRoundRect(x+2,y+1,colW-4,rowH-5,4,blend(c,CARD,42));if(valid)snprintf(num,sizeof(num),"%d",v);else strcpy(num,"-");labelCenter(x+colW/2,y+5,num,2,c);}
+    }
+    int age=reportAge(r["updatedAt"]|reportDate);const char *legend="3+ Available | 1-2 Limited | 0 Sold out | negative Overbooked";label(left+8,SWITCH_Y-19,legend,0,MUTED);if(cfg.freshnessAlerts&&age>=0)labelRight(800-PAD-8,SWITCH_Y-19,freshLabel(age),0,freshColor(age));
+}
+
 void drawDashboard() {
     needPresent = true;
+    fullFramePending = true;
     if (kb.open) {
         drawKeyboard();
         return;
     }
+    fullFramePending = true;
     screen.fillScreen(BG);
     drawHeader();
     if (current == Screen::Kaizen) {
@@ -2984,6 +3329,8 @@ void drawDashboard() {
         drawOverview();
         drawAttention();
         drawCategories();
+    } else if (current == Screen::Availability) {
+        drawAvailability();
     } else if (current == Screen::Clock) {
         drawClockBoard();
     } else {
@@ -2995,18 +3342,42 @@ void drawDashboard() {
     if (settingsOpen) drawSettings();
 }
 
+// Render an inactive dashboard into its dedicated PSRAM buffer. Never touch
+// a cache currently used by the LCD DMA. The caller must be outside overlays.
+bool buildPageCache(int idx,bool paced=true){
+    if(!pageCache[idx]||pageCache[idx]==front||settingsOpen||drill.open||kb.open||needPresent)return false;
+    const Screen old=current;uint16_t *oldFb=fb;
+    cachingPage=paced;current=BOARDS[idx];fb=pageCache[idx];screen.drawTo(fb);
+    drawDashboard();
+    for(int y=0;y<480;y+=8){Cache_WriteBack_Addr(reinterpret_cast<uint32_t>(fb+y*800),8*1600);delayMicroseconds(30);}
+    cachingPage=false;current=old;fb=oldFb;screen.drawTo(fb);needPresent=false;fullFramePending=false;anyDirty=false;memset(dirtyRow,0,sizeof(dirtyRow));
+    readyPages|=1<<idx;rebuildPages&=~(1<<idx);
+    Serial.printf("Cached dashboard %d\n",idx);return true;
+}
+void setupPageCaches(){
+    if(!swapNodes||!back||back==front)return;
+    for(int i=0;i<4;++i){pageCache[i]=static_cast<uint16_t*>(heap_caps_aligned_alloc(64,800UL*480UL*2,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT));if(!pageCache[i]){Serial.println("Page cache unavailable; using standard frame swaps");return;}}
+    needPresent=false;for(int i=0;i<4;++i)buildPageCache(i,false);
+    Serial.printf("Ready page cache mask %u\n",(unsigned)readyPages);
+}
+void refreshPageCaches(){
+    static uint32_t last=0;if(!rebuildPages||needPresent||settingsOpen||drill.open||kb.open||millis()-last<700)return;
+    for(int i=0;i<4;++i)if((rebuildPages&(1<<i))&&pageCache[i]!=front){if(buildPageCache(i,true))last=millis();break;}
+}
+
 // The boards on the bottom row, in switcher (and rotation) order. A board added
 // to the switcher goes here too and joins the rotation.
-constexpr Screen BOARDS[] = {Screen::Kaizen, Screen::Hotel, Screen::Clock};
-constexpr int BOARD_COUNT = sizeof(BOARDS) / sizeof(BOARDS[0]);
 uint32_t boardShownAt = 0;
 
 void showScreen(Screen next) {
+    if(!boardEnabled(next))return;
     boardShownAt = millis();
     if (next == current && !drill.open && !settingsOpen) return;
     drill.open = false;
     settingsOpen = false;
     current = next;
+    const int idx=static_cast<int>(next);
+    if((readyPages&(1<<idx))&&pageCache[idx]&&swapToFrame(pageCache[idx])){Serial.printf("Cached page switch %d\n",idx);return;}
     drawDashboard();
 }
 
@@ -3041,6 +3412,7 @@ void kaizenTap(int x, int y) {
 void setLanguage(bool th) {
     if (thai == th) return;
     thai = th;
+    readyPages=0; rebuildPages|=15;
     prefs.putBool("thai", thai);
     Serial.printf("Language: %s\n", thai ? "Thai" : "English");
     drawDashboard();
@@ -3062,12 +3434,9 @@ void handleTap(int x, int y) {
         return;
     }
     if (y >= SWITCH_Y && y < SWITCH_Y + SWITCH_H) {
-        const int slot = (x - PAD) / (SWITCH_W + GAP);
-        if (x < PAD || slot > 4 || (x - PAD) % (SWITCH_W + GAP) >= SWITCH_W) return;  // gap between buttons
-        if (slot == 0) showScreen(Screen::Kaizen);
-        else if (slot == 1) showScreen(Screen::Hotel);
-        else if (slot == 2) showScreen(Screen::Clock);
-        else if (slot == 4) openSettings();
+        const int w=switchWidth(), slot=(x-PAD)/(w+GAP);
+        if(x<PAD||slot>enabledCount()||(x-PAD)%(w+GAP)>=w)return;
+        if(slot==enabledCount())openSettings();else{int n=0;for(Screen b:BOARDS)if(boardEnabled(b)&&n++==slot){showScreen(b);break;}}
         return;
     }
     if (current == Screen::Kaizen) kaizenTap(x, y);
@@ -3105,7 +3474,7 @@ bool fetchDashboard() {
     JsonDocument filter;
     for (const Metric &metric : METRICS) filter[metric.key] = true;
     for (const char *key : {"title", "month", "resolutionRate", "avgResolution", "reopened",
-                            "monthly", "categories", "attentionItems", "hotel"}) {
+                            "monthly", "categories", "attentionItems", "hotel", "roomAvailability"}) {
         filter[key] = true;
     }
     JsonDocument data;
@@ -3140,14 +3509,14 @@ void connectStrongest() {
         if (k < 0) continue;
         currentSsid = nets[i].ssid;
         Serial.printf("Joining %s  ch %ld  %ld dBm\n", currentSsid.c_str(), (long)nets[i].channel, (long)nets[i].rssi);
-        WiFi.begin(currentSsid.c_str(), known[k].pass.c_str(), nets[i].channel, nets[i].bssid);
+        beginJoin(currentSsid, known[k].user, known[k].pass, nets[i].channel, nets[i].bssid);
         WiFi.setTxPower(WIFI_POWER_19_5dBm);
         return;
     }
     if (knownCount) {
         currentSsid = known[0].ssid;
         Serial.println("No remembered network in range; trying the most recent");
-        WiFi.begin(currentSsid.c_str(), known[0].pass.c_str());
+        beginJoin(currentSsid, known[0].user, known[0].pass);
     }
 }
 
@@ -3162,6 +3531,7 @@ void manageWifi() {
     if (connected) {
         lastConnected = millis();
         if (!wasConnected) {
+            bootStage(BS_WIFI_UP);
             // SNTP started before the network was up can sit in back-off for minutes.
             configTime(0, 0, "pool.ntp.org", "time.google.com", "time.cloudflare.com");
             if (millis() - inetCheckedAt > 20000 || inet == Inet::Unknown) checkInternet();
@@ -3185,26 +3555,41 @@ void manageWifi() {
     if (i >= 0 && k >= 0 && nets[i].rssi >= rssi + ROAM_MARGIN_DB && memcmp(nets[i].bssid, WiFi.BSSID(), 6) != 0) {
         Serial.printf("Roaming: %d dBm here, %ld dBm on ch %ld\n", rssi, (long)nets[i].rssi, (long)nets[i].channel);
         WiFi.disconnect();
-        WiFi.begin(currentSsid.c_str(), known[k].pass.c_str(), nets[i].channel, nets[i].bssid);
+        beginJoin(currentSsid, known[k].user, known[k].pass, nets[i].channel, nets[i].bssid);
         joinStarted = millis();
     }
 }
 
 // ── Arduino ──────────────────────────────────────────────────────────────────
+// LCD power-up fix: keep the lamp off, allow the board and LCD rail to settle,
+// initialize a black frame before the panel is lit, and stagger radio startup.
+// The RGB wiring is unchanged; the recovery trial uses 16 MHz.
+static bool lcdReady = false;
 void setup() {
+    pinMode(BACKLIGHT, OUTPUT);
+    digitalWrite(BACKLIGHT, LOW);
     Serial.begin(115200);
+    delay(750);
+    Serial.println("LCD startup: staged power and black-frame initialization");
+    bootLogStart();
+    bootLogPrint();
     prefs.begin("nnr_esp", false);
     loadSettings();
     thai = prefs.getBool("thai", false);
     ledcSetup(BL_CHANNEL, BL_FREQ_HZ, 8);
     ledcAttachPin(BACKLIGHT, BL_CHANNEL);
     ledcWrite(BL_CHANNEL, 0);
-    if (!screen.begin()) {
-        Serial.println("LCD initialization failed");
+    if (!screen.begin() || !screen.getFramebuffer()) {
+        Serial.println("LCD initialization failed; backlight held off; no invalid framebuffer access");
         return;
     }
+    lcdReady = true;
+    bootStage(BS_SCREEN);
     fb = front = screen.getFramebuffer();
-    back = static_cast<uint16_t *>(ps_malloc(800 * 480 * 2));
+    memset(front, 0, 800UL * 480UL * sizeof(uint16_t));
+    Cache_WriteBack_Addr(reinterpret_cast<uint32_t>(front), 800UL * 480UL * sizeof(uint16_t));
+    delay(150);  // send several black frames before drawing or enabling the lamp
+    back = static_cast<uint16_t *>(heap_caps_aligned_alloc(64,800UL*480UL*2,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT));
     if (back) {
         memcpy(back, front, 800 * 480 * 2);
         screen.drawTo(back);
@@ -3213,14 +3598,20 @@ void setup() {
         Serial.println("No PSRAM for the off-screen buffer; drawing directly");
         back = front;
     }
+    workA=front;workB=back;
     vsyncInit();
+    Serial.printf("VSYNC DMA swap: %s (%u descriptors)\n",back!=front&&swapNodes?"enabled":"fallback",(unsigned)swapNodes);
     wprefs.begin("wifi", false);
     loadKnown();
     touchBegin();
     applyRotation();
-    drawDashboard();
-    present(false);
-    applyBrightness();
+    setupPageCaches();
+    if(!(readyPages&(1<<static_cast<int>(current)))||!swapToFrame(pageCache[static_cast<int>(current)])){drawDashboard();present(false);}
+    for (int i = 0; i < 4; ++i) waitVsync();
+    // Light the panel gently at low duty during the initial Wi-Fi scan.
+    for (int duty = 0; duty <= 16; duty += 2) { ledcWrite(BL_CHANNEL, duty); delay(20); }
+    bootStage(BS_BACKLIGHT);
+    delay(350);
     // Wi-Fi starts even with no network remembered: one can be picked on the panel.
     const bool endpointSet = DISPLAY_TOKEN[0] && ROOT_CA[0] && strncmp(DISPLAY_URL, "https://", 8) == 0;
     if (!endpointSet) {
@@ -3238,14 +3629,55 @@ void setup() {
     WiFi.setScanMethod(WIFI_ALL_CHANNEL_SCAN);
     WiFi.setSortMethod(WIFI_CONNECT_AP_BY_SIGNAL);
     WiFi.setAutoReconnect(true);
+    // Say why a join failed (wrong password, no AP, enterprise sign-in refused...).
+    // Repeats of the same reason are not printed again.
+    WiFi.onEvent([](arduino_event_id_t, arduino_event_info_t info) {
+        static uint8_t last = 0;
+        const uint8_t reason = info.wifi_sta_disconnected.reason;
+        if (reason == last) return;
+        last = reason;
+        Serial.printf("Wi-Fi left %.*s: reason %u (%s)\n", (int)info.wifi_sta_disconnected.ssid_len,
+                      reinterpret_cast<const char *>(info.wifi_sta_disconnected.ssid), reason, WiFi.disconnectReasonName(static_cast<wifi_err_reason_t>(reason)));
+    }, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
+    bootStage(BS_WIFI_START);
     connectStrongest();
+    // Ramp to the configured duty after the radio has initialized; avoid two
+    // large current changes at once. Normal brightness control resumes in loop.
+    const int pct = nightNow() ? cfg.nightLevel : cfg.brightness;
+    const float f = constrain(pct, 10, 100) / 100.0f;
+    const int target = max(2, static_cast<int>(lroundf(255.0f * powf(f, 2.2f))));
+    for (int i = 1; i <= 20; ++i) { ledcWrite(BL_CHANNEL, 16 + (target - 16) * i / 20); delay(25); }
+    applyBrightness();
+    Serial.println("LCD startup complete: first frame, radio, and backlight ready");
+}
+
+void quietScanTest() {
+    WiFi.disconnect();
+    delay(300);
+    for (int i = 0; i < 2; ++i) { Serial.println("QUIET TEST normal:"); scanNetworks(); }
+    ledcWrite(BL_CHANNEL, 0);
+    delay(300);
+    for (int i = 0; i < 2; ++i) { Serial.println("QUIET TEST backlight off:"); scanNetworks(); }
+    // DE, VSYNC, HSYNC, PCLK and the 16 data lines: take them off the LCD
+    // peripheral and hold them low, so nothing toggles on the ribbon.
+    static const int RGB_PINS[] = {40, 41, 39, 42, 45, 48, 47, 21, 14, 5, 6, 7, 15, 16, 4, 8, 3, 46, 9, 1};
+    for (int pin : RGB_PINS) {
+        esp_rom_gpio_connect_out_signal(pin, SIG_GPIO_OUT_IDX, false, false);
+        gpio_set_direction(static_cast<gpio_num_t>(pin), GPIO_MODE_OUTPUT);
+        gpio_set_level(static_cast<gpio_num_t>(pin), 0);
+    }
+    delay(300);
+    for (int i = 0; i < 2; ++i) { Serial.println("QUIET TEST backlight off + LCD bus still:"); scanNetworks(); }
+    Serial.println("QUIET TEST done; restarting");
+    delay(200);
+    ESP.restart();
 }
 
 void serialCommand(int cmd) {
     if (cmd > ' ' && cmd != '@') Serial.printf("Command %c\n", cmd);
     // S = screenshot. For testing without touching the panel:
     // K / H = Kaizen / Hotel, T = settings (1-5 pick a tab, N toggles night dim),
-    // L = toggle language,
+    // L = toggle language, B = restart log, W = rescan Wi-Fi, R = recalibrate the radio,
     // D = open the Total drill-down, E = expand its first case, X = close it.
     if (cmd == '@') {  // "@x,y": a tap at x,y, for testing flows over serial
         int x, y;
@@ -3253,21 +3685,43 @@ void serialCommand(int cmd) {
         if (sscanf(s.c_str(), "%d,%d", &x, &y) == 2) handleTap(x, y);
         return;
     }
+    if (cmd == 'U') {
+        Serial.setTimeout(3000); String line=Serial.readStringUntil('\n'); Serial.setTimeout(1000);
+        JsonDocument d; bool ok=line.length()<3900 && !deserializeJson(d,line) && d["types"].is<JsonArray>() && d["days"].is<JsonArray>() && d["types"].size()>0 && d["types"].size()<=12 && d["days"].size()<=62;
+        if(ok){ for(JsonVariant day:d["days"].as<JsonArray>())if(day["available"].size()!=d["types"].size())ok=false; }
+        if(ok){ if(prefs.putString("r052",line)>0){localAvailability=std::move(d); rebuildPages|=1<<static_cast<int>(Screen::Availability); Serial.println("R052 saved");drawDashboard();}else Serial.println("R052 storage failed"); }else Serial.println("R052 invalid"); return;
+    }
     if (cmd == 'S') { present(false); dumpScreen(); }
     else if (cmd == 'K') showScreen(Screen::Kaizen);
+    else if (cmd == 'A') { lastTouch=millis();showScreen(Screen::Availability); }
     else if (cmd == 'H') { lastTouch = millis(); showScreen(Screen::Hotel); }
     else if (cmd == 'T') openSettings();
-    else if (cmd >= '1' && cmd <= '6' && settingsOpen) { section = cmd - '1'; cityDrop = -1; settingsTouched = millis(); drawSettings(); }
+    else if (cmd >= '1' && cmd <= '7' && settingsOpen) { section = cmd - '1'; cityDrop = -1; settingsTouched = millis(); drawSettings(); }
     else if (cmd == 'C') { lastTouch = millis(); showScreen(Screen::Clock); }
     else if (cmd == 'N' && settingsOpen) { cfg.nightDim = !cfg.nightDim; saveSettings(); applyBrightness(); drawSettings(); }
     else if (cmd == 'L') setLanguage(!thai);
     else if (cmd == 'D' && hasData) { showScreen(Screen::Kaizen); openDrill('s', "total", L(METRICS[0].en, METRICS[0].th), TEXT); }
     else if (cmd == 'E' && drill.open && drill.rows > 0) drillTap(drill.rowRect[0].x + 40, drill.rowRect[0].y + 10);
     else if (cmd == 'X' && drill.open) closeDrill();
+    else if (cmd == 'B') bootLogPrint();
+    else if (cmd == 'W') scanNetworks();
+    // Q = is the board drowning out its own radio? Scan normally, then with the
+    // backlight off, then with the RGB bus lines held still too, and restart.
+    // More networks once it is quiet = self-interference; no change = antenna.
+    else if (cmd == 'Q') quietScanTest();
+    // R = throw away the radio's stored calibration and restart, so it calibrates
+    // from scratch. Bad calibration data leaves the radio deaf: every scan finds 0.
+    else if (cmd == 'R') {
+        Serial.printf("Erasing RF calibration (%d); restarting\n", (int)esp_phy_erase_cal_data_in_nvs());
+        delay(200);
+        ESP.restart();
+    }
 }
 
 void loop() {
+    if (!lcdReady) { delay(1000); return; }
     if (Serial.available()) serialCommand(Serial.read());
+    bootLogTick();
     int tx, ty;
     const Touch ev = touchPoll(tx, ty);
     if (ev == Touch::Down) handleTap(tx, ty);
@@ -3281,15 +3735,14 @@ void loop() {
         // Rotation: the next board after its time, paused while a list,
         // settings or the keyboard is open; a tap restarts the countdown.
         const uint32_t since = millis() - max(boardShownAt, lastTouch);
-        if (!settingsOpen && !drill.open && !kb.open && BOARD_COUNT > 1 && since >= cfg.rotateSecs * 1000UL) {
+        if (!settingsOpen && !drill.open && !kb.open && enabledCount() > 1 && since >= cfg.boardDurations[static_cast<int>(current)] * 1000UL) {
             int i = 0;
             while (i < BOARD_COUNT && BOARDS[i] != current) ++i;
-            const Screen next = BOARDS[(i + 1) % BOARD_COUNT];
+            do { i=(i+1)%BOARD_COUNT; } while(!boardEnabled(BOARDS[i]));
+            const Screen next=BOARDS[i];
             Serial.printf("Rotate: %s\n", next == Screen::Hotel ? "Hotel" : next == Screen::Clock ? "World Clock" : "Kaizen");
             showScreen(next);
         }
-    } else if (current != Screen::Kaizen && !settingsOpen && millis() - lastTouch > IDLE_RETURN_MS) {
-        showScreen(Screen::Kaizen);  // without rotation, other boards time out back to Kaizen
     }
     if (WiFi.getMode() != WIFI_STA) {
         delay(20);
@@ -3309,6 +3762,7 @@ void loop() {
                           (long)WiFi.channel(), WiFi.BSSIDstr().c_str(),
                           success ? "ok" : !clockReady ? "waiting for clock" : "failed");
         }
+        if (success) bootStage(BS_DATA);
         status = success ? Status::Live : (connected && inet == Inet::Portal) ? Status::Portal
                  : hasData ? Status::Stale : !connected ? Status::NoWifi
                  : !clockReady ? Status::NoClock : Status::Unavailable;
@@ -3316,8 +3770,9 @@ void loop() {
         static Status shownStatus = Status::Connecting;
         const uint32_t h = hashDetails();
         if (!drill.open && !settingsOpen && (h != dataHash || status != shownStatus)) {
+            rebuildPages|=15;
             drawDashboard();
-            fadeNext = true;  // new numbers fade in rather than flash
+            fadeNext = false;  // instantaneous updates; avoid extra PSRAM traffic at 16 MHz
             dataHash = h;
             shownStatus = status;
         }
@@ -3325,17 +3780,19 @@ void loop() {
     }
     if ((!ambientAt || millis() - ambientAt > AMBIENT_MS) && WiFi.status() == WL_CONNECTED && time(nullptr) > 1700000000) {
         fetchAmbient();
+        rebuildPages|=1<<static_cast<int>(Screen::Clock);
         if (current == Screen::Clock && !drill.open && !settingsOpen && !kb.open) {
             drawDashboard();
-            fadeNext = true;
+            fadeNext = false;
         }
     }
     static int shownMinute = -1;  // the World Clock shows minutes: redraw when one passes
     const int minuteNow = static_cast<int>((time(nullptr) / 60) % 60);
+    static int cachedMinute=-1; if(minuteNow!=cachedMinute){cachedMinute=minuteNow;rebuildPages|=1<<static_cast<int>(Screen::Clock);}
     if (current == Screen::Clock && minuteNow != shownMinute && !drill.open && !settingsOpen && !kb.open) {
         shownMinute = minuteNow;
         drawDashboard();
-        fadeNext = true;
+        fadeNext = false;
     }
     static uint32_t lastTick = 0;
     if (settingsOpen) {
@@ -3350,5 +3807,6 @@ void loop() {
     }
     manageWifi();
     if (needPresent) present(fadeNext);
+    refreshPageCaches();
     delay(20);  // short, so taps feel immediate
 }

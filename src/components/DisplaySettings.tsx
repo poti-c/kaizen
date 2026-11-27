@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react'
-import { X, Monitor, RefreshCw, Wifi, Cpu, Info, Clock, ChevronRight } from 'lucide-react'
-import { PANEL as P, type PanelSettings } from '@/lib/panelTheme'
+import { X, Monitor, RefreshCw, Wifi, Cpu, Info, Clock, ChevronRight, LayoutDashboard, Lock, Check } from 'lucide-react'
+import { PANEL as P, BOARD_IDS, BOARD_LABELS, type PanelSettings, type BoardId } from '@/lib/panelTheme'
 import { cn } from '@/lib/utils'
 import { useCompany } from '@/contexts/CompanyContext'
 import { CITY_OPTIONS } from '@/lib/worldClock'
@@ -20,7 +20,7 @@ import { CITY_OPTIONS } from '@/lib/worldClock'
 // live — it really does drive this board.
 // ─────────────────────────────────────────────────────────────────────────────
 
-type SectionId = 'display' | 'clock' | 'data' | 'network' | 'device' | 'about'
+type SectionId = 'display' | 'dashboards' | 'clock' | 'data' | 'network' | 'device' | 'about'
 
 // Stand-in for what firmware would report over its own API. Fixed values, not
 // invented per-render, so the screen does not look like it is live when it is not.
@@ -37,6 +37,33 @@ const DEMO_DEVICE = {
   rssi: '−58 dBm',
   ip: '10.20.3.41',
   mac: 'A0:85:E3:1C:77:B2',
+}
+
+// The browser has no device radio. Keep this preview explicitly simulated and
+// do not request or store Wi-Fi credentials here.
+const DEMO_NETWORKS = [
+  { ssid: 'Demo Staff', rssi: -48, secure: true },
+  { ssid: 'Demo Lobby', rssi: -62, secure: true },
+  { ssid: 'Demo Guest', rssi: -71, secure: false },
+  { ssid: 'Demo Office', rssi: -83, secure: true },
+]
+function NetworkPreview({ th }: { th: boolean }) {
+  const [connected, setConnected] = useState<string | null>('Demo Staff')
+  const [saved, setSaved] = useState(['Demo Staff', 'Demo Lobby'])
+  const [scanning, setScanning] = useState(false)
+  const [selected, setSelected] = useState<string | null>(null)
+  const [message, setMessage] = useState('')
+  const scan = () => { setScanning(true); setSelected(null); setMessage(''); window.setTimeout(() => { setScanning(false); setMessage(th ? 'สแกนจำลองเสร็จแล้ว' : 'Simulated scan complete') }, 450) }
+  const current = DEMO_NETWORKS.find(n => n.ssid === connected)
+  function join(ssid: string) { setConnected(ssid); setSaved(v => v.includes(ssid) ? v : [...v, ssid]); setSelected(null); setMessage(th ? 'เชื่อมต่อจำลองแล้ว' : 'Simulated connection established') }
+  return <div className="py-2 space-y-3">
+    <div className="flex items-center justify-between"><div><h3 className="text-[16px] font-semibold">{th ? 'เครือข่ายไร้สาย' : 'Wi-Fi networks'}</h3><p className="text-[11px]" style={{color:P.muted}}>{th ? 'ตัวอย่างเท่านั้น — สแกนจริงบน ESP32' : 'Preview only · real scanning runs on the ESP32'}</p></div><span className="text-[10px] font-semibold px-2 py-1 rounded" style={{color:P.pending,background:'rgba(245,158,11,.14)'}}>SIMULATED</span></div>
+    <div className="rounded-xl px-3 py-2.5 flex items-center gap-3" style={{background:P.card,border:`1px solid ${P.border}`}}><Wifi className="h-5 w-5" style={{color:connected?P.resolved:P.muted}}/><div className="flex-1"><div className="text-[13px] font-semibold">{connected??(th?'ไม่ได้เชื่อมต่อ':'Not connected')}</div><div className="text-[11px]" style={{color:P.muted}}>{connected?`${th?'เชื่อมต่อ (จำลอง)':'Connected (simulated)'} · ${current?.rssi??'—'} dBm · 2.4 GHz`:'Select a network below'}</div></div>{connected&&<ActionButton label={th?'ลืม':'Forget'} onClick={()=>{setSaved(v=>v.filter(x=>x!==connected));setConnected(null);setMessage(th?'ลืมเครือข่ายจำลองแล้ว':'Simulated network forgotten')}}/>}</div>
+    <div className="flex items-center justify-between"><span className="text-[12px] font-semibold" style={{color:P.muted}}>{th?'เครือข่ายที่พบ':'AVAILABLE NETWORKS'} · {DEMO_NETWORKS.length}</span><button disabled={scanning} onClick={scan} className="rounded-lg px-3 py-2 flex items-center gap-2 text-[12px] font-semibold disabled:opacity-60" style={{background:'var(--brand-primary, #0891b2)',color:'#fff'}}><RefreshCw className="h-4 w-4"/>{scanning?(th?'กำลังสแกน…':'Scanning…'):(th?'สแกน':'Scan again')}</button></div>
+    <div className="rounded-xl overflow-hidden" style={{background:P.card,border:`1px solid ${P.border}`}}>{DEMO_NETWORKS.map(n=>{const strength=n.rssi>=-55?4:n.rssi>=-67?3:n.rssi>=-78?2:1;return <button key={n.ssid} disabled={scanning} onClick={()=>n.ssid===connected?setSelected(null):setSelected(n.ssid)} className="w-full flex items-center gap-3 px-3 py-2.5 text-left" style={{borderBottom:`1px solid ${P.border}`,background:selected===n.ssid?'rgba(8,145,178,.18)':undefined}}><div className="flex items-end gap-[2px] h-4 w-6" aria-label={`${strength} of 4 signal bars`}>{[1,2,3,4].map(i=><span key={i} className="w-[4px] rounded-sm" style={{height:4*i,background:i<=strength?(strength<=1?P.critical:strength===2?P.pending:P.resolved):'rgba(255,255,255,.12)'}}/>)}</div><span className="flex-1 text-[13px] font-medium">{n.ssid}</span>{n.secure&&<Lock className="h-3.5 w-3.5" style={{color:P.muted}}/>}{saved.includes(n.ssid)&&<span className="text-[11px]" style={{color:P.muted}}>{th?'บันทึกแล้ว':'Saved'}</span>}<span className="text-[11px] tabular-nums w-16 text-right" style={{color:P.muted}}>{n.rssi} dBm</span>{connected===n.ssid?<Check className="h-4 w-4" style={{color:P.resolved}}/>:<ChevronRight className="h-4 w-4" style={{color:P.muted}}/>}</button>})}</div>
+    {selected&&<div className="rounded-lg p-3 flex items-center justify-between gap-3" style={{background:P.card,border:`1px solid ${P.border}`}}><div><div className="text-[13px] font-semibold">{selected}</div><p className="text-[11px]" style={{color:P.muted}}>{th?'ไม่ต้องใช้รหัสผ่านจริงในตัวอย่าง':'Demo connection only — no real password required.'}</p></div><div className="flex gap-2"><ActionButton label={th?'ยกเลิก':'Cancel'} onClick={()=>setSelected(null)}/><button className="rounded-lg px-3 py-2 text-[12px] font-semibold" style={{background:'#0891b2',color:'#fff'}} onClick={()=>join(selected)}>{th?'เชื่อมต่อจำลอง':'Connect (demo)'}</button></div></div>}
+    {message&&<div role="status" className="text-[11px]" style={{color:P.resolved}}>{message}</div>}
+  </div>
 }
 
 function Chip({ children }: { children: ReactNode }) {
@@ -71,10 +98,10 @@ function Toggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => void 
       onClick={() => onChange(!on)}
       role="switch"
       aria-checked={on}
-      className="rounded-full transition-colors flex items-center flex-shrink-0"
+      className="rounded-full flex items-center flex-shrink-0"
       style={{ width: 52, height: 30, padding: 3, background: on ? 'var(--brand-primary, #0891b2)' : 'rgba(255,255,255,0.12)' }}
     >
-      <span className="rounded-full bg-white transition-transform"
+      <span className="rounded-full bg-white"
             style={{ width: 24, height: 24, transform: on ? 'translateX(22px)' : 'translateX(0)' }} />
     </button>
   )
@@ -89,7 +116,7 @@ function Segmented<T extends string | number>({ value, options, onChange }: {
         <button
           key={String(o.value)}
           onClick={() => onChange(o.value)}
-          className={cn('text-[12px] font-medium transition-colors', value === o.value && 'font-semibold')}
+          className={cn('text-[12px] font-medium', value === o.value && 'font-semibold')}
           style={{
             minWidth: 56, height: 34, padding: '0 10px',
             background: value === o.value ? 'var(--brand-primary, #0891b2)' : 'transparent',
@@ -153,7 +180,7 @@ function CityButton({ value, onOpen, th }: { value: string; onOpen: () => void; 
   return (
     <button
       onClick={onOpen}
-      className="rounded-lg px-3 text-[13px] flex items-center justify-between gap-2 active:brightness-150 transition"
+      className="rounded-lg px-3 text-[13px] flex items-center justify-between gap-2 active:brightness-150"
       style={{ width: 240, height: 40, background: 'rgba(255,255,255,0.06)', border: `1px solid ${P.border}`, color: P.text }}
     >
       <span className="truncate">
@@ -184,7 +211,7 @@ function CityPicker({ title, value, onPick, onClose, th }: {
              style={{ borderBottom: `1px solid ${P.border}` }}>
           <span className="text-[15px] font-bold">{title}</span>
           <button onClick={onClose} aria-label={th ? 'ปิด' : 'Close'}
-                  className="w-10 h-10 rounded-lg flex items-center justify-center active:brightness-150 transition"
+                  className="w-10 h-10 rounded-lg flex items-center justify-center active:brightness-150"
                   style={{ background: 'rgba(255,255,255,0.07)' }}>
             <X className="h-5 w-5" />
           </button>
@@ -200,7 +227,7 @@ function CityPicker({ title, value, onPick, onClose, th }: {
                   const on = c.key === value
                   return (
                     <button key={c.key} onClick={() => { onPick(c.key); onClose() }}
-                            className="rounded-lg px-3 text-[13px] text-left active:brightness-150 transition"
+                            className="rounded-lg px-3 text-[13px] text-left active:brightness-150"
                             style={{
                               height: 44,
                               background: on ? 'var(--brand-primary, #0891b2)' : 'rgba(255,255,255,0.06)',
@@ -227,7 +254,7 @@ function ActionButton({ label, tone = 'normal', onClick }: {
   return (
     <button
       onClick={onClick}
-      className="rounded-lg px-4 text-[12px] font-semibold active:brightness-150 transition"
+      className="rounded-lg px-4 text-[12px] font-semibold active:brightness-150"
       style={{
         height: 36,
         background: danger ? 'rgba(239,68,68,0.14)' : 'rgba(255,255,255,0.08)',
@@ -268,6 +295,7 @@ export function DisplaySettings({ settings, onChange, onClose, lang, onActivity 
 
   const sections: { id: SectionId; label: string; icon: typeof Monitor }[] = [
     { id: 'display', label: th ? 'หน้าจอ' : 'Display',  icon: Monitor },
+    { id: 'dashboards', label: th ? 'แดชบอร์ด' : 'Dashboards', icon: LayoutDashboard },
     { id: 'clock',   label: th ? 'นาฬิกาโลก' : 'World clock', icon: Clock },
     { id: 'data',    label: th ? 'ข้อมูล' : 'Data',      icon: RefreshCw },
     { id: 'network', label: th ? 'เครือข่าย' : 'Network', icon: Wifi },
@@ -294,7 +322,7 @@ export function DisplaySettings({ settings, onChange, onClose, lang, onActivity 
           <button
             onClick={onClose}
             aria-label={th ? 'ปิด' : 'Close'}
-            className="w-10 h-10 rounded-lg flex items-center justify-center active:brightness-150 transition"
+            className="w-10 h-10 rounded-lg flex items-center justify-center active:brightness-150"
             style={{ background: 'rgba(255,255,255,0.07)' }}
           >
             <X className="h-5 w-5" />
@@ -312,7 +340,7 @@ export function DisplaySettings({ settings, onChange, onClose, lang, onActivity 
               <button
                 key={s.id}
                 onClick={() => setSection(s.id)}
-                className="w-full flex items-center gap-2.5 px-3 rounded-lg text-left transition active:brightness-150"
+                className="w-full flex items-center gap-2.5 px-3 rounded-lg text-left active:brightness-150"
                 style={{
                   height: 44,
                   background: active ? 'var(--brand-primary, #0891b2)' : 'transparent',
@@ -354,27 +382,6 @@ export function DisplaySettings({ settings, onChange, onClose, lang, onActivity 
                   </Row>
                 </>
               )}
-              <Row label={th ? 'สลับหน้าจออัตโนมัติ' : 'Rotate boards'}
-                   hint={th ? 'วนแสดงแต่ละหน้าที่แถบด้านล่าง (Kaizen → โรงแรม → …)'
-                            : 'Cycle the boards on the bottom row (Kaizen → Hotel → …)'}>
-                <Toggle on={settings.rotate} onChange={v => set('rotate', v)} />
-              </Row>
-              {settings.rotate && (
-                <Row label={th ? 'เวลาต่อหน้าจอ' : 'Time per board'}
-                     hint={th ? 'หยุดชั่วคราวขณะเปิดรายการหรือการตั้งค่า' : 'Pauses while a list or settings is open'}>
-                  <Segmented
-                    value={settings.rotateSecs}
-                    options={[
-                      { value: 15,  label: '15s' },
-                      { value: 30,  label: '30s' },
-                      { value: 60,  label: '1m' },
-                      { value: 120, label: '2m' },
-                      { value: 300, label: '5m' },
-                    ]}
-                    onChange={v => set('rotateSecs', v as number)}
-                  />
-                </Row>
-              )}
               <Row label={th ? 'การหมุนจอ' : 'Orientation'} device
                    hint={th ? 'สำหรับการติดตั้งกลับหัว' : 'For upside-down mounting'}>
                 <Segmented
@@ -383,6 +390,30 @@ export function DisplaySettings({ settings, onChange, onClose, lang, onActivity 
                   onChange={v => set('orientation', v as 0 | 180)}
                 />
               </Row>
+            </>
+          )}
+
+          {section === 'dashboards' && (
+            <>
+              <Row label={th ? 'สลับหน้าจออัตโนมัติ' : 'Rotate boards'} hint={th ? 'หยุดระหว่างเปิดการตั้งค่า' : 'Pause rotation while settings or a detail view is open'}>
+                <Toggle on={settings.rotate} onChange={v => set('rotate', v)} />
+              </Row>
+              <Row label={th ? 'หน้าเริ่มต้น' : 'Default dashboard'} hint={th ? 'หน้าแรกเมื่อเปิดจอ' : 'First page when the display starts'}>
+                <select aria-label="Default dashboard" value={settings.startupBoard} onChange={e=>set('startupBoard',e.target.value as BoardId)} className="rounded-lg px-3 py-2 text-[13px]" style={{background:P.card,color:P.text,border:`1px solid ${P.border}`}}>
+                  {BOARD_IDS.filter(id=>settings.enabledBoards.includes(id)).map(id=><option key={id} value={id}>{BOARD_LABELS[id]}</option>)}
+                </select>
+              </Row>
+              <div className="grid grid-cols-[1fr_70px_135px] gap-3 items-center py-2 text-[11px] font-semibold uppercase" style={{color:P.muted}}><span>Dashboard</span><span className="text-center">Enabled</span><span className="text-center">Rotation time</span></div>
+              {BOARD_IDS.map(id=>{
+                const enabled=settings.enabledBoards.includes(id)
+                return <div key={id} className="grid grid-cols-[1fr_70px_135px] gap-3 items-center py-2" style={{borderBottom:`1px solid ${P.border}`}}>
+                  <span className="text-[13px] font-medium">{BOARD_LABELS[id]}</span>
+                  <div className="flex justify-center"><button role="switch" aria-label={`Enable ${BOARD_LABELS[id]}`} aria-checked={enabled} disabled={enabled&&settings.enabledBoards.length===1} onClick={()=>{const boards=enabled?settings.enabledBoards.filter(x=>x!==id):BOARD_IDS.filter(x=>x===id||settings.enabledBoards.includes(x));onChange({...settings,enabledBoards:boards,startupBoard:boards.includes(settings.startupBoard)?settings.startupBoard:boards[0]})}} className="rounded-full flex items-center disabled:opacity-50" style={{width:52,height:30,padding:3,background:enabled?'var(--brand-primary, #0891b2)':'rgba(255,255,255,.12)'}}><span className="rounded-full bg-white" style={{width:24,height:24,transform:enabled?'translateX(22px)':'translateX(0)'}}/></button></div>
+                  <select aria-label={`${BOARD_LABELS[id]} rotation time`} disabled={!enabled} value={settings.boardDurations[id]} onChange={e=>set('boardDurations',{...settings.boardDurations,[id]:Number(e.target.value)})} className="rounded-lg px-2 py-2 text-[12px] disabled:opacity-40" style={{background:P.card,color:P.text,border:`1px solid ${P.border}`}}>{[...new Set([15,30,60,120,300,settings.boardDurations[id]])].sort((a,b)=>a-b).map(n=><option key={n} value={n}>{n<60?`${n} sec`:`${n/60} min`}</option>)}</select>
+                </div>
+              })}
+              <Row label={th ? 'แจ้งเตือนข้อมูลเก่า' : 'Report freshness alerts'} hint={th?'เตือนเมื่อรายงานเก่า 1 วันหรือมากกว่า':'Warn when a resort or availability report is 1+ days old'}><Toggle on={settings.freshnessAlerts} onChange={v=>set('freshnessAlerts',v)} /></Row>
+              <p className="text-[11px] mt-2" style={{color:P.muted}}>{th?'ต้องเปิดอย่างน้อยหนึ่งหน้า':'At least one dashboard must stay enabled. Settings are saved on this device.'}</p>
             </>
           )}
 
@@ -446,22 +477,7 @@ export function DisplaySettings({ settings, onChange, onClose, lang, onActivity 
             </>
           )}
 
-          {section === 'network' && (
-            <>
-              <Row label={th ? 'การเชื่อมต่อ' : 'Connection'} device
-                   hint={th ? 'Wi-Fi ทำงานผ่าน ESP32-C6' : 'Wi-Fi runs on the companion ESP32-C6'}>
-                <ReadOnly>Wi-Fi · {DEMO_DEVICE.ssid}</ReadOnly>
-              </Row>
-              <Row label={th ? 'ความแรงสัญญาณ' : 'Signal'} device><ReadOnly>{DEMO_DEVICE.rssi}</ReadOnly></Row>
-              <Row label="IP" device><ReadOnly>{DEMO_DEVICE.ip}</ReadOnly></Row>
-              <Row label="MAC" device><ReadOnly>{DEMO_DEVICE.mac}</ReadOnly></Row>
-              <Row label={th ? 'เชื่อมต่อใหม่' : 'Reconnect'} device
-                   hint={th ? 'รีสตาร์ทการเชื่อมต่อเครือข่าย' : 'Restart the network link'}>
-                <ActionButton label={th ? 'เชื่อมต่อใหม่' : 'Reconnect'}
-                              onClick={() => demoAction(th ? 'เดโม — ไม่มีการเชื่อมต่อจริง' : 'Demo — no radio to restart')} />
-              </Row>
-            </>
-          )}
+          {section === 'network' && <NetworkPreview th={th} />}
 
           {section === 'device' && (
             <>

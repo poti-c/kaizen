@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Navigate, useSearchParams } from 'react-router-dom'
-import { AlertTriangle, ChevronDown, Clock, Hotel, LayoutDashboard, Settings, X } from 'lucide-react'
+import { AlertTriangle, BedDouble, ChevronDown, Clock, Hotel, LayoutDashboard, Settings, X } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Cell, PieChart, Pie } from 'recharts'
 import { differenceInHours } from 'date-fns'
 import { supabase } from '@/lib/supabase'
@@ -12,9 +12,10 @@ import { deptLabel } from '@/types'
 import { DisplaySettings } from '@/components/DisplaySettings'
 import { Panel } from '@/components/PanelCard'
 import { HotelBoard } from '@/components/HotelBoard'
+import { RoomAvailabilityBoard } from '@/components/RoomAvailabilityBoard'
 import { WorldClockBoard } from '@/components/WorldClockBoard'
 import {
-  PANEL, inWindow, loadPanelSettings, savePanelSettings,
+  PANEL, BOARD_IDS, reportFreshness, inWindow, loadPanelSettings, savePanelSettings,
   type PanelSettings,
 } from '@/lib/panelTheme'
 import type { KaizenCase, Department } from '@/types'
@@ -41,7 +42,7 @@ const MONTH_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct'
 
 // The boards on the bottom row, in switcher (and rotation) order. A board added
 // here appears in the switcher and joins the rotation.
-const BOARDS = ['kaizen', 'hotel', 'clock'] as const
+const BOARDS = BOARD_IDS
 type Board = typeof BOARDS[number]
 
 const C = PANEL
@@ -89,7 +90,10 @@ export function DisplayPage() {
   const [panel, setPanelState] = useState<PanelSettings>(() => loadPanelSettings())
   function setPanel(next: PanelSettings) { setPanelState(next); savePanelSettings(next) }
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [board, setBoard] = useState<Board>('kaizen')
+  const [board, setBoard] = useState<Board>(() => panel.startupBoard)
+  const activeBoards = useMemo(() => BOARDS.filter(id => panel.enabledBoards.includes(id)), [panel.enabledBoards])
+  useEffect(() => { if (!activeBoards.includes(board)) setBoard(panel.startupBoard) }, [activeBoards, board, panel.startupBoard])
+  const [hotelDataDate, setHotelDataDate] = useState<string | null>(null)
   // id → full_name, so the drill-down can name the people on a case.
   // kaizen_cases stores PICs as profile ids (person_in_charge is just pic_ids[0]),
   // and a wall board showing a UUID is worse than showing nothing.
@@ -328,8 +332,8 @@ export function DisplayPage() {
   const rotateMs = useMemo(() => {
     const raw = Number(params.get('rotate'))
     if (Number.isFinite(raw) && raw > 0) return Math.min(300, Math.max(15, raw)) * 1000
-    return panel.rotate ? Math.min(300, Math.max(15, panel.rotateSecs)) * 1000 : 0
-  }, [params, panel.rotate, panel.rotateSecs])
+    return panel.rotate ? Math.min(300, Math.max(15, panel.boardDurations[board])) * 1000 : 0
+  }, [params, panel.rotate, panel.boardDurations, board])
 
   const drillCases = useMemo(() => {
     if (!drill) return []
@@ -385,14 +389,15 @@ export function DisplayPage() {
   useEffect(() => () => { if (settingsIdle.current) window.clearTimeout(settingsIdle.current) }, [])
 
   useEffect(() => {
-    if (!rotateMs || drill || settingsOpen || BOARDS.length < 2) return
+    if (!rotateMs || drill || settingsOpen || activeBoards.length < 2) return
     const id = window.setTimeout(
-      () => setBoard(b => BOARDS[(BOARDS.indexOf(b) + 1) % BOARDS.length]),
+      () => setBoard(b => activeBoards[(activeBoards.indexOf(b) + 1) % activeBoards.length]),
       rotateMs,
     )
     return () => window.clearTimeout(id)
-  }, [rotateMs, board, drill, settingsOpen])
+  }, [rotateMs, board, drill, settingsOpen, activeBoards])
 
+  const hotelFresh = hotelDataDate ? reportFreshness(hotelDataDate, now) : null
   const clock = bkkParts(now)
   const stale = fetchedAt ? (now.getTime() - fetchedAt.getTime()) > refreshMs * 3 : false
   // Backlight: a PWM duty on hardware, a filter here — it dims what the viewer
@@ -462,17 +467,27 @@ export function DisplayPage() {
                 ? <>{MONTH_SHORT[bkkM - 1]} {bkkY} · {t.dashboard.avgResolution} {avgResolution ?? '—'} · {t.dashboard.resolutionRate} {resolutionRate}%</>
                 : board === 'hotel'
                   ? <>{MONTH_SHORT[bkkM - 1]} {bkkY} · {lang === 'th' ? 'ผลประกอบการโรงแรม' : 'Hotel performance'}</>
-                  : <>{MONTH_SHORT[bkkM - 1]} {bkkY} · {lang === 'th' ? 'นาฬิกาโลก สภาพอากาศ และคุณภาพอากาศ' : 'World clock, weather and air quality'}</>}
+                  : board === 'availability'
+                    ? <>{lang === 'th' ? 'ห้องว่างตามประเภท' : 'Room availability'} · 10 {lang === 'th' ? 'วัน' : 'days'}</>
+                    : <>{MONTH_SHORT[bkkM - 1]} {bkkY} · {lang === 'th' ? 'นาฬิกาโลก สภาพอากาศ และคุณภาพอากาศ' : 'World clock, weather and air quality'}</>}
             </div>
           </div>
+          {board === 'hotel' && hotelDataDate && (
+            <div className="flex-1 ml-8 text-[16px] font-semibold tabular-nums" style={{ color: C.muted }}>
+              {lang === 'th' ? 'ข้อมูล ณ วันที่ ' : 'As of '}
+              {new Intl.DateTimeFormat(lang === 'th' ? 'th-TH' : 'en-US', {
+                timeZone: 'Asia/Bangkok', month: 'short', day: 'numeric', year: 'numeric',
+              }).format(new Date(hotelDataDate))}
+              {panel.freshnessAlerts && hotelFresh && <span className="ml-3 text-[11px] font-semibold" style={{color:hotelFresh.color}}>{lang==='th'?hotelFresh.th:hotelFresh.label}</span>}
+            </div>
+          )}
           <div className="text-right flex-shrink-0 ml-4">
             <div className="text-[30px] font-bold leading-none tabular-nums">{clock.time}</div>
             <div className="text-[11px] mt-1" style={{ color: C.muted }}>{clock.date}</div>
           </div>
         </div>
 
-        <style>{`@keyframes kzn-board-in { from { opacity: 0 } to { opacity: 1 } }`}</style>
-        <div key={board} className="flex flex-col flex-1 min-h-0" style={{ animation: 'kzn-board-in 350ms ease-out' }}>
+        <div key={board} className="flex flex-col flex-1 min-h-0">
         {board === 'kaizen' ? (
           <>
         {/* ── KPI row ──────────────────────────────────────────────────────── */}
@@ -493,7 +508,7 @@ export function DisplayPage() {
                 key={k.key}
                 disabled={!live}
                 onClick={() => openDrill({ kind: 'status', key: k.key, label: k.label, color: k.color })}
-                className={cn('rounded-xl px-3 flex flex-col justify-center min-w-0 text-left transition',
+                className={cn('rounded-xl px-3 flex flex-col justify-center min-w-0 text-left',
                   live && 'active:brightness-150')}
                 style={{ background: C.card, border: `1px solid ${C.border}` }}
               >
@@ -590,7 +605,7 @@ export function DisplayPage() {
                         label: lang === 'th' ? 'ต้องดำเนินการ' : 'Needs Attention' },
                       c.id,
                     )}
-                    className={cn('w-full flex items-center gap-2 rounded-md px-2 text-left transition',
+                    className={cn('w-full flex items-center gap-2 rounded-md px-2 text-left',
                       touchEnabled && 'active:brightness-150')}
                     style={{ height: 26, background: 'rgba(255,255,255,0.03)' }}>
                     <span className="w-1.5 h-1.5 rounded-full flex-shrink-0"
@@ -625,7 +640,7 @@ export function DisplayPage() {
                     key={r.slug}
                     disabled={!touchEnabled}
                     onClick={() => openDrill({ kind: 'category', key: r.slug, label: r.label, color: r.color })}
-                    className={cn('w-full flex items-center gap-2 transition',
+                    className={cn('w-full flex items-center gap-2',
                       touchEnabled && 'active:brightness-150')}
                   >
                     <span className="text-[11px] truncate text-left" style={{ width: 118, color: C.muted }} title={r.label}>
@@ -644,23 +659,23 @@ export function DisplayPage() {
         </div>
           </>
         ) : board === 'hotel' ? (
-          <HotelBoard refreshMs={refreshMs} lang={lang} sandbox={params.get('sandbox') === '1'} />
+          <HotelBoard refreshMs={refreshMs} lang={lang} sandbox={params.get('sandbox') === '1'} onDataDate={setHotelDataDate} />
+        ) : board === 'availability' ? (
+          <RoomAvailabilityBoard freshnessAlerts={panel.freshnessAlerts} refreshMs={refreshMs} lang={lang} sandbox={params.get('sandbox') === '1'} />
         ) : (
           <WorldClockBoard clocks={panel.clocks} airHome={panel.airHome} lang={lang} />
         )}
         </div>
 
         {/* ── Dashboard switcher ───────────────────────────────────────────
-            Five fixed slots. The middle three are reserved for dashboards that
-            do not exist yet and are deliberately inert — keeping them in the
-            grid now means the row never reflows (and nothing moves under a
-            finger) as they are filled in. */}
-        <div className="grid grid-cols-5 gap-3 flex-shrink-0" style={{ height: 52, marginTop: 10 }}>
+            Four boards plus System Settings in five fixed slots. */}
+        <div className="grid gap-3 flex-shrink-0" style={{ gridTemplateColumns: `repeat(${activeBoards.length+1}, minmax(0, 1fr))`, height: 52, marginTop: 10 }}>
           {([
             { id: 'kaizen', icon: LayoutDashboard, label: 'Kaizen System' },
-            { id: 'hotel',  icon: Hotel,           label: lang === 'th' ? 'โรงแรม' : 'Hotel' },
+            { id: 'hotel',  icon: Hotel,           label: lang === 'th' ? 'รายงานรีสอร์ต' : 'Resort Report' },
+            { id: 'availability', icon: BedDouble, label: lang === 'th' ? 'ห้องว่าง' : 'Room Availability' },
             { id: 'clock',  icon: Clock,           label: lang === 'th' ? 'นาฬิกาโลก' : 'World Clock' },
-          ] as const).map(b => {
+          ] as const).filter(b => activeBoards.includes(b.id)).map(b => {
             const active = board === b.id
             const Icon = b.icon
             return (
@@ -669,7 +684,7 @@ export function DisplayPage() {
                 aria-current={active ? 'page' : undefined}
                 disabled={kioskLocked}
                 onClick={() => { closeDrill(); setBoard(b.id) }}
-                className="rounded-xl flex items-center justify-center gap-2 transition active:brightness-150"
+                className="rounded-xl flex items-center justify-center gap-2 active:brightness-150"
                 style={active
                   ? { background: 'var(--brand-primary, #0891b2)', color: '#fff' }
                   : { background: C.card, border: `1px solid ${C.border}`, color: C.muted }}
@@ -680,19 +695,10 @@ export function DisplayPage() {
             )
           })}
 
-          {[0].map(i => (
-            <div
-              key={i}
-              aria-hidden
-              className="rounded-xl"
-              style={{ border: '1px dashed rgba(255,255,255,0.10)' }}
-            />
-          ))}
-
           <button
             onClick={openSettings}
             disabled={kioskLocked}
-            className="rounded-xl flex items-center justify-center gap-2 transition active:brightness-150"
+            className="rounded-xl flex items-center justify-center gap-2 active:brightness-150"
             style={{ background: C.card, border: `1px solid ${C.border}`, color: C.muted }}
           >
             <Settings className="h-4 w-4 flex-shrink-0" />
@@ -732,7 +738,7 @@ export function DisplayPage() {
               <button
                 onClick={closeDrill}
                 aria-label={lang === 'th' ? 'ปิด' : 'Close'}
-                className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 active:brightness-150 transition"
+                className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 active:brightness-150"
                 style={{ background: 'rgba(255,255,255,0.07)' }}
               >
                 <X className="h-5 w-5" />
@@ -752,7 +758,7 @@ export function DisplayPage() {
                   <div key={c.id} className="mb-1 rounded-md overflow-hidden" style={{ background: 'rgba(255,255,255,0.04)' }}>
                     <button
                       onClick={() => setExpanded(isOpen ? null : c.id)}
-                      className="w-full flex items-center gap-2.5 px-2.5 text-left active:brightness-150 transition"
+                      className="w-full flex items-center gap-2.5 px-2.5 text-left active:brightness-150"
                       style={{ height: 34 }}
                     >
                       <span className="w-2 h-2 rounded-full flex-shrink-0"
@@ -774,7 +780,7 @@ export function DisplayPage() {
                             style={{ color: overdue ? C.critical : C.muted }}>
                         {differenceInHours(now, new Date(c.created_at))}h
                       </span>
-                      <ChevronDown className="h-3.5 w-3.5 flex-shrink-0 transition-transform"
+                      <ChevronDown className="h-3.5 w-3.5 flex-shrink-0"
                                    style={{ color: C.muted, transform: isOpen ? 'rotate(180deg)' : undefined }} />
                     </button>
                     {isOpen && (

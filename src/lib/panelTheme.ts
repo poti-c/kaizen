@@ -24,6 +24,15 @@ export const PANEL = {
   critical: '#ef4444',
 }
 
+export const BOARD_IDS = ['kaizen', 'hotel', 'availability', 'clock'] as const
+export type BoardId = typeof BOARD_IDS[number]
+export const BOARD_LABELS: Record<BoardId, string> = { kaizen: 'Kaizen System', hotel: 'Resort Report', availability: 'Room Availability', clock: 'World Clock' }
+export function reportFreshness(date: string, now = new Date()) {
+  const day = (d: Date) => { const parts = new Intl.DateTimeFormat('en-GB', {timeZone:'Asia/Bangkok',year:'numeric',month:'numeric',day:'numeric'}).formatToParts(d); const get=(t:string)=>Number(parts.find(p=>p.type===t)?.value);return Date.UTC(get('year'),get('month')-1,get('day')) }
+  const age = Math.max(0, Math.round((day(now)-day(new Date(date)))/86400000))
+  return age >= 2 ? {label:'Attention required',th:'ต้องตรวจสอบ',color:PANEL.critical} : age === 1 ? {label:'Outdated',th:'ข้อมูลเก่า',color:PANEL.pending} : {label:'Up to date',th:'ข้อมูลล่าสุด',color:PANEL.resolved}
+}
+
 export interface PanelSettings {
   // Display
   brightness: number        // 10–100, backlight duty on hardware
@@ -34,7 +43,11 @@ export interface PanelSettings {
   orientation: 0 | 180
   /** Cycle through the boards on the bottom row (Kaizen → Hotel → …). */
   rotate: boolean
-  rotateSecs: number        // time per board: 15–300
+  rotateSecs: number        // legacy rotation default
+  enabledBoards: BoardId[]
+  startupBoard: BoardId
+  boardDurations: Record<BoardId, number>
+  freshnessAlerts: boolean
   /** World Clock board: three city keys (src/lib/worldClock.ts) and where air quality is read. */
   clocks: string[]
   airHome: string
@@ -59,6 +72,10 @@ export const DEFAULT_PANEL_SETTINGS: PanelSettings = {
   orientation: 0,
   rotate: false,
   rotateSecs: 30,
+  enabledBoards: [...BOARD_IDS],
+  startupBoard: 'kaizen',
+  boardDurations: { kaizen:30, hotel:30, availability:30, clock:15 },
+  freshnessAlerts: true,
   clocks: ['chiangmai', 'tokyo', 'taipei'],
   airHome: 'chiangmai',
   refreshSecs: 60,
@@ -78,7 +95,12 @@ export function loadPanelSettings(): PanelSettings {
     if (!raw) return DEFAULT_PANEL_SETTINGS
     // Merge over the defaults so a settings file written by an older build
     // (missing keys) still produces a complete object.
-    return { ...DEFAULT_PANEL_SETTINGS, ...JSON.parse(raw) as Partial<PanelSettings> }
+    const saved = JSON.parse(raw) as Partial<PanelSettings>
+    const enabled = BOARD_IDS.filter(id => saved.enabledBoards?.includes(id))
+    const enabledBoards = enabled.length ? enabled : [...BOARD_IDS]
+    const startupBoard = saved.startupBoard && enabledBoards.includes(saved.startupBoard) ? saved.startupBoard : enabledBoards[0]
+    const boardDurations = Object.fromEntries(BOARD_IDS.map(id => [id, Math.min(300, Math.max(15, Number(saved.boardDurations?.[id] ?? saved.rotateSecs ?? DEFAULT_PANEL_SETTINGS.boardDurations[id]) || 30))])) as Record<BoardId, number>
+    return { ...DEFAULT_PANEL_SETTINGS, ...saved, enabledBoards, startupBoard, boardDurations }
   } catch {
     return DEFAULT_PANEL_SETTINGS
   }
